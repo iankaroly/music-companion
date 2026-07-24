@@ -1,4 +1,5 @@
 import { midiToName } from '../analysis/note-utils.js';
+import { findNoteAt, intonationStatus } from './chart-utils.js';
 
 // Two views over the same pitch data, one renderer:
 // - Overview: the whole session as a pitch contour with each detected
@@ -13,8 +14,12 @@ const INK = '#ece7df';
 const MUTED = '#8d8578';
 const GRID = '#2e2a25';
 const GOOD = '#7fc98f';
-const SPAN_GOOD = 'rgba(127, 201, 143, 0.10)';
-const SPAN_OFF = 'rgba(224, 164, 88, 0.16)';
+const STATUS_LINE = { good: '#7fc98f', off: '#e0a458', bad: '#d97b6c' };
+const STATUS_SPAN = {
+  good: 'rgba(127, 201, 143, 0.10)',
+  off: 'rgba(224, 164, 88, 0.16)',
+  bad: 'rgba(217, 123, 108, 0.18)',
+};
 const PAD = { top: 10, right: 8, bottom: 14, left: 34 };
 
 function toMidiFloat(r, a4) {
@@ -123,17 +128,21 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     }
   });
 
+  canvas.onclick = null; // the zoomed view has its own axis — overview hit-testing must not linger
+  canvas.style.cursor = 'default';
   attachHover(canvas, controller, pts, t0, t1);
   return controller;
 }
 
 // --- session overview ------------------------------------------------------
 
-export function renderOverviewChart(canvas, { readings, notes, a4 }) {
+export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {
   if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
   const padT = 0.4;
-  const t0 = notes[0].start - padT;
-  const t1 = notes.at(-1).end + padT;
+  const starts = notes.map((n) => n.start);
+  const ends = notes.map((n) => n.end);
+  const t0 = Math.min(...starts) - padT;
+  const t1 = Math.max(...ends) + padT;
   const midis = notes.map((n) => n.midi);
   const yMin = Math.min(...midis) - 1;
   const yMax = Math.max(...midis) + 1;
@@ -144,7 +153,9 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
     if (r.frequency === null || r.confidence < 0.6) { pts.push({ time: r.time, mf: null }); continue; }
     const mf = toMidiFloat(r, a4);
     if (mf < yMin - 0.5 || mf > yMax + 0.5) { pts.push({ time: r.time, mf: null }); continue; }
-    pts.push({ time: r.time, mf });
+    // the trace wears the intonation verdict of the note it belongs to
+    const note = findNoteAt(notes, r.time, 0);
+    pts.push({ time: r.time, mf, status: note ? intonationStatus(note.cents) : null });
   }
 
   const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead, highlight) => {
@@ -158,7 +169,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
 
     // note spans, tinted by intonation; a hovered box's span lights up
     for (const n of notes) {
-      ctx.fillStyle = Math.abs(n.cents) < 8 ? SPAN_GOOD : SPAN_OFF;
+      ctx.fillStyle = STATUS_SPAN[intonationStatus(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, Math.max(2, x(n.end) - x(n.start)), h);
       if (n === highlight) {
         ctx.strokeStyle = INK;
@@ -190,7 +201,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
     for (const p of pts) {
       if (p.mf === null) { prev = null; continue; }
       if (prev) {
-        ctx.strokeStyle = INK;
+        ctx.strokeStyle = p.status && p.status === prev.status ? STATUS_LINE[p.status] : MUTED;
         ctx.beginPath();
         ctx.moveTo(x(prev.time), y(prev.mf));
         ctx.lineTo(x(p.time), y(p.mf));
@@ -217,7 +228,35 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
     }
   });
 
-  attachHover(canvas, controller, pts, t0, t1, 'mf');
+  // The chart is the navigator: click any note's stretch of the trace to
+  // select it; hovering shows which note is under the cursor.
+  const timeAt = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const w = controller.cssW - PAD.left - PAD.right;
+    return t0 + ((e.clientX - rect.left - PAD.left) / w) * (t1 - t0);
+  };
+  canvas.onmousemove = (e) => {
+    const time = timeAt(e);
+    const note = findNoteAt(notes, time);
+    canvas.style.cursor = note ? 'pointer' : 'default';
+    onNoteHover?.(note);
+    controller.setHighlight(note);
+    let nearest = null;
+    for (const p of pts) {
+      if (p.mf === null) continue;
+      if (!nearest || Math.abs(p.time - time) < Math.abs(nearest.time - time)) nearest = p;
+    }
+    controller.setHover(nearest);
+  };
+  canvas.onmouseleave = () => {
+    onNoteHover?.(null);
+    controller.setHighlight(null);
+    controller.setHover(null);
+  };
+  canvas.onclick = (e) => {
+    const note = findNoteAt(notes, timeAt(e));
+    if (note) onNoteClick?.(note);
+  };
   return controller;
 }
 

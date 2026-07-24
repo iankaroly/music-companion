@@ -14,6 +14,7 @@
       --dim: #8d8578;
       --good: #7fc98f;
       --off: #e0a458;
+      --bad: #d97b6c;
     }
     * { margin: 0; box-sizing: border-box; }
     body {
@@ -124,7 +125,10 @@
     .degree[data-state="good"] b { color: var(--good); }
     .degree[data-state="off"] { border-color: var(--off); }
     .degree[data-state="off"] b { color: var(--off); }
+    .degree[data-state="bad"] { border-color: var(--bad); }
+    .degree[data-state="bad"] b { color: var(--bad); }
     .degree[data-state="missed"] { opacity: 0.4; }
+    .degree.peek { border-color: var(--dim); background: #262019; }
     .degree.chord, .note-chip.chord { border-style: dashed; }
     .degree.clickable { cursor: pointer; }
     .degree.clickable:hover { border-color: var(--dim); }
@@ -174,6 +178,7 @@
     }
     .note-chip[data-state="good"] { border-color: var(--good); color: var(--good); }
     .note-chip[data-state="off"] { border-color: var(--off); color: var(--off); }
+    .note-chip[data-state="bad"] { border-color: var(--bad); color: var(--bad); }
     .note-chip small { color: var(--dim); margin-left: 0.35em; }
     .controls { display: flex; gap: 0.75rem; justify-content: center; }
     button {
@@ -276,6 +281,7 @@
       <div id="playback" hidden>
         <canvas id="pitch-chart"></canvas>
         <div id="playback-controls">
+          <button id="overview-btn" hidden>← overview</button>
           <span id="playback-label"></span>
           <span id="playback-speed">
             <button data-speed="1" class="active">1×</button>

@@ -2,6 +2,7 @@ import { tempoStats } from '../analysis/scoring.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderNoteChart, renderOverviewChart } from './pitch-chart.js';
+import { intonationStatus } from './chart-utils.js';
 
 const GOOD_CENTS = 8;
 const CONTEXT_SEC = 1.2;
@@ -119,24 +120,33 @@ function centsLabel(cents) {
   return `${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`;
 }
 
-function showOverview(root, allNotes, extras) {
+function showOverview(root, allNotes, extras, selectNote, tileByNote) {
+  stopPlayback(root);
   root.querySelector('#playback').hidden = false;
   root.querySelector('#playback-label').textContent =
-    'session pitch trace — click a note to zoom in and replay it';
+    'session pitch trace — click any note on the graph (or a box) to hear it';
   root.querySelector('#compare').hidden = true;
   root.querySelector('#note-drone').hidden = true;
   root.querySelector('#ref-drone').hidden = true;
   root.querySelector('#ref-octave').hidden = true;
   root.querySelector('#ref-interval').hidden = true;
+  root.querySelector('#overview-btn').hidden = true;
+  replayCurrent = null;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
     notes: allNotes,
     a4: extras.a4 ?? 440,
+    onNoteClick: selectNote,
+    onNoteHover: (note) => {
+      for (const { tile } of tileByNote.values()) tile.classList.remove('peek');
+      if (note) tileByNote.get(note)?.tile.classList.add('peek');
+    },
   });
 }
 
 function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
   root.querySelector('#playback').hidden = false;
+  root.querySelector('#overview-btn').hidden = false;
   root.querySelector('#playback-label').textContent =
     `${name} ${centsLabel(note.cents)} — surrounding notes ducked`;
 
@@ -213,7 +223,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
         return targetStart + (t - clip.refDuration - clip.gapDuration);
       };
       playClip(clip, root, timeMap, [
-        { tile: tileByNote.get(ref), start: ref.start, end: ref.end },
+        { tile: tileByNote.get(ref)?.tile, start: ref.start, end: ref.end },
         { tile, start: note.start, end: note.end },
       ]);
     };
@@ -236,7 +246,7 @@ function wireSpeedButtons(root) {
 
 function degreeState(d) {
   if (!d.played) return 'missed';
-  return Math.abs(d.played.cents) < GOOD_CENTS ? 'good' : 'off';
+  return intonationStatus(d.played.cents);
 }
 
 // Renders the intonation report from a bestAlignment() result. The full-
@@ -255,6 +265,14 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   wireSpeedButtons(root);
 
   const tileByNote = new Map();
+  const selectNote = (note) => {
+    const entry = tileByNote.get(note);
+    if (!entry) return;
+    showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote);
+  };
+  const backToOverview = () => showOverview(root, allNotes, extras, selectNote, tileByNote);
+  root.querySelector('#overview-btn').onclick = backToOverview;
+
   grid.replaceChildren();
   for (const d of degrees) {
     const tile = document.createElement('div');
@@ -263,11 +281,10 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     const label = d.played ? centsLabel(d.played.cents) : 'missed';
     tile.innerHTML = `<b>${d.played?.chord ? '+' : ''}${d.name}</b>${label}`;
     if (recording && d.played) {
-      tileByNote.set(d.played, tile);
+      tileByNote.set(d.played, { tile, name: d.name });
       tile.classList.add('clickable');
       tile.title = 'play this note back';
-      tile.addEventListener('click', () =>
-        showPlayback(root, tile, d.played, d.name, allNotes, recording, extras, tileByNote));
+      tile.addEventListener('click', () => selectNote(d.played));
       // hovering a box lights up its span on the chart
       tile.addEventListener('mouseenter', () => currentChart?.setHighlight?.(d.played));
       tile.addEventListener('mouseleave', () => currentChart?.setHighlight?.(null));
@@ -289,7 +306,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   summary.textContent = parts.join(' · ');
 
   if (extras.readings?.length && allNotes.length > 0) {
-    showOverview(root, allNotes, extras);
+    showOverview(root, allNotes, extras, selectNote, tileByNote);
   } else {
     root.querySelector('#playback').hidden = true;
   }

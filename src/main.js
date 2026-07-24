@@ -11,6 +11,7 @@ import { renderHistory } from './ui/history.js';
 import { saveSession, listSessions } from './store/db.js';
 import { startDrone, stopDrone, droneActive } from './audio/drone.js';
 import { nameToMidi } from './analysis/note-utils.js';
+import { intonationStatus } from './ui/chart-utils.js';
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
@@ -102,7 +103,7 @@ function currentSpec() {
 function addNoteChip(note) {
   const chip = document.createElement('div');
   chip.className = note.chord ? 'note-chip chord' : 'note-chip';
-  chip.dataset.state = Math.abs(note.cents) < 8 ? 'good' : 'off';
+  chip.dataset.state = intonationStatus(note.cents);
   const cents = `${note.cents >= 0 ? '+' : ''}${note.cents.toFixed(0)}`;
   chip.innerHTML = `${note.chord ? '+' : ''}${note.name}<small>${cents}¢</small>`;
   notesRow.append(chip);
