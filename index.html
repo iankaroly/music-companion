@@ -233,32 +233,49 @@
       padding: 0.3rem 0.6rem;
     }
 
-    #history {
-      margin: 2rem auto 0;
-      padding-top: 1.25rem;
+    #library {
+      margin: 2.2rem auto 0;
+      padding-top: 1.4rem;
       border-top: 1px solid var(--line);
       text-align: center;
-      display: none;
-      width: min(30rem, 100%);
+      width: min(34rem, 100%);
     }
-    #history h2 {
+    #library h2 {
       font-size: 0.75rem;
       letter-spacing: 0.3em;
       text-transform: uppercase;
       color: var(--brass);
       font-weight: 600;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.9rem;
     }
-    #trend-label { color: var(--muted); font-size: 0.75rem; margin: 0.25rem 0 0.75rem; }
-    #session-list {
-      list-style: none;
-      padding: 0;
-      color: var(--muted);
-      font-size: 0.8rem;
-      display: grid;
-      gap: 0.3rem;
+    #library-empty { color: var(--muted); font-size: 0.82rem; }
+    #library-list { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
+    .lib-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 0.9rem;
+      padding: 0.6rem 0.9rem;
+      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.05);
+      font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
     }
+    .lib-item .lib-meta { color: var(--muted); text-align: left; }
+    .lib-item .lib-meta b { color: var(--ink); font-weight: 600; display: block; }
+    .lib-item .lib-actions { display: flex; gap: 0.4rem; }
+    .lib-item button {
+      font-size: 0.78rem;
+      background: var(--card);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0.3rem 0.8rem;
+      cursor: pointer;
+    }
+    .lib-item button:hover { border-color: var(--ink); }
+    .lib-item button.danger:hover { border-color: var(--bad); color: var(--bad); }
 
     /* ---- metronome ---- */
     #metro-card { padding: 2.4rem 2rem 2rem; }
@@ -311,7 +328,6 @@
       </div>
       <div class="row">
         <button id="listen" class="ctl primary">Start tuner</button>
-        <button id="demo" class="ctl">Demo tone</button>
       </div>
       <div class="row">
         <label for="drone-note">drone</label>
@@ -335,24 +351,12 @@
   <!-- ================= record & analyze ================= -->
   <section id="tab-analyze" class="tab-panel" role="tabpanel">
     <div class="column">
-      <div class="row" id="scale-bar">
-        <select id="key" aria-label="Key"></select>
-        <select id="scale-type" aria-label="Scale type">
-          <option value="major" selected>major</option>
-          <option value="natural-minor">natural minor</option>
-          <option value="harmonic-minor">harmonic minor</option>
-          <option value="melodic-minor">melodic minor</option>
-        </select>
-        <select id="scale-octaves" aria-label="Octaves">
-          <option value="1" selected>1 octave</option>
-          <option value="2">2 octaves</option>
-          <option value="3">3 octaves</option>
-        </select>
-      </div>
       <div class="row">
         <button id="start" class="ctl primary">Record</button>
-        <button id="scale-start" class="ctl">Start scale</button>
-        <button id="scale-demo" class="ctl">Demo scale</button>
+      </div>
+      <div class="row" id="save-bar" hidden>
+        <button id="save-rec" class="ctl primary">Save to library</button>
+        <button id="discard-rec" class="ctl">Discard</button>
       </div>
     </div>
     <div id="notes-row"></div>
@@ -392,11 +396,10 @@
         </div>
       </div>
     </div>
-    <div id="history">
-      <h2>history</h2>
-      <canvas id="trend" width="280" height="48"></canvas>
-      <div id="trend-label"></div>
-      <ol id="session-list"></ol>
+    <div id="library">
+      <h2>library</h2>
+      <ul id="library-list"></ul>
+      <div id="library-empty">Recordings you save appear here.</div>
     </div>
   </section>
 
