@@ -9,6 +9,8 @@ import { Tuner } from './ui/tuner.js';
 import { renderReport, renderFreeReview, hideReport } from './ui/report.js';
 import { renderHistory } from './ui/history.js';
 import { saveSession, listSessions } from './store/db.js';
+import { startDrone, stopDrone, droneActive } from './audio/drone.js';
+import { nameToMidi } from './analysis/note-utils.js';
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
@@ -39,8 +41,41 @@ a4Input.addEventListener('change', () => {
   localStorage.setItem('a4', String(a4));
   tuner.a4 = a4;
   if (capture?.segmenter) capture.segmenter.a4 = a4;
+  if (droneActive()) startDrone(droneFrequency());
 });
 tuner.a4 = currentA4();
+
+// --- drone -----------------------------------------------------------------
+
+const droneNoteSel = document.querySelector('#drone-note');
+const droneOctSel = document.querySelector('#drone-octave');
+const droneBtn = document.querySelector('#drone-toggle');
+for (const k of ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']) {
+  const opt = document.createElement('option');
+  opt.value = opt.textContent = k;
+  if (k === 'A') opt.selected = true;
+  droneNoteSel.append(opt);
+}
+
+function droneFrequency() {
+  const midi = nameToMidi(droneNoteSel.value + droneOctSel.value);
+  return currentA4() * 2 ** ((midi - 69) / 12);
+}
+
+droneBtn.addEventListener('click', () => {
+  if (droneActive()) {
+    stopDrone();
+    droneBtn.textContent = 'Play';
+    droneBtn.classList.remove('active');
+  } else {
+    startDrone(droneFrequency());
+    droneBtn.textContent = 'Stop';
+    droneBtn.classList.add('active');
+  }
+});
+for (const sel of [droneNoteSel, droneOctSel]) {
+  sel.addEventListener('change', () => { if (droneActive()) startDrone(droneFrequency()); });
+}
 
 // --- scale picker ----------------------------------------------------------
 

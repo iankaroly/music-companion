@@ -1,5 +1,6 @@
 import { tempoStats } from '../analysis/scoring.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
+import { timeStretch } from '../audio/stretch.js';
 import { renderPitchChart } from './pitch-chart.js';
 
 const GOOD_CENTS = 8;
@@ -7,22 +8,36 @@ const GOOD_CENTS = 8;
 let playbackCtx = null;
 let currentSource = null;
 let playbackSpeed = 1;
-let replayCurrent = null; // re-plays the active note (used by speed buttons)
+let replayCurrent = null;  // re-plays the active note (used by speed buttons)
+let compareTimer = null;
 
-function playClip(clip, tile, root) {
-  playbackCtx ??= new AudioContext();
-  currentSource?.stop();
-
-  const buffer = playbackCtx.createBuffer(1, clip.samples.length, clip.sampleRate);
-  buffer.copyToChannel(clip.samples, 0);
-  const source = playbackCtx.createBufferSource();
-  source.buffer = buffer;
-  source.playbackRate.value = playbackSpeed;
-  source.connect(playbackCtx.destination);
-
+function setPlaying(root, tile) {
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
   tile?.classList.add('playing');
-  source.onended = () => tile?.classList.remove('playing');
+}
+
+// Slowdown is WSOLA time-stretch, so pitch and octave are preserved —
+// only time expands. Playback rate stays 1.
+function playClip(clip, tile, root) {
+  playbackCtx ??= new AudioContext();
+  if (currentSource) {
+    currentSource.onended = null; // its ended-event must not wipe the new highlight
+    currentSource.stop();
+  }
+  clearTimeout(compareTimer);
+
+  const samples = playbackSpeed < 0.999
+    ? timeStretch(clip.samples, clip.sampleRate, playbackSpeed)
+    : clip.samples;
+
+  const buffer = playbackCtx.createBuffer(1, samples.length, clip.sampleRate);
+  buffer.copyToChannel(samples, 0);
+  const source = playbackCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(playbackCtx.destination);
+
+  setPlaying(root, tile);
+  source.onended = () => setPlaying(root, null);
   source.start();
   currentSource = source;
 }
@@ -31,7 +46,7 @@ function centsLabel(cents) {
   return `${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`;
 }
 
-function showPlayback(root, tile, note, name, allNotes, recording, extras) {
+function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
   const panel = root.querySelector('#playback');
   panel.hidden = false;
 
@@ -55,7 +70,14 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras) {
   if (ref) {
     compareBtn.hidden = false;
     compareBtn.textContent = `hear vs your other ${name} (${centsLabel(ref.cents)})`;
-    compareBtn.onclick = () => playClip(buildComparisonClip(recording, ref, note), tile, root);
+    compareBtn.onclick = () => {
+      // Highlight follows the audio: the reference tile lights first, then
+      // the clicked note when its turn comes.
+      const clip = buildComparisonClip(recording, ref, note);
+      playClip(clip, tileByNote.get(ref) ?? null, root);
+      const handoffMs = ((clip.refDuration + clip.gapDuration) / playbackSpeed) * 1000;
+      compareTimer = setTimeout(() => setPlaying(root, tile), handoffMs);
+    };
   } else {
     compareBtn.hidden = true;
   }
@@ -94,6 +116,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   replayCurrent = null;
   wireSpeedButtons(root);
 
+  const tileByNote = new Map();
   grid.replaceChildren();
   for (const d of degrees) {
     const tile = document.createElement('div');
@@ -102,10 +125,11 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     const label = d.played ? centsLabel(d.played.cents) : 'missed';
     tile.innerHTML = `<b>${d.name}</b>${label}`;
     if (recording && d.played) {
+      tileByNote.set(d.played, tile);
       tile.classList.add('clickable');
       tile.title = 'play this note back';
       tile.addEventListener('click', () =>
-        showPlayback(root, tile, d.played, d.name, allNotes, recording, extras));
+        showPlayback(root, tile, d.played, d.name, allNotes, recording, extras, tileByNote));
     }
     grid.append(tile);
   }
@@ -130,6 +154,7 @@ export function hideReport(root) {
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   replayCurrent = null;
+  clearTimeout(compareTimer);
 }
 
 // Free-play review: every detected note as a replayable tile, no expected

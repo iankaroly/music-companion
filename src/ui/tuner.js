@@ -14,8 +14,19 @@ export class Tuner {
     this.secondEl = root.querySelector('#second');
     this.freqEl = root.querySelector('#freq');
     this.needleEl = root.querySelector('#needle');
+    this.smileyEl = root.querySelector('#smiley');
     this.tracker = new PitchCenterTracker();
     this.a4 = 440;
+    this.inTuneStreak = 0;
+  }
+
+  // TonalEnergy-style reward: the smiley appears when you hold the center
+  // within ±5 cents and grows the longer you hold it.
+  updateSmiley(heard, cents) {
+    this.inTuneStreak = heard && Math.abs(cents) < 5 ? this.inTuneStreak + 1 : 0;
+    const s = this.inTuneStreak;
+    this.smileyEl.style.opacity = s === 0 ? '0' : String(Math.min(1, s / 8));
+    this.smileyEl.style.transform = `scale(${0.5 + Math.min(1, s / 40) * 0.9})`;
   }
 
   update(reading) {
@@ -29,6 +40,7 @@ export class Tuner {
       this.freqEl.textContent = '';
       this.secondEl.textContent = '';
       this.needleEl.style.setProperty('--cents', '0');
+      this.updateSmiley(false, 0);
       return;
     }
 
@@ -45,6 +57,7 @@ export class Tuner {
       : centsText;
     this.freqEl.textContent = `${frequency.toFixed(1)} Hz`;
     this.needleEl.style.setProperty('--cents', String(Math.max(-50, Math.min(50, cents))));
+    this.updateSmiley(true, cents);
 
     // Double stop: show the second string's note alongside.
     const sec = reading.secondary;

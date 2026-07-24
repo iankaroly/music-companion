@@ -38,6 +38,16 @@
       border-radius: 1rem;
       padding: 2.5rem 2rem 2rem;
       margin-bottom: 1.5rem;
+      position: relative;
+    }
+    #smiley {
+      position: absolute;
+      top: 0.9rem;
+      right: 1.1rem;
+      font-size: 1.4rem;
+      opacity: 0;
+      transform: scale(0.5);
+      transition: opacity 200ms, transform 300ms;
     }
     #note {
       font-size: 5.5rem;
@@ -210,6 +220,17 @@
       justify-content: center;
       align-items: center;
     }
+    .cal-sep { width: 1rem; }
+    #calibration select, #calibration button {
+      font: inherit;
+      font-size: 0.8rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #3a352e;
+      border-radius: 0.4rem;
+      padding: 0.25rem 0.5rem;
+    }
+    #drone-toggle.active { background: var(--text); color: var(--bg); border-color: var(--text); }
     #a4 {
       font: inherit;
       width: 3.5rem;
@@ -226,6 +247,7 @@
   <main>
     <h1>Music Companion</h1>
     <div id="tuner">
+      <div id="smiley">😊</div>
       <div id="note" data-state="idle">–</div>
       <div id="cents">press start</div>
       <div id="freq"></div>
@@ -280,6 +302,16 @@
       <label for="a4">A4 =</label>
       <input id="a4" type="number" min="400" max="450" step="1" value="440" />
       <span>Hz</span>
+      <span class="cal-sep"></span>
+      <label for="drone-note">drone</label>
+      <select id="drone-note" aria-label="Drone note"></select>
+      <select id="drone-octave" aria-label="Drone octave">
+        <option value="1">oct 1</option>
+        <option value="2" selected>oct 2</option>
+        <option value="3">oct 3</option>
+        <option value="4">oct 4</option>
+      </select>
+      <button id="drone-toggle">Play</button>
     </div>
   </main>
   <script type="module" src="/src/main.js"></script>

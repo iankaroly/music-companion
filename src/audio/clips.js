@@ -55,7 +55,7 @@ export function buildComparisonClip(recording, refNote, targetNote, options = {}
   samples.set(ref, 0);
   samples.set(target, ref.length + gap);
 
-  return { samples, sampleRate: sr, refDuration: ref.length / sr };
+  return { samples, sampleRate: sr, refDuration: ref.length / sr, gapDuration: gapSec };
 }
 
 // The most in-tune *other* rendition of the same pitch in this session.
