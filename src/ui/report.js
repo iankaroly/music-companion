@@ -1,30 +1,37 @@
 import { tempoStats } from '../analysis/scoring.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
-import { renderPitchChart } from './pitch-chart.js';
+import { renderNoteChart, renderOverviewChart } from './pitch-chart.js';
 
 const GOOD_CENTS = 8;
+const CONTEXT_SEC = 1.2;
+const PAD_SEC = 0.06;
+const GAP_SEC = 0.35;
 
 let playbackCtx = null;
 let currentSource = null;
 let playbackSpeed = 1;
-let replayCurrent = null;  // re-plays the active note (used by speed buttons)
-let compareTimer = null;
+let replayCurrent = null;   // re-plays the active note (used by speed buttons)
+let currentChart = null;    // whichever chart is on screen right now
+let animationFrame = 0;
 
-function setPlaying(root, tile) {
+function stopPlayback(root) {
+  if (currentSource) {
+    currentSource.onended = null;
+    currentSource.stop();
+    currentSource = null;
+  }
+  cancelAnimationFrame(animationFrame);
+  currentChart?.setPlayhead(null);
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
-  tile?.classList.add('playing');
 }
 
-// Slowdown is WSOLA time-stretch, so pitch and octave are preserved —
-// only time expands. Playback rate stays 1.
-function playClip(clip, tile, root) {
+// Plays a clip with a live playhead on the current chart. `timeMap` converts
+// clip-audio seconds to recording time (null = inside a silence gap), and
+// `spans` are tiles that light up exactly while their note is sounding.
+function playClip(clip, root, timeMap, spans) {
   playbackCtx ??= new AudioContext();
-  if (currentSource) {
-    currentSource.onended = null; // its ended-event must not wipe the new highlight
-    currentSource.stop();
-  }
-  clearTimeout(compareTimer);
+  stopPlayback(root);
 
   const samples = playbackSpeed < 0.999
     ? timeStretch(clip.samples, clip.sampleRate, playbackSpeed)
@@ -36,32 +43,57 @@ function playClip(clip, tile, root) {
   source.buffer = buffer;
   source.connect(playbackCtx.destination);
 
-  setPlaying(root, tile);
-  source.onended = () => setPlaying(root, null);
+  const startTime = playbackCtx.currentTime;
+  const tick = () => {
+    if (source !== currentSource) return;
+    const recTime = timeMap((playbackCtx.currentTime - startTime) * playbackSpeed);
+    currentChart?.setPlayhead(recTime);
+    for (const s of spans) {
+      s.tile?.classList.toggle('playing', recTime !== null && recTime >= s.start && recTime <= s.end);
+    }
+    animationFrame = requestAnimationFrame(tick);
+  };
+  source.onended = () => stopPlayback(root);
   source.start();
   currentSource = source;
+  tick();
 }
 
 function centsLabel(cents) {
   return `${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`;
 }
 
-function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
-  const panel = root.querySelector('#playback');
-  panel.hidden = false;
+function showOverview(root, allNotes, extras) {
+  root.querySelector('#playback').hidden = false;
+  root.querySelector('#playback-label').textContent =
+    'session pitch trace — click a note to zoom in and replay it';
+  root.querySelector('#compare').hidden = true;
+  currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
+    readings: extras.readings,
+    notes: allNotes,
+    a4: extras.a4 ?? 440,
+  });
+}
 
+function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
+  root.querySelector('#playback').hidden = false;
   root.querySelector('#playback-label').textContent =
     `${name} ${centsLabel(note.cents)} — surrounding notes ducked`;
 
   if (extras.readings?.length) {
-    renderPitchChart(root.querySelector('#pitch-chart'), {
+    currentChart = renderNoteChart(root.querySelector('#pitch-chart'), {
       readings: extras.readings,
       note,
       a4: extras.a4 ?? 440,
+      contextSec: CONTEXT_SEC,
     });
   }
 
-  const play = () => playClip(buildEmphasizedClip(recording, note.start, note.end), tile, root);
+  const play = () => {
+    const clip = buildEmphasizedClip(recording, note.start, note.end, { contextSec: CONTEXT_SEC });
+    const clipStart = Math.max(0, note.start - CONTEXT_SEC);
+    playClip(clip, root, (t) => clipStart + t, [{ tile, start: note.start, end: note.end }]);
+  };
   replayCurrent = play;
   play();
 
@@ -71,12 +103,18 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
     compareBtn.hidden = false;
     compareBtn.textContent = `hear vs your other ${name} (${centsLabel(ref.cents)})`;
     compareBtn.onclick = () => {
-      // Highlight follows the audio: the reference tile lights first, then
-      // the clicked note when its turn comes.
-      const clip = buildComparisonClip(recording, ref, note);
-      playClip(clip, tileByNote.get(ref) ?? null, root);
-      const handoffMs = ((clip.refDuration + clip.gapDuration) / playbackSpeed) * 1000;
-      compareTimer = setTimeout(() => setPlaying(root, tile), handoffMs);
+      const clip = buildComparisonClip(recording, ref, note, { padSec: PAD_SEC, gapSec: GAP_SEC });
+      const refStart = ref.start - PAD_SEC;
+      const targetStart = note.start - PAD_SEC;
+      const timeMap = (t) => {
+        if (t <= clip.refDuration) return refStart + t;
+        if (t <= clip.refDuration + clip.gapDuration) return null;
+        return targetStart + (t - clip.refDuration - clip.gapDuration);
+      };
+      playClip(clip, root, timeMap, [
+        { tile: tileByNote.get(ref), start: ref.start, end: ref.end },
+        { tile, start: note.start, end: note.end },
+      ]);
     };
   } else {
     compareBtn.hidden = true;
@@ -100,10 +138,10 @@ function degreeState(d) {
   return Math.abs(d.played.cents) < GOOD_CENTS ? 'good' : 'off';
 }
 
-// Renders the post-scale intonation report from a bestAlignment() result.
-// With a recording, each played tile replays that moment — target note at
-// full volume, neighbors ducked — with a pitch trace and a same-note
-// comparison when the passage contains another rendition of that pitch.
+// Renders the intonation report from a bestAlignment() result. The full-
+// session pitch trace appears immediately; clicking a played tile zooms
+// the chart to that note and replays it (target at full volume, neighbors
+// ducked) with a playhead sweeping in sync with the audio.
 export function renderReport(root, alignment, recording = null, extras = {}) {
   const report = root.querySelector('#report');
   const grid = root.querySelector('#report-grid');
@@ -112,7 +150,6 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   const { degrees, matched, missed, tonic } = alignment;
   const allNotes = degrees.filter((d) => d.played).map((d) => d.played);
 
-  root.querySelector('#playback').hidden = true;
   replayCurrent = null;
   wireSpeedButtons(root);
 
@@ -147,14 +184,21 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   if (recording) parts.push('click a note to hear it');
   summary.textContent = parts.join(' · ');
 
+  if (extras.readings?.length && allNotes.length > 0) {
+    showOverview(root, allNotes, extras);
+  } else {
+    root.querySelector('#playback').hidden = true;
+  }
+
   report.classList.add('visible');
 }
 
 export function hideReport(root) {
+  stopPlayback(root);
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   replayCurrent = null;
-  clearTimeout(compareTimer);
+  currentChart = null;
 }
 
 // Free-play review: every detected note as a replayable tile, no expected
