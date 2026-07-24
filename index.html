@@ -145,7 +145,16 @@
       padding: 0.25rem 0.6rem;
       border-radius: 0.4rem;
     }
-    #playback-speed button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+    #playback-controls button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+    #ref-octave {
+      font: inherit;
+      font-size: 0.75rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #3a352e;
+      border-radius: 0.4rem;
+      padding: 0.25rem 0.4rem;
+    }
     #notes-row {
       display: flex;
       flex-wrap: wrap;
@@ -273,6 +282,13 @@
             <button data-speed="0.5">½×</button>
             <button data-speed="0.25">¼×</button>
           </span>
+          <button id="note-drone" hidden>hold as drone</button>
+          <button id="ref-drone" hidden></button>
+          <select id="ref-octave" hidden aria-label="Reference drone octave">
+            <option value="-1">octave down</option>
+            <option value="0" selected>same octave</option>
+            <option value="1">octave up</option>
+          </select>
           <button id="compare" hidden></button>
         </div>
       </div>

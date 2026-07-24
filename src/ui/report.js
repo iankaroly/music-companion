@@ -1,5 +1,5 @@
 import { tempoStats } from '../analysis/scoring.js';
-import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
+import { buildEmphasizedClip, buildComparisonClip, buildLoopClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderNoteChart, renderOverviewChart } from './pitch-chart.js';
 
@@ -15,6 +15,9 @@ let replayCurrent = null;   // re-plays the active note (used by speed buttons)
 let currentChart = null;    // whichever chart is on screen right now
 let animationFrame = 0;
 
+let refOsc = null;
+let refGain = null;
+
 function stopPlayback(root) {
   if (currentSource) {
     currentSource.onended = null;
@@ -24,6 +27,55 @@ function stopPlayback(root) {
   cancelAnimationFrame(animationFrame);
   currentChart?.setPlayhead(null);
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
+  root.querySelector('#note-drone')?.classList.remove('active');
+}
+
+// The clicked note held indefinitely: its stable middle, crossfaded into a
+// seamless loop.
+function playLoop(clip, root, tile, btn) {
+  playbackCtx ??= new AudioContext();
+  stopPlayback(root);
+
+  const buffer = playbackCtx.createBuffer(1, clip.samples.length, clip.sampleRate);
+  buffer.copyToChannel(clip.samples, 0);
+  const source = playbackCtx.createBufferSource();
+  source.buffer = buffer;
+  source.loop = true;
+  source.connect(playbackCtx.destination);
+  source.start();
+  currentSource = source;
+  tile.classList.add('playing');
+  btn.classList.add('active');
+}
+
+// Synthesized reference at the note's correct equal-tempered pitch —
+// layer it over the held note and listen for beats.
+function startRefDrone(frequency, btn) {
+  playbackCtx ??= new AudioContext();
+  stopRefDrone(btn);
+  const real = new Float32Array(9);
+  const imag = new Float32Array(9);
+  for (let h = 1; h <= 8; h++) imag[h] = 1 / h ** 1.5;
+  refOsc = playbackCtx.createOscillator();
+  refOsc.setPeriodicWave(playbackCtx.createPeriodicWave(real, imag));
+  refOsc.frequency.value = frequency;
+  refGain = playbackCtx.createGain();
+  refGain.gain.setValueAtTime(0, playbackCtx.currentTime);
+  refGain.gain.linearRampToValueAtTime(0.12, playbackCtx.currentTime + 0.1);
+  refOsc.connect(refGain).connect(playbackCtx.destination);
+  refOsc.start();
+  btn?.classList.add('active');
+}
+
+function stopRefDrone(btn) {
+  if (refOsc) {
+    const stopping = refOsc;
+    refGain.gain.setTargetAtTime(0, playbackCtx.currentTime, 0.04);
+    setTimeout(() => stopping.stop(), 250);
+    refOsc = null;
+    refGain = null;
+  }
+  btn?.classList.remove('active');
 }
 
 // Plays a clip with a live playhead on the current chart. `timeMap` converts
@@ -68,6 +120,9 @@ function showOverview(root, allNotes, extras) {
   root.querySelector('#playback-label').textContent =
     'session pitch trace — click a note to zoom in and replay it';
   root.querySelector('#compare').hidden = true;
+  root.querySelector('#note-drone').hidden = true;
+  root.querySelector('#ref-drone').hidden = true;
+  root.querySelector('#ref-octave').hidden = true;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
     notes: allNotes,
@@ -96,6 +151,34 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   };
   replayCurrent = play;
   play();
+
+  // Hold the note as a drone, and layer an in-tune reference over it.
+  const noteDroneBtn = root.querySelector('#note-drone');
+  const refBtn = root.querySelector('#ref-drone');
+  const refOct = root.querySelector('#ref-octave');
+  noteDroneBtn.hidden = false;
+  refBtn.hidden = false;
+  refOct.hidden = false;
+  stopRefDrone(refBtn);
+  refBtn.textContent = `+ in-tune ${name} drone`;
+
+  noteDroneBtn.onclick = () => {
+    if (noteDroneBtn.classList.contains('active')) {
+      stopPlayback(root);
+    } else {
+      playLoop(buildLoopClip(recording, note), root, tile, noteDroneBtn);
+    }
+  };
+
+  const refFrequency = () =>
+    (extras.a4 ?? 440) * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12);
+  refBtn.onclick = () => {
+    if (refOsc) stopRefDrone(refBtn);
+    else startRefDrone(refFrequency(), refBtn);
+  };
+  refOct.onchange = () => {
+    if (refOsc) refOsc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.02);
+  };
 
   const compareBtn = root.querySelector('#compare');
   const ref = findComparisonNote(allNotes, note);
@@ -195,6 +278,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 
 export function hideReport(root) {
   stopPlayback(root);
+  stopRefDrone(root.querySelector('#ref-drone'));
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   replayCurrent = null;
