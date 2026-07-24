@@ -127,6 +127,7 @@ function showOverview(root, allNotes, extras) {
   root.querySelector('#note-drone').hidden = true;
   root.querySelector('#ref-drone').hidden = true;
   root.querySelector('#ref-octave').hidden = true;
+  root.querySelector('#ref-interval').hidden = true;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
     notes: allNotes,
@@ -160,9 +161,11 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   const noteDroneBtn = root.querySelector('#note-drone');
   const refBtn = root.querySelector('#ref-drone');
   const refOct = root.querySelector('#ref-octave');
+  const refInterval = root.querySelector('#ref-interval');
   noteDroneBtn.hidden = false;
   refBtn.hidden = false;
   refOct.hidden = false;
+  refInterval.hidden = false;
   stopRefDrone();
   stopNoteDrone();
   refBtn.textContent = `+ in-tune ${name} drone`;
@@ -178,15 +181,22 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
     }
   };
 
+  // Fifths are pure (3:2), not equal-tempered — a correctly played note
+  // locks beat-free against a pure fifth, the same way open strings are
+  // tuned. Unison stays equal-tempered (it IS the reference pitch).
+  const INTERVAL_RATIOS = { unison: 1, 'fifth-up': 3 / 2, 'fifth-down': 2 / 3 };
   const refFrequency = () =>
-    a4 * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12);
+    a4 * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12) *
+    INTERVAL_RATIOS[refInterval.value];
   refBtn.onclick = () => {
     if (refDrone) stopRefDrone();
     else startRefDrone(refFrequency(), refBtn);
   };
-  refOct.onchange = () => {
+  const retune = () => {
     if (refDrone) refDrone.osc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.02);
   };
+  refOct.onchange = retune;
+  refInterval.onchange = retune;
 
   const compareBtn = root.querySelector('#compare');
   const ref = findComparisonNote(allNotes, note);

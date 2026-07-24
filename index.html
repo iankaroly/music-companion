@@ -146,7 +146,7 @@
       border-radius: 0.4rem;
     }
     #playback-controls button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
-    #ref-octave {
+    #ref-octave, #ref-interval {
       font: inherit;
       font-size: 0.75rem;
       background: var(--panel);
@@ -284,6 +284,11 @@
           </span>
           <button id="note-drone" hidden>hold as drone</button>
           <button id="ref-drone" hidden></button>
+          <select id="ref-interval" hidden aria-label="Reference drone interval">
+            <option value="unison" selected>same note</option>
+            <option value="fifth-up">fifth up</option>
+            <option value="fifth-down">fifth down</option>
+          </select>
           <select id="ref-octave" hidden aria-label="Reference drone octave">
             <option value="-4">4 octaves down</option>
             <option value="-3">3 octaves down</option>
