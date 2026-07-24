@@ -161,9 +161,13 @@ async function beginCapture(extra = {}) {
     recorder?.push(chunk);
     feed(analyzer, segmenter, chunk, handleNote, readings, chord);
   });
+  // Fine 11.6ms hop for fast passages. Scale mode also shortens the
+  // analysis window (mono tracking responds faster); free play keeps the
+  // long window for double-stop detection and uses its fast sub-window
+  // for mono runs.
   analyzer = extra.scale
-    ? new Analyzer(session.sampleRate)
-    : new Analyzer(session.sampleRate, { dual: true });
+    ? new Analyzer(session.sampleRate, { windowSize: 2048, hopSize: 512 })
+    : new Analyzer(session.sampleRate, { dual: true, hopSize: 512 });
   recorder = new Recorder(session.sampleRate);
   session.segmenter = segmenter;
   session.chord = chord;

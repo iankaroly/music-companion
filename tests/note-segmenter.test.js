@@ -92,6 +92,20 @@ describe('NoteSegmenter', () => {
     expect(notes.map((n) => n.name)).toEqual(['A3', 'B3', 'C#4']);
   });
 
+  test('a super-fast run of ~60ms notes registers at a fine analysis hop', () => {
+    // 5 frames per note at an 11.6ms hop ≈ 58ms notes — fast semiquavers.
+    const FINE_HOP = 512 / 44100;
+    const frames = [];
+    let t = 0;
+    for (const midi of [57, 59, 61, 62]) {
+      for (let i = 0; i < 5; i++) frames.push(voiced(midi, t++ * FINE_HOP));
+    }
+    for (let i = 0; i < 4; i++) frames.push(silent(t++ * FINE_HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.map((n) => n.name)).toEqual(['A3', 'B3', 'C#4', 'D4']);
+  });
+
   test('honors a custom A4 reference: 221 Hz reads as an in-tune A3 at a4=442', () => {
     const frames = [];
     for (let i = 0; i < 15; i++) {

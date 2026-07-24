@@ -30,13 +30,15 @@ function makeController(canvas, drawFn) {
 
   let hoverPt = null;
   let playhead = null;
-  const draw = () => drawFn(canvas, dpr, cssW, cssH, hoverPt, playhead);
+  let highlight = null;
+  const draw = () => drawFn(canvas, dpr, cssW, cssH, hoverPt, playhead, highlight);
   draw();
 
   return {
     cssW,
     setHover(pt) { hoverPt = pt; draw(); },
     setPlayhead(t) { playhead = t; draw(); },
+    setHighlight(note) { highlight = note; draw(); },
   };
 }
 
@@ -63,7 +65,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     pts.push({ time: r.time, dev, inTarget: r.time >= note.start && r.time <= note.end });
   }
 
-  const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead) => {
+  const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead, _highlight) => {
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
@@ -128,7 +130,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
 // --- session overview ------------------------------------------------------
 
 export function renderOverviewChart(canvas, { readings, notes, a4 }) {
-  if (notes.length === 0) return { setPlayhead() {}, setHover() {} };
+  if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
   const padT = 0.4;
   const t0 = notes[0].start - padT;
   const t1 = notes.at(-1).end + padT;
@@ -145,7 +147,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
     pts.push({ time: r.time, mf });
   }
 
-  const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead) => {
+  const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead, highlight) => {
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
@@ -154,10 +156,15 @@ export function renderOverviewChart(canvas, { readings, notes, a4 }) {
     const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
     const y = (mf) => PAD.top + (1 - (mf - yMin) / (yMax - yMin)) * h;
 
-    // note spans, tinted by intonation
+    // note spans, tinted by intonation; a hovered box's span lights up
     for (const n of notes) {
       ctx.fillStyle = Math.abs(n.cents) < 8 ? SPAN_GOOD : SPAN_OFF;
       ctx.fillRect(x(n.start), PAD.top, Math.max(2, x(n.end) - x(n.start)), h);
+      if (n === highlight) {
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x(n.start), PAD.top, Math.max(2, x(n.end) - x(n.start)), h);
+      }
     }
 
     // semitone gridlines; label sparsely when the range is wide

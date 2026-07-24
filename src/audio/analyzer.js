@@ -7,12 +7,15 @@ import { detectTwoPitches } from './dual-pitch.js';
 // path runs on mic input and on synthesized demo audio.
 export class Analyzer {
   constructor(sampleRate, options = {}) {
-    const { windowSize = 4096, hopSize = 1024, dual = false, yinOptions = {} } = options;
+    const { windowSize = 4096, hopSize = 1024, dual = false, fastWindow = 2048, yinOptions = {} } = options;
     this.sampleRate = sampleRate;
     this.windowSize = windowSize;
     this.hopSize = hopSize;
     this.dual = dual;
+    this.fastWindow = Math.min(fastWindow, windowSize);
     this.yinOptions = yinOptions;
+    this.hopIndex = 0;
+    this.cachedPair = null;
     this.ring = new RingBuffer(windowSize);
     this.totalSamples = 0;
     this.sinceLastHop = 0;
@@ -46,8 +49,20 @@ export class Analyzer {
     const time = this.totalSamples / this.sampleRate;
 
     if (this.dual) {
-      const { primary, secondary } = detectTwoPitches(window, this.sampleRate, this.yinOptions);
-      return { frequency: primary.frequency, confidence: primary.confidence, rms, time, secondary };
+      // Double stops need the full window (a third's common fundamental has
+      // a very long period); fast runs need a short one (a long window
+      // smears across note boundaries). So: probe for a pair on the full
+      // window every other hop, and when no second string is sounding,
+      // track the primary from the freshest short sub-window instead.
+      if (this.hopIndex++ % 2 === 0) {
+        this.cachedPair = detectTwoPitches(window, this.sampleRate, this.yinOptions);
+      }
+      const pair = this.cachedPair;
+      if (pair?.secondary) {
+        return { frequency: pair.primary.frequency, confidence: pair.primary.confidence, rms, time, secondary: pair.secondary };
+      }
+      const fast = yin(window.subarray(this.windowSize - this.fastWindow), this.sampleRate, this.yinOptions);
+      return { frequency: fast.frequency, confidence: fast.confidence, rms, time, secondary: null };
     }
     const { frequency, confidence } = yin(window, this.sampleRate, this.yinOptions);
     return { frequency, confidence, rms, time, secondary: null };

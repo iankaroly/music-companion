@@ -43,7 +43,8 @@ describe('audio → notes pipeline', () => {
     silence(0.2, samples);
     const audio = Float32Array.from(samples);
 
-    const analyzer = new Analyzer(SR, { dual: true });
+    // mirrors live free play: dual with fast sub-window at the fine hop
+    const analyzer = new Analyzer(SR, { dual: true, hopSize: 512 });
     const primary = new NoteSegmenter();
     const chordSeg = new NoteSegmenter({ minDuration: 0.12 });
     const notes = [];
@@ -68,6 +69,29 @@ describe('audio → notes pipeline', () => {
     }
     expect(names).toContain('D3'); // lower voice of the fifth
     expect(chordNotes.map((n) => n.name)).toContain('A3'); // upper voice as chord note
+  });
+
+  test('a super-fast run (~70ms per note) registers every note at the fine hop', () => {
+    const samples = [];
+    let cursor = 0;
+    for (const f of [220, 246.94, 277.18, 293.66, 329.63, 369.99]) {
+      cursor += tone(f, 0.07, samples, cursor);
+    }
+    silence(0.2, samples);
+    const audio = Float32Array.from(samples);
+
+    // mirrors live scale mode: short window + fine hop
+    const analyzer = new Analyzer(SR, { windowSize: 2048, hopSize: 512 });
+    const segmenter = new NoteSegmenter();
+    const notes = [];
+    for (let i = 0; i < audio.length; i += 128) {
+      for (const r of analyzer.push(audio.subarray(i, i + 128))) {
+        notes.push(...segmenter.push(r));
+      }
+    }
+    notes.push(...segmenter.flush());
+
+    expect(notes.map((n) => n.name)).toEqual(['A3', 'B3', 'C#4', 'D4', 'E4', 'F#4']);
   });
 
   test('three played notes with a gap come out as three named notes', () => {

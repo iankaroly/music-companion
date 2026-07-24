@@ -268,6 +268,9 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       tile.title = 'play this note back';
       tile.addEventListener('click', () =>
         showPlayback(root, tile, d.played, d.name, allNotes, recording, extras, tileByNote));
+      // hovering a box lights up its span on the chart
+      tile.addEventListener('mouseenter', () => currentChart?.setHighlight?.(d.played));
+      tile.addEventListener('mouseleave', () => currentChart?.setHighlight?.(null));
     }
     grid.append(tile);
   }
