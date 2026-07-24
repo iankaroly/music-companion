@@ -25,7 +25,13 @@
       display: grid;
       place-items: center;
     }
-    main { text-align: center; width: min(30rem, 92vw); }
+    main { text-align: center; width: min(64rem, 94vw); }
+    /* compact controls stay in a narrow column; the report/chart spreads out */
+    #tuner, #scale-bar, .controls, #status, #calibration, #history {
+      width: min(30rem, 92vw);
+      margin-left: auto;
+      margin-right: auto;
+    }
     h1 {
       font-size: 0.85rem;
       letter-spacing: 0.35em;
@@ -135,7 +141,7 @@
     .degree.playing { outline: 2px solid var(--text); outline-offset: 1px; }
     #report-summary { color: var(--dim); font-size: 0.85rem; }
     #playback { margin-top: 1rem; border-top: 1px solid #2e2a25; padding-top: 1rem; }
-    #pitch-chart { width: 100%; height: 110px; display: block; }
+    #pitch-chart { width: 100%; height: clamp(220px, 38vh, 320px); display: block; }
     #playback-controls {
       display: flex;
       flex-wrap: wrap;

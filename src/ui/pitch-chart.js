@@ -20,7 +20,9 @@ const STATUS_SPAN = {
   off: 'rgba(224, 164, 88, 0.16)',
   bad: 'rgba(217, 123, 108, 0.18)',
 };
-const PAD = { top: 10, right: 8, bottom: 14, left: 34 };
+const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
+const FONT = '12px system-ui, sans-serif';
+const LINE_WIDTH = 2.5;
 
 function toMidiFloat(r, a4) {
   return 69 + 12 * Math.log2(r.frequency / a4);
@@ -28,8 +30,8 @@ function toMidiFloat(r, a4) {
 
 function makeController(canvas, drawFn) {
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.clientWidth || 440;
-  const cssH = canvas.clientHeight || 110;
+  const cssW = canvas.clientWidth || 900;
+  const cssH = canvas.clientHeight || 280;
   canvas.width = cssW * dpr;
   canvas.height = cssH * dpr;
 
@@ -82,7 +84,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     ctx.fillStyle = 'rgba(236, 231, 223, 0.06)';
     ctx.fillRect(x(note.start), PAD.top, x(note.end) - x(note.start), h);
 
-    ctx.font = '10px system-ui, sans-serif';
+    ctx.font = FONT;
     ctx.textBaseline = 'middle';
     for (const dev of [-100, 0, 100]) {
       ctx.strokeStyle = dev === 0 ? GOOD : GRID;
@@ -97,7 +99,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
       ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - 5, y(dev));
     }
 
-    ctx.lineWidth = 2;
+    ctx.lineWidth = LINE_WIDTH;
     ctx.lineJoin = 'round';
     let prev = null;
     for (const p of pts) {
@@ -119,7 +121,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     if (hoverPt) {
       ctx.fillStyle = INK;
       ctx.beginPath();
-      ctx.arc(x(hoverPt.time), y(hoverPt.dev), 3, 0, 2 * Math.PI);
+      ctx.arc(x(hoverPt.time), y(hoverPt.dev), 4, 0, 2 * Math.PI);
       ctx.fill();
       ctx.textAlign = x(hoverPt.time) > cssW / 2 ? 'right' : 'left';
       const dx = x(hoverPt.time) > cssW / 2 ? -8 : 8;
@@ -168,18 +170,27 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     const y = (mf) => PAD.top + (1 - (mf - yMin) / (yMax - yMin)) * h;
 
     // note spans, tinted by intonation; a hovered box's span lights up
+    ctx.font = FONT;
+    ctx.textBaseline = 'middle';
     for (const n of notes) {
+      const spanW = Math.max(2, x(n.end) - x(n.start));
       ctx.fillStyle = STATUS_SPAN[intonationStatus(n.cents)];
-      ctx.fillRect(x(n.start), PAD.top, Math.max(2, x(n.end) - x(n.start)), h);
+      ctx.fillRect(x(n.start), PAD.top, spanW, h);
       if (n === highlight) {
         ctx.strokeStyle = INK;
         ctx.lineWidth = 1;
-        ctx.strokeRect(x(n.start), PAD.top, Math.max(2, x(n.end) - x(n.start)), h);
+        ctx.strokeRect(x(n.start), PAD.top, spanW, h);
+      }
+      // name each note directly on the graph when there's room
+      if (spanW > 30) {
+        ctx.fillStyle = MUTED;
+        ctx.textAlign = 'center';
+        ctx.fillText(`${n.chord ? '+' : ''}${n.name}`, x(n.start) + spanW / 2, PAD.top - 7);
       }
     }
 
     // semitone gridlines; label sparsely when the range is wide
-    ctx.font = '10px system-ui, sans-serif';
+    ctx.font = FONT;
     ctx.textBaseline = 'middle';
     const range = yMax - yMin;
     for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) {
@@ -195,7 +206,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
       }
     }
 
-    ctx.lineWidth = 2;
+    ctx.lineWidth = LINE_WIDTH;
     ctx.lineJoin = 'round';
     let prev = null;
     for (const p of pts) {
@@ -217,7 +228,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     if (hoverPt) {
       ctx.fillStyle = INK;
       ctx.beginPath();
-      ctx.arc(x(hoverPt.time), y(hoverPt.mf), 3, 0, 2 * Math.PI);
+      ctx.arc(x(hoverPt.time), y(hoverPt.mf), 4, 0, 2 * Math.PI);
       ctx.fill();
       const nearest = Math.round(hoverPt.mf);
       const cents = (hoverPt.mf - nearest) * 100;
