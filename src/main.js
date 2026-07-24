@@ -1,33 +1,58 @@
 import { startCapture } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
+import { NoteSegmenter } from './analysis/notes.js';
 import { Tuner } from './ui/tuner.js';
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
 const demoBtn = document.querySelector('#demo');
 const statusEl = document.querySelector('#status');
+const notesRow = document.querySelector('#notes-row');
+
+const MAX_CHIPS = 12;
 
 let capture = null;
 let demoTimer = null;
 
-function feedAnalyzer(analyzer, chunk) {
-  for (const reading of analyzer.push(chunk)) tuner.update(reading);
+function addNoteChip(note) {
+  const chip = document.createElement('div');
+  chip.className = 'note-chip';
+  chip.dataset.state = Math.abs(note.cents) < 8 ? 'good' : 'off';
+  const cents = `${note.cents >= 0 ? '+' : ''}${note.cents.toFixed(0)}`;
+  chip.innerHTML = `${note.name}<small>${cents}¢</small>`;
+  notesRow.append(chip);
+  while (notesRow.children.length > MAX_CHIPS) notesRow.firstChild.remove();
+}
+
+function feed(analyzer, segmenter, chunk) {
+  for (const reading of analyzer.push(chunk)) {
+    tuner.update(reading);
+    for (const note of segmenter.push(reading)) addNoteChip(note);
+  }
+}
+
+function resetDisplay(segmenter) {
+  for (const note of segmenter?.flush() ?? []) addNoteChip(note);
+  tuner.update({ frequency: null, confidence: 0, rms: 0 });
 }
 
 startBtn.addEventListener('click', async () => {
   if (capture) {
     capture.stop();
+    resetDisplay(capture.segmenter);
     capture = null;
     startBtn.textContent = 'Start tuner';
     statusEl.textContent = '';
-    tuner.update({ frequency: null, confidence: 0, rms: 0 });
     return;
   }
   stopDemo();
   try {
     let analyzer = null;
-    capture = await startCapture((chunk) => feedAnalyzer(analyzer, chunk));
+    const segmenter = new NoteSegmenter();
+    capture = await startCapture((chunk) => feed(analyzer, segmenter, chunk));
+    capture.segmenter = segmenter;
     analyzer = new Analyzer(capture.sampleRate);
+    notesRow.replaceChildren();
     startBtn.textContent = 'Stop';
     statusEl.textContent = 'listening to mic';
   } catch (err) {
@@ -35,10 +60,11 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
-// Demo mode: synthesizes a sawtooth sweeping through cello open strings and
-// feeds it through the exact same Analyzer path as the mic. Works with no
-// instrument, no mic permission, even in a headless browser.
+// Demo mode: synthesizes the open strings and feeds them through the exact
+// same Analyzer → NoteSegmenter path as the mic. Works with no instrument,
+// no mic permission, even in a headless browser.
 const OPEN_STRINGS = [65.41, 98.0, 146.83, 220.0];
+const STRING_NAMES = ['C', 'G', 'D', 'A'];
 
 demoBtn.addEventListener('click', () => {
   if (demoTimer) {
@@ -47,10 +73,13 @@ demoBtn.addEventListener('click', () => {
   }
   const sr = 44100;
   const analyzer = new Analyzer(sr);
+  const segmenter = new NoteSegmenter();
   let sample = 0;
   let stringIndex = 0;
+  notesRow.replaceChildren();
   demoBtn.textContent = 'Stop demo';
-  statusEl.textContent = `demo: open ${['C', 'G', 'D', 'A'][stringIndex]} string`;
+  demoBtn.segmenter = segmenter;
+  statusEl.textContent = `demo: open ${STRING_NAMES[stringIndex]} string`;
 
   demoTimer = setInterval(() => {
     const freq = OPEN_STRINGS[stringIndex];
@@ -62,10 +91,10 @@ demoBtn.addEventListener('click', () => {
       chunk[i] = v * 0.3;
     }
     sample += chunk.length;
-    feedAnalyzer(analyzer, chunk);
+    feed(analyzer, segmenter, chunk);
     if (sample % (sr * 2) < 2048 && sample > 2048) {
       stringIndex = (stringIndex + 1) % OPEN_STRINGS.length;
-      statusEl.textContent = `demo: open ${['C', 'G', 'D', 'A'][stringIndex]} string`;
+      statusEl.textContent = `demo: open ${STRING_NAMES[stringIndex]} string`;
     }
   }, 46); // ~2048 samples of real time per tick
 });
@@ -74,7 +103,8 @@ function stopDemo() {
   if (!demoTimer) return;
   clearInterval(demoTimer);
   demoTimer = null;
+  resetDisplay(demoBtn.segmenter);
+  demoBtn.segmenter = null;
   demoBtn.textContent = 'Demo tone';
   statusEl.textContent = '';
-  tuner.update({ frequency: null, confidence: 0, rms: 0 });
 }

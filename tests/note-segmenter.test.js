@@ -1,0 +1,90 @@
+import { describe, test, expect } from 'vitest';
+import { NoteSegmenter } from '../src/analysis/notes.js';
+
+const HOP = 1024 / 44100; // ~23ms per reading, matching the Analyzer
+
+function midiToFreq(midiFloat) {
+  return 440 * 2 ** ((midiFloat - 69) / 12);
+}
+
+function voiced(midiFloat, time) {
+  return { frequency: midiToFreq(midiFloat), confidence: 0.95, rms: 0.05, time };
+}
+
+function silent(time) {
+  return { frequency: null, confidence: 0.1, rms: 0.0001, time };
+}
+
+// Push a sequence of frames, collect every completed note.
+function run(segmenter, frames) {
+  const notes = [];
+  for (const f of frames) notes.push(...segmenter.push(f));
+  notes.push(...segmenter.flush());
+  return notes;
+}
+
+const A3 = 57;
+const B3 = 59;
+
+describe('NoteSegmenter', () => {
+  test('a sustained pitch followed by silence yields one note with correct name and timing', () => {
+    const frames = [];
+    for (let i = 0; i < 20; i++) frames.push(voiced(A3, i * HOP));
+    for (let i = 20; i < 25; i++) frames.push(silent(i * HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.length).toBe(1);
+    expect(notes[0].name).toBe('A3');
+    expect(notes[0].start).toBeCloseTo(0, 2);
+    expect(notes[0].end).toBeGreaterThan(19 * HOP - 0.001);
+    expect(Math.abs(notes[0].cents)).toBeLessThan(3);
+  });
+
+  test('two different pitches split into two notes at the boundary', () => {
+    const frames = [];
+    for (let i = 0; i < 15; i++) frames.push(voiced(A3, i * HOP));
+    for (let i = 15; i < 30; i++) frames.push(voiced(B3, i * HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.map((n) => n.name)).toEqual(['A3', 'B3']);
+    expect(notes[1].start).toBeCloseTo(15 * HOP, 1);
+  });
+
+  test('vibrato of ±30 cents stays one note with median-centered pitch', () => {
+    const frames = [];
+    for (let i = 0; i < 30; i++) {
+      frames.push(voiced(A3 + 0.3 * Math.sin(i * 0.9), i * HOP));
+    }
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.length).toBe(1);
+    expect(notes[0].name).toBe('A3');
+    expect(Math.abs(notes[0].cents)).toBeLessThan(10);
+  });
+
+  test('a single glitch frame does not split the note', () => {
+    const frames = [];
+    for (let i = 0; i < 10; i++) frames.push(voiced(A3, i * HOP));
+    frames.push(voiced(A3 + 12, 10 * HOP)); // one octave-error frame
+    for (let i = 11; i < 21; i++) frames.push(voiced(A3, i * HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.length).toBe(1);
+    expect(notes[0].name).toBe('A3');
+  });
+
+  test('a blip shorter than the minimum duration is dropped', () => {
+    const frames = [silent(0), voiced(64, HOP), voiced(64, 2 * HOP), silent(3 * HOP), silent(4 * HOP)];
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.length).toBe(0);
+  });
+
+  test('low-confidence frames act as silence and split re-articulated notes', () => {
+    const frames = [];
+    for (let i = 0; i < 10; i++) frames.push(voiced(A3, i * HOP));
+    for (let i = 10; i < 14; i++) frames.push({ frequency: midiToFreq(A3), confidence: 0.2, rms: 0.05, time: i * HOP });
+    for (let i = 14; i < 24; i++) frames.push(voiced(A3, i * HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.map((n) => n.name)).toEqual(['A3', 'A3']);
+  });
+});

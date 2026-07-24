@@ -74,6 +74,25 @@
       transform: translateX(-50%);
       transition: left 90ms linear;
     }
+    #notes-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      justify-content: center;
+      min-height: 2rem;
+      margin-bottom: 1.5rem;
+    }
+    .note-chip {
+      background: var(--panel);
+      border: 1px solid #3a352e;
+      border-radius: 0.5rem;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .note-chip[data-state="good"] { border-color: var(--good); color: var(--good); }
+    .note-chip[data-state="off"] { border-color: var(--off); color: var(--off); }
+    .note-chip small { color: var(--dim); margin-left: 0.35em; }
     .controls { display: flex; gap: 0.75rem; justify-content: center; }
     button {
       font: inherit;
@@ -98,6 +117,7 @@
       <div id="freq"></div>
       <div id="scale"><div id="needle"></div></div>
     </div>
+    <div id="notes-row"></div>
     <div class="controls">
       <button id="start" class="primary">Start tuner</button>
       <button id="demo">Demo tone</button>
