@@ -1,7 +1,7 @@
 import { tempoStats } from '../analysis/scoring.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
-import { renderNoteChart, renderOverviewChart } from './pitch-chart.js';
+import { renderOverviewChart } from './pitch-chart.js';
 import { intonationStatus } from './chart-utils.js';
 
 const GOOD_CENTS = 8;
@@ -124,13 +124,12 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   stopPlayback(root);
   root.querySelector('#playback').hidden = false;
   root.querySelector('#playback-label').textContent =
-    'session pitch trace — click any note on the graph (or a box) to hear it';
+    'click any note on the graph (or a box) to hear it';
   root.querySelector('#compare').hidden = true;
   root.querySelector('#note-drone').hidden = true;
   root.querySelector('#ref-drone').hidden = true;
   root.querySelector('#ref-octave').hidden = true;
   root.querySelector('#ref-interval').hidden = true;
-  root.querySelector('#overview-btn').hidden = true;
   replayCurrent = null;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
@@ -144,20 +143,12 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   });
 }
 
+// Selecting a note plays it right on the overview: the playhead sweeps the
+// big chart and the note's box lights while it sounds — no view change.
 function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
   root.querySelector('#playback').hidden = false;
-  root.querySelector('#overview-btn').hidden = false;
   root.querySelector('#playback-label').textContent =
     `${name} ${centsLabel(note.cents)} — surrounding notes ducked`;
-
-  if (extras.readings?.length) {
-    currentChart = renderNoteChart(root.querySelector('#pitch-chart'), {
-      readings: extras.readings,
-      note,
-      a4: extras.a4 ?? 440,
-      contextSec: CONTEXT_SEC,
-    });
-  }
 
   const play = () => {
     const clip = buildEmphasizedClip(recording, note.start, note.end, { contextSec: CONTEXT_SEC });
@@ -268,10 +259,9 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   const selectNote = (note) => {
     const entry = tileByNote.get(note);
     if (!entry) return;
+    currentChart?.setHighlight?.(note);
     showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote);
   };
-  const backToOverview = () => showOverview(root, allNotes, extras, selectNote, tileByNote);
-  root.querySelector('#overview-btn').onclick = backToOverview;
 
   grid.replaceChildren();
   for (const d of degrees) {

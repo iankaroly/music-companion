@@ -234,19 +234,9 @@
     }
 
     #library {
-      margin: 2.2rem auto 0;
-      padding-top: 1.4rem;
-      border-top: 1px solid var(--line);
+      margin: 0 auto;
       text-align: center;
       width: min(34rem, 100%);
-    }
-    #library h2 {
-      font-size: 0.75rem;
-      letter-spacing: 0.3em;
-      text-transform: uppercase;
-      color: var(--brass);
-      font-weight: 600;
-      margin-bottom: 0.9rem;
     }
     #library-empty { color: var(--muted); font-size: 0.82rem; }
     #library-list { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
@@ -309,6 +299,7 @@
     <nav role="tablist" aria-label="Sections">
       <button class="tab-btn" role="tab" data-tab="tuner" aria-selected="true">Tuner</button>
       <button class="tab-btn" role="tab" data-tab="analyze" aria-selected="false">Record &amp; analyze</button>
+      <button class="tab-btn" role="tab" data-tab="library" aria-selected="false">Library</button>
       <button class="tab-btn" role="tab" data-tab="metronome" aria-selected="false">Metronome</button>
     </nav>
     <div id="status"></div>
@@ -366,7 +357,6 @@
       <div id="playback" hidden>
         <canvas id="pitch-chart"></canvas>
         <div id="playback-controls">
-          <button id="overview-btn" hidden>← overview</button>
           <span id="playback-label"></span>
           <span id="playback-speed">
             <button data-speed="1" class="active">1×</button>
@@ -396,8 +386,11 @@
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ================= library ================= -->
+  <section id="tab-library" class="tab-panel" role="tabpanel">
     <div id="library">
-      <h2>library</h2>
       <ul id="library-list"></ul>
       <div id="library-empty">Recordings you save appear here.</div>
     </div>

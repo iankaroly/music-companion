@@ -282,6 +282,7 @@ async function refreshLibrary() {
         clearTake();
         const rec = new Recorder(r.sampleRate);
         rec.push(new Float32Array(data.audio));
+        showTab('analyze');
         renderFreeReview(document, data.notes, rec, { readings: data.readings, a4: data.a4 });
       });
       const delBtn = document.createElement('button');
