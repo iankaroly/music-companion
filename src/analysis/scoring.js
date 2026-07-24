@@ -1,4 +1,5 @@
-import { midiToName } from './note-utils.js';
+import { midiToName, nameToMidi } from './note-utils.js';
+import { buildScale } from './scales.js';
 
 // Forward matcher: walks the expected scale, consuming played notes in
 // order. Tolerates a re-bowed repeat of the just-matched degree, a single
@@ -23,6 +24,31 @@ export function alignScale(expectedMidis, playedNotes) {
 
   const matched = degrees.filter((d) => d.played).length;
   return { degrees, matched, missed: degrees.length - matched };
+}
+
+// Register detection: the player picks only key/type/octaves — where they
+// started is inferred by aligning against every plausible octave of the
+// tonic and keeping the best match (ties go to the octave nearest the
+// first played note).
+export function bestAlignment({ key, type, octaves }, playedNotes) {
+  if (playedNotes.length === 0) return null;
+
+  const pitchClass = nameToMidi(`${key}0`) % 12;
+  let best = null;
+
+  for (let oct = 0; oct <= 7; oct++) {
+    const tonicMidi = 12 * (oct + 1) + pitchClass;
+    const scale = buildScale({ tonic: midiToName(tonicMidi), type, octaves });
+    if (tonicMidi < 21 || Math.max(...scale) > 108) continue; // outside piano range
+
+    const result = alignScale(scale, playedNotes);
+    const distance = Math.abs(tonicMidi - playedNotes[0].midi);
+    if (!best || result.matched > best.matched ||
+        (result.matched === best.matched && distance < best.distance)) {
+      best = { tonic: midiToName(tonicMidi), scale, distance, ...result };
+    }
+  }
+  return best;
 }
 
 // Rhythm summary from matched-note onset times.

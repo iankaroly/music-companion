@@ -2,6 +2,7 @@ import { startCapture } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { buildScale } from './analysis/scales.js';
+import { bestAlignment } from './analysis/scoring.js';
 import { Tuner } from './ui/tuner.js';
 import { renderReport, hideReport } from './ui/report.js';
 
@@ -48,13 +49,13 @@ for (const k of KEYS) {
   keySelect.append(opt);
 }
 
-function currentScale() {
-  const tonic = keySelect.value + document.querySelector('#start-octave').value;
-  return buildScale({
-    tonic,
+// What to practice — the register is detected from the playing, not chosen.
+function currentSpec() {
+  return {
+    key: keySelect.value,
     type: document.querySelector('#scale-type').value,
     octaves: Number(document.querySelector('#scale-octaves').value),
-  });
+  };
 }
 
 // --- shared display helpers ------------------------------------------------
@@ -126,18 +127,20 @@ startBtn.addEventListener('click', async () => {
 
 scaleStartBtn.addEventListener('click', async () => {
   if (capture?.scale) {
-    // finish: flush the last note, align, report
+    // finish: flush the last note, detect the register, align, report
     const { segmenter, scale, collected } = capture;
     for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
-    renderReport(document, scale, collected);
+    const best = bestAlignment(scale, collected);
+    if (best) renderReport(document, best);
+    else statusEl.textContent = 'no notes detected — try again closer to the mic';
     return;
   }
   stopEverything();
   hideReport(document);
   try {
     notesRow.replaceChildren();
-    capture = await beginCapture({ scale: currentScale(), collected: [] });
+    capture = await beginCapture({ scale: currentSpec(), collected: [] });
     scaleStartBtn.textContent = 'Finish scale';
     statusEl.textContent = 'play the scale, then press finish';
   } catch (err) {
@@ -155,7 +158,8 @@ scaleDemoBtn.addEventListener('click', () => {
 
   const sr = 44100;
   const a4 = currentA4();
-  const scale = currentScale();
+  const spec = currentSpec();
+  const scale = buildScale({ tonic: `${spec.key}3`, type: spec.type, octaves: spec.octaves });
   const analyzer = new Analyzer(sr);
   const segmenter = new NoteSegmenter({ a4 });
   const collected = [];
@@ -183,8 +187,9 @@ scaleDemoBtn.addEventListener('click', () => {
   }
   for (const note of segmenter.flush()) onNote(note);
 
-  renderReport(document, scale, collected);
-  statusEl.textContent = `demo: ${keySelect.value} ${document.querySelector('#scale-type').value}, degree ${SHARP_DEGREE + 1} played sharp on purpose`;
+  const best = bestAlignment(spec, collected);
+  if (best) renderReport(document, best);
+  statusEl.textContent = `demo: ${spec.key} ${spec.type}, degree ${SHARP_DEGREE + 1} played sharp on purpose`;
 });
 
 // --- open-strings demo tone ------------------------------------------------

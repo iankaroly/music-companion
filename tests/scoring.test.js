@@ -1,5 +1,6 @@
 import { describe, test, expect } from 'vitest';
-import { alignScale, tempoStats } from '../src/analysis/scoring.js';
+import { alignScale, bestAlignment, tempoStats } from '../src/analysis/scoring.js';
+import { buildScale } from '../src/analysis/scales.js';
 
 function played(midi, cents, start) {
   return { midi, cents, start, end: start + 0.4 };
@@ -38,6 +39,34 @@ describe('alignScale', () => {
     const { matched, missed } = alignScale(EXPECTED, notes);
     expect(matched).toBe(2);
     expect(missed).toBe(3); // remaining unplayed degrees count as missed
+  });
+});
+
+describe('bestAlignment', () => {
+  const toNotes = (midis) => midis.map((m, i) => ({ midi: m, cents: 0, start: i * 0.5, end: i * 0.5 + 0.4 }));
+
+  test('detects the register: a D major scale played from D4 reports tonic D4', () => {
+    const notes = toNotes(buildScale({ tonic: 'D4', type: 'major', octaves: 1 }));
+    const best = bestAlignment({ key: 'D', type: 'major', octaves: 1 }, notes);
+    expect(best.tonic).toBe('D4');
+    expect(best.matched).toBe(15);
+  });
+
+  test('the same scale an octave lower reports tonic D2', () => {
+    const notes = toNotes(buildScale({ tonic: 'D2', type: 'major', octaves: 1 }));
+    const best = bestAlignment({ key: 'D', type: 'major', octaves: 1 }, notes);
+    expect(best.tonic).toBe('D2');
+  });
+
+  test('a partial run still picks the register of what was played', () => {
+    const notes = toNotes(buildScale({ tonic: 'A3', type: 'major', octaves: 1 }).slice(0, 5));
+    const best = bestAlignment({ key: 'A', type: 'major', octaves: 1 }, notes);
+    expect(best.tonic).toBe('A3');
+    expect(best.matched).toBe(5);
+  });
+
+  test('no notes yields null', () => {
+    expect(bestAlignment({ key: 'D', type: 'major', octaves: 1 }, [])).toBeNull();
   });
 });
 

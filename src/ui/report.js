@@ -1,4 +1,4 @@
-import { alignScale, tempoStats } from '../analysis/scoring.js';
+import { tempoStats } from '../analysis/scoring.js';
 
 const GOOD_CENTS = 8;
 const OFF_CENTS = 25;
@@ -11,13 +11,13 @@ function degreeState(d) {
   return 'off';
 }
 
-// Renders the post-scale intonation report into #report.
-export function renderReport(root, expectedMidis, playedNotes) {
+// Renders the post-scale intonation report from a bestAlignment() result.
+export function renderReport(root, alignment) {
   const report = root.querySelector('#report');
   const grid = root.querySelector('#report-grid');
   const summary = root.querySelector('#report-summary');
 
-  const { degrees, matched, missed } = alignScale(expectedMidis, playedNotes);
+  const { degrees, matched, missed, tonic } = alignment;
 
   grid.replaceChildren();
   for (const d of degrees) {
@@ -31,7 +31,7 @@ export function renderReport(root, expectedMidis, playedNotes) {
     grid.append(tile);
   }
 
-  const parts = [`${matched}/${degrees.length} notes`];
+  const parts = [`from ${tonic}`, `${matched}/${degrees.length} notes`];
   const onsets = degrees.filter((d) => d.played).map((d) => d.played.start);
   const tempo = tempoStats(onsets);
   if (tempo) {
