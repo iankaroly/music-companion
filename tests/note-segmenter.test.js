@@ -78,6 +78,19 @@ describe('NoteSegmenter', () => {
     expect(notes.length).toBe(0);
   });
 
+  test('honors a custom A4 reference: 221 Hz reads as an in-tune A3 at a4=442', () => {
+    const frames = [];
+    for (let i = 0; i < 15; i++) {
+      frames.push({ frequency: 221, confidence: 0.95, rms: 0.05, time: i * HOP });
+    }
+    for (let i = 15; i < 18; i++) frames.push(silent(i * HOP));
+
+    const notes = run(new NoteSegmenter({ a4: 442 }), frames);
+    expect(notes.length).toBe(1);
+    expect(notes[0].name).toBe('A3');
+    expect(Math.abs(notes[0].cents)).toBeLessThan(2);
+  });
+
   test('low-confidence frames act as silence and split re-articulated notes', () => {
     const frames = [];
     for (let i = 0; i < 10; i++) frames.push(voiced(A3, i * HOP));

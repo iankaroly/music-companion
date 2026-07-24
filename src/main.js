@@ -14,6 +14,26 @@ const MAX_CHIPS = 12;
 let capture = null;
 let demoTimer = null;
 
+// A4 reference pitch: persisted, applied live to the tuner and any
+// running segmenter.
+const a4Input = document.querySelector('#a4');
+a4Input.value = localStorage.getItem('a4') ?? '440';
+
+function currentA4() {
+  const v = Number(a4Input.value);
+  return Number.isFinite(v) && v >= 400 && v <= 450 ? v : 440;
+}
+
+a4Input.addEventListener('change', () => {
+  const a4 = currentA4();
+  a4Input.value = String(a4);
+  localStorage.setItem('a4', String(a4));
+  tuner.a4 = a4;
+  if (capture?.segmenter) capture.segmenter.a4 = a4;
+  if (demoBtn.segmenter) demoBtn.segmenter.a4 = a4;
+});
+tuner.a4 = currentA4();
+
 function addNoteChip(note) {
   const chip = document.createElement('div');
   chip.className = 'note-chip';
@@ -48,7 +68,7 @@ startBtn.addEventListener('click', async () => {
   stopDemo();
   try {
     let analyzer = null;
-    const segmenter = new NoteSegmenter();
+    const segmenter = new NoteSegmenter({ a4: currentA4() });
     capture = await startCapture((chunk) => feed(analyzer, segmenter, chunk));
     capture.segmenter = segmenter;
     analyzer = new Analyzer(capture.sampleRate);
@@ -73,7 +93,7 @@ demoBtn.addEventListener('click', () => {
   }
   const sr = 44100;
   const analyzer = new Analyzer(sr);
-  const segmenter = new NoteSegmenter();
+  const segmenter = new NoteSegmenter({ a4: currentA4() });
   let sample = 0;
   let stringIndex = 0;
   notesRow.replaceChildren();

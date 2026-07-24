@@ -33,6 +33,19 @@ describe('freqToNote', () => {
     expect(freqToNote(207.65).name).toBe('G#3');
   });
 
+  test('honors a custom A4 reference: 442 Hz reads as A4 ±0 cents when calibrated to 442', () => {
+    const n = freqToNote(442, 442);
+    expect(n.name).toBe('A4');
+    expect(n.cents).toBeCloseTo(0, 1);
+  });
+
+  test('a 440 Hz tone reads ~8 cents flat when calibrated to 442', () => {
+    const n = freqToNote(440, 442);
+    expect(n.name).toBe('A4');
+    expect(n.cents).toBeLessThan(-7);
+    expect(n.cents).toBeGreaterThan(-9);
+  });
+
   test('rounds to the nearer note across the boundary', () => {
     // Quarter-tone between A4 and A#4 is ~452.9 Hz; just above it lands on A#4.
     expect(freqToNote(454).name).toBe('A#4');

@@ -5,9 +5,10 @@ export function midiToName(midi) {
   return NOTE_NAMES[midi % 12] + octave;
 }
 
-// Equal temperament relative to A4 = 440 Hz (MIDI 69).
-export function freqToNote(frequency) {
-  const midiFloat = 69 + 12 * Math.log2(frequency / 440);
+// Equal temperament relative to a configurable A4 reference (MIDI 69).
+// Orchestras tune anywhere from 440 to 443; the default is 440.
+export function freqToNote(frequency, a4 = 440) {
+  const midiFloat = 69 + 12 * Math.log2(frequency / a4);
   const midi = Math.round(midiFloat);
   const cents = (midiFloat - midi) * 100;
   return { name: midiToName(midi), midi, cents };

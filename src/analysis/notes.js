@@ -22,8 +22,9 @@ export class NoteSegmenter {
       confidenceFloor = 0.6,
       rmsFloor = 0.005,
       silenceFrames = 2,
+      a4 = 440,               // reference pitch for note naming and cents
     } = options;
-    Object.assign(this, { minDuration, splitSemitones, confidenceFloor, rmsFloor, silenceFrames });
+    Object.assign(this, { minDuration, splitSemitones, confidenceFloor, rmsFloor, silenceFrames, a4 });
     this.current = null;   // { frames: [{time, midiFloat}] }
     this.pending = null;   // first frame of a possible pitch change
     this.silentRun = 0;
@@ -47,7 +48,7 @@ export class NoteSegmenter {
     }
 
     this.silentRun = 0;
-    const midiFloat = 69 + 12 * Math.log2(reading.frequency / 440);
+    const midiFloat = 69 + 12 * Math.log2(reading.frequency / this.a4);
     const frame = { time: reading.time, midiFloat };
 
     if (!this.current) {

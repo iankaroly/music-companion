@@ -11,6 +11,7 @@ export class Tuner {
     this.freqEl = root.querySelector('#freq');
     this.needleEl = root.querySelector('#needle');
     this.smoothedCents = 0;
+    this.a4 = 440;
   }
 
   update({ frequency, confidence, rms }) {
@@ -24,7 +25,7 @@ export class Tuner {
       return;
     }
 
-    const { name, cents } = freqToNote(frequency);
+    const { name, cents } = freqToNote(frequency, this.a4);
     this.smoothedCents = 0.7 * this.smoothedCents + 0.3 * cents;
     const c = this.smoothedCents;
 

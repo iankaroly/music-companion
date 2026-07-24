@@ -106,6 +106,25 @@
     button:hover { border-color: var(--dim); }
     button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
     #status { color: var(--dim); font-size: 0.8rem; margin-top: 1.25rem; min-height: 1.2em; }
+    #calibration {
+      color: var(--dim);
+      font-size: 0.8rem;
+      margin-top: 1.5rem;
+      display: flex;
+      gap: 0.4rem;
+      justify-content: center;
+      align-items: center;
+    }
+    #a4 {
+      font: inherit;
+      width: 3.5rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #3a352e;
+      border-radius: 0.4rem;
+      padding: 0.25rem 0.4rem;
+      text-align: center;
+    }
   </style>
 </head>
 <body>
@@ -123,6 +142,11 @@
       <button id="demo">Demo tone</button>
     </div>
     <div id="status"></div>
+    <div id="calibration">
+      <label for="a4">A4 =</label>
+      <input id="a4" type="number" min="400" max="450" step="1" value="440" />
+      <span>Hz</span>
+    </div>
   </main>
   <script type="module" src="/src/main.js"></script>
 </body>
