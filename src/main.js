@@ -101,10 +101,10 @@ function currentSpec() {
 
 function addNoteChip(note) {
   const chip = document.createElement('div');
-  chip.className = 'note-chip';
+  chip.className = note.chord ? 'note-chip chord' : 'note-chip';
   chip.dataset.state = Math.abs(note.cents) < 8 ? 'good' : 'off';
   const cents = `${note.cents >= 0 ? '+' : ''}${note.cents.toFixed(0)}`;
-  chip.innerHTML = `${note.name}<small>${cents}¢</small>`;
+  chip.innerHTML = `${note.chord ? '+' : ''}${note.name}<small>${cents}¢</small>`;
   notesRow.append(chip);
   while (notesRow.children.length > MAX_CHIPS) notesRow.firstChild.remove();
 }
@@ -114,11 +114,23 @@ function handleNote(note) {
   capture?.collected?.push(note);
 }
 
-function feed(analyzer, segmenter, chunk, onNote = handleNote, readings = null) {
+function feed(analyzer, segmenter, chunk, onNote = handleNote, readings = null, chord = null) {
   for (const reading of analyzer.push(chunk)) {
     tuner.update(reading);
     readings?.push(reading);
     for (const note of segmenter.push(reading)) onNote(note);
+    if (chord) {
+      // The second string of a double stop gets its own segmentation, so
+      // chords land in the note boxes too.
+      const sec = reading.secondary;
+      const secReading = {
+        frequency: sec?.frequency ?? null,
+        confidence: sec?.confidence ?? 0,
+        rms: reading.rms,
+        time: reading.time,
+      };
+      for (const note of chord.segmenter.push(secReading)) chord.onNote(note);
+    }
   }
 }
 
@@ -139,18 +151,22 @@ async function beginCapture(extra = {}) {
   let recorder = null;
   const readings = [];
   const segmenter = new NoteSegmenter({ a4: currentA4() });
+  // Free play listens for double stops (scale mode stays monophonic for
+  // clean alignment data) and segments the second string as chord notes.
+  const chord = extra.scale ? null : {
+    segmenter: new NoteSegmenter({ a4: currentA4(), minDuration: 0.12 }),
+    onNote: (note) => { note.chord = true; handleNote(note); },
+  };
   const session = await startCapture((chunk) => {
     recorder?.push(chunk);
-    feed(analyzer, segmenter, chunk, handleNote, readings);
+    feed(analyzer, segmenter, chunk, handleNote, readings, chord);
   });
-  // Free play listens for double stops; scale mode stays monophonic for
-  // clean alignment data. Dual detection costs several YIN passes per hop,
-  // so free play analyzes at a longer hop.
   analyzer = extra.scale
     ? new Analyzer(session.sampleRate)
-    : new Analyzer(session.sampleRate, { dual: true, hopSize: 2048 });
+    : new Analyzer(session.sampleRate, { dual: true });
   recorder = new Recorder(session.sampleRate);
   session.segmenter = segmenter;
+  session.chord = chord;
   session.recorder = recorder;
   session.readings = readings;
   Object.assign(session, extra);
@@ -162,8 +178,9 @@ async function beginCapture(extra = {}) {
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.scale) {
     // finish free play: review everything played, with replay
-    const { segmenter, collected, recorder, readings } = capture;
+    const { segmenter, chord, collected, recorder, readings } = capture;
     for (const note of segmenter.flush()) collected.push(note);
+    for (const note of chord?.segmenter.flush() ?? []) chord.onNote(note);
     stopEverything();
     if (collected.length > 0) {
       renderFreeReview(document, collected, recorder, { readings, a4: currentA4() });

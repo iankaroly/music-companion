@@ -258,10 +258,10 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   grid.replaceChildren();
   for (const d of degrees) {
     const tile = document.createElement('div');
-    tile.className = 'degree';
+    tile.className = d.played?.chord ? 'degree chord' : 'degree';
     tile.dataset.state = degreeState(d);
     const label = d.played ? centsLabel(d.played.cents) : 'missed';
-    tile.innerHTML = `<b>${d.name}</b>${label}`;
+    tile.innerHTML = `<b>${d.played?.chord ? '+' : ''}${d.name}</b>${label}`;
     if (recording && d.played) {
       tileByNote.set(d.played, tile);
       tile.classList.add('clickable');
@@ -306,6 +306,8 @@ export function hideReport(root) {
 // Free-play review: every detected note as a replayable tile, no expected
 // scale to align against.
 export function renderFreeReview(root, notes, recording, extras = {}) {
-  const degrees = notes.map((n) => ({ midi: n.midi, name: n.name, played: n }));
-  renderReport(root, { degrees, matched: notes.length, missed: 0, tonic: null }, recording, extras);
+  // Chord notes complete on their own clock — order everything by onset.
+  const ordered = [...notes].sort((a, b) => a.start - b.start);
+  const degrees = ordered.map((n) => ({ midi: n.midi, name: n.name, played: n }));
+  renderReport(root, { degrees, matched: ordered.length, missed: 0, tonic: null }, recording, extras);
 }

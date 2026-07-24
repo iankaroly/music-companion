@@ -17,7 +17,7 @@ function median(values) {
 export class NoteSegmenter {
   constructor(options = {}) {
     const {
-      minDuration = 0.1,        // seconds; anything shorter is a blip
+      minDuration = 0.06,       // seconds; short enough for fast sixteenth runs
       splitSemitones = 0.6,     // sustained deviation that starts a new note
       confidenceFloor = 0.6,
       rmsFloor = 0.005,

@@ -44,13 +44,20 @@ export function detectTwoPitches(buffer, sampleRate, options = {}) {
   const base = yin(buffer, sampleRate, yinOptions);
   if (base.frequency === null) return { primary: base, secondary: null };
 
+  // Both constituents of a double stop sit at ≥2× the harmonic base, so the
+  // probe searches never need periods longer than ~1/(1.8×base). This slashes
+  // the YIN lag range per probe — on single-note passages (base = the real
+  // pitch) probes become nearly free, which is what lets dual mode run at
+  // the full hop rate.
+  const probeOptions = { ...yinOptions, minFreq: base.frequency * 1.8 };
+
   for (let k = 2; base.frequency * k <= maxProbeFreq; k++) {
     const probeFreq = base.frequency * k;
-    const survivor = yin(comb(buffer, sampleRate / probeFreq), sampleRate, yinOptions);
+    const survivor = yin(comb(buffer, sampleRate / probeFreq), sampleRate, probeOptions);
     if (survivor.frequency === null || survivor.confidence < minSecondaryConfidence) continue;
     if (centsBetween(survivor.frequency, base.frequency) < minSeparationCents) continue;
 
-    const partner = yin(comb(buffer, sampleRate / survivor.frequency), sampleRate, yinOptions);
+    const partner = yin(comb(buffer, sampleRate / survivor.frequency), sampleRate, probeOptions);
     if (partner.frequency === null || partner.confidence < minSecondaryConfidence) continue;
     if (centsBetween(partner.frequency, survivor.frequency) < minSeparationCents) continue;
 

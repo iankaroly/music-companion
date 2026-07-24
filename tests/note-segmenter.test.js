@@ -78,6 +78,20 @@ describe('NoteSegmenter', () => {
     expect(notes.length).toBe(0);
   });
 
+  test('a fast run of ~80ms notes registers every note', () => {
+    // Three notes of 4 frames each (~93ms at the 23ms hop) — a fast
+    // sixteenth-note passage. All three must survive.
+    const frames = [];
+    let t = 0;
+    for (const midi of [57, 59, 61]) {
+      for (let i = 0; i < 4; i++) frames.push(voiced(midi, t++ * HOP));
+    }
+    for (let i = 0; i < 3; i++) frames.push(silent(t++ * HOP));
+
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.map((n) => n.name)).toEqual(['A3', 'B3', 'C#4']);
+  });
+
   test('honors a custom A4 reference: 221 Hz reads as an in-tune A3 at a4=442', () => {
     const frames = [];
     for (let i = 0; i < 15; i++) {
