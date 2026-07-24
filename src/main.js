@@ -10,16 +10,31 @@ import { renderReport, renderFreeReview, hideReport } from './ui/report.js';
 import { renderHistory } from './ui/history.js';
 import { saveSession, listSessions } from './store/db.js';
 import { startDrone, stopDrone, droneActive } from './audio/drone.js';
+import { Metronome, tempoName } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { intonationStatus } from './ui/chart-utils.js';
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
+const listenBtn = document.querySelector('#listen');
 const demoBtn = document.querySelector('#demo');
 const statusEl = document.querySelector('#status');
 const notesRow = document.querySelector('#notes-row');
 const scaleStartBtn = document.querySelector('#scale-start');
 const scaleDemoBtn = document.querySelector('#scale-demo');
+
+// --- tabs ------------------------------------------------------------------
+
+const tabButtons = document.querySelectorAll('.tab-btn');
+function showTab(name) {
+  for (const btn of tabButtons) btn.setAttribute('aria-selected', String(btn.dataset.tab === name));
+  for (const panel of document.querySelectorAll('.tab-panel')) {
+    panel.classList.toggle('active', panel.id === `tab-${name}`);
+  }
+  localStorage.setItem('tab', name);
+}
+for (const btn of tabButtons) btn.addEventListener('click', () => showTab(btn.dataset.tab));
+showTab(localStorage.getItem('tab') ?? 'tuner');
 
 const MAX_CHIPS = 24;
 
@@ -111,7 +126,7 @@ function addNoteChip(note) {
 }
 
 function handleNote(note) {
-  addNoteChip(note);
+  if (!capture?.listen) addNoteChip(note);
   capture?.collected?.push(note);
 }
 
@@ -141,7 +156,8 @@ function stopEverything() {
     capture.stop();
     capture = null;
   }
-  startBtn.textContent = 'Start tuner';
+  startBtn.textContent = 'Record';
+  listenBtn.textContent = 'Start tuner';
   scaleStartBtn.textContent = 'Start scale';
   statusEl.textContent = '';
   tuner.update({ frequency: null, confidence: 0, rms: 0 });
@@ -178,10 +194,27 @@ async function beginCapture(extra = {}) {
   return session;
 }
 
-// --- free tuner ------------------------------------------------------------
+// --- live tuner (listen only, no review) -----------------------------------
+
+listenBtn.addEventListener('click', async () => {
+  if (capture?.listen) {
+    stopEverything();
+    return;
+  }
+  stopEverything();
+  try {
+    capture = await beginCapture({ listen: true });
+    listenBtn.textContent = 'Stop';
+    statusEl.textContent = 'listening';
+  } catch (err) {
+    statusEl.textContent = `mic unavailable: ${err.message}`;
+  }
+});
+
+// --- record & review -------------------------------------------------------
 
 startBtn.addEventListener('click', async () => {
-  if (capture && !capture.scale) {
+  if (capture && !capture.scale && !capture.listen) {
     // finish free play: review everything played, with replay
     const { segmenter, chord, collected, recorder, readings } = capture;
     for (const note of segmenter.flush()) collected.push(note);
@@ -197,8 +230,8 @@ startBtn.addEventListener('click', async () => {
   try {
     notesRow.replaceChildren();
     capture = await beginCapture({ collected: [] });
-    startBtn.textContent = 'Stop';
-    statusEl.textContent = 'listening to mic';
+    startBtn.textContent = 'Stop & review';
+    statusEl.textContent = 'recording';
   } catch (err) {
     statusEl.textContent = `mic unavailable: ${err.message}`;
   }
@@ -362,3 +395,73 @@ function stopDemo() {
   demoTimer = null;
   demoBtn.textContent = 'Demo tone';
 }
+
+// --- metronome -------------------------------------------------------------
+
+const bpmDisplay = document.querySelector('#bpm-display');
+const tempoNameEl = document.querySelector('#tempo-name');
+const bpmSlider = document.querySelector('#bpm-slider');
+const beatsSelect = document.querySelector('#beats-per-bar');
+const beatDots = document.querySelector('#beat-dots');
+const metroToggle = document.querySelector('#metro-toggle');
+
+const metronome = new Metronome((beat) => {
+  beatDots.querySelectorAll('.beat-dot').forEach((dot, i) => {
+    dot.classList.toggle('on', i === beat);
+  });
+});
+
+function setBpm(bpm) {
+  metronome.bpm = Math.max(30, Math.min(240, Math.round(bpm)));
+  bpmDisplay.textContent = String(metronome.bpm);
+  tempoNameEl.textContent = tempoName(metronome.bpm);
+  bpmSlider.value = String(metronome.bpm);
+  localStorage.setItem('bpm', String(metronome.bpm));
+}
+
+function rebuildBeatDots() {
+  beatDots.replaceChildren();
+  for (let i = 0; i < metronome.beatsPerBar; i++) {
+    const dot = document.createElement('div');
+    dot.className = i === 0 ? 'beat-dot downbeat' : 'beat-dot';
+    beatDots.append(dot);
+  }
+}
+
+bpmSlider.addEventListener('input', () => setBpm(Number(bpmSlider.value)));
+document.querySelector('#bpm-down').addEventListener('click', () => setBpm(metronome.bpm - 2));
+document.querySelector('#bpm-up').addEventListener('click', () => setBpm(metronome.bpm + 2));
+
+beatsSelect.addEventListener('change', () => {
+  metronome.beatsPerBar = Number(beatsSelect.value);
+  localStorage.setItem('beatsPerBar', beatsSelect.value);
+  rebuildBeatDots();
+});
+
+const taps = [];
+document.querySelector('#tap-tempo').addEventListener('click', () => {
+  const now = performance.now();
+  if (taps.length && now - taps.at(-1) > 3000) taps.length = 0;
+  taps.push(now);
+  if (taps.length > 5) taps.shift();
+  if (taps.length >= 2) {
+    const intervals = taps.slice(1).map((t, i) => t - taps[i]);
+    setBpm(60000 / (intervals.reduce((a, b) => a + b, 0) / intervals.length));
+  }
+});
+
+metroToggle.addEventListener('click', () => {
+  if (metronome.running) {
+    metronome.stop();
+    metroToggle.textContent = 'Start';
+    beatDots.querySelectorAll('.beat-dot').forEach((d) => d.classList.remove('on'));
+  } else {
+    metronome.start();
+    metroToggle.textContent = 'Stop';
+  }
+});
+
+setBpm(Number(localStorage.getItem('bpm') ?? 80));
+beatsSelect.value = localStorage.getItem('beatsPerBar') ?? '4';
+metronome.beatsPerBar = Number(beatsSelect.value);
+rebuildBeatDots();

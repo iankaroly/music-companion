@@ -8,29 +8,40 @@
   <style>
     :root {
       color-scheme: dark;
+      /* the practice room after dark: fingerboard, case lining, rosin, parchment */
       --bg: #12100e;
       --panel: #1c1916;
+      --panel-2: #232019;
+      --line: #2e2a25;
+      --line-strong: #3a352e;
       --text: #ece7df;
       --dim: #8d8578;
       --good: #7fc98f;
       --off: #e0a458;
       --bad: #d97b6c;
+      --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
+      --ui: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
     }
     * { margin: 0; box-sizing: border-box; }
     body {
       background: var(--bg);
       color: var(--text);
-      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      font-family: var(--ui);
       min-height: 100vh;
-      display: grid;
-      place-items: center;
     }
-    main { text-align: center; width: min(64rem, 94vw); }
-    /* compact controls stay in a narrow column; the report/chart spreads out */
-    #tuner, #scale-bar, .controls, #status, #calibration, #history {
-      width: min(30rem, 92vw);
-      margin-left: auto;
-      margin-right: auto;
+    button, select, input { font-family: var(--ui); }
+    :focus-visible { outline: 2px solid var(--dim); outline-offset: 2px; }
+
+    /* ---- header & tabs ---- */
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1.4rem clamp(1rem, 4vw, 3rem) 0;
+      max-width: 72rem;
+      margin: 0 auto;
     }
     h1 {
       font-size: 0.85rem;
@@ -38,18 +49,63 @@
       text-transform: uppercase;
       color: var(--dim);
       font-weight: 500;
-      margin-bottom: 2.5rem;
     }
+    nav[role="tablist"] { display: flex; gap: 1.6rem; }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--dim);
+      font-size: 0.9rem;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      padding: 0.3rem 0;
+      border-bottom: 1px solid transparent;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn[aria-selected="true"] {
+      color: var(--text);
+      border-bottom-color: var(--text);
+    }
+    #status {
+      width: 100%;
+      text-align: right;
+      color: var(--dim);
+      font-size: 0.78rem;
+      min-height: 1.2em;
+    }
+
+    /* ---- tab panels ---- */
+    .tab-panel { display: none; padding: 1.6rem clamp(1rem, 4vw, 3rem) 3rem; max-width: 72rem; margin: 0 auto; }
+    .tab-panel.active { display: block; }
+    .column { width: min(30rem, 100%); margin: 0 auto; text-align: center; }
+
+    /* ---- shared controls ---- */
+    button.ctl, .tab-panel select, .tab-panel input[type="number"] {
+      font-size: 0.85rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line-strong);
+      border-radius: 0.55rem;
+      padding: 0.45rem 0.9rem;
+      cursor: pointer;
+    }
+    .tab-panel select, .tab-panel input[type="number"] { cursor: auto; }
+    button.ctl:hover { border-color: var(--dim); }
+    button.ctl.primary, button.ctl.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+    /* ---- tuner ---- */
     #tuner {
       background: var(--panel);
-      border-radius: 1rem;
-      padding: 2.5rem 2rem 2rem;
-      margin-bottom: 1.5rem;
+      border: 1px solid var(--line);
+      border-radius: 1.1rem;
+      padding: 2.8rem 2rem 2.2rem;
+      margin-bottom: 1.4rem;
       position: relative;
     }
     #note {
-      font-size: 5.5rem;
-      font-weight: 300;
+      font-family: var(--display);
+      font-size: 7rem;
+      font-weight: 400;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       transition: color 120ms;
@@ -57,14 +113,14 @@
     #note[data-state="good"] { color: var(--good); }
     #note[data-state="off"] { color: var(--off); }
     #note[data-state="idle"] { color: var(--dim); }
-    #cents { color: var(--dim); margin-top: 0.75rem; font-size: 1rem; min-height: 1.3em; }
+    #cents { color: var(--dim); margin-top: 0.9rem; font-size: 1rem; min-height: 1.3em; }
     #freq { color: var(--dim); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.2rem; }
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.3rem; }
     #scale {
       position: relative;
       height: 2.5rem;
       margin-top: 1.75rem;
-      border-top: 1px solid #2e2a25;
+      border-top: 1px solid var(--line);
     }
     #scale::before {
       content: "";
@@ -84,41 +140,48 @@
       transform: translateX(-50%);
       transition: left 90ms linear;
     }
-    #scale-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.5rem;
-      justify-content: center;
-      align-items: center;
-      margin-bottom: 1.25rem;
-    }
-    #scale-bar select {
-      font: inherit;
-      font-size: 0.85rem;
-      background: var(--panel);
-      color: var(--text);
-      border: 1px solid #3a352e;
-      border-radius: 0.4rem;
-      padding: 0.35rem 0.5rem;
-    }
-    #scale-bar button { padding: 0.4rem 0.9rem; font-size: 0.85rem; }
-    #report {
-      display: none;
-      background: var(--panel);
-      border-radius: 1rem;
-      padding: 1.25rem;
-      margin-bottom: 1.5rem;
-      text-align: left;
-    }
-    #report.visible { display: block; }
-    #report-grid {
+    .row { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; align-items: center; }
+    .row + .row { margin-top: 1rem; }
+    .row label { color: var(--dim); font-size: 0.8rem; }
+    #a4 { width: 4rem; text-align: center; }
+
+    /* ---- record & analyze ---- */
+    #scale-bar { margin-bottom: 1.1rem; }
+    #notes-row {
       display: flex;
       flex-wrap: wrap;
       gap: 0.4rem;
-      margin-bottom: 1rem;
+      justify-content: center;
+      min-height: 2rem;
+      margin: 1.2rem auto;
+      max-width: 60rem;
     }
+    .note-chip {
+      background: var(--panel);
+      border: 1px solid var(--line-strong);
+      border-radius: 0.5rem;
+      padding: 0.3rem 0.6rem;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .note-chip[data-state="good"] { border-color: var(--good); color: var(--good); }
+    .note-chip[data-state="off"] { border-color: var(--off); color: var(--off); }
+    .note-chip[data-state="bad"] { border-color: var(--bad); color: var(--bad); }
+    .note-chip.chord, .degree.chord { border-style: dashed; }
+
+    #report {
+      display: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 1.1rem;
+      padding: 1.5rem;
+      margin: 0 auto 1.5rem;
+      text-align: left;
+    }
+    #report.visible { display: block; }
+    #report-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
     .degree {
-      border: 1px solid #3a352e;
+      border: 1px solid var(--line-strong);
       border-radius: 0.5rem;
       padding: 0.35rem 0.5rem;
       font-size: 0.8rem;
@@ -134,77 +197,49 @@
     .degree[data-state="bad"] { border-color: var(--bad); }
     .degree[data-state="bad"] b { color: var(--bad); }
     .degree[data-state="missed"] { opacity: 0.4; }
-    .degree.peek { border-color: var(--dim); background: #262019; }
-    .degree.chord, .note-chip.chord { border-style: dashed; }
+    .degree.peek { border-color: var(--dim); background: var(--panel-2); }
     .degree.clickable { cursor: pointer; }
     .degree.clickable:hover { border-color: var(--dim); }
     .degree.playing { outline: 2px solid var(--text); outline-offset: 1px; }
     #report-summary { color: var(--dim); font-size: 0.85rem; }
-    #playback { margin-top: 1rem; border-top: 1px solid #2e2a25; padding-top: 1rem; }
-    #pitch-chart { width: 100%; height: clamp(220px, 38vh, 320px); display: block; }
+    #playback { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem; }
+    #pitch-chart { width: 100%; height: clamp(240px, 42vh, 340px); display: block; }
     #playback-controls {
       display: flex;
       flex-wrap: wrap;
       gap: 0.6rem;
       align-items: center;
-      margin-top: 0.6rem;
+      margin-top: 0.7rem;
       font-size: 0.8rem;
       color: var(--dim);
     }
     #playback-controls button {
       font-size: 0.75rem;
-      padding: 0.25rem 0.6rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid var(--line-strong);
       border-radius: 0.4rem;
+      padding: 0.25rem 0.6rem;
+      cursor: pointer;
     }
+    #playback-controls button:hover { border-color: var(--dim); }
     #playback-controls button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
     #ref-octave, #ref-interval {
-      font: inherit;
       font-size: 0.75rem;
       background: var(--panel);
       color: var(--text);
-      border: 1px solid #3a352e;
+      border: 1px solid var(--line-strong);
       border-radius: 0.4rem;
       padding: 0.25rem 0.4rem;
     }
-    #notes-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      justify-content: center;
-      min-height: 2rem;
-      margin-bottom: 1.5rem;
-    }
-    .note-chip {
-      background: var(--panel);
-      border: 1px solid #3a352e;
-      border-radius: 0.5rem;
-      padding: 0.3rem 0.6rem;
-      font-size: 0.85rem;
-      font-variant-numeric: tabular-nums;
-    }
-    .note-chip[data-state="good"] { border-color: var(--good); color: var(--good); }
-    .note-chip[data-state="off"] { border-color: var(--off); color: var(--off); }
-    .note-chip[data-state="bad"] { border-color: var(--bad); color: var(--bad); }
-    .note-chip small { color: var(--dim); margin-left: 0.35em; }
-    .controls { display: flex; gap: 0.75rem; justify-content: center; }
-    button {
-      font: inherit;
-      background: var(--panel);
-      color: var(--text);
-      border: 1px solid #3a352e;
-      border-radius: 0.6rem;
-      padding: 0.7rem 1.4rem;
-      cursor: pointer;
-    }
-    button:hover { border-color: var(--dim); }
-    button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
-    #status { color: var(--dim); font-size: 0.8rem; margin-top: 1.25rem; min-height: 1.2em; }
+
     #history {
-      display: none;
-      margin-top: 2rem;
+      margin: 2rem auto 0;
       padding-top: 1.25rem;
-      border-top: 1px solid #2e2a25;
+      border-top: 1px solid var(--line);
       text-align: center;
+      display: none;
+      width: min(30rem, 100%);
     }
     #history h2 {
       font-size: 0.75rem;
@@ -217,70 +252,114 @@
     #trend-label { color: var(--dim); font-size: 0.75rem; margin: 0.25rem 0 0.75rem; }
     #session-list {
       list-style: none;
+      padding: 0;
       color: var(--dim);
       font-size: 0.8rem;
       display: grid;
       gap: 0.3rem;
       font-variant-numeric: tabular-nums;
     }
-    #calibration {
-      color: var(--dim);
-      font-size: 0.8rem;
-      margin-top: 1.5rem;
-      display: flex;
-      gap: 0.4rem;
-      justify-content: center;
-      align-items: center;
-    }
-    .cal-sep { width: 1rem; }
-    #calibration select, #calibration button {
-      font: inherit;
-      font-size: 0.8rem;
+
+    /* ---- metronome ---- */
+    #metro-card {
       background: var(--panel);
-      color: var(--text);
-      border: 1px solid #3a352e;
-      border-radius: 0.4rem;
-      padding: 0.25rem 0.5rem;
+      border: 1px solid var(--line);
+      border-radius: 1.1rem;
+      padding: 2.6rem 2rem 2.2rem;
     }
-    #drone-toggle.active { background: var(--text); color: var(--bg); border-color: var(--text); }
-    #a4 {
-      font: inherit;
-      width: 3.5rem;
-      background: var(--panel);
-      color: var(--text);
-      border: 1px solid #3a352e;
-      border-radius: 0.4rem;
-      padding: 0.25rem 0.4rem;
-      text-align: center;
+    #bpm-display {
+      font-family: var(--display);
+      font-size: 6.5rem;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+    }
+    #tempo-name { color: var(--dim); font-size: 1rem; margin-top: 0.5rem; font-style: italic; font-family: var(--display); }
+    #bpm-slider { width: 100%; margin: 1.8rem 0 1.2rem; accent-color: var(--text); }
+    #beat-dots { display: flex; gap: 0.9rem; justify-content: center; margin: 1.4rem 0 1.6rem; min-height: 1.2rem; }
+    .beat-dot {
+      width: 0.8rem; height: 0.8rem;
+      border-radius: 50%;
+      border: 1px solid var(--line-strong);
+      background: transparent;
+      transition: transform 80ms, background 80ms;
+    }
+    .beat-dot.downbeat { width: 1rem; height: 1rem; }
+    .beat-dot.on { background: var(--text); border-color: var(--text); transform: scale(1.25); }
+    @media (prefers-reduced-motion: reduce) {
+      .beat-dot { transition: none; }
+      .beat-dot.on { transform: none; }
+      #needle { transition: none; }
     }
   </style>
 </head>
 <body>
-  <main>
+  <header>
     <h1>Music Companion</h1>
-    <div id="tuner">
-      <div id="note" data-state="idle">–</div>
-      <div id="cents">press start</div>
-      <div id="freq"></div>
-      <div id="second"></div>
-      <div id="scale"><div id="needle"></div></div>
+    <nav role="tablist" aria-label="Sections">
+      <button class="tab-btn" role="tab" data-tab="tuner" aria-selected="true">tuner</button>
+      <button class="tab-btn" role="tab" data-tab="analyze" aria-selected="false">record &amp; analyze</button>
+      <button class="tab-btn" role="tab" data-tab="metronome" aria-selected="false">metronome</button>
+    </nav>
+    <div id="status"></div>
+  </header>
+
+  <!-- ================= tuner ================= -->
+  <section id="tab-tuner" class="tab-panel active" role="tabpanel">
+    <div class="column">
+      <div id="tuner">
+        <div id="note" data-state="idle">–</div>
+        <div id="cents">press start</div>
+        <div id="freq"></div>
+        <div id="second"></div>
+        <div id="scale"><div id="needle"></div></div>
+      </div>
+      <div class="row">
+        <button id="listen" class="ctl primary">Start tuner</button>
+        <button id="demo" class="ctl">Demo tone</button>
+      </div>
+      <div class="row">
+        <label for="drone-note">drone</label>
+        <select id="drone-note" aria-label="Drone note"></select>
+        <select id="drone-octave" aria-label="Drone octave">
+          <option value="1">oct 1</option>
+          <option value="2" selected>oct 2</option>
+          <option value="3">oct 3</option>
+          <option value="4">oct 4</option>
+        </select>
+        <button id="drone-toggle" class="ctl">Play</button>
+      </div>
+      <div class="row" id="calibration">
+        <label for="a4">A4 =</label>
+        <input id="a4" type="number" min="400" max="450" step="1" value="440" />
+        <label>Hz</label>
+      </div>
     </div>
-    <div id="scale-bar">
-      <select id="key" aria-label="Key"></select>
-      <select id="scale-type" aria-label="Scale type">
-        <option value="major" selected>major</option>
-        <option value="natural-minor">natural minor</option>
-        <option value="harmonic-minor">harmonic minor</option>
-        <option value="melodic-minor">melodic minor</option>
-      </select>
-      <select id="scale-octaves" aria-label="Octaves">
-        <option value="1" selected>1 octave</option>
-        <option value="2">2 octaves</option>
-        <option value="3">3 octaves</option>
-      </select>
-      <button id="scale-start">Start scale</button>
-      <button id="scale-demo">Demo scale</button>
+  </section>
+
+  <!-- ================= record & analyze ================= -->
+  <section id="tab-analyze" class="tab-panel" role="tabpanel">
+    <div class="column">
+      <div class="row" id="scale-bar">
+        <select id="key" aria-label="Key"></select>
+        <select id="scale-type" aria-label="Scale type">
+          <option value="major" selected>major</option>
+          <option value="natural-minor">natural minor</option>
+          <option value="harmonic-minor">harmonic minor</option>
+          <option value="melodic-minor">melodic minor</option>
+        </select>
+        <select id="scale-octaves" aria-label="Octaves">
+          <option value="1" selected>1 octave</option>
+          <option value="2">2 octaves</option>
+          <option value="3">3 octaves</option>
+        </select>
+      </div>
+      <div class="row">
+        <button id="start" class="ctl primary">Record</button>
+        <button id="scale-start" class="ctl">Start scale</button>
+        <button id="scale-demo" class="ctl">Demo scale</button>
+      </div>
     </div>
+    <div id="notes-row"></div>
     <div id="report">
       <div id="report-grid"></div>
       <div id="report-summary"></div>
@@ -317,34 +396,40 @@
         </div>
       </div>
     </div>
-    <div id="notes-row"></div>
-    <div class="controls">
-      <button id="start" class="primary">Start tuner</button>
-      <button id="demo">Demo tone</button>
-    </div>
-    <div id="status"></div>
     <div id="history">
       <h2>history</h2>
       <canvas id="trend" width="280" height="48"></canvas>
       <div id="trend-label"></div>
       <ol id="session-list"></ol>
     </div>
-    <div id="calibration">
-      <label for="a4">A4 =</label>
-      <input id="a4" type="number" min="400" max="450" step="1" value="440" />
-      <span>Hz</span>
-      <span class="cal-sep"></span>
-      <label for="drone-note">drone</label>
-      <select id="drone-note" aria-label="Drone note"></select>
-      <select id="drone-octave" aria-label="Drone octave">
-        <option value="1">oct 1</option>
-        <option value="2" selected>oct 2</option>
-        <option value="3">oct 3</option>
-        <option value="4">oct 4</option>
-      </select>
-      <button id="drone-toggle">Play</button>
+  </section>
+
+  <!-- ================= metronome ================= -->
+  <section id="tab-metronome" class="tab-panel" role="tabpanel">
+    <div class="column">
+      <div id="metro-card">
+        <div id="bpm-display">80</div>
+        <div id="tempo-name">Andante</div>
+        <input id="bpm-slider" type="range" min="30" max="240" value="80" aria-label="Beats per minute" />
+        <div class="row">
+          <button id="bpm-down" class="ctl" aria-label="Slower">−</button>
+          <button id="bpm-up" class="ctl" aria-label="Faster">+</button>
+          <button id="tap-tempo" class="ctl">Tap tempo</button>
+          <select id="beats-per-bar" aria-label="Beats per bar">
+            <option value="2">2 beats</option>
+            <option value="3">3 beats</option>
+            <option value="4" selected>4 beats</option>
+            <option value="5">5 beats</option>
+            <option value="6">6 beats</option>
+            <option value="7">7 beats</option>
+          </select>
+        </div>
+        <div id="beat-dots"></div>
+        <button id="metro-toggle" class="ctl primary">Start</button>
+      </div>
     </div>
-  </main>
+  </section>
+
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>
