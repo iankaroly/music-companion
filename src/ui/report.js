@@ -11,8 +11,39 @@ function degreeState(d) {
   return 'off';
 }
 
+// Playback of a single note from the session recording. Pad the start
+// generously: note times come from analysis windows, which trail the
+// actual audio onset slightly.
+const START_PAD = 0.35;
+const END_PAD = 0.15;
+
+let playbackCtx = null;
+let currentSource = null;
+
+function playNote(root, tile, recording, note) {
+  const segment = recording.extract(note.start - START_PAD, note.end + END_PAD);
+  if (segment.length === 0) return;
+
+  playbackCtx ??= new AudioContext();
+  currentSource?.stop();
+
+  const buffer = playbackCtx.createBuffer(1, segment.length, recording.sampleRate);
+  buffer.copyToChannel(segment, 0);
+  const source = playbackCtx.createBufferSource();
+  source.buffer = buffer;
+  source.connect(playbackCtx.destination);
+
+  for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
+  tile.classList.add('playing');
+  source.onended = () => tile.classList.remove('playing');
+  source.start();
+  currentSource = source;
+}
+
 // Renders the post-scale intonation report from a bestAlignment() result.
-export function renderReport(root, alignment) {
+// With a recording, each played tile becomes a button that replays that
+// note from the session audio.
+export function renderReport(root, alignment, recording = null) {
   const report = root.querySelector('#report');
   const grid = root.querySelector('#report-grid');
   const summary = root.querySelector('#report-summary');
@@ -28,6 +59,11 @@ export function renderReport(root, alignment) {
       ? `${d.played.cents >= 0 ? '+' : ''}${d.played.cents.toFixed(0)}¢`
       : 'missed';
     tile.innerHTML = `<b>${d.name}</b>${label}`;
+    if (recording && d.played) {
+      tile.classList.add('clickable');
+      tile.title = 'play this note back';
+      tile.addEventListener('click', () => playNote(root, tile, recording, d.played));
+    }
     grid.append(tile);
   }
 
@@ -40,6 +76,7 @@ export function renderReport(root, alignment) {
     parts.push(tempo.drift < -0.08 ? 'rushing' : tempo.drift > 0.08 ? 'dragging' : 'steady tempo');
   }
   if (missed > 0) parts.push(`${missed} missed`);
+  if (recording) parts.push('click a note to hear it');
   summary.textContent = parts.join(' · ');
 
   report.classList.add('visible');

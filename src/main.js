@@ -1,6 +1,7 @@
 import { startCapture } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
+import { Recorder } from './audio/recording.js';
 import { buildScale } from './analysis/scales.js';
 import { bestAlignment } from './analysis/scoring.js';
 import { Tuner } from './ui/tuner.js';
@@ -96,10 +97,16 @@ function stopEverything() {
 
 async function beginCapture(extra = {}) {
   let analyzer = null;
+  let recorder = null;
   const segmenter = new NoteSegmenter({ a4: currentA4() });
-  const session = await startCapture((chunk) => feed(analyzer, segmenter, chunk));
+  const session = await startCapture((chunk) => {
+    recorder?.push(chunk);
+    feed(analyzer, segmenter, chunk);
+  });
   analyzer = new Analyzer(session.sampleRate);
+  recorder = new Recorder(session.sampleRate);
   session.segmenter = segmenter;
+  session.recorder = recorder;
   Object.assign(session, extra);
   return session;
 }
@@ -128,11 +135,11 @@ startBtn.addEventListener('click', async () => {
 scaleStartBtn.addEventListener('click', async () => {
   if (capture?.scale) {
     // finish: flush the last note, detect the register, align, report
-    const { segmenter, scale, collected } = capture;
+    const { segmenter, scale, collected, recorder } = capture;
     for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
     const best = bestAlignment(scale, collected);
-    if (best) renderReport(document, best);
+    if (best) renderReport(document, best, recorder);
     else statusEl.textContent = 'no notes detected — try again closer to the mic';
     return;
   }
@@ -182,13 +189,15 @@ scaleDemoBtn.addEventListener('click', () => {
   });
 
   const audio = Float32Array.from(samples);
+  const recorder = new Recorder(sr);
+  recorder.push(audio);
   for (let i = 0; i < audio.length; i += 2048) {
     feed(analyzer, segmenter, audio.subarray(i, i + 2048), onNote);
   }
   for (const note of segmenter.flush()) onNote(note);
 
   const best = bestAlignment(spec, collected);
-  if (best) renderReport(document, best);
+  if (best) renderReport(document, best, recorder);
   statusEl.textContent = `demo: ${spec.key} ${spec.type}, degree ${SHARP_DEGREE + 1} played sharp on purpose`;
 });
 
