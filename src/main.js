@@ -79,9 +79,10 @@ function handleNote(note) {
   capture?.collected?.push(note);
 }
 
-function feed(analyzer, segmenter, chunk, onNote = handleNote) {
+function feed(analyzer, segmenter, chunk, onNote = handleNote, readings = null) {
   for (const reading of analyzer.push(chunk)) {
     tuner.update(reading);
+    readings?.push(reading);
     for (const note of segmenter.push(reading)) onNote(note);
   }
 }
@@ -101,10 +102,11 @@ function stopEverything() {
 async function beginCapture(extra = {}) {
   let analyzer = null;
   let recorder = null;
+  const readings = [];
   const segmenter = new NoteSegmenter({ a4: currentA4() });
   const session = await startCapture((chunk) => {
     recorder?.push(chunk);
-    feed(analyzer, segmenter, chunk);
+    feed(analyzer, segmenter, chunk, handleNote, readings);
   });
   // Free play listens for double stops; scale mode stays monophonic for
   // clean alignment data. Dual detection costs several YIN passes per hop,
@@ -115,6 +117,7 @@ async function beginCapture(extra = {}) {
   recorder = new Recorder(session.sampleRate);
   session.segmenter = segmenter;
   session.recorder = recorder;
+  session.readings = readings;
   Object.assign(session, extra);
   return session;
 }
@@ -124,10 +127,12 @@ async function beginCapture(extra = {}) {
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.scale) {
     // finish free play: review everything played, with replay
-    const { segmenter, collected, recorder } = capture;
+    const { segmenter, collected, recorder, readings } = capture;
     for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
-    if (collected.length > 0) renderFreeReview(document, collected, recorder);
+    if (collected.length > 0) {
+      renderFreeReview(document, collected, recorder, { readings, a4: currentA4() });
+    }
     return;
   }
   stopEverything();
@@ -147,12 +152,12 @@ startBtn.addEventListener('click', async () => {
 scaleStartBtn.addEventListener('click', async () => {
   if (capture?.scale) {
     // finish: flush the last note, detect the register, align, report
-    const { segmenter, scale, collected, recorder } = capture;
+    const { segmenter, scale, collected, recorder, readings } = capture;
     for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
     const best = bestAlignment(scale, collected);
     if (best) {
-      renderReport(document, best, recorder);
+      renderReport(document, best, recorder, { readings, a4: currentA4() });
       recordSession(scale, best);
     } else {
       statusEl.textContent = 'no notes detected — try again closer to the mic';
@@ -186,6 +191,7 @@ scaleDemoBtn.addEventListener('click', () => {
   const analyzer = new Analyzer(sr);
   const segmenter = new NoteSegmenter({ a4 });
   const collected = [];
+  const demoReadings = [];
   const onNote = (note) => { addNoteChip(note); collected.push(note); };
 
   const SHARP_DEGREE = 3, SHARP_CENTS = 25;
@@ -208,12 +214,12 @@ scaleDemoBtn.addEventListener('click', () => {
   const recorder = new Recorder(sr);
   recorder.push(audio);
   for (let i = 0; i < audio.length; i += 2048) {
-    feed(analyzer, segmenter, audio.subarray(i, i + 2048), onNote);
+    feed(analyzer, segmenter, audio.subarray(i, i + 2048), onNote, demoReadings);
   }
   for (const note of segmenter.flush()) onNote(note);
 
   const best = bestAlignment(spec, collected);
-  if (best) renderReport(document, best, recorder);
+  if (best) renderReport(document, best, recorder, { readings: demoReadings, a4 });
   statusEl.textContent = `demo: ${spec.key} ${spec.type}, degree ${SHARP_DEGREE + 1} played sharp on purpose`;
 });
 

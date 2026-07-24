@@ -128,6 +128,23 @@
     .degree.clickable:hover { border-color: var(--dim); }
     .degree.playing { outline: 2px solid var(--text); outline-offset: 1px; }
     #report-summary { color: var(--dim); font-size: 0.85rem; }
+    #playback { margin-top: 1rem; border-top: 1px solid #2e2a25; padding-top: 1rem; }
+    #pitch-chart { width: 100%; height: 110px; display: block; }
+    #playback-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      align-items: center;
+      margin-top: 0.6rem;
+      font-size: 0.8rem;
+      color: var(--dim);
+    }
+    #playback-controls button {
+      font-size: 0.75rem;
+      padding: 0.25rem 0.6rem;
+      border-radius: 0.4rem;
+    }
+    #playback-speed button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
     #notes-row {
       display: flex;
       flex-wrap: wrap;
@@ -234,6 +251,18 @@
     <div id="report">
       <div id="report-grid"></div>
       <div id="report-summary"></div>
+      <div id="playback" hidden>
+        <canvas id="pitch-chart"></canvas>
+        <div id="playback-controls">
+          <span id="playback-label"></span>
+          <span id="playback-speed">
+            <button data-speed="1" class="active">1×</button>
+            <button data-speed="0.75">¾×</button>
+            <button data-speed="0.5">½×</button>
+          </span>
+          <button id="compare" hidden></button>
+        </div>
+      </div>
     </div>
     <div id="notes-row"></div>
     <div class="controls">
