@@ -51,6 +51,14 @@ export function bestAlignment({ key, type, octaves }, playedNotes) {
   return best;
 }
 
+// Mean absolute intonation error across the degrees that were played —
+// the single number tracked over time in session history.
+export function avgAbsCents(degrees) {
+  const played = degrees.filter((d) => d.played);
+  if (played.length === 0) return null;
+  return played.reduce((sum, d) => sum + Math.abs(d.played.cents), 0) / played.length;
+}
+
 // Rhythm summary from matched-note onset times.
 // evenness: 1 - coefficient of variation of inter-onset intervals (1 = metronomic).
 // drift: relative change in interval length from the first third to the last

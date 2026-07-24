@@ -67,7 +67,9 @@ export function renderReport(root, alignment, recording = null) {
     grid.append(tile);
   }
 
-  const parts = [`from ${tonic}`, `${matched}/${degrees.length} notes`];
+  const parts = [];
+  if (tonic) parts.push(`from ${tonic}`);
+  parts.push(`${matched}/${degrees.length} notes`);
   const onsets = degrees.filter((d) => d.played).map((d) => d.played.start);
   const tempo = tempoStats(onsets);
   if (tempo) {
@@ -84,4 +86,11 @@ export function renderReport(root, alignment, recording = null) {
 
 export function hideReport(root) {
   root.querySelector('#report').classList.remove('visible');
+}
+
+// Free-play review: every detected note as a replayable tile, no expected
+// scale to align against.
+export function renderFreeReview(root, notes, recording) {
+  const degrees = notes.map((n) => ({ midi: n.midi, name: n.name, played: n }));
+  renderReport(root, { degrees, matched: notes.length, missed: 0, tonic: null }, recording);
 }

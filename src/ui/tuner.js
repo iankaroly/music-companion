@@ -8,19 +8,22 @@ export class Tuner {
   constructor(root) {
     this.noteEl = root.querySelector('#note');
     this.centsEl = root.querySelector('#cents');
+    this.secondEl = root.querySelector('#second');
     this.freqEl = root.querySelector('#freq');
     this.needleEl = root.querySelector('#needle');
     this.smoothedCents = 0;
     this.a4 = 440;
   }
 
-  update({ frequency, confidence, rms }) {
+  update(arg) {
+    const { frequency, confidence, rms } = arg;
     const heard = frequency !== null && confidence >= CONFIDENCE_FLOOR && rms >= RMS_FLOOR;
     if (!heard) {
       this.noteEl.textContent = '–';
       this.noteEl.dataset.state = 'idle';
       this.centsEl.textContent = 'listening';
       this.freqEl.textContent = '';
+      this.secondEl.textContent = '';
       this.needleEl.style.setProperty('--cents', '0');
       return;
     }
@@ -34,5 +37,15 @@ export class Tuner {
     this.centsEl.textContent = `${c >= 0 ? '+' : ''}${c.toFixed(1)} cents`;
     this.freqEl.textContent = `${frequency.toFixed(1)} Hz`;
     this.needleEl.style.setProperty('--cents', String(Math.max(-50, Math.min(50, c))));
+
+    // Double stop: show the second string's note alongside.
+    const sec = arg.secondary;
+    if (sec?.frequency && sec.confidence >= CONFIDENCE_FLOOR) {
+      const s = freqToNote(sec.frequency, this.a4);
+      this.secondEl.textContent =
+        `double stop: + ${s.name} ${s.cents >= 0 ? '+' : ''}${s.cents.toFixed(0)}¢`;
+    } else {
+      this.secondEl.textContent = '';
+    }
   }
 }

@@ -4,8 +4,11 @@ import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder } from './audio/recording.js';
 import { buildScale } from './analysis/scales.js';
 import { bestAlignment } from './analysis/scoring.js';
+import { avgAbsCents, tempoStats } from './analysis/scoring.js';
 import { Tuner } from './ui/tuner.js';
-import { renderReport, hideReport } from './ui/report.js';
+import { renderReport, renderFreeReview, hideReport } from './ui/report.js';
+import { renderHistory } from './ui/history.js';
+import { saveSession, listSessions } from './store/db.js';
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
@@ -103,7 +106,12 @@ async function beginCapture(extra = {}) {
     recorder?.push(chunk);
     feed(analyzer, segmenter, chunk);
   });
-  analyzer = new Analyzer(session.sampleRate);
+  // Free play listens for double stops; scale mode stays monophonic for
+  // clean alignment data. Dual detection costs several YIN passes per hop,
+  // so free play analyzes at a longer hop.
+  analyzer = extra.scale
+    ? new Analyzer(session.sampleRate)
+    : new Analyzer(session.sampleRate, { dual: true, hopSize: 2048 });
   recorder = new Recorder(session.sampleRate);
   session.segmenter = segmenter;
   session.recorder = recorder;
@@ -115,14 +123,18 @@ async function beginCapture(extra = {}) {
 
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.scale) {
+    // finish free play: review everything played, with replay
+    const { segmenter, collected, recorder } = capture;
+    for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
+    if (collected.length > 0) renderFreeReview(document, collected, recorder);
     return;
   }
   stopEverything();
   hideReport(document);
   try {
     notesRow.replaceChildren();
-    capture = await beginCapture();
+    capture = await beginCapture({ collected: [] });
     startBtn.textContent = 'Stop';
     statusEl.textContent = 'listening to mic';
   } catch (err) {
@@ -139,8 +151,12 @@ scaleStartBtn.addEventListener('click', async () => {
     for (const note of segmenter.flush()) collected.push(note);
     stopEverything();
     const best = bestAlignment(scale, collected);
-    if (best) renderReport(document, best, recorder);
-    else statusEl.textContent = 'no notes detected — try again closer to the mic';
+    if (best) {
+      renderReport(document, best, recorder);
+      recordSession(scale, best);
+    } else {
+      statusEl.textContent = 'no notes detected — try again closer to the mic';
+    }
     return;
   }
   stopEverything();
@@ -200,6 +216,41 @@ scaleDemoBtn.addEventListener('click', () => {
   if (best) renderReport(document, best, recorder);
   statusEl.textContent = `demo: ${spec.key} ${spec.type}, degree ${SHARP_DEGREE + 1} played sharp on purpose`;
 });
+
+// --- session history -------------------------------------------------------
+
+function specKey(spec) {
+  return `${spec.key} ${spec.type} ×${spec.octaves}`;
+}
+
+async function refreshHistory() {
+  try {
+    renderHistory(document, await listSessions(), specKey(currentSpec()));
+  } catch { /* private browsing or blocked IndexedDB — history just stays hidden */ }
+}
+
+async function recordSession(spec, alignment) {
+  const onsets = alignment.degrees.filter((d) => d.played).map((d) => d.played.start);
+  const tempo = tempoStats(onsets);
+  try {
+    await saveSession({
+      date: Date.now(),
+      specKey: specKey(spec),
+      tonic: alignment.tonic,
+      matched: alignment.matched,
+      total: alignment.degrees.length,
+      avgAbsCents: avgAbsCents(alignment.degrees),
+      evenness: tempo?.evenness ?? null,
+      bpm: tempo?.bpm ?? null,
+    });
+  } catch { /* same: history is best-effort */ }
+  refreshHistory();
+}
+
+for (const sel of ['#key', '#scale-type', '#scale-octaves']) {
+  document.querySelector(sel).addEventListener('change', refreshHistory);
+}
+refreshHistory();
 
 // --- open-strings demo tone ------------------------------------------------
 

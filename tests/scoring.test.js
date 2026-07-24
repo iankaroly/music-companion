@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { alignScale, bestAlignment, tempoStats } from '../src/analysis/scoring.js';
+import { alignScale, bestAlignment, tempoStats, avgAbsCents } from '../src/analysis/scoring.js';
 import { buildScale } from '../src/analysis/scales.js';
 
 function played(midi, cents, start) {
@@ -67,6 +67,22 @@ describe('bestAlignment', () => {
 
   test('no notes yields null', () => {
     expect(bestAlignment({ key: 'D', type: 'major', octaves: 1 }, [])).toBeNull();
+  });
+});
+
+describe('avgAbsCents', () => {
+  test('averages absolute cents over played degrees only', () => {
+    const degrees = [
+      { played: { cents: 10 } },
+      { played: { cents: -20 } },
+      { played: null },
+      { played: { cents: 0 } },
+    ];
+    expect(avgAbsCents(degrees)).toBeCloseTo(10, 5);
+  });
+
+  test('returns null when nothing was played', () => {
+    expect(avgAbsCents([{ played: null }])).toBeNull();
   });
 });
 

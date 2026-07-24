@@ -32,6 +32,35 @@ describe('Analyzer', () => {
     expect(last.time).toBeCloseTo(8192 / SR, 3);
   });
 
+  test('dual mode reports both notes of a double stop in each reading', () => {
+    const a = new Analyzer(SR, { windowSize: 4096, hopSize: 1024, dual: true });
+    const readings = [];
+    const total = 8192;
+    for (let start = 0; start < total; start += 128) {
+      const buf = new Float32Array(128);
+      for (let h = 1; h <= 12; h++) {
+        for (let i = 0; i < 128; i++) {
+          const t = (start + i) / SR;
+          buf[i] += (0.4 / h) * Math.sin(2 * Math.PI * 146.83 * h * t)
+                  + (0.35 / h) * Math.sin(2 * Math.PI * 220 * h * t);
+        }
+      }
+      readings.push(...a.push(buf));
+    }
+    const last = readings.at(-1);
+    const freqs = [last.frequency, last.secondary?.frequency].filter(Boolean).sort((x, y) => x - y);
+    expect(freqs.length).toBe(2);
+    expect(Math.abs(1200 * Math.log2(freqs[0] / 146.83))).toBeLessThan(15);
+    expect(Math.abs(1200 * Math.log2(freqs[1] / 220))).toBeLessThan(15);
+  });
+
+  test('mono mode readings have no secondary field set', () => {
+    const a = new Analyzer(SR, { windowSize: 4096, hopSize: 1024 });
+    const readings = [];
+    for (const c of sineChunks(220, 8192)) readings.push(...a.push(c));
+    expect(readings.at(-1).secondary).toBeNull();
+  });
+
   test('silence produces readings with null frequency and near-zero rms', () => {
     const a = new Analyzer(SR, { windowSize: 4096, hopSize: 1024 });
     const readings = [];
