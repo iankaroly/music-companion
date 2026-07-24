@@ -10,15 +10,15 @@ import { findNoteAt, intonationStatus } from './chart-utils.js';
 // sweeping cursor during playback, so you can see exactly when the note
 // you're studying is sounding.
 
-const INK = '#ece7df';
-const MUTED = '#8d8578';
-const GRID = '#2e2a25';
-const GOOD = '#7fc98f';
-const STATUS_LINE = { good: '#7fc98f', off: '#e0a458', bad: '#d97b6c' };
+const INK = '#33261b';
+const MUTED = '#8a7a68';
+const GRID = '#eae1cf';
+const GOOD = '#3f9d63';
+const STATUS_LINE = { good: '#3f9d63', off: '#d9862a', bad: '#c8524a' };
 const STATUS_SPAN = {
-  good: 'rgba(127, 201, 143, 0.10)',
-  off: 'rgba(224, 164, 88, 0.16)',
-  bad: 'rgba(217, 123, 108, 0.18)',
+  good: 'rgba(63, 157, 99, 0.12)',
+  off: 'rgba(217, 134, 42, 0.14)',
+  bad: 'rgba(200, 82, 74, 0.14)',
 };
 const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
 const FONT = '12px system-ui, sans-serif';
@@ -81,7 +81,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
     const y = (dev) => PAD.top + (1 - (dev + CLAMP) / (2 * CLAMP)) * h;
 
-    ctx.fillStyle = 'rgba(236, 231, 223, 0.06)';
+    ctx.fillStyle = 'rgba(51, 38, 27, 0.05)';
     ctx.fillRect(x(note.start), PAD.top, x(note.end) - x(note.start), h);
 
     ctx.font = FONT;

@@ -15,13 +15,13 @@ function drawTrend(canvas, values) {
   const x = (i) => pad + (i / (values.length - 1)) * (w - 2 * pad);
   const y = (v) => h - pad - (v / max) * (h - 2 * pad);
 
-  ctx.strokeStyle = '#8d8578';
+  ctx.strokeStyle = '#b09a7d';
   ctx.lineWidth = 1.5;
   ctx.beginPath();
   values.forEach((v, i) => (i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v))));
   ctx.stroke();
 
-  ctx.fillStyle = '#ece7df';
+  ctx.fillStyle = '#33261b';
   values.forEach((v, i) => {
     ctx.beginPath();
     ctx.arc(x(i), y(v), 2, 0, 2 * Math.PI);

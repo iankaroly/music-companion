@@ -7,143 +7,150 @@
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎻</text></svg>" />
   <style>
     :root {
-      color-scheme: dark;
-      /* the practice room after dark: fingerboard, case lining, rosin, parchment */
-      --bg: #12100e;
-      --panel: #1c1916;
-      --panel-2: #232019;
-      --line: #2e2a25;
-      --line-strong: #3a352e;
-      --text: #ece7df;
-      --dim: #8d8578;
-      --good: #7fc98f;
-      --off: #e0a458;
-      --bad: #d97b6c;
+      color-scheme: light;
+      /* concert-program ivory, velvet burgundy, brass, espresso ink */
+      --paper: #f6f1e7;
+      --card: #fffdf7;
+      --card-2: #f3ecdd;
+      --ink: #33261b;
+      --muted: #8a7a68;
+      --line: #e6dcc8;
+      --line-strong: #d5c8ae;
+      --burgundy: #8e3b46;
+      --burgundy-deep: #74303a;
+      --brass: #b98a2f;
+      --good: #3f9d63;
+      --off: #d9862a;
+      --bad: #c8524a;
+      --good-soft: #e3f1e7;
+      --off-soft: #f9ecdb;
+      --bad-soft: #f7e3e0;
       --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
       --ui: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
+      --shadow: 0 1px 2px rgba(51, 38, 27, 0.06), 0 4px 16px rgba(51, 38, 27, 0.07);
     }
     * { margin: 0; box-sizing: border-box; }
     body {
-      background: var(--bg);
-      color: var(--text);
+      background:
+        radial-gradient(90rem 40rem at 50% -20rem, #fdf9f0, transparent),
+        var(--paper);
+      color: var(--ink);
       font-family: var(--ui);
       min-height: 100vh;
     }
-    button, select, input { font-family: var(--ui); }
-    :focus-visible { outline: 2px solid var(--dim); outline-offset: 2px; }
+    button, select, input { font-family: var(--ui); color: var(--ink); }
+    :focus-visible { outline: 2px solid var(--burgundy); outline-offset: 2px; }
 
     /* ---- header & tabs ---- */
     header {
       display: flex;
-      flex-wrap: wrap;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 1rem;
-      padding: 1.4rem clamp(1rem, 4vw, 3rem) 0;
-      max-width: 72rem;
-      margin: 0 auto;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.1rem;
+      padding: 2rem 1rem 0.5rem;
     }
     h1 {
-      font-size: 0.85rem;
-      letter-spacing: 0.35em;
+      font-size: 0.9rem;
+      letter-spacing: 0.38em;
       text-transform: uppercase;
-      color: var(--dim);
-      font-weight: 500;
+      color: var(--ink);
+      font-weight: 600;
     }
-    nav[role="tablist"] { display: flex; gap: 1.6rem; }
+    h1 span { color: var(--brass); }
+    nav[role="tablist"] {
+      display: flex;
+      background: var(--card-2);
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 0.3rem;
+      gap: 0.2rem;
+    }
     .tab-btn {
       background: none;
       border: none;
-      color: var(--dim);
-      font-size: 0.9rem;
-      letter-spacing: 0.04em;
+      border-radius: 999px;
+      color: var(--muted);
+      font-size: 0.88rem;
+      font-weight: 500;
       cursor: pointer;
-      padding: 0.3rem 0;
-      border-bottom: 1px solid transparent;
+      padding: 0.5rem 1.15rem;
+      transition: color 120ms, background 120ms;
     }
-    .tab-btn:hover { color: var(--text); }
+    .tab-btn:hover { color: var(--ink); }
     .tab-btn[aria-selected="true"] {
-      color: var(--text);
-      border-bottom-color: var(--text);
+      background: var(--card);
+      color: var(--ink);
+      box-shadow: var(--shadow);
     }
-    #status {
-      width: 100%;
-      text-align: right;
-      color: var(--dim);
-      font-size: 0.78rem;
-      min-height: 1.2em;
-    }
+    #status { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; }
 
     /* ---- tab panels ---- */
-    .tab-panel { display: none; padding: 1.6rem clamp(1rem, 4vw, 3rem) 3rem; max-width: 72rem; margin: 0 auto; }
+    .tab-panel { display: none; padding: 1.2rem clamp(1rem, 4vw, 3rem) 3rem; max-width: 72rem; margin: 0 auto; }
     .tab-panel.active { display: block; }
-    .column { width: min(30rem, 100%); margin: 0 auto; text-align: center; }
-
-    /* ---- shared controls ---- */
-    button.ctl, .tab-panel select, .tab-panel input[type="number"] {
-      font-size: 0.85rem;
-      background: var(--panel);
-      color: var(--text);
-      border: 1px solid var(--line-strong);
-      border-radius: 0.55rem;
-      padding: 0.45rem 0.9rem;
-      cursor: pointer;
-    }
-    .tab-panel select, .tab-panel input[type="number"] { cursor: auto; }
-    button.ctl:hover { border-color: var(--dim); }
-    button.ctl.primary, button.ctl.active { background: var(--text); color: var(--bg); border-color: var(--text); }
-
-    /* ---- tuner ---- */
-    #tuner {
-      background: var(--panel);
+    .column { width: min(32rem, 100%); margin: 0 auto; text-align: center; }
+    .card {
+      background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 1.1rem;
-      padding: 2.8rem 2rem 2.2rem;
-      margin-bottom: 1.4rem;
-      position: relative;
+      border-radius: 1.4rem;
+      box-shadow: var(--shadow);
     }
-    #note {
-      font-family: var(--display);
-      font-size: 7rem;
-      font-weight: 400;
-      line-height: 1;
-      font-variant-numeric: tabular-nums;
-      transition: color 120ms;
+
+    /* ---- buttons ---- */
+    button.ctl {
+      font-size: 0.9rem;
+      font-weight: 500;
+      background: var(--card);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0.6rem 1.35rem;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.06);
+      transition: transform 100ms, box-shadow 100ms, background 120ms;
     }
-    #note[data-state="good"] { color: var(--good); }
-    #note[data-state="off"] { color: var(--off); }
-    #note[data-state="idle"] { color: var(--dim); }
-    #cents { color: var(--dim); margin-top: 0.9rem; font-size: 1rem; min-height: 1.3em; }
-    #freq { color: var(--dim); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.2rem; }
-    #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.3rem; }
-    #scale {
-      position: relative;
-      height: 2.5rem;
-      margin-top: 1.75rem;
-      border-top: 1px solid var(--line);
+    button.ctl:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+    button.ctl:active { transform: translateY(0); }
+    button.ctl.primary, button.ctl.active {
+      background: var(--burgundy);
+      border-color: var(--burgundy);
+      color: #fdf6ef;
     }
-    #scale::before {
-      content: "";
-      position: absolute;
-      left: 50%; top: 0;
-      width: 1px; height: 1rem;
-      background: var(--dim);
-    }
-    #needle {
-      --cents: 0;
-      position: absolute;
-      top: 0.1rem;
-      left: calc(50% + (var(--cents) / 50) * 45%);
-      width: 3px; height: 1.6rem;
-      border-radius: 2px;
-      background: var(--text);
-      transform: translateX(-50%);
-      transition: left 90ms linear;
+    button.ctl.primary:hover, button.ctl.active:hover { background: var(--burgundy-deep); }
+    .tab-panel select, .tab-panel input[type="number"] {
+      font-size: 0.88rem;
+      background: var(--card);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0.5rem 0.9rem;
     }
     .row { display: flex; flex-wrap: wrap; gap: 0.6rem; justify-content: center; align-items: center; }
     .row + .row { margin-top: 1rem; }
-    .row label { color: var(--dim); font-size: 0.8rem; }
-    #a4 { width: 4rem; text-align: center; }
+    .row label { color: var(--muted); font-size: 0.82rem; }
+    #a4 { width: 4.6rem; text-align: center; }
+
+    /* ---- tuner gauge ---- */
+    #tuner { padding: 2.2rem 1.6rem 1.8rem; margin-bottom: 1.4rem; position: relative; }
+    #gauge-wrap { position: relative; max-width: 24rem; margin: 0 auto; }
+    #gauge-svg { width: 100%; display: block; }
+    #needle-g { transform-origin: 150px 150px; transition: transform 100ms cubic-bezier(0.2, 0.6, 0.3, 1); }
+    @media (prefers-reduced-motion: reduce) { #needle-g { transition: none; } }
+    #note {
+      position: absolute;
+      left: 0; right: 0;
+      top: 56%;
+      font-family: var(--display);
+      font-size: 3.6rem;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+      transition: color 120ms;
+      pointer-events: none;
+    }
+    #note[data-state="good"] { color: var(--good); }
+    #note[data-state="off"] { color: var(--off); }
+    #note[data-state="idle"] { color: var(--muted); }
+    #cents { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; min-height: 1.3em; }
+    #freq { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.15rem; }
+    #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; }
 
     /* ---- record & analyze ---- */
     #scale-bar { margin-bottom: 1.1rem; }
@@ -157,51 +164,46 @@
       max-width: 60rem;
     }
     .note-chip {
-      background: var(--panel);
+      background: var(--card);
       border: 1px solid var(--line-strong);
-      border-radius: 0.5rem;
-      padding: 0.3rem 0.6rem;
+      border-radius: 999px;
+      padding: 0.3rem 0.7rem;
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
+      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.05);
     }
-    .note-chip[data-state="good"] { border-color: var(--good); color: var(--good); }
-    .note-chip[data-state="off"] { border-color: var(--off); color: var(--off); }
-    .note-chip[data-state="bad"] { border-color: var(--bad); color: var(--bad); }
+    .note-chip[data-state="good"] { background: var(--good-soft); border-color: var(--good); color: var(--good); }
+    .note-chip[data-state="off"] { background: var(--off-soft); border-color: var(--off); color: var(--off); }
+    .note-chip[data-state="bad"] { background: var(--bad-soft); border-color: var(--bad); color: var(--bad); }
     .note-chip.chord, .degree.chord { border-style: dashed; }
 
-    #report {
-      display: none;
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 1.1rem;
-      padding: 1.5rem;
-      margin: 0 auto 1.5rem;
-      text-align: left;
-    }
+    #report { display: none; padding: 1.6rem; margin: 0 auto 1.5rem; text-align: left; }
     #report.visible { display: block; }
-    #report-grid { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 1rem; }
+    #report-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1rem; }
     .degree {
       border: 1px solid var(--line-strong);
-      border-radius: 0.5rem;
-      padding: 0.35rem 0.5rem;
+      background: var(--card);
+      border-radius: 0.7rem;
+      padding: 0.4rem 0.55rem;
       font-size: 0.8rem;
       text-align: center;
-      min-width: 3.2rem;
+      min-width: 3.4rem;
       font-variant-numeric: tabular-nums;
+      color: var(--muted);
     }
-    .degree b { display: block; font-weight: 500; font-size: 0.95rem; }
-    .degree[data-state="good"] { border-color: var(--good); }
+    .degree b { display: block; font-weight: 600; font-size: 0.98rem; }
+    .degree[data-state="good"] { background: var(--good-soft); border-color: var(--good); }
     .degree[data-state="good"] b { color: var(--good); }
-    .degree[data-state="off"] { border-color: var(--off); }
+    .degree[data-state="off"] { background: var(--off-soft); border-color: var(--off); }
     .degree[data-state="off"] b { color: var(--off); }
-    .degree[data-state="bad"] { border-color: var(--bad); }
+    .degree[data-state="bad"] { background: var(--bad-soft); border-color: var(--bad); }
     .degree[data-state="bad"] b { color: var(--bad); }
-    .degree[data-state="missed"] { opacity: 0.4; }
-    .degree.peek { border-color: var(--dim); background: var(--panel-2); }
-    .degree.clickable { cursor: pointer; }
-    .degree.clickable:hover { border-color: var(--dim); }
-    .degree.playing { outline: 2px solid var(--text); outline-offset: 1px; }
-    #report-summary { color: var(--dim); font-size: 0.85rem; }
+    .degree[data-state="missed"] { opacity: 0.45; }
+    .degree.peek { border-color: var(--ink); }
+    .degree.clickable { cursor: pointer; transition: transform 100ms, box-shadow 100ms; }
+    .degree.clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
+    .degree.playing { outline: 2px solid var(--burgundy); outline-offset: 1px; }
+    #report-summary { color: var(--muted); font-size: 0.85rem; }
     #playback { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem; }
     #pitch-chart { width: 100%; height: clamp(240px, 42vh, 340px); display: block; }
     #playback-controls {
@@ -211,26 +213,24 @@
       align-items: center;
       margin-top: 0.7rem;
       font-size: 0.8rem;
-      color: var(--dim);
+      color: var(--muted);
     }
     #playback-controls button {
-      font-size: 0.75rem;
-      background: var(--panel);
-      color: var(--text);
+      font-size: 0.78rem;
+      background: var(--card);
       border: 1px solid var(--line-strong);
-      border-radius: 0.4rem;
-      padding: 0.25rem 0.6rem;
+      border-radius: 999px;
+      padding: 0.3rem 0.75rem;
       cursor: pointer;
     }
-    #playback-controls button:hover { border-color: var(--dim); }
-    #playback-controls button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+    #playback-controls button:hover { border-color: var(--ink); }
+    #playback-controls button.active { background: var(--burgundy); color: #fdf6ef; border-color: var(--burgundy); }
     #ref-octave, #ref-interval {
-      font-size: 0.75rem;
-      background: var(--panel);
-      color: var(--text);
+      font-size: 0.78rem;
+      background: var(--card);
       border: 1px solid var(--line-strong);
-      border-radius: 0.4rem;
-      padding: 0.25rem 0.4rem;
+      border-radius: 999px;
+      padding: 0.3rem 0.6rem;
     }
 
     #history {
@@ -245,15 +245,15 @@
       font-size: 0.75rem;
       letter-spacing: 0.3em;
       text-transform: uppercase;
-      color: var(--dim);
-      font-weight: 500;
+      color: var(--brass);
+      font-weight: 600;
       margin-bottom: 0.75rem;
     }
-    #trend-label { color: var(--dim); font-size: 0.75rem; margin: 0.25rem 0 0.75rem; }
+    #trend-label { color: var(--muted); font-size: 0.75rem; margin: 0.25rem 0 0.75rem; }
     #session-list {
       list-style: none;
       padding: 0;
-      color: var(--dim);
+      color: var(--muted);
       font-size: 0.8rem;
       display: grid;
       gap: 0.3rem;
@@ -261,44 +261,38 @@
     }
 
     /* ---- metronome ---- */
-    #metro-card {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 1.1rem;
-      padding: 2.6rem 2rem 2.2rem;
-    }
+    #metro-card { padding: 2.4rem 2rem 2rem; }
     #bpm-display {
       font-family: var(--display);
-      font-size: 6.5rem;
+      font-size: 6.2rem;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    #tempo-name { color: var(--dim); font-size: 1rem; margin-top: 0.5rem; font-style: italic; font-family: var(--display); }
-    #bpm-slider { width: 100%; margin: 1.8rem 0 1.2rem; accent-color: var(--text); }
-    #beat-dots { display: flex; gap: 0.9rem; justify-content: center; margin: 1.4rem 0 1.6rem; min-height: 1.2rem; }
+    #tempo-name { color: var(--brass); font-size: 1.05rem; margin-top: 0.4rem; font-style: italic; font-family: var(--display); }
+    #bpm-slider { width: 100%; margin: 1.7rem 0 1.2rem; accent-color: var(--burgundy); }
+    #beat-dots { display: flex; gap: 0.9rem; justify-content: center; align-items: center; margin: 1.4rem 0 1.6rem; min-height: 1.2rem; }
     .beat-dot {
       width: 0.8rem; height: 0.8rem;
       border-radius: 50%;
-      border: 1px solid var(--line-strong);
-      background: transparent;
+      border: 1.5px solid var(--line-strong);
+      background: var(--card);
       transition: transform 80ms, background 80ms;
     }
-    .beat-dot.downbeat { width: 1rem; height: 1rem; }
-    .beat-dot.on { background: var(--text); border-color: var(--text); transform: scale(1.25); }
+    .beat-dot.downbeat { width: 1rem; height: 1rem; border-color: var(--brass); }
+    .beat-dot.on { background: var(--burgundy); border-color: var(--burgundy); transform: scale(1.3); }
     @media (prefers-reduced-motion: reduce) {
       .beat-dot { transition: none; }
       .beat-dot.on { transform: none; }
-      #needle { transition: none; }
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>Music Companion</h1>
+    <h1>Music <span>·</span> Companion</h1>
     <nav role="tablist" aria-label="Sections">
-      <button class="tab-btn" role="tab" data-tab="tuner" aria-selected="true">tuner</button>
-      <button class="tab-btn" role="tab" data-tab="analyze" aria-selected="false">record &amp; analyze</button>
-      <button class="tab-btn" role="tab" data-tab="metronome" aria-selected="false">metronome</button>
+      <button class="tab-btn" role="tab" data-tab="tuner" aria-selected="true">Tuner</button>
+      <button class="tab-btn" role="tab" data-tab="analyze" aria-selected="false">Record &amp; analyze</button>
+      <button class="tab-btn" role="tab" data-tab="metronome" aria-selected="false">Metronome</button>
     </nav>
     <div id="status"></div>
   </header>
@@ -306,12 +300,14 @@
   <!-- ================= tuner ================= -->
   <section id="tab-tuner" class="tab-panel active" role="tabpanel">
     <div class="column">
-      <div id="tuner">
-        <div id="note" data-state="idle">–</div>
+      <div id="tuner" class="card">
+        <div id="gauge-wrap">
+          <svg id="gauge-svg" viewBox="0 0 300 170" aria-hidden="true"></svg>
+          <div id="note" data-state="idle">–</div>
+        </div>
         <div id="cents">press start</div>
         <div id="freq"></div>
         <div id="second"></div>
-        <div id="scale"><div id="needle"></div></div>
       </div>
       <div class="row">
         <button id="listen" class="ctl primary">Start tuner</button>
@@ -360,7 +356,7 @@
       </div>
     </div>
     <div id="notes-row"></div>
-    <div id="report">
+    <div id="report" class="card">
       <div id="report-grid"></div>
       <div id="report-summary"></div>
       <div id="playback" hidden>
@@ -407,7 +403,7 @@
   <!-- ================= metronome ================= -->
   <section id="tab-metronome" class="tab-panel" role="tabpanel">
     <div class="column">
-      <div id="metro-card">
+      <div id="metro-card" class="card">
         <div id="bpm-display">80</div>
         <div id="tempo-name">Andante</div>
         <input id="bpm-slider" type="range" min="30" max="240" value="80" aria-label="Beats per minute" />
