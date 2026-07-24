@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import { Recorder } from '../src/audio/recording.js';
-import { buildEmphasizedClip, buildComparisonClip, buildLoopClip, findComparisonNote } from '../src/audio/clips.js';
+import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../src/audio/clips.js';
 
 function constantRecording(sampleRate, seconds, value) {
   const r = new Recorder(sampleRate);
@@ -40,34 +40,6 @@ describe('buildComparisonClip', () => {
     expect(clip.samples[50]).toBeCloseTo(2, 5);   // inside reference
     expect(clip.samples[125]).toBeCloseTo(0, 5);  // inside gap
     expect(clip.samples[200]).toBeCloseTo(2, 5);  // inside target
-  });
-});
-
-describe('buildLoopClip', () => {
-  test('uses the stable middle of the note and stays constant for constant input', () => {
-    const rec = constantRecording(100, 10, 1);
-    const clip = buildLoopClip(rec, { start: 2, end: 6 }, { trimFraction: 0.25, crossfadeSec: 0.1 });
-    // 4s note, 25% trimmed each side → 2s kept, minus 0.1s crossfade tail
-    expect(clip.samples.length).toBe(190);
-    for (const v of clip.samples) expect(v).toBeCloseTo(1, 5);
-  });
-
-  test('crossfades the tail into the head so the loop point is seamless', () => {
-    const sr = 100;
-    const rec = new Recorder(sr);
-    const ramp = Float32Array.from({ length: 1000 }, (_, i) => i / 1000);
-    rec.push(ramp);
-    const clip = buildLoopClip(rec, { start: 0, end: 10 }, { trimFraction: 0, crossfadeSec: 0.1 });
-    // At the loop start the head is fully replaced by the tail's first sample.
-    expect(clip.samples[0]).toBeCloseTo(ramp[1000 - 10], 3);
-    // Well past the crossfade, samples are untouched.
-    expect(clip.samples[500]).toBeCloseTo(ramp[500], 5);
-  });
-
-  test('short notes are used whole rather than trimmed to nothing', () => {
-    const rec = constantRecording(100, 10, 1);
-    const clip = buildLoopClip(rec, { start: 1, end: 1.1 }, { trimFraction: 0.25, crossfadeSec: 0.05 });
-    expect(clip.samples.length).toBeGreaterThan(4);
   });
 });
 

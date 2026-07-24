@@ -1,5 +1,5 @@
 import { tempoStats } from '../analysis/scoring.js';
-import { buildEmphasizedClip, buildComparisonClip, buildLoopClip, findComparisonNote } from '../audio/clips.js';
+import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderNoteChart, renderOverviewChart } from './pitch-chart.js';
 
@@ -15,8 +15,60 @@ let replayCurrent = null;   // re-plays the active note (used by speed buttons)
 let currentChart = null;    // whichever chart is on screen right now
 let animationFrame = 0;
 
-let refOsc = null;
-let refGain = null;
+let noteDrone = null; // { osc, gain, btn, tile } — synthesized at the pitch the player produced
+let refDrone = null;  // { osc, gain, btn } — synthesized at the correct pitch
+
+function makeOsc(frequency, level) {
+  playbackCtx ??= new AudioContext();
+  const real = new Float32Array(9);
+  const imag = new Float32Array(9);
+  for (let h = 1; h <= 8; h++) imag[h] = 1 / h ** 1.5;
+  const osc = playbackCtx.createOscillator();
+  osc.setPeriodicWave(playbackCtx.createPeriodicWave(real, imag));
+  osc.frequency.value = frequency;
+  const gain = playbackCtx.createGain();
+  gain.gain.setValueAtTime(0, playbackCtx.currentTime);
+  gain.gain.linearRampToValueAtTime(level, playbackCtx.currentTime + 0.1);
+  osc.connect(gain).connect(playbackCtx.destination);
+  osc.start();
+  return { osc, gain };
+}
+
+function fadeOutOsc({ osc, gain }) {
+  gain.gain.setTargetAtTime(0, playbackCtx.currentTime, 0.04);
+  setTimeout(() => osc.stop(), 250);
+}
+
+// "Hold as drone": not a loop of the recording — a steady synthesized tone
+// at the exact pitch center the player produced (including its cents
+// error), so it can be held indefinitely and beaten against the reference.
+function startNoteDrone(frequency, btn, tile) {
+  stopNoteDrone();
+  noteDrone = { ...makeOsc(frequency, 0.14), btn, tile };
+  btn.classList.add('active');
+  tile.classList.add('playing');
+}
+
+function stopNoteDrone() {
+  if (!noteDrone) return;
+  fadeOutOsc(noteDrone);
+  noteDrone.btn.classList.remove('active');
+  noteDrone.tile.classList.remove('playing');
+  noteDrone = null;
+}
+
+function startRefDrone(frequency, btn) {
+  stopRefDrone();
+  refDrone = { ...makeOsc(frequency, 0.12), btn };
+  btn.classList.add('active');
+}
+
+function stopRefDrone() {
+  if (!refDrone) return;
+  fadeOutOsc(refDrone);
+  refDrone.btn.classList.remove('active');
+  refDrone = null;
+}
 
 function stopPlayback(root) {
   if (currentSource) {
@@ -26,56 +78,8 @@ function stopPlayback(root) {
   }
   cancelAnimationFrame(animationFrame);
   currentChart?.setPlayhead(null);
+  stopNoteDrone();
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
-  root.querySelector('#note-drone')?.classList.remove('active');
-}
-
-// The clicked note held indefinitely: its stable middle, crossfaded into a
-// seamless loop.
-function playLoop(clip, root, tile, btn) {
-  playbackCtx ??= new AudioContext();
-  stopPlayback(root);
-
-  const buffer = playbackCtx.createBuffer(1, clip.samples.length, clip.sampleRate);
-  buffer.copyToChannel(clip.samples, 0);
-  const source = playbackCtx.createBufferSource();
-  source.buffer = buffer;
-  source.loop = true;
-  source.connect(playbackCtx.destination);
-  source.start();
-  currentSource = source;
-  tile.classList.add('playing');
-  btn.classList.add('active');
-}
-
-// Synthesized reference at the note's correct equal-tempered pitch —
-// layer it over the held note and listen for beats.
-function startRefDrone(frequency, btn) {
-  playbackCtx ??= new AudioContext();
-  stopRefDrone(btn);
-  const real = new Float32Array(9);
-  const imag = new Float32Array(9);
-  for (let h = 1; h <= 8; h++) imag[h] = 1 / h ** 1.5;
-  refOsc = playbackCtx.createOscillator();
-  refOsc.setPeriodicWave(playbackCtx.createPeriodicWave(real, imag));
-  refOsc.frequency.value = frequency;
-  refGain = playbackCtx.createGain();
-  refGain.gain.setValueAtTime(0, playbackCtx.currentTime);
-  refGain.gain.linearRampToValueAtTime(0.12, playbackCtx.currentTime + 0.1);
-  refOsc.connect(refGain).connect(playbackCtx.destination);
-  refOsc.start();
-  btn?.classList.add('active');
-}
-
-function stopRefDrone(btn) {
-  if (refOsc) {
-    const stopping = refOsc;
-    refGain.gain.setTargetAtTime(0, playbackCtx.currentTime, 0.04);
-    setTimeout(() => stopping.stop(), 250);
-    refOsc = null;
-    refGain = null;
-  }
-  btn?.classList.remove('active');
 }
 
 // Plays a clip with a live playhead on the current chart. `timeMap` converts
@@ -159,25 +163,29 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   noteDroneBtn.hidden = false;
   refBtn.hidden = false;
   refOct.hidden = false;
-  stopRefDrone(refBtn);
+  stopRefDrone();
+  stopNoteDrone();
   refBtn.textContent = `+ in-tune ${name} drone`;
 
+  const a4 = extras.a4 ?? 440;
+  const playedFrequency = a4 * 2 ** ((note.midi + note.cents / 100 - 69) / 12);
   noteDroneBtn.onclick = () => {
-    if (noteDroneBtn.classList.contains('active')) {
-      stopPlayback(root);
+    if (noteDrone) {
+      stopNoteDrone();
     } else {
-      playLoop(buildLoopClip(recording, note), root, tile, noteDroneBtn);
+      if (currentSource) stopPlayback(root); // a held pitch replaces any replay
+      startNoteDrone(playedFrequency, noteDroneBtn, tile);
     }
   };
 
   const refFrequency = () =>
-    (extras.a4 ?? 440) * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12);
+    a4 * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12);
   refBtn.onclick = () => {
-    if (refOsc) stopRefDrone(refBtn);
+    if (refDrone) stopRefDrone();
     else startRefDrone(refFrequency(), refBtn);
   };
   refOct.onchange = () => {
-    if (refOsc) refOsc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.02);
+    if (refDrone) refDrone.osc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.02);
   };
 
   const compareBtn = root.querySelector('#compare');
@@ -278,7 +286,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 
 export function hideReport(root) {
   stopPlayback(root);
-  stopRefDrone(root.querySelector('#ref-drone'));
+  stopRefDrone();
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   replayCurrent = null;

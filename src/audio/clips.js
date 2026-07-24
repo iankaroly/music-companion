@@ -58,31 +58,6 @@ export function buildComparisonClip(recording, refNote, targetNote, options = {}
   return { samples, sampleRate: sr, refDuration: ref.length / sr, gapDuration: gapSec };
 }
 
-// A seamlessly loopable slice of one note, for holding it like a drone.
-// Takes the stable middle (trimming attack and release), then crossfades
-// the tail into the head so the loop point doesn't click: the trimmed
-// segment's last `crossfade` samples are blended over its first ones and
-// dropped from the end.
-export function buildLoopClip(recording, note, options = {}) {
-  const { trimFraction = 0.2, crossfadeSec = 0.05 } = options;
-  const sr = recording.sampleRate;
-
-  const duration = note.end - note.start;
-  const trim = duration >= 0.3 ? duration * trimFraction : 0;
-  const segment = recording.extract(note.start + trim, note.end - trim);
-
-  const fade = Math.min(Math.floor(crossfadeSec * sr), Math.floor(segment.length / 4));
-  const length = segment.length - fade;
-  const samples = new Float32Array(length);
-  samples.set(segment.subarray(0, length));
-  for (let i = 0; i < fade; i++) {
-    const w = i / fade;
-    samples[i] = segment[i] * w + segment[length + i] * (1 - w);
-  }
-
-  return { samples, sampleRate: sr };
-}
-
 // The most in-tune *other* rendition of the same pitch in this session.
 export function findComparisonNote(notes, target) {
   let best = null;
