@@ -74,6 +74,55 @@
       transform: translateX(-50%);
       transition: left 90ms linear;
     }
+    #scale-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      justify-content: center;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+    #scale-bar select {
+      font: inherit;
+      font-size: 0.85rem;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #3a352e;
+      border-radius: 0.4rem;
+      padding: 0.35rem 0.5rem;
+    }
+    #scale-bar button { padding: 0.4rem 0.9rem; font-size: 0.85rem; }
+    #report {
+      display: none;
+      background: var(--panel);
+      border-radius: 1rem;
+      padding: 1.25rem;
+      margin-bottom: 1.5rem;
+      text-align: left;
+    }
+    #report.visible { display: block; }
+    #report-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-bottom: 1rem;
+    }
+    .degree {
+      border: 1px solid #3a352e;
+      border-radius: 0.5rem;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+      text-align: center;
+      min-width: 3.2rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .degree b { display: block; font-weight: 500; font-size: 0.95rem; }
+    .degree[data-state="good"] { border-color: var(--good); }
+    .degree[data-state="good"] b { color: var(--good); }
+    .degree[data-state="off"] { border-color: var(--off); }
+    .degree[data-state="off"] b { color: var(--off); }
+    .degree[data-state="missed"] { opacity: 0.4; }
+    #report-summary { color: var(--dim); font-size: 0.85rem; }
     #notes-row {
       display: flex;
       flex-wrap: wrap;
@@ -135,6 +184,31 @@
       <div id="cents">press start</div>
       <div id="freq"></div>
       <div id="scale"><div id="needle"></div></div>
+    </div>
+    <div id="scale-bar">
+      <select id="key" aria-label="Key"></select>
+      <select id="start-octave" aria-label="Starting octave">
+        <option value="2">oct 2</option>
+        <option value="3" selected>oct 3</option>
+        <option value="4">oct 4</option>
+      </select>
+      <select id="scale-type" aria-label="Scale type">
+        <option value="major" selected>major</option>
+        <option value="natural-minor">natural minor</option>
+        <option value="harmonic-minor">harmonic minor</option>
+        <option value="melodic-minor">melodic minor</option>
+      </select>
+      <select id="scale-octaves" aria-label="Octaves">
+        <option value="1" selected>1 octave</option>
+        <option value="2">2 octaves</option>
+        <option value="3">3 octaves</option>
+      </select>
+      <button id="scale-start">Start scale</button>
+      <button id="scale-demo">Demo scale</button>
+    </div>
+    <div id="report">
+      <div id="report-grid"></div>
+      <div id="report-summary"></div>
     </div>
     <div id="notes-row"></div>
     <div class="controls">
