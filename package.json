@@ -1,0 +1,20 @@
+{
+  "name": "music-companion",
+  "version": "1.0.0",
+  "description": "A practice companion for cellists (and eventually any monophonic instrument). It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "devDependencies": {
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

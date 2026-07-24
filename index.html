@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Music Companion</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #12100e;
+      --panel: #1c1916;
+      --text: #ece7df;
+      --dim: #8d8578;
+      --good: #7fc98f;
+      --off: #e0a458;
+    }
+    * { margin: 0; box-sizing: border-box; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: "Avenir Next", "Segoe UI", system-ui, sans-serif;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+    }
+    main { text-align: center; width: min(30rem, 92vw); }
+    h1 {
+      font-size: 0.85rem;
+      letter-spacing: 0.35em;
+      text-transform: uppercase;
+      color: var(--dim);
+      font-weight: 500;
+      margin-bottom: 2.5rem;
+    }
+    #tuner {
+      background: var(--panel);
+      border-radius: 1rem;
+      padding: 2.5rem 2rem 2rem;
+      margin-bottom: 1.5rem;
+    }
+    #note {
+      font-size: 5.5rem;
+      font-weight: 300;
+      line-height: 1;
+      font-variant-numeric: tabular-nums;
+      transition: color 120ms;
+    }
+    #note[data-state="good"] { color: var(--good); }
+    #note[data-state="off"] { color: var(--off); }
+    #note[data-state="idle"] { color: var(--dim); }
+    #cents { color: var(--dim); margin-top: 0.75rem; font-size: 1rem; min-height: 1.3em; }
+    #freq { color: var(--dim); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.2rem; }
+    #scale {
+      position: relative;
+      height: 2.5rem;
+      margin-top: 1.75rem;
+      border-top: 1px solid #2e2a25;
+    }
+    #scale::before {
+      content: "";
+      position: absolute;
+      left: 50%; top: 0;
+      width: 1px; height: 1rem;
+      background: var(--dim);
+    }
+    #needle {
+      --cents: 0;
+      position: absolute;
+      top: 0.1rem;
+      left: calc(50% + (var(--cents) / 50) * 45%);
+      width: 3px; height: 1.6rem;
+      border-radius: 2px;
+      background: var(--text);
+      transform: translateX(-50%);
+      transition: left 90ms linear;
+    }
+    .controls { display: flex; gap: 0.75rem; justify-content: center; }
+    button {
+      font: inherit;
+      background: var(--panel);
+      color: var(--text);
+      border: 1px solid #3a352e;
+      border-radius: 0.6rem;
+      padding: 0.7rem 1.4rem;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--dim); }
+    button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+    #status { color: var(--dim); font-size: 0.8rem; margin-top: 1.25rem; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Music Companion</h1>
+    <div id="tuner">
+      <div id="note" data-state="idle">–</div>
+      <div id="cents">press start</div>
+      <div id="freq"></div>
+      <div id="scale"><div id="needle"></div></div>
+    </div>
+    <div class="controls">
+      <button id="start" class="primary">Start tuner</button>
+      <button id="demo">Demo tone</button>
+    </div>
+    <div id="status"></div>
+  </main>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
