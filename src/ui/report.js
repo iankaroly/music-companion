@@ -174,6 +174,7 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   root.querySelector('#playback').hidden = false;
   root.querySelector('#playback-label').textContent =
     'click any note on the graph (or a box) to hear it';
+  root.querySelector('#selected-note').hidden = true;
   root.querySelector('#compare').hidden = true;
   root.querySelector('#note-drone').hidden = true;
   root.querySelector('#ref-drone').hidden = true;
@@ -200,8 +201,15 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
 // replaced whenever a different note is picked.
 function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
   root.querySelector('#playback').hidden = false;
-  root.querySelector('#playback-label').textContent =
-    `${name} ${centsLabel(note.cents)} — surrounding notes ducked`;
+
+  // The selected note as a box: name, cents, chord marker, status color.
+  const selected = root.querySelector('#selected-note');
+  selected.hidden = false;
+  selected.className = note.chord ? 'degree chord' : 'degree';
+  selected.dataset.state = intonationStatus(note.cents);
+  selected.innerHTML = `<b>${note.chord ? '+' : ''}${name}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
+
+  root.querySelector('#playback-label').textContent = 'surrounding notes ducked';
 
   if (extras.readings?.length) {
     root.querySelector('#note-zoom').hidden = false;
@@ -386,13 +394,15 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   root.querySelector('#notes-summary').textContent =
     `${allNotes.length} notes — expand to browse`;
 
+  // Make the card visible BEFORE rendering the chart — a hidden container
+  // measures 0 wide and the chart would fall back to a guessed width.
+  report.classList.add('visible');
+
   if (extras.readings?.length && allNotes.length > 0) {
     showOverview(root, allNotes, extras, selectNote, tileByNote);
   } else {
     root.querySelector('#playback').hidden = true;
   }
-
-  report.classList.add('visible');
 }
 
 export function hideReport(root) {

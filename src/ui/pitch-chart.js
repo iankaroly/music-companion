@@ -73,11 +73,10 @@ function nearestPoint(pts, time, key) {
 
 // --- session overview ------------------------------------------------------
 
-// Fixed time scale: long sessions extend the canvas and scroll
-// horizontally instead of squeezing into the viewport. Short sessions are
-// NOT stretched to fill — density stays in a natural band.
-const PX_PER_SEC = 50;
-const MAX_PX_PER_SEC = 130;
+// The chart always fills the container (the original look). When the
+// session is longer than fits at a readable density, the canvas grows
+// rightward and scrolls instead of squeezing everything in.
+const PX_PER_SEC = 55;
 const MAX_CHART_PX = 24000;
 
 export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {
@@ -91,10 +90,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
   const container = canvas.parentElement;
   const fitW = container?.clientWidth || 900;
   const duration = t1 - t0;
-  const cssWidth = Math.min(
-    Math.max(duration * PX_PER_SEC, Math.min(fitW, duration * MAX_PX_PER_SEC)),
-    MAX_CHART_PX,
-  );
+  const cssWidth = Math.min(Math.max(fitW, duration * PX_PER_SEC), MAX_CHART_PX);
   canvas.style.width = `${Math.round(cssWidth)}px`;
   const midis = notes.map((n) => n.midi);
   const yMin = Math.min(...midis) - 1;
