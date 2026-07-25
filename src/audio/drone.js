@@ -1,3 +1,5 @@
+import { audioContext } from './context.js';
+
 // Sustained reference drone (TonalEnergy-style tone generator, minimal
 // version): a softened sawtooth-ish timbre with smooth on/off ramps and
 // live-retunable frequency, for practicing intonation against a held pitch.
@@ -11,7 +13,7 @@ const LEVEL = 0.16;
 const RAMP = 0.12;
 
 export function startDrone(frequency) {
-  ctx ??= new AudioContext();
+  ctx = audioContext();
   if (osc) {
     osc.frequency.setTargetAtTime(frequency, ctx.currentTime, 0.03);
     return;

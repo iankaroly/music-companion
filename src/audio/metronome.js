@@ -1,3 +1,5 @@
+import { audioContext } from './context.js';
+
 // Lookahead-scheduled metronome: clicks are placed on the AudioContext
 // clock ahead of time (the setInterval only tops up the schedule), so
 // timing stays solid even when the UI thread stutters.
@@ -35,7 +37,7 @@ export class Metronome {
 
   start() {
     if (this.running) return;
-    this.ctx ??= new AudioContext();
+    this.ctx = audioContext();
     this.nextTime = this.ctx.currentTime + 0.1;
     this.count = 0;
     this.timer = setInterval(() => this.schedule(), TICK_MS);

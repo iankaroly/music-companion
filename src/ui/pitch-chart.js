@@ -76,7 +76,7 @@ function nearestPoint(pts, time, key) {
 // The chart always fills the container (the original look). When the
 // session is longer than fits at a readable density, the canvas grows
 // rightward and scrolls instead of squeezing everything in.
-const PX_PER_SEC = 55;
+const PX_PER_SEC = 75;
 const MAX_CHART_PX = 24000;
 
 export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {

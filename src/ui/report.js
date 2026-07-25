@@ -1,4 +1,5 @@
 import { tempoStats } from '../analysis/scoring.js';
+import { audioContext } from '../audio/context.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
@@ -26,7 +27,7 @@ let noteDrone = null; // { osc, gain, btn, tile } — synthesized at the pitch t
 let refDrone = null;  // { osc, gain, btn } — synthesized at the correct pitch
 
 function makeOsc(frequency, level) {
-  playbackCtx ??= new AudioContext();
+  playbackCtx = audioContext();
   const real = new Float32Array(9);
   const imag = new Float32Array(9);
   for (let h = 1; h <= 8; h++) imag[h] = 1 / h ** 1.5;
@@ -96,7 +97,7 @@ function stopPlayback(root) {
 // `spans` are tiles that light up exactly while their note is sounding.
 // Returns the audio-clock start time (used for pause bookkeeping).
 function playClip(clip, root, timeMap, spans, onDone) {
-  playbackCtx ??= new AudioContext();
+  playbackCtx = audioContext();
   stopPlayback(root);
 
   const samples = playbackSpeed < 0.999
