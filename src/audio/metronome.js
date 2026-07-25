@@ -5,10 +5,23 @@
 const LOOKAHEAD_SEC = 0.12;
 const TICK_MS = 25;
 
+// Sub-click positions within one beat, as fractions of the beat length.
+export function subdivisionOffsets(name) {
+  switch (name) {
+    case 'eighth': return [0.5];
+    case 'triplet': return [1 / 3, 2 / 3];
+    case 'sixteenth': return [0.25, 0.5, 0.75];
+    case 'shuffle': return [2 / 3]; // swung off-beat
+    default: return [];
+  }
+}
+
 export class Metronome {
   constructor(onBeat) {
     this.bpm = 80;
     this.beatsPerBar = 4;
+    this.subdivision = 'quarter';
+    this.accentFirst = true;
     this.onBeat = onBeat;
     this.ctx = null;
     this.timer = null;
@@ -37,21 +50,29 @@ export class Metronome {
   schedule() {
     while (this.nextTime < this.ctx.currentTime + LOOKAHEAD_SEC) {
       const beat = this.count % this.beatsPerBar;
-      this.click(this.nextTime, beat === 0);
+      const beatLength = 60 / this.bpm;
+      this.click(this.nextTime, beat === 0 && this.accentFirst ? 'accent' : 'beat');
+      for (const offset of subdivisionOffsets(this.subdivision)) {
+        this.click(this.nextTime + offset * beatLength, 'sub');
+      }
       const delayMs = Math.max(0, (this.nextTime - this.ctx.currentTime) * 1000);
       const scheduledBeat = beat;
       setTimeout(() => { if (this.running) this.onBeat?.(scheduledBeat); }, delayMs);
-      this.nextTime += 60 / this.bpm;
+      this.nextTime += beatLength;
       this.count++;
     }
   }
 
-  click(time, accent) {
+  click(time, kind) {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
-    osc.frequency.value = accent ? 1760 : 1174.7; // A6 downbeat, D6 elsewhere
+    const [freq, level] =
+      kind === 'accent' ? [1760, 0.5] :
+      kind === 'beat' ? [1174.7, 0.32] :
+      [880, 0.16];
+    osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(accent ? 0.5 : 0.32, time + 0.003);
+    gain.gain.exponentialRampToValueAtTime(level, time + 0.003);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
     osc.connect(gain).connect(this.ctx.destination);
     osc.start(time);

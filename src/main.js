@@ -202,6 +202,7 @@ startBtn.addEventListener('click', async () => {
       return;
     }
     lastTake = { recorder, notes: collected, readings, a4: currentA4() };
+    notesRow.replaceChildren(); // chips are redundant once the review is up
     renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
     saveBar.hidden = false;
     return;
@@ -316,7 +317,7 @@ const metronome = new Metronome((beat) => {
 });
 
 function setBpm(bpm) {
-  metronome.bpm = Math.max(30, Math.min(240, Math.round(bpm)));
+  metronome.bpm = Math.max(20, Math.min(260, Math.round(bpm)));
   bpmDisplay.textContent = String(metronome.bpm);
   tempoNameEl.textContent = tempoName(metronome.bpm);
   bpmSlider.value = String(metronome.bpm);
@@ -354,14 +355,60 @@ document.querySelector('#tap-tempo').addEventListener('click', () => {
   }
 });
 
+// subdivisions, downbeat accent, practice timer (iMusic-School-style)
+const subdivisionSel = document.querySelector('#subdivision');
+subdivisionSel.addEventListener('change', () => {
+  metronome.subdivision = subdivisionSel.value;
+  localStorage.setItem('subdivision', subdivisionSel.value);
+});
+subdivisionSel.value = localStorage.getItem('subdivision') ?? 'quarter';
+metronome.subdivision = subdivisionSel.value;
+
+const accentBtn = document.querySelector('#accent-toggle');
+accentBtn.addEventListener('click', () => {
+  metronome.accentFirst = !metronome.accentFirst;
+  accentBtn.classList.toggle('active', metronome.accentFirst);
+});
+
+const timerSel = document.querySelector('#timer-mins');
+const timerDisplay = document.querySelector('#timer-display');
+let timerInterval = null;
+let timerEnd = 0;
+
+function stopTimer() {
+  clearInterval(timerInterval);
+  timerInterval = null;
+  timerDisplay.textContent = '';
+}
+
+function startTimer(minutes) {
+  timerEnd = Date.now() + minutes * 60000;
+  const tick = () => {
+    const left = Math.max(0, timerEnd - Date.now());
+    const m = Math.floor(left / 60000);
+    const s = Math.floor((left % 60000) / 1000);
+    timerDisplay.textContent = `${m}:${String(s).padStart(2, '0')}`;
+    if (left === 0) stopMetronome();
+  };
+  tick();
+  timerInterval = setInterval(tick, 250);
+}
+
+function stopMetronome() {
+  metronome.stop();
+  metroToggle.textContent = 'Start';
+  beatDots.querySelectorAll('.beat-dot').forEach((d) => d.classList.remove('on'));
+  stopTimer();
+}
+
 metroToggle.addEventListener('click', () => {
   if (metronome.running) {
-    metronome.stop();
-    metroToggle.textContent = 'Start';
-    beatDots.querySelectorAll('.beat-dot').forEach((d) => d.classList.remove('on'));
+    stopMetronome();
   } else {
     metronome.start();
     metroToggle.textContent = 'Stop';
+    const minutes = Number(timerSel.value);
+    if (minutes > 0) startTimer(minutes);
   }
 });
 

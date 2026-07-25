@@ -73,6 +73,11 @@ function nearestPoint(pts, time, key) {
 
 // --- session overview ------------------------------------------------------
 
+// Fixed time scale: long sessions extend the canvas and scroll
+// horizontally instead of squeezing into the viewport.
+const PX_PER_SEC = 110;
+const MAX_CHART_PX = 24000;
+
 export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {
   if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
   const padT = 0.4;
@@ -80,6 +85,10 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
   const ends = notes.map((n) => n.end);
   const t0 = Math.min(...starts) - padT;
   const t1 = Math.max(...ends) + padT;
+
+  const container = canvas.parentElement;
+  const fitW = container?.clientWidth || 900;
+  canvas.style.width = `${Math.min(Math.max(fitW, (t1 - t0) * PX_PER_SEC), MAX_CHART_PX)}px`;
   const midis = notes.map((n) => n.midi);
   const yMin = Math.min(...midis) - 1;
   const yMax = Math.max(...midis) + 1;
@@ -188,6 +197,19 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     const note = findNoteAt(notes, timeAt(e));
     if (note) onNoteClick?.(note);
   };
+
+  // During playback, keep the sweeping playhead in view.
+  const basePlayhead = controller.setPlayhead;
+  controller.setPlayhead = (t) => {
+    basePlayhead(t);
+    if (t === null || !container) return;
+    const w = controller.cssW - PAD.left - PAD.right;
+    const px = PAD.left + ((t - t0) / (t1 - t0)) * w;
+    const view = container.clientWidth;
+    if (px < container.scrollLeft + 40 || px > container.scrollLeft + view - 40) {
+      container.scrollLeft = Math.max(0, px - view / 3);
+    }
+  };
   return controller;
 }
 
@@ -238,7 +260,10 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     for (const p of pts) {
       if (p.dev === null) { prev = null; continue; }
       if (prev) {
-        ctx.strokeStyle = p.inTarget && prev.inTarget ? INK : MUTED;
+        // inside the note, each moment wears its own in-tune color
+        ctx.strokeStyle = p.inTarget && prev.inTarget
+          ? STATUS_LINE[intonationStatus(p.dev)]
+          : MUTED;
         ctx.beginPath();
         ctx.moveTo(x(prev.time), y(prev.dev));
         ctx.lineTo(x(p.time), y(p.dev));

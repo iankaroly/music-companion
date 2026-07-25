@@ -178,7 +178,19 @@
 
     #report { display: none; padding: 1.6rem; margin: 0 auto 1.5rem; text-align: left; }
     #report.visible { display: block; }
-    #report-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1rem; }
+    #notes-details { margin-top: 0.8rem; }
+    #notes-details summary {
+      cursor: pointer;
+      color: var(--muted);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 0.35rem 0;
+      user-select: none;
+      list-style-position: inside;
+    }
+    #notes-details summary:hover { color: var(--ink); }
+    #report-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.6rem 0 0.4rem; }
+    #chart-scroll { overflow-x: auto; overscroll-behavior-x: contain; }
     .degree {
       border: 1px solid var(--line-strong);
       background: var(--card);
@@ -204,7 +216,7 @@
     .degree.playing { outline: 2px solid var(--primary); outline-offset: 1px; }
     #report-summary { color: var(--muted); font-size: 0.85rem; }
     #playback { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem; }
-    #pitch-chart { width: 100%; height: clamp(230px, 38vh, 320px); display: block; }
+    #pitch-chart { height: clamp(230px, 38vh, 320px); display: block; }
 
     /* playback tools: one labeled row of friendly controls */
     #playback-controls {
@@ -309,6 +321,7 @@
     }
     #tempo-name { color: var(--primary); font-size: 1rem; margin-top: 0.4rem; font-weight: 500; letter-spacing: 0.06em; }
     #bpm-slider { width: 100%; margin: 1.7rem 0 1.2rem; accent-color: var(--primary); }
+    #timer-display { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; min-width: 3.2rem; }
     #beat-dots { display: flex; gap: 0.9rem; justify-content: center; align-items: center; margin: 1.4rem 0 1.6rem; min-height: 1.2rem; }
     .beat-dot {
       width: 0.8rem; height: 0.8rem;
@@ -384,10 +397,13 @@
     </div>
     <div id="notes-row"></div>
     <div id="report" class="card">
-      <div id="report-grid"></div>
       <div id="report-summary"></div>
+      <details id="notes-details">
+        <summary id="notes-summary">notes</summary>
+        <div id="report-grid"></div>
+      </details>
       <div id="playback" hidden>
-        <canvas id="pitch-chart"></canvas>
+        <div id="chart-scroll"><canvas id="pitch-chart"></canvas></div>
         <div id="playback-controls">
           <span id="playback-label"></span>
           <span id="playback-speed">
@@ -438,7 +454,7 @@
       <div id="metro-card" class="card">
         <div id="bpm-display">80</div>
         <div id="tempo-name">Andante</div>
-        <input id="bpm-slider" type="range" min="30" max="240" value="80" aria-label="Beats per minute" />
+        <input id="bpm-slider" type="range" min="20" max="260" value="80" aria-label="Beats per minute" />
         <div class="row">
           <button id="bpm-down" class="ctl" aria-label="Slower">−</button>
           <button id="bpm-up" class="ctl" aria-label="Faster">+</button>
@@ -451,6 +467,25 @@
             <option value="6">6 beats</option>
             <option value="7">7 beats</option>
           </select>
+        </div>
+        <div class="row">
+          <select id="subdivision" aria-label="Subdivision">
+            <option value="quarter" selected>♩ quarters</option>
+            <option value="eighth">♫ eighths</option>
+            <option value="triplet">♪♪♪ triplets</option>
+            <option value="sixteenth">♬ sixteenths</option>
+            <option value="shuffle">♫ shuffle</option>
+          </select>
+          <button id="accent-toggle" class="ctl active">Accent beat 1</button>
+          <select id="timer-mins" aria-label="Practice timer">
+            <option value="0" selected>no timer</option>
+            <option value="1">1 min</option>
+            <option value="2">2 min</option>
+            <option value="5">5 min</option>
+            <option value="10">10 min</option>
+            <option value="20">20 min</option>
+          </select>
+          <span id="timer-display"></span>
         </div>
         <div id="beat-dots"></div>
         <button id="metro-toggle" class="ctl primary">Start</button>

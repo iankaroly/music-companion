@@ -314,6 +314,8 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   if (missed > 0) parts.push(`${missed} missed`);
   if (recording) parts.push('click a note to hear it');
   summary.textContent = parts.join(' · ');
+  root.querySelector('#notes-summary').textContent =
+    `${allNotes.length} notes — expand to browse`;
 
   if (extras.readings?.length && allNotes.length > 0) {
     showOverview(root, allNotes, extras, selectNote, tileByNote);
