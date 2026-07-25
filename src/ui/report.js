@@ -86,6 +86,7 @@ function stopPlayback(root) {
   }
   cancelAnimationFrame(animationFrame);
   setPlayheads(null);
+  if (zoom) zoomChart?.setPlayhead(zoom.pos);
   stopNoteDrone();
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
   if (zoom) zoom.playing = false;
@@ -124,9 +125,13 @@ function playClip(clip, root, timeMap, spans, onDone) {
     if (source !== currentSource) return;
     const recTime = timeMap((playbackCtx.currentTime - startTime) * playbackSpeed);
     setPlayheads(recTime);
+    let sounding = null;
     for (const s of spans) {
-      s.tile?.classList.toggle('playing', recTime !== null && recTime >= s.start && recTime <= s.end);
+      const active = recTime !== null && recTime >= s.start && recTime <= s.end;
+      s.tile?.classList.toggle('playing', active);
+      if (active) sounding = s.note ?? null;
     }
+    currentChart?.setHighlight?.(sounding);
     animationFrame = requestAnimationFrame(tick);
   };
   source.onended = () => { stopPlayback(root); onDone?.(); };
@@ -156,7 +161,7 @@ function playZoomFrom(root, from) {
   const startTime = playClip(
     clip, root,
     (t) => from + t,
-    [{ tile: zoom.tile, start: zoom.note.start, end: zoom.note.end }],
+    [{ tile: zoom.tile, start: zoom.note.start, end: zoom.note.end, note: zoom.note }],
     () => { if (zoom) { zoom.playing = false; zoom.pos = zoom.t0; } updateZoomButton(root); },
   );
   zoom.playing = true;
@@ -255,12 +260,13 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
         if (phase === 'end' && zoom.wasPlaying) playZoomFrom(root, t);
       },
     });
+    zoomChart.setPlayhead(zoom.pos);
   }
 
   const play = () => {
     const clip = buildEmphasizedClip(recording, note.start, note.end, { contextSec: CONTEXT_SEC });
     const clipStart = Math.max(0, note.start - CONTEXT_SEC);
-    playClip(clip, root, (t) => clipStart + t, [{ tile, start: note.start, end: note.end }]);
+    playClip(clip, root, (t) => clipStart + t, [{ tile, start: note.start, end: note.end, note }]);
   };
   replayCurrent = play;
   play();
@@ -321,8 +327,8 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
         return targetStart + (t - clip.refDuration - clip.gapDuration);
       };
       playClip(clip, root, timeMap, [
-        { tile: tileByNote.get(ref)?.tile, start: ref.start, end: ref.end },
-        { tile, start: note.start, end: note.end },
+        { tile: tileByNote.get(ref)?.tile, start: ref.start, end: ref.end, note: ref },
+        { tile, start: note.start, end: note.end, note },
       ]);
     };
   } else {

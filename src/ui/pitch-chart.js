@@ -277,6 +277,15 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
       drawPlayhead(ctx, x(playhead), PAD.top, h);
+      // the grab handle — dragging starts only on this knob
+      ctx.fillStyle = '#3056d3';
+      ctx.beginPath();
+      ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
+      ctx.fill();
     }
 
     if (hoverPt) {
@@ -291,25 +300,39 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     }
   });
 
+  // track where the dot currently is, for grab hit-testing
+  let dotTime = null;
+  const baseSetPlayhead = controller.setPlayhead;
+  controller.setPlayhead = (t) => { dotTime = t; baseSetPlayhead(t); };
+
+  const xOf = (t) => {
+    const w = controller.cssW - PAD.left - PAD.right;
+    return PAD.left + ((t - t0) / (t1 - t0)) * w;
+  };
   const timeFromEvent = (e) => {
     const xCss = canvasX(e, canvas, controller.cssW);
     const w = controller.cssW - PAD.left - PAD.right;
     const t = t0 + ((xCss - PAD.left) / w) * (t1 - t0);
     return Math.max(t0, Math.min(t1, t));
   };
+  const nearDot = (e) =>
+    dotTime !== null && Math.abs(canvasX(e, canvas, controller.cssW) - xOf(dotTime)) < 26;
 
-  // Drag anywhere on the inset to move the playhead; hover shows cents.
+  // The playhead moves only while the finger is on the dot itself —
+  // tapping elsewhere never jumps it.
   let dragging = false;
   canvas.onpointerdown = (e) => {
-    if (!onSeek) return;
+    if (!onSeek || !nearDot(e)) return;
     dragging = true;
     canvas.setPointerCapture(e.pointerId);
+    e.preventDefault();
     onSeek(timeFromEvent(e), 'start');
   };
   canvas.onpointermove = (e) => {
     if (dragging) {
       onSeek(timeFromEvent(e), 'move');
     } else {
+      canvas.style.cursor = onSeek && nearDot(e) ? 'grab' : 'default';
       controller.setHover(nearestPoint(pts, timeFromEvent(e), 'dev'));
     }
   };
@@ -319,6 +342,5 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     onSeek(timeFromEvent(e), 'end');
   };
   canvas.onmouseleave = () => { if (!dragging) controller.setHover(null); };
-  if (onSeek) canvas.style.cursor = 'ew-resize';
   return controller;
 }
