@@ -4,17 +4,29 @@ import { audioContext, masterOut } from './context.js';
 // notes can sound at once, so whole chords can be held and tuned against.
 // Softened sawtooth-ish timbre, smooth on/off ramps, live-retunable.
 
-const HARMONICS = 8;
 const LEVEL = 0.3;
 const RAMP = 0.12;
+
+// Synthesized instrument voices: harmonic recipes rather than samples.
+const TIMBRES = {
+  strings: Array.from({ length: 9 }, (_, h) => (h === 0 ? 0 : 1 / h ** 1.5)),
+  reed: Array.from({ length: 10 }, (_, h) => (h % 2 === 1 ? 1 / h : 0)), // odd harmonics, clarinet-like
+  organ: [0, 1, 0.6, 0.9, 0.5, 0, 0.4, 0, 0.3],
+  pure: [0, 1],
+};
+
+let timbre = 'strings';
+
+export function setDroneTimbre(name) {
+  if (TIMBRES[name]) timbre = name;
+}
 
 const active = new Map(); // note name -> { osc, gain }
 
 function makeWave(ctx) {
-  const real = new Float32Array(HARMONICS + 1);
-  const imag = new Float32Array(HARMONICS + 1);
-  for (let h = 1; h <= HARMONICS; h++) imag[h] = 1 / h ** 1.5;
-  return ctx.createPeriodicWave(real, imag);
+  const recipe = TIMBRES[timbre];
+  const real = new Float32Array(recipe.length);
+  return ctx.createPeriodicWave(real, Float32Array.from(recipe));
 }
 
 export function toggleDroneNote(name, frequency) {

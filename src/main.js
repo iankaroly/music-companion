@@ -5,7 +5,8 @@ import { Recorder } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
 import { saveRecording, listRecordings, loadRecording, deleteRecording } from './store/db.js';
-import { toggleDroneNote, retuneDrones, activeDroneNotes, stopAllDrones } from './audio/drone.js';
+import { toggleDroneNote, retuneDrones, setDroneTimbre } from './audio/drone.js';
+import { encodeWav } from './audio/wav.js';
 import { getVolume, setVolume } from './audio/context.js';
 import { fftMagnitudes } from './audio/fft.js';
 import { RingBuffer } from './audio/ring-buffer.js';
@@ -83,6 +84,13 @@ for (const name of PIPE_NOTES) {
   pitchPipe.append(btn);
 }
 droneOctSel.addEventListener('change', () => retuneDrones(droneFrequency));
+const timbreSel = document.querySelector('#drone-timbre');
+timbreSel.addEventListener('change', () => {
+  setDroneTimbre(timbreSel.value);
+  localStorage.setItem('timbre', timbreSel.value);
+});
+timbreSel.value = localStorage.getItem('timbre') ?? 'strings';
+setDroneTimbre(timbreSel.value);
 
 // --- tuner display: transposition & temperament ------------------------------
 
@@ -274,6 +282,21 @@ document.querySelector('#discard-rec').addEventListener('click', () => {
   statusEl.textContent = 'recording discarded';
 });
 
+function downloadWav(samples, sampleRate, when) {
+  const blob = new Blob([encodeWav(samples, sampleRate)], { type: 'audio/wav' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `music-companion-${new Date(when).toISOString().slice(0, 16).replace(/[T:]/g, '-')}.wav`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+document.querySelector('#export-rec').addEventListener('click', () => {
+  if (!lastTake) return;
+  const { recorder } = lastTake;
+  downloadWav(recorder.extract(0, recorder.duration), recorder.sampleRate, Date.now());
+});
+
 // --- library ---------------------------------------------------------------
 
 const libraryList = document.querySelector('#library-list');
@@ -315,6 +338,12 @@ async function refreshLibrary() {
         showTab('analyze');
         renderFreeReview(document, data.notes, rec, { readings: data.readings, a4: data.a4 });
       });
+      const wavBtn = document.createElement('button');
+      wavBtn.textContent = 'WAV';
+      wavBtn.addEventListener('click', async () => {
+        const data = await loadRecording(r.id);
+        if (data) downloadWav(new Float32Array(data.audio), r.sampleRate, r.date);
+      });
       const delBtn = document.createElement('button');
       delBtn.className = 'danger';
       delBtn.textContent = 'Delete';
@@ -322,7 +351,7 @@ async function refreshLibrary() {
         await deleteRecording(r.id);
         refreshLibrary();
       });
-      actions.append(openBtn, delBtn);
+      actions.append(openBtn, wavBtn, delBtn);
       li.append(meta, actions);
       libraryList.append(li);
     }
@@ -465,6 +494,22 @@ function drawSpectrum() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
 
+  if (vizMode === 'wave') {
+    const wave = spectrumRing.latest(1024);
+    ctx.strokeStyle = '#3056d3';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    for (let i = 0; i < wave.length; i++) {
+      const x = (i / wave.length) * w;
+      const y = h / 2 - wave[i] * (h / 2 - 1);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    spectrumFrame = requestAnimationFrame(drawSpectrum);
+    return;
+  }
+
   const windowed = spectrumRing.latest(2048);
   for (let i = 0; i < windowed.length; i++) {
     windowed[i] *= 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowed.length - 1)));
@@ -513,3 +558,57 @@ try {
 } catch { /* fresh install */ }
 applyTrainer();
 metronome.onTempo = (bpm) => setBpm(bpm);
+
+
+// --- spectrum / waveform toggle ----------------------------------------------
+
+let vizMode = localStorage.getItem('vizMode') ?? 'spectrum';
+for (const btn of document.querySelectorAll('#viz-toggle button')) {
+  btn.classList.toggle('active', btn.dataset.viz === vizMode);
+  btn.addEventListener('click', () => {
+    vizMode = btn.dataset.viz;
+    localStorage.setItem('vizMode', vizMode);
+    for (const b of document.querySelectorAll('#viz-toggle button')) {
+      b.classList.toggle('active', b === btn);
+    }
+  });
+}
+
+// --- presets: named snapshots of every setting --------------------------------
+
+const PRESET_KEYS = ['a4', 'volume', 'tunerSettings', 'timbre', 'bpm', 'beatsPerBar',
+  'subdivision', 'trainer', 'vizMode'];
+const presetSel = document.querySelector('#preset-list');
+
+function refreshPresets() {
+  const presets = JSON.parse(localStorage.getItem('presets') ?? '{}');
+  presetSel.replaceChildren(new Option('presets…', ''));
+  for (const name of Object.keys(presets)) presetSel.append(new Option(name, name));
+}
+
+document.querySelector('#preset-save').addEventListener('click', () => {
+  const name = prompt('Preset name:');
+  if (!name) return;
+  const presets = JSON.parse(localStorage.getItem('presets') ?? '{}');
+  presets[name] = Object.fromEntries(
+    PRESET_KEYS.map((k) => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null));
+  localStorage.setItem('presets', JSON.stringify(presets));
+  refreshPresets();
+  presetSel.value = name;
+});
+
+presetSel.addEventListener('change', () => {
+  if (!presetSel.value) return;
+  const presets = JSON.parse(localStorage.getItem('presets') ?? '{}');
+  const preset = presets[presetSel.value];
+  if (!preset) return;
+  for (const [k, v] of Object.entries(preset)) localStorage.setItem(k, v);
+  location.reload(); // simplest way to apply every setting consistently
+});
+refreshPresets();
+
+// --- installable app: register the service worker -----------------------------
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('/sw.js').catch(() => {});
+}

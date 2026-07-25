@@ -5,6 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Music Companion</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎻</text></svg>" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="/icon-180.png" />
+  <meta name="theme-color" content="#eef1f6" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Companion" />
   <style>
     :root {
       color-scheme: light;
@@ -165,6 +171,17 @@
     }
     #pitch-pipe button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
     #volume { width: 7rem; accent-color: var(--primary); }
+    #viz-toggle { display: flex; gap: 0.3rem; justify-content: center; margin-top: 0.4rem; }
+    #viz-toggle button {
+      font-size: 0.72rem;
+      background: none;
+      border: none;
+      color: var(--muted);
+      cursor: pointer;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+    }
+    #viz-toggle button.active { background: var(--card-2); color: var(--ink); }
 
     /* ---- record & analyze ---- */
     #notes-row {
@@ -419,6 +436,10 @@
         <div id="freq"></div>
         <div id="second"></div>
         <canvas id="spectrum" aria-hidden="true"></canvas>
+        <div id="viz-toggle">
+          <button data-viz="spectrum" class="active">spectrum</button>
+          <button data-viz="wave">waveform</button>
+        </div>
       </div>
       <div class="row">
         <button id="listen" class="ctl primary">Start tuner</button>
@@ -431,6 +452,12 @@
           <option value="2" selected>oct 2</option>
           <option value="3">oct 3</option>
           <option value="4">oct 4</option>
+        </select>
+        <select id="drone-timbre" aria-label="Drone sound">
+          <option value="strings" selected>strings</option>
+          <option value="reed">reed</option>
+          <option value="organ">organ</option>
+          <option value="pure">pure</option>
         </select>
       </div>
       <div class="row">
@@ -457,6 +484,10 @@
         <label for="volume">volume</label>
         <input id="volume" type="range" min="0.3" max="3" step="0.1" aria-label="Playback volume" />
       </div>
+      <div class="row">
+        <select id="preset-list" aria-label="Presets"></select>
+        <button id="preset-save" class="ctl">Save preset</button>
+      </div>
     </div>
   </section>
 
@@ -468,6 +499,7 @@
       </div>
       <div class="row" id="save-bar" hidden>
         <button id="save-rec" class="ctl primary">Save to library</button>
+        <button id="export-rec" class="ctl">Export WAV</button>
         <button id="discard-rec" class="ctl">Discard</button>
       </div>
     </div>
