@@ -8,38 +8,38 @@
   <style>
     :root {
       color-scheme: light;
-      /* concert-program ivory, velvet burgundy, brass, espresso ink */
-      --paper: #f6f1e7;
-      --card: #fffdf7;
-      --card-2: #f3ecdd;
-      --ink: #33261b;
-      --muted: #8a7a68;
-      --line: #e6dcc8;
-      --line-strong: #d5c8ae;
-      --burgundy: #8e3b46;
-      --burgundy-deep: #74303a;
-      --brass: #b98a2f;
-      --good: #3f9d63;
-      --off: #d9862a;
-      --bad: #c8524a;
-      --good-soft: #e3f1e7;
-      --off-soft: #f9ecdb;
-      --bad-soft: #f7e3e0;
-      --display: "Iowan Old Style", "Palatino Nova", Palatino, "Book Antiqua", Georgia, serif;
-      --ui: "Avenir Next", "Helvetica Neue", system-ui, sans-serif;
-      --shadow: 0 1px 2px rgba(51, 38, 27, 0.06), 0 4px 16px rgba(51, 38, 27, 0.07);
+      /* cool morning-fog stage: porcelain surfaces, slate ink, cobalt actions */
+      --bg: #eef1f6;
+      --card: #ffffff;
+      --card-2: #e4e8f0;
+      --ink: #1c2230;
+      --muted: #6d7688;
+      --line: #dfe3ec;
+      --line-strong: #c7cfdd;
+      --primary: #3056d3;
+      --primary-deep: #2645ac;
+      --good: #2e9e63;
+      --off: #e08a1e;
+      --bad: #d64545;
+      --good-soft: #e2f3ea;
+      --off-soft: #faeeda;
+      --bad-soft: #fae4e4;
+      --display: Futura, "Century Gothic", "Trebuchet MS", "Avenir Next", sans-serif;
+      --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      --shadow: 0 1px 2px rgba(28, 34, 48, 0.06), 0 6px 20px rgba(28, 34, 48, 0.07);
     }
     * { margin: 0; box-sizing: border-box; }
+    [hidden] { display: none !important; }
     body {
       background:
-        radial-gradient(90rem 40rem at 50% -20rem, #fdf9f0, transparent),
-        var(--paper);
+        radial-gradient(80rem 36rem at 50% -16rem, #f8fafd, transparent),
+        var(--bg);
       color: var(--ink);
       font-family: var(--ui);
       min-height: 100vh;
     }
     button, select, input { font-family: var(--ui); color: var(--ink); }
-    :focus-visible { outline: 2px solid var(--burgundy); outline-offset: 2px; }
+    :focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
 
     /* ---- header & tabs ---- */
     header {
@@ -50,17 +50,16 @@
       padding: 2rem 1rem 0.5rem;
     }
     h1 {
-      font-size: 0.9rem;
-      letter-spacing: 0.38em;
+      font-family: var(--display);
+      font-size: 1.05rem;
+      letter-spacing: 0.28em;
       text-transform: uppercase;
-      color: var(--ink);
       font-weight: 600;
     }
-    h1 span { color: var(--brass); }
+    h1 span { color: var(--primary); }
     nav[role="tablist"] {
       display: flex;
       background: var(--card-2);
-      border: 1px solid var(--line);
       border-radius: 999px;
       padding: 0.3rem;
       gap: 0.2rem;
@@ -70,10 +69,10 @@
       border: none;
       border-radius: 999px;
       color: var(--muted);
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       font-weight: 500;
       cursor: pointer;
-      padding: 0.5rem 1.15rem;
+      padding: 0.55rem 1.2rem;
       transition: color 120ms, background 120ms;
     }
     .tab-btn:hover { color: var(--ink); }
@@ -97,24 +96,24 @@
 
     /* ---- buttons ---- */
     button.ctl {
-      font-size: 0.9rem;
-      font-weight: 500;
+      font-size: 0.92rem;
+      font-weight: 600;
       background: var(--card);
       border: 1px solid var(--line-strong);
       border-radius: 999px;
-      padding: 0.6rem 1.35rem;
+      padding: 0.65rem 1.5rem;
       cursor: pointer;
-      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.06);
+      box-shadow: 0 1px 2px rgba(28, 34, 48, 0.06);
       transition: transform 100ms, box-shadow 100ms, background 120ms;
     }
     button.ctl:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
     button.ctl:active { transform: translateY(0); }
     button.ctl.primary, button.ctl.active {
-      background: var(--burgundy);
-      border-color: var(--burgundy);
-      color: #fdf6ef;
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #fff;
     }
-    button.ctl.primary:hover, button.ctl.active:hover { background: var(--burgundy-deep); }
+    button.ctl.primary:hover, button.ctl.active:hover { background: var(--primary-deep); }
     .tab-panel select, .tab-panel input[type="number"] {
       font-size: 0.88rem;
       background: var(--card);
@@ -138,7 +137,8 @@
       left: 0; right: 0;
       top: 56%;
       font-family: var(--display);
-      font-size: 3.6rem;
+      font-size: 3.4rem;
+      font-weight: 500;
       line-height: 1;
       font-variant-numeric: tabular-nums;
       color: var(--ink);
@@ -153,7 +153,6 @@
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; }
 
     /* ---- record & analyze ---- */
-    #scale-bar { margin-bottom: 1.1rem; }
     #notes-row {
       display: flex;
       flex-wrap: wrap;
@@ -170,7 +169,7 @@
       padding: 0.3rem 0.7rem;
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
-      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.05);
+      box-shadow: 0 1px 2px rgba(28, 34, 48, 0.05);
     }
     .note-chip[data-state="good"] { background: var(--good-soft); border-color: var(--good); color: var(--good); }
     .note-chip[data-state="off"] { background: var(--off-soft); border-color: var(--off); color: var(--off); }
@@ -183,7 +182,7 @@
     .degree {
       border: 1px solid var(--line-strong);
       background: var(--card);
-      border-radius: 0.7rem;
+      border-radius: 0.8rem;
       padding: 0.4rem 0.55rem;
       font-size: 0.8rem;
       text-align: center;
@@ -202,43 +201,74 @@
     .degree.peek { border-color: var(--ink); }
     .degree.clickable { cursor: pointer; transition: transform 100ms, box-shadow 100ms; }
     .degree.clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
-    .degree.playing { outline: 2px solid var(--burgundy); outline-offset: 1px; }
+    .degree.playing { outline: 2px solid var(--primary); outline-offset: 1px; }
     #report-summary { color: var(--muted); font-size: 0.85rem; }
     #playback { margin-top: 1.1rem; border-top: 1px solid var(--line); padding-top: 1.1rem; }
-    #pitch-chart { width: 100%; height: clamp(240px, 42vh, 340px); display: block; }
+    #pitch-chart { width: 100%; height: clamp(230px, 38vh, 320px); display: block; }
+
+    /* playback tools: one labeled row of friendly controls */
     #playback-controls {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.6rem;
+      gap: 0.7rem;
       align-items: center;
-      margin-top: 0.7rem;
-      font-size: 0.8rem;
+      margin-top: 0.9rem;
+      font-size: 0.85rem;
       color: var(--muted);
     }
-    #playback-controls button {
-      font-size: 0.78rem;
-      background: var(--card);
-      border: 1px solid var(--line-strong);
+    #playback-label { font-weight: 500; color: var(--ink); }
+    #playback-speed {
+      display: inline-flex;
+      background: var(--card-2);
       border-radius: 999px;
-      padding: 0.3rem 0.75rem;
-      cursor: pointer;
+      padding: 0.2rem;
+      gap: 0.1rem;
     }
-    #playback-controls button:hover { border-color: var(--ink); }
-    #playback-controls button.active { background: var(--burgundy); color: #fdf6ef; border-color: var(--burgundy); }
-    #ref-octave, #ref-interval {
-      font-size: 0.78rem;
+    #playback-speed button {
+      border: none;
+      background: none;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      font-weight: 600;
+      padding: 0.4rem 0.85rem;
+      cursor: pointer;
+      color: var(--muted);
+    }
+    #playback-speed button:hover { color: var(--ink); }
+    #playback-speed button.active { background: var(--primary); color: #fff; }
+    #playback-controls > button {
+      font-size: 0.84rem;
+      font-weight: 600;
       background: var(--card);
       border: 1px solid var(--line-strong);
       border-radius: 999px;
-      padding: 0.3rem 0.6rem;
+      padding: 0.45rem 1rem;
+      cursor: pointer;
+      box-shadow: 0 1px 2px rgba(28, 34, 48, 0.05);
+      transition: transform 100ms, background 120ms;
+    }
+    #playback-controls > button:hover { transform: translateY(-1px); }
+    #playback-controls > button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    #ref-octave, #ref-interval {
+      font-size: 0.82rem;
+      background: var(--card);
+      border: 1px solid var(--line-strong);
+      border-radius: 999px;
+      padding: 0.4rem 0.7rem;
     }
 
-    #library {
-      margin: 0 auto;
-      text-align: center;
-      width: min(34rem, 100%);
+    /* zoom inset: the selected note in cents detail, below the overview */
+    #note-zoom {
+      margin-top: 1rem;
+      border-top: 1px dashed var(--line-strong);
+      padding-top: 0.8rem;
     }
-    #library-empty { color: var(--muted); font-size: 0.82rem; }
+    #zoom-label { color: var(--muted); font-size: 0.8rem; margin-bottom: 0.3rem; }
+    #note-chart { width: 100%; height: 170px; display: block; }
+
+    /* ---- library ---- */
+    #library { margin: 0 auto; text-align: center; width: min(34rem, 100%); }
+    #library-empty { color: var(--muted); font-size: 0.85rem; }
     #library-list { list-style: none; padding: 0; display: grid; gap: 0.5rem; }
     .lib-item {
       display: flex;
@@ -247,9 +277,9 @@
       gap: 0.8rem;
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 0.9rem;
-      padding: 0.6rem 0.9rem;
-      box-shadow: 0 1px 2px rgba(51, 38, 27, 0.05);
+      border-radius: 1rem;
+      padding: 0.7rem 1rem;
+      box-shadow: 0 1px 2px rgba(28, 34, 48, 0.05);
       font-size: 0.85rem;
       font-variant-numeric: tabular-nums;
     }
@@ -257,26 +287,28 @@
     .lib-item .lib-meta b { color: var(--ink); font-weight: 600; display: block; }
     .lib-item .lib-actions { display: flex; gap: 0.4rem; }
     .lib-item button {
-      font-size: 0.78rem;
+      font-size: 0.8rem;
+      font-weight: 600;
       background: var(--card);
       border: 1px solid var(--line-strong);
       border-radius: 999px;
-      padding: 0.3rem 0.8rem;
+      padding: 0.35rem 0.9rem;
       cursor: pointer;
     }
-    .lib-item button:hover { border-color: var(--ink); }
+    .lib-item button:hover { border-color: var(--primary); color: var(--primary); }
     .lib-item button.danger:hover { border-color: var(--bad); color: var(--bad); }
 
     /* ---- metronome ---- */
     #metro-card { padding: 2.4rem 2rem 2rem; }
     #bpm-display {
       font-family: var(--display);
-      font-size: 6.2rem;
+      font-size: 6rem;
+      font-weight: 500;
       line-height: 1;
       font-variant-numeric: tabular-nums;
     }
-    #tempo-name { color: var(--brass); font-size: 1.05rem; margin-top: 0.4rem; font-style: italic; font-family: var(--display); }
-    #bpm-slider { width: 100%; margin: 1.7rem 0 1.2rem; accent-color: var(--burgundy); }
+    #tempo-name { color: var(--primary); font-size: 1rem; margin-top: 0.4rem; font-weight: 500; letter-spacing: 0.06em; }
+    #bpm-slider { width: 100%; margin: 1.7rem 0 1.2rem; accent-color: var(--primary); }
     #beat-dots { display: flex; gap: 0.9rem; justify-content: center; align-items: center; margin: 1.4rem 0 1.6rem; min-height: 1.2rem; }
     .beat-dot {
       width: 0.8rem; height: 0.8rem;
@@ -285,8 +317,8 @@
       background: var(--card);
       transition: transform 80ms, background 80ms;
     }
-    .beat-dot.downbeat { width: 1rem; height: 1rem; border-color: var(--brass); }
-    .beat-dot.on { background: var(--burgundy); border-color: var(--burgundy); transform: scale(1.3); }
+    .beat-dot.downbeat { width: 1rem; height: 1rem; border-color: var(--primary); }
+    .beat-dot.on { background: var(--primary); border-color: var(--primary); transform: scale(1.3); }
     @media (prefers-reduced-motion: reduce) {
       .beat-dot { transition: none; }
       .beat-dot.on { transform: none; }
@@ -364,7 +396,7 @@
             <button data-speed="0.5">½×</button>
             <button data-speed="0.25">¼×</button>
           </span>
-          <button id="note-drone" hidden>hold as drone</button>
+          <button id="note-drone" hidden>Hold note as drone</button>
           <button id="ref-drone" hidden></button>
           <select id="ref-interval" hidden aria-label="Reference drone interval">
             <option value="unison" selected>same note</option>
@@ -383,6 +415,10 @@
             <option value="4">4 octaves up</option>
           </select>
           <button id="compare" hidden></button>
+        </div>
+        <div id="note-zoom" hidden>
+          <div id="zoom-label"></div>
+          <canvas id="note-chart"></canvas>
         </div>
       </div>
     </div>

@@ -1,31 +1,35 @@
 import { midiToName } from '../analysis/note-utils.js';
 import { findNoteAt, intonationStatus } from './chart-utils.js';
 
-// Two views over the same pitch data, one renderer:
-// - Overview: the whole session as a pitch contour with each detected
-//   note's span tinted by how in-tune it was. Shown as soon as a report
-//   opens — no click needed.
-// - Note zoom: cents deviation around one clicked note.
-// Both return a controller whose setPlayhead(recordingTime|null) draws a
-// sweeping cursor during playback, so you can see exactly when the note
-// you're studying is sounding.
+// Two synced views: the session overview (pitch contour, notes tinted by
+// verdict, click to play in place) and a zoom inset below it showing one
+// note's cents-level detail. Both take the playhead during playback.
 
-const INK = '#33261b';
-const MUTED = '#8a7a68';
-const GRID = '#eae1cf';
-const GOOD = '#3f9d63';
-const STATUS_LINE = { good: '#3f9d63', off: '#d9862a', bad: '#c8524a' };
+const INK = '#1c2230';
+const MUTED = '#6d7688';
+const GRID = '#e3e7ef';
+const GOOD = '#2e9e63';
+const STATUS_LINE = { good: '#2e9e63', off: '#e08a1e', bad: '#d64545' };
 const STATUS_SPAN = {
-  good: 'rgba(63, 157, 99, 0.12)',
-  off: 'rgba(217, 134, 42, 0.14)',
-  bad: 'rgba(200, 82, 74, 0.14)',
+  good: 'rgba(46, 158, 99, 0.12)',
+  off: 'rgba(224, 138, 30, 0.15)',
+  bad: 'rgba(214, 69, 69, 0.13)',
 };
 const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
-const FONT = '12px system-ui, sans-serif';
+const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
 const LINE_WIDTH = 2.5;
 
 function toMidiFloat(r, a4) {
   return 69 + 12 * Math.log2(r.frequency / a4);
+}
+
+// Map a mouse event to css-pixel x INSIDE the canvas coordinate space the
+// chart was drawn in. Uses the live bounding rect, so the cursor and the
+// hover dot stay aligned even when the canvas CSS size has changed since
+// render.
+function canvasX(e, canvas, cssW) {
+  const rect = canvas.getBoundingClientRect();
+  return ((e.clientX - rect.left) / rect.width) * cssW;
 }
 
 function makeController(canvas, drawFn) {
@@ -56,6 +60,15 @@ function drawPlayhead(ctx, x, top, height) {
   ctx.moveTo(x, top);
   ctx.lineTo(x, top + height);
   ctx.stroke();
+}
+
+function nearestPoint(pts, time, key) {
+  let nearest = null;
+  for (const p of pts) {
+    if (p[key] === null || p[key] === undefined) continue;
+    if (!nearest || Math.abs(p.time - time) < Math.abs(nearest.time - time)) nearest = p;
+  }
+  return nearest;
 }
 
 // --- session overview ------------------------------------------------------
@@ -91,9 +104,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
     const y = (mf) => PAD.top + (1 - (mf - yMin) / (yMax - yMin)) * h;
 
-    // note spans, tinted by intonation; a hovered box's span lights up
-    ctx.font = FONT;
-    ctx.textBaseline = 'middle';
+    // note spans, tinted by intonation; the selected/hovered note lights up
     for (const n of notes) {
       const spanW = Math.max(2, x(n.end) - x(n.start));
       ctx.fillStyle = STATUS_SPAN[intonationStatus(n.cents)];
@@ -102,12 +113,6 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
         ctx.strokeStyle = INK;
         ctx.lineWidth = 1;
         ctx.strokeRect(x(n.start), PAD.top, spanW, h);
-      }
-      // name each note directly on the graph when there's room
-      if (spanW > 30) {
-        ctx.fillStyle = MUTED;
-        ctx.textAlign = 'center';
-        ctx.fillText(`${n.chord ? '+' : ''}${n.name}`, x(n.start) + spanW / 2, PAD.top - 7);
       }
     }
 
@@ -161,12 +166,10 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     }
   });
 
-  // The chart is the navigator: click any note's stretch of the trace to
-  // select it; hovering shows which note is under the cursor.
   const timeAt = (e) => {
-    const rect = canvas.getBoundingClientRect();
+    const xCss = canvasX(e, canvas, controller.cssW);
     const w = controller.cssW - PAD.left - PAD.right;
-    return t0 + ((e.clientX - rect.left - PAD.left) / w) * (t1 - t0);
+    return t0 + ((xCss - PAD.left) / w) * (t1 - t0);
   };
   canvas.onmousemove = (e) => {
     const time = timeAt(e);
@@ -174,12 +177,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     canvas.style.cursor = note ? 'pointer' : 'default';
     onNoteHover?.(note);
     controller.setHighlight(note);
-    let nearest = null;
-    for (const p of pts) {
-      if (p.mf === null) continue;
-      if (!nearest || Math.abs(p.time - time) < Math.abs(nearest.time - time)) nearest = p;
-    }
-    controller.setHover(nearest);
+    controller.setHover(nearestPoint(pts, time, 'mf'));
   };
   canvas.onmouseleave = () => {
     onNoteHover?.(null);
@@ -190,5 +188,87 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     const note = findNoteAt(notes, timeAt(e));
     if (note) onNoteClick?.(note);
   };
+  return controller;
+}
+
+// --- zoom inset: one note in cents detail ----------------------------------
+
+export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }) {
+  const CLAMP = 150;
+  const t0 = note.start - contextSec;
+  const t1 = note.end + contextSec;
+  const pts = [];
+  for (const r of readings) {
+    if (r.time < t0 || r.time > t1) continue;
+    if (r.frequency === null || r.confidence < 0.6) { pts.push({ time: r.time, dev: null }); continue; }
+    const dev = Math.max(-CLAMP, Math.min(CLAMP, (toMidiFloat(r, a4) - note.midi) * 100));
+    pts.push({ time: r.time, dev, inTarget: r.time >= note.start && r.time <= note.end });
+  }
+
+  const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead) => {
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+    const w = cssW - PAD.left - PAD.right;
+    const h = cssH - PAD.top - PAD.bottom;
+    const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
+    const y = (dev) => PAD.top + (1 - (dev + CLAMP) / (2 * CLAMP)) * h;
+
+    ctx.fillStyle = 'rgba(28, 34, 48, 0.05)';
+    ctx.fillRect(x(note.start), PAD.top, x(note.end) - x(note.start), h);
+
+    ctx.font = FONT;
+    ctx.textBaseline = 'middle';
+    for (const dev of [-100, 0, 100]) {
+      ctx.strokeStyle = dev === 0 ? GOOD : GRID;
+      ctx.setLineDash(dev === 0 ? [4, 4] : []);
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, y(dev));
+      ctx.lineTo(cssW - PAD.right, y(dev));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = MUTED;
+      ctx.textAlign = 'right';
+      ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - 5, y(dev));
+    }
+
+    ctx.lineWidth = LINE_WIDTH;
+    ctx.lineJoin = 'round';
+    let prev = null;
+    for (const p of pts) {
+      if (p.dev === null) { prev = null; continue; }
+      if (prev) {
+        ctx.strokeStyle = p.inTarget && prev.inTarget ? INK : MUTED;
+        ctx.beginPath();
+        ctx.moveTo(x(prev.time), y(prev.dev));
+        ctx.lineTo(x(p.time), y(p.dev));
+        ctx.stroke();
+      }
+      prev = p;
+    }
+
+    if (playhead !== null && playhead >= t0 && playhead <= t1) {
+      drawPlayhead(ctx, x(playhead), PAD.top, h);
+    }
+
+    if (hoverPt) {
+      ctx.fillStyle = INK;
+      ctx.beginPath();
+      ctx.arc(x(hoverPt.time), y(hoverPt.dev), 4, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.textAlign = x(hoverPt.time) > cssW / 2 ? 'right' : 'left';
+      const dx = x(hoverPt.time) > cssW / 2 ? -8 : 8;
+      ctx.fillText(`${hoverPt.dev >= 0 ? '+' : ''}${hoverPt.dev.toFixed(0)}¢`,
+        x(hoverPt.time) + dx, Math.max(PAD.top + 8, y(hoverPt.dev) - 10));
+    }
+  });
+
+  canvas.onmousemove = (e) => {
+    const xCss = canvasX(e, canvas, controller.cssW);
+    const w = controller.cssW - PAD.left - PAD.right;
+    const time = t0 + ((xCss - PAD.left) / w) * (t1 - t0);
+    controller.setHover(nearestPoint(pts, time, 'dev'));
+  };
+  canvas.onmouseleave = () => controller.setHover(null);
   return controller;
 }

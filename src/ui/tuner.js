@@ -7,16 +7,16 @@ const RMS_FLOOR = 0.005;
 // Gauge geometry: pivot at (150,150) in a 300×170 viewBox; ±50 cents maps
 // to ±50° of needle sweep, like the hand of a clock.
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const INK = '#33261b';
-const MUTED = '#8a7a68';
-const TICK_MINOR = '#c9bda6';
-const BRASS = '#b98a2f';
+const INK = '#1c2230';
+const MUTED = '#6d7688';
+const TICK_MINOR = '#c7cfdd';
+const HUB_ACCENT = '#3056d3';
 const ZONES = [
-  [-50, -25, '#c8524a'],
-  [-25, -8, '#d9862a'],
-  [-8, 8, '#3f9d63'],
-  [8, 25, '#d9862a'],
-  [25, 50, '#c8524a'],
+  [-50, -25, '#d64545'],
+  [-25, -8, '#e08a1e'],
+  [-8, 8, '#2e9e63'],
+  [8, 25, '#e08a1e'],
+  [25, 50, '#d64545'],
 ];
 
 function polar(radius, deg) {
@@ -65,7 +65,7 @@ function buildGauge(svg) {
     stroke: INK, 'stroke-width': 3, 'stroke-linecap': 'round',
   }));
   needle.append(svgEl('circle', { cx: 150, cy: 150, r: 7, fill: INK }));
-  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 2.5, fill: BRASS }));
+  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 2.5, fill: HUB_ACCENT }));
   svg.append(needle);
   return needle;
 }

@@ -1,7 +1,7 @@
 import { tempoStats } from '../analysis/scoring.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
-import { renderOverviewChart } from './pitch-chart.js';
+import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
 import { intonationStatus } from './chart-utils.js';
 
 const GOOD_CENTS = 8;
@@ -13,7 +13,13 @@ let playbackCtx = null;
 let currentSource = null;
 let playbackSpeed = 1;
 let replayCurrent = null;   // re-plays the active note (used by speed buttons)
-let currentChart = null;    // whichever chart is on screen right now
+let currentChart = null;    // the overview chart
+let zoomChart = null;       // the per-note inset below it
+
+function setPlayheads(t) {
+  currentChart?.setPlayhead(t);
+  zoomChart?.setPlayhead(t);
+}
 let animationFrame = 0;
 
 let noteDrone = null; // { osc, gain, btn, tile } — synthesized at the pitch the player produced
@@ -78,7 +84,7 @@ function stopPlayback(root) {
     currentSource = null;
   }
   cancelAnimationFrame(animationFrame);
-  currentChart?.setPlayhead(null);
+  setPlayheads(null);
   stopNoteDrone();
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
 }
@@ -104,7 +110,7 @@ function playClip(clip, root, timeMap, spans) {
   const tick = () => {
     if (source !== currentSource) return;
     const recTime = timeMap((playbackCtx.currentTime - startTime) * playbackSpeed);
-    currentChart?.setPlayhead(recTime);
+    setPlayheads(recTime);
     for (const s of spans) {
       s.tile?.classList.toggle('playing', recTime !== null && recTime >= s.start && recTime <= s.end);
     }
@@ -130,6 +136,8 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   root.querySelector('#ref-drone').hidden = true;
   root.querySelector('#ref-octave').hidden = true;
   root.querySelector('#ref-interval').hidden = true;
+  root.querySelector('#note-zoom').hidden = true;
+  zoomChart = null;
   replayCurrent = null;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
@@ -143,12 +151,24 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   });
 }
 
-// Selecting a note plays it right on the overview: the playhead sweeps the
-// big chart and the note's box lights while it sounds — no view change.
+// Selecting a note plays it right on the overview — the playhead sweeps
+// both charts — and its cents-level detail opens in a zoom inset below,
+// replaced whenever a different note is picked.
 function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
   root.querySelector('#playback').hidden = false;
   root.querySelector('#playback-label').textContent =
     `${name} ${centsLabel(note.cents)} — surrounding notes ducked`;
+
+  if (extras.readings?.length) {
+    root.querySelector('#note-zoom').hidden = false;
+    root.querySelector('#zoom-label').textContent = `${name} up close`;
+    zoomChart = renderNoteChart(root.querySelector('#note-chart'), {
+      readings: extras.readings,
+      note,
+      a4: extras.a4 ?? 440,
+      contextSec: CONTEXT_SEC,
+    });
+  }
 
   const play = () => {
     const clip = buildEmphasizedClip(recording, note.start, note.end, { contextSec: CONTEXT_SEC });
@@ -309,8 +329,10 @@ export function hideReport(root) {
   stopRefDrone();
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
+  root.querySelector('#note-zoom').hidden = true;
   replayCurrent = null;
   currentChart = null;
+  zoomChart = null;
 }
 
 // Free-play review: every detected note as a replayable tile, no expected
