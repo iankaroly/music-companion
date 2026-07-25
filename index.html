@@ -151,6 +151,20 @@
     #cents { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; min-height: 1.3em; }
     #freq { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.15rem; }
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; }
+    #spectrum { width: 100%; height: 54px; display: block; margin-top: 0.9rem; }
+    #pitch-pipe { display: inline-flex; flex-wrap: wrap; gap: 0.25rem; justify-content: center; }
+    #pitch-pipe button {
+      font-size: 0.78rem;
+      font-weight: 600;
+      min-width: 2.1rem;
+      background: var(--card);
+      border: 1px solid var(--line-strong);
+      border-radius: 0.55rem;
+      padding: 0.35rem 0.3rem;
+      cursor: pointer;
+    }
+    #pitch-pipe button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+    #volume { width: 7rem; accent-color: var(--primary); }
 
     /* ---- record & analyze ---- */
     #notes-row {
@@ -404,25 +418,44 @@
         <div id="cents">press start</div>
         <div id="freq"></div>
         <div id="second"></div>
+        <canvas id="spectrum" aria-hidden="true"></canvas>
       </div>
       <div class="row">
         <button id="listen" class="ctl primary">Start tuner</button>
       </div>
       <div class="row">
-        <label for="drone-note">drone</label>
-        <select id="drone-note" aria-label="Drone note"></select>
+        <label>drone</label>
+        <span id="pitch-pipe"></span>
         <select id="drone-octave" aria-label="Drone octave">
           <option value="1">oct 1</option>
           <option value="2" selected>oct 2</option>
           <option value="3">oct 3</option>
           <option value="4">oct 4</option>
         </select>
-        <button id="drone-toggle" class="ctl">Play</button>
+      </div>
+      <div class="row">
+        <label for="transpose">instrument</label>
+        <select id="transpose" aria-label="Transposing instrument">
+          <option value="0" selected>C (concert)</option>
+          <option value="2">B♭ (+2)</option>
+          <option value="3">A (+3)</option>
+          <option value="7">F (+7)</option>
+          <option value="9">E♭ (+9)</option>
+        </select>
+        <label for="temperament">tuning</label>
+        <select id="temperament" aria-label="Temperament">
+          <option value="equal" selected>equal</option>
+          <option value="just">just</option>
+          <option value="pythagorean">pythagorean</option>
+        </select>
+        <select id="temperament-root" aria-label="Temperament root"></select>
       </div>
       <div class="row" id="calibration">
         <label for="a4">A4 =</label>
         <input id="a4" type="number" min="400" max="450" step="1" value="440" />
         <label>Hz</label>
+        <label for="volume">volume</label>
+        <input id="volume" type="range" min="0.3" max="3" step="0.1" aria-label="Playback volume" />
       </div>
     </div>
   </section>
@@ -534,6 +567,21 @@
             <option value="20">20 min</option>
           </select>
           <span id="timer-display"></span>
+        </div>
+        <div class="row">
+          <label for="trainer-step">trainer</label>
+          <select id="trainer-step" aria-label="Tempo trainer step">
+            <option value="0" selected>off</option>
+            <option value="1">+1 bpm</option>
+            <option value="2">+2 bpm</option>
+            <option value="5">+5 bpm</option>
+          </select>
+          <label for="trainer-bars">every</label>
+          <select id="trainer-bars" aria-label="Tempo trainer interval">
+            <option value="2">2 bars</option>
+            <option value="4" selected>4 bars</option>
+            <option value="8">8 bars</option>
+          </select>
         </div>
         <div id="beat-dots"></div>
         <button id="metro-toggle" class="ctl primary">Start</button>

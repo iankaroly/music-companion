@@ -1,5 +1,6 @@
 import { freqToNote, midiToName } from '../analysis/note-utils.js';
 import { PitchCenterTracker } from '../analysis/vibrato.js';
+import { temperamentOffsetCents } from '../analysis/temperaments.js';
 
 const CONFIDENCE_FLOOR = 0.6;
 const RMS_FLOOR = 0.005;
@@ -82,6 +83,9 @@ export class Tuner {
     this.needle = buildGauge(root.querySelector('#gauge-svg'));
     this.tracker = new PitchCenterTracker();
     this.a4 = 440;
+    this.transpose = 0;          // semitones added to DISPLAYED names (Bb instr = +2)
+    this.temperament = 'equal';  // 'equal' | 'just' | 'pythagorean'
+    this.temperamentRoot = 0;    // pitch class of the tonic
   }
 
   setNeedle(cents) {
@@ -106,9 +110,12 @@ export class Tuner {
     const midiFloat = 69 + 12 * Math.log2(frequency / this.a4);
     const { centerMidiFloat, vibrato } = this.tracker.push({ midiFloat, time: reading.time });
     const midi = Math.round(centerMidiFloat);
-    const cents = (centerMidiFloat - midi) * 100;
+    // In a non-equal temperament, "in tune" sits offset from ET by the
+    // degree's historical ratio — the needle centers on THAT target.
+    const cents = (centerMidiFloat - midi) * 100
+      - temperamentOffsetCents(this.temperament, this.temperamentRoot, midi);
 
-    this.noteEl.textContent = midiToName(midi);
+    this.noteEl.textContent = midiToName(midi + this.transpose);
     this.noteEl.dataset.state = Math.abs(cents) < 8 ? 'good' : 'off';
     const centsText = `${cents >= 0 ? '+' : ''}${cents.toFixed(1)} cents`;
     this.centsEl.textContent = vibrato

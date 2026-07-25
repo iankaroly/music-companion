@@ -1,5 +1,5 @@
 import { tempoStats } from '../analysis/scoring.js';
-import { audioContext } from '../audio/context.js';
+import { audioContext, masterOut } from '../audio/context.js';
 import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
@@ -37,7 +37,7 @@ function makeOsc(frequency, level) {
   const gain = playbackCtx.createGain();
   gain.gain.setValueAtTime(0, playbackCtx.currentTime);
   gain.gain.linearRampToValueAtTime(level, playbackCtx.currentTime + 0.1);
-  osc.connect(gain).connect(playbackCtx.destination);
+  osc.connect(gain).connect(masterOut());
   osc.start();
   return { osc, gain };
 }
@@ -52,7 +52,7 @@ function fadeOutOsc({ osc, gain }) {
 // error), so it can be held indefinitely and beaten against the reference.
 function startNoteDrone(frequency, btn, tile) {
   stopNoteDrone();
-  noteDrone = { ...makeOsc(frequency, 0.14), btn, tile };
+  noteDrone = { ...makeOsc(frequency, 0.3), btn, tile };
   btn.classList.add('active');
   tile.classList.add('playing');
 }
@@ -67,7 +67,7 @@ function stopNoteDrone() {
 
 function startRefDrone(frequency, btn) {
   stopRefDrone();
-  refDrone = { ...makeOsc(frequency, 0.12), btn };
+  refDrone = { ...makeOsc(frequency, 0.26), btn };
   btn.classList.add('active');
 }
 
@@ -102,13 +102,22 @@ function playClip(clip, root, timeMap, spans, onDone) {
 
   const samples = playbackSpeed < 0.999
     ? timeStretch(clip.samples, clip.sampleRate, playbackSpeed)
-    : clip.samples;
+    : clip.samples.slice(0);
+
+  // Phone recordings are quiet — normalize each clip's peak toward full
+  // scale (gain capped so the noise floor of near-silence isn't blasted).
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) peak = Math.max(peak, Math.abs(samples[i]));
+  if (peak > 0.0001 && peak < 0.85) {
+    const boost = Math.min(0.85 / peak, 8);
+    for (let i = 0; i < samples.length; i++) samples[i] *= boost;
+  }
 
   const buffer = playbackCtx.createBuffer(1, samples.length, clip.sampleRate);
   buffer.copyToChannel(samples, 0);
   const source = playbackCtx.createBufferSource();
   source.buffer = buffer;
-  source.connect(playbackCtx.destination);
+  source.connect(masterOut());
 
   const startTime = playbackCtx.currentTime;
   const tick = () => {

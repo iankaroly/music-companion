@@ -5,7 +5,10 @@ import { Recorder } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
 import { saveRecording, listRecordings, loadRecording, deleteRecording } from './store/db.js';
-import { startDrone, stopDrone, droneActive } from './audio/drone.js';
+import { toggleDroneNote, retuneDrones, activeDroneNotes, stopAllDrones } from './audio/drone.js';
+import { getVolume, setVolume } from './audio/context.js';
+import { fftMagnitudes } from './audio/fft.js';
+import { RingBuffer } from './audio/ring-buffer.js';
 import { Metronome, tempoName } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { intonationStatus } from './ui/chart-utils.js';
@@ -53,43 +56,66 @@ function applyA4() {
   tuner.a4 = a4;
   if (capture?.segmenter) capture.segmenter.a4 = a4;
   if (capture?.chord) capture.chord.segmenter.a4 = a4;
-  if (droneActive()) startDrone(droneFrequency());
+  retuneDrones(droneFrequency);
 }
 a4Input.addEventListener('input', applyA4);
 a4Input.addEventListener('change', () => { a4Input.value = String(currentA4()); applyA4(); });
 tuner.a4 = currentA4();
 
-// --- drone -----------------------------------------------------------------
+// --- pitch pipe (chord-capable drone) ---------------------------------------
 
-const droneNoteSel = document.querySelector('#drone-note');
+const PIPE_NOTES = ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'];
+const pitchPipe = document.querySelector('#pitch-pipe');
 const droneOctSel = document.querySelector('#drone-octave');
-const droneBtn = document.querySelector('#drone-toggle');
-for (const k of ['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B']) {
-  const opt = document.createElement('option');
-  opt.value = opt.textContent = k;
-  if (k === 'A') opt.selected = true;
-  droneNoteSel.append(opt);
-}
 
-function droneFrequency() {
-  const midi = nameToMidi(droneNoteSel.value + droneOctSel.value);
+function droneFrequency(name) {
+  const midi = nameToMidi(name + droneOctSel.value);
   return currentA4() * 2 ** ((midi - 69) / 12);
 }
 
-droneBtn.addEventListener('click', () => {
-  if (droneActive()) {
-    stopDrone();
-    droneBtn.textContent = 'Play';
-    droneBtn.classList.remove('active');
-  } else {
-    startDrone(droneFrequency());
-    droneBtn.textContent = 'Stop';
-    droneBtn.classList.add('active');
-  }
-});
-for (const sel of [droneNoteSel, droneOctSel]) {
-  sel.addEventListener('change', () => { if (droneActive()) startDrone(droneFrequency()); });
+for (const name of PIPE_NOTES) {
+  const btn = document.createElement('button');
+  btn.textContent = name;
+  btn.addEventListener('click', () => {
+    const on = toggleDroneNote(name, droneFrequency(name));
+    btn.classList.toggle('active', on);
+  });
+  pitchPipe.append(btn);
 }
+droneOctSel.addEventListener('change', () => retuneDrones(droneFrequency));
+
+// --- tuner display: transposition & temperament ------------------------------
+
+const transposeSel = document.querySelector('#transpose');
+const temperamentSel = document.querySelector('#temperament');
+const temperamentRootSel = document.querySelector('#temperament-root');
+for (const name of PIPE_NOTES) {
+  const opt = document.createElement('option');
+  opt.value = String(PIPE_NOTES.indexOf(name));
+  opt.textContent = `root ${name}`;
+  temperamentRootSel.append(opt);
+}
+function applyTunerSettings() {
+  tuner.transpose = Number(transposeSel.value);
+  tuner.temperament = temperamentSel.value;
+  tuner.temperamentRoot = Number(temperamentRootSel.value);
+  localStorage.setItem('tunerSettings',
+    JSON.stringify([transposeSel.value, temperamentSel.value, temperamentRootSel.value]));
+}
+for (const sel of [transposeSel, temperamentSel, temperamentRootSel]) {
+  sel.addEventListener('change', applyTunerSettings);
+}
+try {
+  const saved = JSON.parse(localStorage.getItem('tunerSettings'));
+  if (saved) [transposeSel.value, temperamentSel.value, temperamentRootSel.value] = saved;
+} catch { /* fresh install */ }
+applyTunerSettings();
+
+// --- volume ------------------------------------------------------------------
+
+const volumeSlider = document.querySelector('#volume');
+volumeSlider.value = String(getVolume());
+volumeSlider.addEventListener('input', () => setVolume(Number(volumeSlider.value)));
 
 // --- shared display helpers ------------------------------------------------
 
@@ -129,6 +155,7 @@ function feed(analyzer, segmenter, chunk, onNote = handleNote, readings = null, 
 }
 
 function stopEverything() {
+  stopSpectrum();
   if (capture) {
     capture.stop();
     capture = null;
@@ -150,8 +177,10 @@ async function beginCapture(extra = {}) {
   };
   const session = await startCapture((chunk) => {
     recorder?.push(chunk);
+    spectrumRing.write(chunk);
     feed(analyzer, segmenter, chunk, handleNote, readings, chord);
   });
+  startSpectrum();
   // Fine 11.6ms hop for fast passages; the long window plus a fast
   // sub-window keeps double-stop detection AND fast mono tracking.
   analyzer = new Analyzer(session.sampleRate, { dual: true, hopSize: 512 });
@@ -416,3 +445,71 @@ setBpm(Number(localStorage.getItem('bpm') ?? 80));
 beatsSelect.value = localStorage.getItem('beatsPerBar') ?? '4';
 metronome.beatsPerBar = Number(beatsSelect.value);
 rebuildBeatDots();
+
+
+// --- live spectrum (hand-rolled FFT) -----------------------------------------
+
+const spectrumRing = new RingBuffer(2048);
+const spectrumCanvas = document.querySelector('#spectrum');
+let spectrumFrame = 0;
+
+function drawSpectrum() {
+  const dpr = window.devicePixelRatio || 1;
+  const w = spectrumCanvas.clientWidth;
+  const h = spectrumCanvas.clientHeight;
+  if (spectrumCanvas.width !== w * dpr) {
+    spectrumCanvas.width = w * dpr;
+    spectrumCanvas.height = h * dpr;
+  }
+  const ctx = spectrumCanvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  const windowed = spectrumRing.latest(2048);
+  for (let i = 0; i < windowed.length; i++) {
+    windowed[i] *= 0.5 * (1 - Math.cos((2 * Math.PI * i) / (windowed.length - 1)));
+  }
+  const mags = fftMagnitudes(windowed);
+  const sr = capture?.sampleRate ?? 44100;
+  const maxBin = Math.min(mags.length - 1, Math.ceil(2200 / (sr / 2048)));
+  const bars = 56;
+  const barW = w / bars;
+  ctx.fillStyle = '#3056d3';
+  for (let b = 0; b < bars; b++) {
+    const bin = 1 + Math.floor((b / bars) * maxBin);
+    const mag = Math.min(1, mags[bin] * 14);
+    const barH = Math.max(1, mag * (h - 2));
+    ctx.globalAlpha = 0.25 + 0.75 * mag;
+    ctx.fillRect(b * barW + 1, h - barH, barW - 2, barH);
+  }
+  ctx.globalAlpha = 1;
+  spectrumFrame = requestAnimationFrame(drawSpectrum);
+}
+
+function startSpectrum() {
+  cancelAnimationFrame(spectrumFrame);
+  spectrumFrame = requestAnimationFrame(drawSpectrum);
+}
+
+function stopSpectrum() {
+  cancelAnimationFrame(spectrumFrame);
+  spectrumCanvas?.getContext('2d').clearRect(0, 0, spectrumCanvas.width, spectrumCanvas.height);
+}
+
+// --- metronome tempo trainer wiring ------------------------------------------
+
+const trainerStepSel = document.querySelector('#trainer-step');
+const trainerBarsSel = document.querySelector('#trainer-bars');
+function applyTrainer() {
+  metronome.trainerStep = Number(trainerStepSel.value);
+  metronome.trainerBars = Number(trainerBarsSel.value);
+  localStorage.setItem('trainer', JSON.stringify([trainerStepSel.value, trainerBarsSel.value]));
+}
+trainerStepSel.addEventListener('change', applyTrainer);
+trainerBarsSel.addEventListener('change', applyTrainer);
+try {
+  const savedTrainer = JSON.parse(localStorage.getItem('trainer'));
+  if (savedTrainer) [trainerStepSel.value, trainerBarsSel.value] = savedTrainer;
+} catch { /* fresh install */ }
+applyTrainer();
+metronome.onTempo = (bpm) => setBpm(bpm);

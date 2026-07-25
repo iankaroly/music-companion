@@ -1,4 +1,4 @@
-import { audioContext } from './context.js';
+import { audioContext, masterOut } from './context.js';
 
 // Lookahead-scheduled metronome: clicks are placed on the AudioContext
 // clock ahead of time (the setInterval only tops up the schedule), so
@@ -24,6 +24,10 @@ export class Metronome {
     this.beatsPerBar = 4;
     this.subdivision = 'quarter';
     this.accentFirst = true;
+    this.trainerStep = 0;      // bpm added every trainerBars bars (0 = off)
+    this.trainerBars = 4;
+    this.onTempo = null;
+    this.barCount = 0;
     this.onBeat = onBeat;
     this.ctx = null;
     this.timer = null;
@@ -40,6 +44,7 @@ export class Metronome {
     this.ctx = audioContext();
     this.nextTime = this.ctx.currentTime + 0.1;
     this.count = 0;
+    this.barCount = 0;
     this.timer = setInterval(() => this.schedule(), TICK_MS);
     this.schedule();
   }
@@ -52,6 +57,14 @@ export class Metronome {
   schedule() {
     while (this.nextTime < this.ctx.currentTime + LOOKAHEAD_SEC) {
       const beat = this.count % this.beatsPerBar;
+      // tempo trainer: step the tempo up at each Nth barline
+      if (beat === 0 && this.count > 0) {
+        this.barCount++;
+        if (this.trainerStep > 0 && this.barCount % this.trainerBars === 0) {
+          this.bpm = Math.min(260, this.bpm + this.trainerStep);
+          this.onTempo?.(this.bpm);
+        }
+      }
       const beatLength = 60 / this.bpm;
       this.click(this.nextTime, beat === 0 && this.accentFirst ? 'accent' : 'beat');
       for (const offset of subdivisionOffsets(this.subdivision)) {
@@ -69,14 +82,14 @@ export class Metronome {
     const osc = this.ctx.createOscillator();
     const gain = this.ctx.createGain();
     const [freq, level] =
-      kind === 'accent' ? [1760, 0.5] :
-      kind === 'beat' ? [1174.7, 0.32] :
-      [880, 0.16];
+      kind === 'accent' ? [1760, 0.8] :
+      kind === 'beat' ? [1174.7, 0.55] :
+      [880, 0.28];
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, time);
     gain.gain.exponentialRampToValueAtTime(level, time + 0.003);
     gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
-    osc.connect(gain).connect(this.ctx.destination);
+    osc.connect(gain).connect(masterOut());
     osc.start(time);
     osc.stop(time + 0.08);
   }
