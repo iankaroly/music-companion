@@ -87,12 +87,15 @@ function stopPlayback(root) {
   setPlayheads(null);
   stopNoteDrone();
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
+  if (zoom) zoom.playing = false;
+  updateZoomButton(root);
 }
 
-// Plays a clip with a live playhead on the current chart. `timeMap` converts
+// Plays a clip with a live playhead on both charts. `timeMap` converts
 // clip-audio seconds to recording time (null = inside a silence gap), and
 // `spans` are tiles that light up exactly while their note is sounding.
-function playClip(clip, root, timeMap, spans) {
+// Returns the audio-clock start time (used for pause bookkeeping).
+function playClip(clip, root, timeMap, spans, onDone) {
   playbackCtx ??= new AudioContext();
   stopPlayback(root);
 
@@ -116,10 +119,50 @@ function playClip(clip, root, timeMap, spans) {
     }
     animationFrame = requestAnimationFrame(tick);
   };
-  source.onended = () => stopPlayback(root);
+  source.onended = () => { stopPlayback(root); onDone?.(); };
   source.start();
   currentSource = source;
   tick();
+  return startTime;
+}
+
+// --- zoom section player: play/pause and a draggable playhead --------------
+
+let zoom = null; // { recording, t0, t1, pos, playing, wasPlaying, tile, note, playInfo }
+
+function updateZoomButton(root) {
+  const btn = root.querySelector('#zoom-play');
+  if (btn) btn.textContent = zoom?.playing ? '❚❚' : '▶';
+}
+
+function playZoomFrom(root, from) {
+  if (!zoom) return;
+  const clip = {
+    samples: zoom.recording.extract(from, zoom.t1),
+    sampleRate: zoom.recording.sampleRate,
+  };
+  // playClip stops any previous playback first, which resets the playing
+  // flag — so mark this zoom as playing only after it starts.
+  const startTime = playClip(
+    clip, root,
+    (t) => from + t,
+    [{ tile: zoom.tile, start: zoom.note.start, end: zoom.note.end }],
+    () => { if (zoom) { zoom.playing = false; zoom.pos = zoom.t0; } updateZoomButton(root); },
+  );
+  zoom.playing = true;
+  zoom.pos = from;
+  zoom.playInfo = { from, startTime };
+  updateZoomButton(root);
+}
+
+function pauseZoom(root) {
+  if (!zoom?.playing) return;
+  const { from, startTime } = zoom.playInfo;
+  const elapsed = (playbackCtx.currentTime - startTime) * playbackSpeed;
+  zoom.pos = Math.min(zoom.t1, from + elapsed);
+  stopPlayback(root);
+  setPlayheads(zoom.pos); // keep the marker where playback stopped
+  updateZoomButton(root);
 }
 
 function centsLabel(cents) {
@@ -138,6 +181,7 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   root.querySelector('#ref-interval').hidden = true;
   root.querySelector('#note-zoom').hidden = true;
   zoomChart = null;
+  zoom = null;
   replayCurrent = null;
   currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
     readings: extras.readings,
@@ -162,11 +206,36 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   if (extras.readings?.length) {
     root.querySelector('#note-zoom').hidden = false;
     root.querySelector('#zoom-label').textContent = `${name} up close`;
+    zoom = {
+      recording,
+      t0: Math.max(0, note.start - CONTEXT_SEC),
+      t1: Math.min(recording.duration, note.end + CONTEXT_SEC),
+      pos: Math.max(0, note.start - CONTEXT_SEC),
+      playing: false,
+      wasPlaying: false,
+      tile,
+      note,
+      playInfo: null,
+    };
+    updateZoomButton(root);
+    root.querySelector('#zoom-play').onclick = () => {
+      if (zoom.playing) pauseZoom(root);
+      else playZoomFrom(root, zoom.pos);
+    };
     zoomChart = renderNoteChart(root.querySelector('#note-chart'), {
       readings: extras.readings,
       note,
       a4: extras.a4 ?? 440,
       contextSec: CONTEXT_SEC,
+      onSeek: (t, phase) => {
+        if (phase === 'start') {
+          zoom.wasPlaying = zoom.playing;
+          if (zoom.playing) pauseZoom(root);
+        }
+        zoom.pos = t;
+        setPlayheads(t);
+        if (phase === 'end' && zoom.wasPlaying) playZoomFrom(root, t);
+      },
     });
   }
 
@@ -335,6 +404,7 @@ export function hideReport(root) {
   replayCurrent = null;
   currentChart = null;
   zoomChart = null;
+  zoom = null;
 }
 
 // Free-play review: every detected note as a replayable tile, no expected

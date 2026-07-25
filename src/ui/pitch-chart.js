@@ -74,8 +74,10 @@ function nearestPoint(pts, time, key) {
 // --- session overview ------------------------------------------------------
 
 // Fixed time scale: long sessions extend the canvas and scroll
-// horizontally instead of squeezing into the viewport.
-const PX_PER_SEC = 110;
+// horizontally instead of squeezing into the viewport. Short sessions are
+// NOT stretched to fill — density stays in a natural band.
+const PX_PER_SEC = 50;
+const MAX_PX_PER_SEC = 130;
 const MAX_CHART_PX = 24000;
 
 export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {
@@ -88,7 +90,12 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
 
   const container = canvas.parentElement;
   const fitW = container?.clientWidth || 900;
-  canvas.style.width = `${Math.min(Math.max(fitW, (t1 - t0) * PX_PER_SEC), MAX_CHART_PX)}px`;
+  const duration = t1 - t0;
+  const cssWidth = Math.min(
+    Math.max(duration * PX_PER_SEC, Math.min(fitW, duration * MAX_PX_PER_SEC)),
+    MAX_CHART_PX,
+  );
+  canvas.style.width = `${Math.round(cssWidth)}px`;
   const midis = notes.map((n) => n.midi);
   const yMin = Math.min(...midis) - 1;
   const yMax = Math.max(...midis) + 1;
@@ -215,7 +222,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
 
 // --- zoom inset: one note in cents detail ----------------------------------
 
-export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }) {
+export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek }) {
   const CLAMP = 150;
   const t0 = note.start - contextSec;
   const t1 = note.end + contextSec;
@@ -288,12 +295,34 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2 }
     }
   });
 
-  canvas.onmousemove = (e) => {
+  const timeFromEvent = (e) => {
     const xCss = canvasX(e, canvas, controller.cssW);
     const w = controller.cssW - PAD.left - PAD.right;
-    const time = t0 + ((xCss - PAD.left) / w) * (t1 - t0);
-    controller.setHover(nearestPoint(pts, time, 'dev'));
+    const t = t0 + ((xCss - PAD.left) / w) * (t1 - t0);
+    return Math.max(t0, Math.min(t1, t));
   };
-  canvas.onmouseleave = () => controller.setHover(null);
+
+  // Drag anywhere on the inset to move the playhead; hover shows cents.
+  let dragging = false;
+  canvas.onpointerdown = (e) => {
+    if (!onSeek) return;
+    dragging = true;
+    canvas.setPointerCapture(e.pointerId);
+    onSeek(timeFromEvent(e), 'start');
+  };
+  canvas.onpointermove = (e) => {
+    if (dragging) {
+      onSeek(timeFromEvent(e), 'move');
+    } else {
+      controller.setHover(nearestPoint(pts, timeFromEvent(e), 'dev'));
+    }
+  };
+  canvas.onpointerup = (e) => {
+    if (!dragging) return;
+    dragging = false;
+    onSeek(timeFromEvent(e), 'end');
+  };
+  canvas.onmouseleave = () => { if (!dragging) controller.setHover(null); };
+  if (onSeek) canvas.style.cursor = 'ew-resize';
   return controller;
 }
