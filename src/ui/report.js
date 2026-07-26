@@ -1,9 +1,10 @@
 import { audioContext, masterOut } from '../audio/context.js';
-import { findComparisonNote } from '../audio/clips.js';
+import { findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
 import { intonationStatus, findNoteAt } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
+import { toggleMenu } from './controls.js';
 import { renderTiming, hideTiming } from './timing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
 
@@ -64,13 +65,27 @@ function stopNoteDrone() {
   noteDrone = null;
 }
 
-let compareDrone = null; // { osc, gain, btn } — your best take of the note, held
+// Other takes of the same pitch, held as drones — keyed by note so several can
+// sound together and each can be switched off on its own.
+const compareDrones = new Map(); // note → { osc, gain }
 
-function stopCompareDrone() {
-  if (!compareDrone) return;
-  fadeOutOsc(compareDrone);
-  compareDrone.btn.classList.remove('active');
-  compareDrone = null;
+function stopCompareDrones(btn = null) {
+  for (const voice of compareDrones.values()) fadeOutOsc(voice);
+  compareDrones.clear();
+  btn?.classList.remove('active');
+}
+
+function toggleCompareDrone(sibling, a4, btn) {
+  const existing = compareDrones.get(sibling);
+  if (existing) {
+    fadeOutOsc(existing);
+    compareDrones.delete(sibling);
+  } else {
+    // the pitch actually produced, cents error and all — that's the point
+    const frequency = a4 * 2 ** ((sibling.midi + sibling.cents / 100 - 69) / 12);
+    compareDrones.set(sibling, makeOsc(frequency, 0.28));
+  }
+  btn.classList.toggle('active', compareDrones.size > 0);
 }
 
 function startRefDrone(frequency, btn) {
@@ -214,6 +229,9 @@ function pauseFull(root) {
 // --- zoom section player: play/pause and a draggable playhead --------------
 
 let zoom = null; // { recording, t0, t1, pos, playing, wasPlaying, tile, note, playInfo, retune }
+// Monotonic across zoom sessions: a per-zoom counter would restart at 0 for
+// the next note and a pending loop would match it by accident.
+let zoomLoopToken = 0;
 let selectedNote = null; // the note whose zoom inset is open
 
 function updateZoomButton(root) {
@@ -221,19 +239,33 @@ function updateZoomButton(root) {
   if (btn) btn.textContent = zoom?.playing ? '❚❚' : '▶';
 }
 
+// The zoom section loops: reaching the end sends the cursor back to wherever
+// it was started from and plays again, until pause. Practising a hard spot
+// means hearing it over and over, and re-pressing play each time gets old.
+//
+// The restart can't happen inside onended — playClip's first act is
+// stopPlayback, so calling it from that callback would re-enter the teardown
+// it was called from. It goes on a fresh task instead, guarded by a token so
+// a pause (or a jump to another note) in the gap cancels the pending loop.
 function playZoomFrom(root, from) {
   if (!zoom) return;
   const clip = {
     samples: zoom.recording.extract(from, zoom.t1),
     sampleRate: zoom.recording.sampleRate,
   };
+  const token = zoomLoopToken;
   // playClip stops any previous playback first, which resets the playing
   // flag — so mark this zoom as playing only after it starts.
   const startTime = playClip(
     clip, root,
     (t) => from + t,
     [{ tile: zoom.tile, start: zoom.note.start, end: zoom.note.end, note: zoom.note }],
-    () => { if (zoom) { zoom.playing = false; zoom.pos = zoom.t0; } updateZoomButton(root); },
+    () => {
+      if (!zoom || zoomLoopToken !== token) { updateZoomButton(root); return; }
+      setTimeout(() => {
+        if (zoom && zoomLoopToken === token) playZoomFrom(root, from);
+      }, 0);
+    },
   );
   zoom.playing = true;
   zoom.pos = from;
@@ -246,9 +278,15 @@ function pauseZoom(root) {
   const { from, startTime } = zoom.playInfo;
   const elapsed = (playbackCtx.currentTime - startTime) * playbackSpeed;
   zoom.pos = Math.min(zoom.t1, from + elapsed);
+  zoomLoopToken++; // cancels a loop restart already queued for this pass
   stopPlayback(root);
   setPlayheads(zoom.pos); // keep the marker where playback stopped
   updateZoomButton(root);
+}
+
+// mm:ss for a position in the take — how the passage list writes times too.
+function formatClock(seconds) {
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
 }
 
 function centsLabel(cents) {
@@ -467,6 +505,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   };
 
   if (extras.readings?.length) {
+    zoomLoopToken++; // any loop still pending belongs to the note we just left
     root.querySelector('#note-zoom').hidden = false;
     root.querySelector('#zoom-label').textContent = `${name} up close`;
     zoom = {
@@ -558,20 +597,26 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   refOct.onchange = retune;
   refInterval.onchange = retune;
 
-  // Your most in-tune take of this same note, held as a drone to match.
+  // Every other time you played this pitch. Opening the list lights them all
+  // up on the graph, and any number can be held as drones at once — three
+  // takes of the same G3 sounding together makes the spread audible.
   const compareBtn = root.querySelector('#compare');
-  const ref = findComparisonNote(allNotes, note);
-  stopCompareDrone();
-  if (ref) {
+  const siblings = findSameNotes(allNotes, note);
+  stopCompareDrones();
+  if (siblings.length) {
+    const best = findComparisonNote(allNotes, note);
     compareBtn.hidden = false;
-    compareBtn.textContent = `drone your other ${name} (${centsLabel(ref.cents)})`;
-    const refPlayedFreq = a4 * 2 ** ((ref.midi + ref.cents / 100 - 69) / 12);
+    compareBtn.textContent = `Compare your other ${name} (${siblings.length})`;
+    compareBtn.setAttribute('aria-haspopup', 'menu');
     compareBtn.onclick = () => {
-      if (compareDrone) stopCompareDrone();
-      else {
-        compareDrone = { ...makeOsc(refPlayedFreq, 0.28), btn: compareBtn };
-        compareBtn.classList.add('active');
-      }
+      // the whole family lights up while the list is open, so the graph shows
+      // where each candidate is before you pick one
+      currentChart?.setHighlight?.([note, ...siblings]);
+      toggleMenu(compareBtn, () => siblings.map((sib) => ({
+        label: `${formatClock(sib.start)} · ${centsLabel(sib.cents)}${sib === best ? ' ★' : ''}`,
+        on: compareDrones.has(sib),
+        onPick: () => toggleCompareDrone(sib, a4, compareBtn),
+      })));
     };
   } else {
     compareBtn.hidden = true;
@@ -666,7 +711,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 export function hideReport(root) {
   stopPlayback(root);
   stopRefDrone();
-  stopCompareDrone();
+  stopCompareDrones();
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   hideTiming(root);

@@ -5,7 +5,7 @@ import { Recorder } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
 import { saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording } from './store/db.js';
-import { toggleDroneNote, retuneDrones, retuneDroneNote, setDroneTimbre } from './audio/drone.js';
+import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import { getVolume, setVolume } from './audio/context.js';
 import { fftMagnitudes } from './audio/fft.js';
@@ -14,7 +14,7 @@ import { Metronome, tempoName } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { intonationStatus } from './ui/chart-utils.js';
 import { initLiquidTabs } from './ui/liquid-tabs.js';
-import { initControls, actionMenu, refreshRangeFill } from './ui/controls.js';
+import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/controls.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings } from './ui/settings.js';
 
@@ -684,26 +684,50 @@ refreshPresets();
 
 // --- free drone: any note, layered over whatever else is sounding --------------
 
-const anyNoteSel = document.querySelector('#any-drone-note');
+// One button: tapping it opens the note grid, and tapping notes there stacks
+// them up as drones. Any number can sound at once, so a chord to play against
+// is a few taps rather than a control each.
 const anyDroneBtn = document.querySelector('#any-drone');
-for (let oct = 2; oct <= 5; oct++) {
-  for (const name of PIPE_NOTES) {
-    anyNoteSel.append(new Option(`${name}${oct}`, `${name}${oct}`));
-  }
-}
-anyNoteSel.value = localStorage.getItem('anyDrone') ?? 'A3';
+const FREE = 'free-'; // key prefix, so these voices are told apart from the pipe's
 
-function anyDroneFrequency() {
-  return currentA4() * 2 ** ((nameToMidi(anyNoteSel.value) - 69) / 12);
+const freeDroneNames = () =>
+  [...activeDroneNotes()].filter((k) => k.startsWith(FREE)).map((k) => k.slice(FREE.length));
+
+function refreshDroneButton() {
+  const on = freeDroneNames();
+  anyDroneBtn.textContent = on.length ? `Drone · ${on.join(' ')}` : 'Drone';
+  anyDroneBtn.classList.toggle('active', on.length > 0);
 }
+
+function freeDroneFrequency(name) {
+  return currentA4() * 2 ** ((nameToMidi(name) - 69) / 12);
+}
+
 anyDroneBtn.addEventListener('click', () => {
-  const on = toggleDroneNote('free-drone', anyDroneFrequency());
-  anyDroneBtn.classList.toggle('active', on);
+  const sounding = new Set(freeDroneNames());
+  const rows = [];
+  for (let oct = 2; oct <= 5; oct++) {
+    for (const name of PIPE_NOTES) {
+      const full = `${name}${oct}`;
+      rows.push({
+        label: full,
+        on: sounding.has(full),
+        onPick: () => {
+          const nowOn = toggleDroneNote(FREE + full, freeDroneFrequency(full));
+          if (nowOn) {
+            sounding.add(full);
+            localStorage.setItem('anyDrone', full); // remembered as the default
+          } else {
+            sounding.delete(full);
+          }
+          refreshDroneButton();
+        },
+      });
+    }
+  }
+  toggleMenu(anyDroneBtn, () => rows.map((r) => ({ ...r, on: sounding.has(r.label) })), { columns: true });
 });
-anyNoteSel.addEventListener('change', () => {
-  localStorage.setItem('anyDrone', anyNoteSel.value);
-  retuneDroneNote('free-drone', anyDroneFrequency()); // glides if it's sounding
-});
+refreshDroneButton();
 
 // --- custom pickers replace every native select --------------------------------
 

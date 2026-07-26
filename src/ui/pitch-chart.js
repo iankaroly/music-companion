@@ -19,6 +19,8 @@ const STATUS_SPAN = () => {
 };
 const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
 const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
+const LIVE_FONT_PX = 12;
+const EMPTY = new Set();
 const LINE_WIDTH = 2.5;
 
 function toMidiFloat(r, a4) {
@@ -43,7 +45,7 @@ function makeController(canvas, drawFn) {
 
   let hoverPt = null;
   let playhead = null;
-  let highlight = null;
+  let highlight = EMPTY; // a set: comparison lights up several notes at once
   const draw = () => drawFn(canvas, dpr, cssW, cssH, hoverPt, playhead, highlight);
   draw();
 
@@ -58,7 +60,15 @@ function makeController(canvas, drawFn) {
     cssW,
     setHover(pt) { hoverPt = pt; draw(); },
     setPlayhead(t) { playhead = t; draw(); },
-    setHighlight(note) { highlight = note; draw(); },
+    // Accepts one note, a list of them, or null — comparison highlights every
+    // other take of the same pitch, while playback highlights just the one
+    // that's sounding.
+    setHighlight(notes) {
+      highlight = notes == null ? EMPTY
+        : notes instanceof Set ? notes
+          : new Set(Array.isArray(notes) ? notes : [notes]);
+      draw();
+    },
   };
 }
 
@@ -112,6 +122,64 @@ function attachPinch(canvas, { value, min, max, invert = false, onScale }) {
     e.preventDefault();
     onScale(clamp(value * Math.exp((invert ? e.deltaY : -e.deltaY) * 0.01)));
   });
+}
+
+// The trace sample under a given time. Called once per animation frame while
+// the take plays, and `pts` runs to tens of thousands of samples on a long
+// take, so it binary-searches the (time-sorted) array rather than scanning.
+function sampleAt(pts, time) {
+  let lo = 0;
+  let hi = pts.length - 1;
+  let best = null;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const p = pts[mid];
+    if (best === null || Math.abs(p.time - time) < Math.abs(best.time - time)) best = p;
+    if (p.time < time) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return best;
+}
+
+// How sharp or flat the playing is right now, printed beside the trace at the
+// playhead so the number moves with the sound during playback.
+function drawLiveCents(ctx, canvas, pts, playhead, x, y, cssW, cssH) {
+  const p = sampleAt(pts, playhead);
+  if (!p || p.mf === null || Math.abs(p.time - playhead) > 0.08) return;
+  const nearest = Math.round(p.mf);
+  const cents = (p.mf - nearest) * 100;
+  const label = `${midiToName(nearest)} ${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`;
+
+  ctx.font = `600 ${LIVE_FONT_PX}px -apple-system, "Segoe UI", Roboto, sans-serif`;
+  const padX = 6;
+  const w = ctx.measureText(label).width + padX * 2;
+  const hBox = LIVE_FONT_PX + 8;
+  // Sits to the right of the line, flipping left near the edge. On a long take
+  // the canvas is far wider than the window onto it, so "the edge" is where the
+  // scroller currently ends — measuring against the canvas would let the label
+  // sail off the visible area during playback.
+  const scroller = canvas.parentElement;
+  const scrolls = scroller && scroller.scrollWidth > scroller.clientWidth + 1;
+  const viewLeft = scrolls ? scroller.scrollLeft : 0;
+  const viewRight = scrolls ? scroller.scrollLeft + scroller.clientWidth : cssW;
+  const flip = x(playhead) + 12 + w > viewRight - PAD.right;
+  const bx = flip
+    ? Math.max(viewLeft + 4, x(playhead) - 12 - w)
+    : x(playhead) + 12;
+  const by = Math.max(PAD.top + 2, Math.min(y(p.mf) - hBox / 2, cssH - PAD.bottom - hBox - 2));
+
+  const c = C();
+  ctx.fillStyle = STATUS_SPAN()[intonationStatus(cents)];
+  ctx.beginPath();
+  ctx.roundRect(bx, by, w, hBox, 999);
+  ctx.fill();
+  ctx.strokeStyle = STATUS_LINE()[intonationStatus(cents)];
+  ctx.lineWidth = 1.2;
+  ctx.stroke();
+  ctx.fillStyle = c.ink;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, bx + padX, by + hBox / 2);
 }
 
 function nearestPoint(pts, time, key) {
@@ -176,7 +244,7 @@ export function renderOverviewChart(canvas, {
       const spanW = Math.max(2, x(n.end) - x(n.start));
       ctx.fillStyle = STATUS_SPAN()[intonationStatus(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, spanW, h);
-      if (n === highlight) {
+      if (highlight.has(n)) {
         ctx.strokeStyle = C().ink;
         ctx.lineWidth = 1;
         ctx.strokeRect(x(n.start), PAD.top, spanW, h);
@@ -262,6 +330,8 @@ export function renderOverviewChart(canvas, {
       ctx.beginPath();
       ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
       ctx.fill();
+      // ...and how far off the pitch is right there, moving with the sound
+      if (!hoverPt) drawLiveCents(ctx, cv, pts, playhead, x, y, cssW, cssH);
     }
 
     if (hoverPt) {

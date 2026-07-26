@@ -59,6 +59,15 @@ export function buildComparisonClip(recording, refNote, targetNote, options = {}
 }
 
 // The most in-tune *other* rendition of the same pitch in this session.
+// Every other time the same pitch was played in this take, in the order it
+// was played. What you want when checking "am I consistent on this note?" —
+// findComparisonNote below answers the narrower "which one was best?".
+export function findSameNotes(notes, target) {
+  return notes
+    .filter((n) => n !== target && n.midi === target.midi)
+    .sort((a, b) => a.start - b.start);
+}
+
 export function findComparisonNote(notes, target) {
   let best = null;
   for (const note of notes) {

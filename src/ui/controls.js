@@ -87,6 +87,38 @@ function placePop(pop, btn) {
   pop.classList.add(below ? 'from-top' : 'from-bottom');
 }
 
+// A menu of toggles that stays open, so several rows can be switched on in one
+// visit — picking a drone note, or stacking up notes to compare against.
+// `build()` re-runs after every pick, which keeps the ticks honest without the
+// caller having to track row elements.
+export function toggleMenu(btn, build, { columns = false } = {}) {
+  if (openPop?.btn === btn) { closePop(); return; }
+  closePop();
+  const pop = document.createElement('div');
+  pop.className = columns ? 'pick-pop cols' : 'pick-pop';
+  pop.setAttribute('role', 'menu');
+  const render = () => {
+    pop.replaceChildren(...build().map((item) => {
+      const row = document.createElement('button');
+      row.type = 'button';
+      row.className = item.on ? 'pick-row on' : 'pick-row';
+      row.setAttribute('role', 'menuitemcheckbox');
+      row.setAttribute('aria-checked', String(!!item.on));
+      row.textContent = item.label;
+      row.addEventListener('click', () => {
+        item.onPick();
+        render(); // the pop stays put; only the ticks change
+      });
+      return row;
+    }));
+  };
+  render();
+  document.body.append(pop);
+  placePop(pop, btn);
+  btn.setAttribute('aria-expanded', 'true');
+  openPop = { pop, btn };
+}
+
 // A one-shot action menu: rows of [{ label, danger, onPick }]. Nothing is
 // "selected" here, unlike the select-backed menus below.
 export function actionMenu(btn, items) {
@@ -226,7 +258,6 @@ export function initControls(root) {
   pick('#preset-list');
   pick('#ref-interval');
   pick('#ref-octave');
-  pick('#any-drone-note');
   seg('#beats-per-bar', { format: (o) => o.value });
   seg('#subdivision', { format: stacked((o) => o.textContent.split(' ')[0]) });
   pick('#timer-mins');
