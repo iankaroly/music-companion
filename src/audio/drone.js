@@ -18,7 +18,13 @@ const TIMBRES = {
 let timbre = 'strings';
 
 export function setDroneTimbre(name) {
-  if (TIMBRES[name]) timbre = name;
+  if (!TIMBRES[name]) return;
+  timbre = name;
+  // sounding drones morph to the new voice immediately — no retoggle needed
+  if (active.size) {
+    const wave = makeWave(audioContext());
+    for (const voice of active.values()) voice.osc.setPeriodicWave(wave);
+  }
 }
 
 const active = new Map(); // note name -> { osc, gain }
@@ -60,11 +66,24 @@ export function stopAllDrones() {
   for (const name of [...active.keys()]) stopDroneNote(name);
 }
 
-// Re-pitch every sounding note (octave or A4 change).
+// Re-pitch every sounding note (octave or A4 change). Voices whose key the
+// mapper can't resolve (e.g. the coach's drill drones) keep their pitch.
 export function retuneDrones(frequencyFor) {
   const ctx = audioContext();
   for (const [name, voice] of active) {
-    voice.osc.frequency.setTargetAtTime(frequencyFor(name), ctx.currentTime, 0.03);
+    let f = null;
+    try { f = frequencyFor(name); } catch { /* not a pipe note */ }
+    if (Number.isFinite(f) && f > 0) {
+      voice.osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.03);
+    }
+  }
+}
+
+// Glide one sounding voice to a new pitch (no-op if it isn't sounding).
+export function retuneDroneNote(name, frequency) {
+  const voice = active.get(name);
+  if (voice && Number.isFinite(frequency) && frequency > 0) {
+    voice.osc.frequency.setTargetAtTime(frequency, audioContext().currentTime, 0.03);
   }
 }
 

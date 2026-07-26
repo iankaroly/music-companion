@@ -7,6 +7,13 @@ import { audioContext, masterOut } from './context.js';
 const LOOKAHEAD_SEC = 0.12;
 const TICK_MS = 25;
 
+function makeNoiseBuffer(ctx) {
+  const buf = ctx.createBuffer(1, Math.ceil(ctx.sampleRate * 0.04), ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  return buf;
+}
+
 // Sub-click positions within one beat, as fractions of the beat length.
 export function subdivisionOffsets(name) {
   switch (name) {
@@ -79,19 +86,37 @@ export class Metronome {
   }
 
   click(time, kind) {
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
     const [freq, level] =
-      kind === 'accent' ? [1760, 0.8] :
-      kind === 'beat' ? [1174.7, 0.55] :
-      [880, 0.28];
+      kind === 'accent' ? [1760, 1.5] :
+      kind === 'beat' ? [1174.7, 1.05] :
+      [880, 0.5];
+    // Body: square wave — dense harmonics read far louder than a sine blip
+    // on small speakers; the master limiter keeps the peaks clean.
+    const osc = this.ctx.createOscillator();
+    osc.type = 'square';
     osc.frequency.value = freq;
+    const gain = this.ctx.createGain();
     gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(level, time + 0.003);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.05);
+    gain.gain.exponentialRampToValueAtTime(level, time + 0.002);
+    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
     osc.connect(gain).connect(masterOut());
     osc.start(time);
-    osc.stop(time + 0.08);
+    osc.stop(time + 0.09);
+    // Attack: a band-passed noise tick gives the click a percussive edge
+    // that cuts through playing.
+    this.noiseBuffer ??= makeNoiseBuffer(this.ctx);
+    const noise = this.ctx.createBufferSource();
+    noise.buffer = this.noiseBuffer;
+    const bp = this.ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq * 2;
+    bp.Q.value = 1;
+    const ng = this.ctx.createGain();
+    ng.gain.setValueAtTime(level * 0.9, time);
+    ng.gain.exponentialRampToValueAtTime(0.0001, time + 0.02);
+    noise.connect(bp).connect(ng).connect(masterOut());
+    noise.start(time);
+    noise.stop(time + 0.03);
   }
 }
 

@@ -7,10 +7,20 @@
 //   ends; resume() must be called from inside the user gesture.
 // - Safari caps the number of live AudioContexts — sharing one keeps us
 //   under it alongside the mic capture context.
-export function audioContext() {
+// iOS plays 'play-and-record' sessions at a much lower output level (call
+// routing), so we stay in 'playback' — full media volume, still beats the
+// silent switch — and only switch to 'play-and-record' while the mic runs.
+let sessionType = 'playback';
+
+export function setAudioSessionType(type) {
+  sessionType = type;
   if (navigator.audioSession) {
-    try { navigator.audioSession.type = 'play-and-record'; } catch { /* older iOS */ }
+    try { navigator.audioSession.type = type; } catch { /* older iOS */ }
   }
+}
+
+export function audioContext() {
+  setAudioSessionType(sessionType);
   audioContext.ctx ??= new AudioContext();
   if (audioContext.ctx.state !== 'running') audioContext.ctx.resume();
   return audioContext.ctx;
