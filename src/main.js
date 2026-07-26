@@ -20,6 +20,16 @@ import { initSettings } from './ui/settings.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
 
+// Safari raises gesture events for any two-finger pinch — trackpad included —
+// and zooming the whole app is never what's wanted here: the charts do their
+// own zooming, and everything else is already sized for the screen. Skipped
+// while the page is somehow already zoomed, so pinching out still works.
+for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
+  document.addEventListener(type, (e) => {
+    if ((window.visualViewport?.scale ?? 1) <= 1.01) e.preventDefault();
+  }, { passive: false });
+}
+
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
 const statusEl = document.querySelector('#status');

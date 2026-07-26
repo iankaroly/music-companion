@@ -87,6 +87,15 @@ function drawPlayhead(ctx, x, top, height) {
 // computed from the gesture's start so re-renders stay stable. `invert`
 // is for values where spreading fingers should SHRINK the number (like a
 // context-window width).
+// Charts cover most of the screen, and they swallow the pinch to rescale their
+// own time axis. If the page ever ends up zoomed anyway — iOS Safari honours no
+// request not to — swallowing the gesture would trap the user at that
+// magnification with nowhere left to pinch. So while the page is zoomed, the
+// charts hand the gesture back to the browser and the user can always get out.
+function pageIsZoomed() {
+  return (window.visualViewport?.scale ?? 1) > 1.01;
+}
+
 function attachPinch(canvas, { value, min, max, invert = false, onScale }) {
   for (const [type, fn] of canvas._pinchListeners ?? []) canvas.removeEventListener(type, fn);
   canvas._pinchListeners = [];
@@ -101,7 +110,7 @@ function attachPinch(canvas, { value, min, max, invert = false, onScale }) {
     canvas._pinchListeners.push([type, fn]);
   };
   listen('touchstart', (e) => {
-    if (e.touches.length === 2) {
+    if (e.touches.length === 2 && !pageIsZoomed()) {
       e.preventDefault();
       canvas._pinch = { d0: dist(e.touches), v0: value };
     }
@@ -116,7 +125,7 @@ function attachPinch(canvas, { value, min, max, invert = false, onScale }) {
   const endPinch = (e) => { if (e.touches.length < 2) canvas._pinch = null; };
   listen('touchend', endPinch);
   listen('touchcancel', endPinch);
-  listen('gesturestart', (e) => e.preventDefault()); // Safari page-zoom
+  listen('gesturestart', (e) => { if (!pageIsZoomed()) e.preventDefault(); }); // Safari page-zoom
   listen('wheel', (e) => {
     if (!e.ctrlKey) return; // trackpad pinch arrives as ctrl+wheel
     e.preventDefault();

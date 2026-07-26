@@ -2,7 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- The charts own the pinch gesture (it rescales the time axis), so the page
+       itself must not zoom underneath them — otherwise a stray pinch leaves the
+       whole app magnified. iOS Safari ignores maximum-scale, which is why
+       attachPinch also stands aside whenever the page IS zoomed, so a pinch on
+       a chart can always undo it. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
   <title>Music Companion</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎻</text></svg>" />
   <link rel="manifest" href="/manifest.webmanifest" />
@@ -75,6 +80,9 @@
       --chart-wave: rgb(var(--on-surface) / 0.05);
       --display: "Fredoka", ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", sans-serif;
       --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+      /* Figures read as data, not as decoration: the rounded display face makes
+         a bare "68" or "7¢" look like a toy. */
+      --num: -apple-system, "SF Pro Display", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
       --shadow: 0 2px 4px rgb(var(--sh) / 0.05), 0 12px 32px rgb(var(--sh) / 0.1);
       --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
     }
@@ -121,6 +129,8 @@
     * { margin: 0; box-sizing: border-box; }
     [hidden] { display: none !important; }
     .native-hidden { display: none !important; }
+    /* pan, don't zoom: also removes the double-tap-to-zoom delay on buttons */
+    html, body { touch-action: pan-x pan-y; }
     html { background: var(--bg); }
     body {
       background: var(--bg);
@@ -836,7 +846,7 @@
     .pg-row:last-child { border-bottom: none; }
     .pg-row .pg-name { font-size: 0.9rem; }
     .pg-row .pg-count { color: var(--muted); font-size: 0.72rem; white-space: nowrap; }
-    .pg-delta { font-family: var(--display); font-weight: 500; font-size: 0.8rem; white-space: nowrap; }
+    .pg-delta { font-family: var(--num); font-weight: 600; font-size: 0.82rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
     .pg-delta.better { color: var(--good); }
     .pg-delta.worse { color: var(--bad); }
     .pg-delta.flat { color: var(--muted); }
@@ -967,13 +977,15 @@
     }
     .wk-tile b {
       display: block;
-      font-family: var(--display);
-      font-weight: 500;
+      font-family: var(--num);
+      font-weight: 600;
       font-size: 1.5rem;
-      line-height: 1.1;
+      line-height: 1.15;
+      letter-spacing: -0.02em;
       font-variant-numeric: tabular-nums;
+      font-feature-settings: "tnum" 1;
     }
-    .wk-tile span { color: var(--muted); font-size: 0.66rem; font-family: var(--display); font-weight: 500; }
+    .wk-tile span { color: var(--muted); font-size: 0.68rem; font-family: var(--display); font-weight: 500; letter-spacing: 0.01em; }
     #wk-delta { margin-top: 0.6rem; font-size: 0.8rem; font-family: var(--display); font-weight: 500; color: var(--muted); min-height: 1.2em; }
     #wk-delta[data-state="good"] { color: var(--good); }
     #wk-delta[data-state="bad"] { color: var(--bad); }
