@@ -159,12 +159,16 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 1.4rem 1rem 0.4rem;
+      padding: 1.4rem 1rem 0.9rem;
     }
+    /* Centred in the header rather than pinned below its top edge: the button
+       is taller than the header's text row, so a fixed offset left it hanging
+       over the first card once the phone layout tightened the padding. */
     #settings-btn {
       position: absolute;
       right: 1rem;
-      top: 1.25rem;
+      top: 50%;
+      transform: translateY(-50%);
       display: grid;
       place-items: center;
       width: 2.3rem; height: 2.3rem;
@@ -179,7 +183,7 @@
       transition: transform 400ms var(--spring), color 150ms;
     }
     #settings-btn:hover { color: var(--primary); }
-    #settings-btn:active { transform: scale(0.9); }
+    #settings-btn:active { transform: translateY(-50%) scale(0.9); }
     #settings-btn svg { width: 1.15rem; height: 1.15rem; }
 
     /* ---- settings sheet ---- */
@@ -1147,7 +1151,7 @@
 
     /* ---- phone layout ---- */
     @media (max-width: 640px) {
-      header { padding: 0.9rem 0.5rem 0.2rem; }
+      header { padding: 0.9rem 0.6rem 0.75rem; }
       h1 { font-size: 1.3rem; }
       .tab-btn { padding: 0.6rem 0.5rem 0.55rem; min-width: 3.9rem; font-size: 0.66rem; }
       .tab-btn svg { width: 24px; height: 24px; }
