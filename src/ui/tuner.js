@@ -8,16 +8,14 @@ const RMS_FLOOR = 0.005;
 // Gauge geometry: pivot at (150,150) in a 300×170 viewBox; ±50 cents maps
 // to ±50° of needle sweep, like the hand of a clock.
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const INK = '#1c2230';
-const MUTED = '#6d7688';
-const TICK_MINOR = '#c7cfdd';
-const HUB_ACCENT = '#3056d3';
+// The dial is painted by class, not by literal colour, so the palette in the
+// stylesheet — and therefore the theme — is the single source of truth.
 const ZONES = [
-  [-50, -25, '#d64545'],
-  [-25, -8, '#e08a1e'],
-  [-8, 8, '#2e9e63'],
-  [8, 25, '#e08a1e'],
-  [25, 50, '#d64545'],
+  [-50, -25, 'g-bad'],
+  [-25, -8, 'g-off'],
+  [-8, 8, 'g-good'],
+  [8, 25, 'g-off'],
+  [25, 50, 'g-bad'],
 ];
 
 function polar(radius, deg) {
@@ -32,13 +30,13 @@ function svgEl(name, attrs) {
 }
 
 function buildGauge(svg) {
-  for (const [c1, c2, color] of ZONES) {
+  for (const [c1, c2, zoneClass] of ZONES) {
     const [x1, y1] = polar(108, c1);
     const [x2, y2] = polar(108, c2);
     svg.append(svgEl('path', {
       d: `M ${x1} ${y1} A 108 108 0 0 1 ${x2} ${y2}`,
-      stroke: color, 'stroke-width': 5, fill: 'none',
-      'stroke-linecap': 'round', opacity: 0.55,
+      class: `g-zone ${zoneClass}`, 'stroke-width': 5, fill: 'none',
+      'stroke-linecap': 'round',
     }));
   }
   for (let c = -50; c <= 50; c += 5) {
@@ -47,7 +45,7 @@ function buildGauge(svg) {
     const [x2, y2] = polar(major ? 103 : 110, c);
     svg.append(svgEl('line', {
       x1, y1, x2, y2,
-      stroke: major ? INK : TICK_MINOR,
+      class: major ? 'g-tick-major' : 'g-tick',
       'stroke-width': major ? 2 : 1.2,
     }));
   }
@@ -55,7 +53,7 @@ function buildGauge(svg) {
     const [x, y] = polar(131, c);
     const label = svgEl('text', {
       x, y, 'text-anchor': 'middle', 'dominant-baseline': 'middle',
-      'font-size': 11, fill: MUTED, 'font-family': 'system-ui, sans-serif',
+      'font-size': 11, class: 'g-label', 'font-family': 'system-ui, sans-serif',
     });
     label.textContent = c > 0 ? `+${c}` : String(c);
     svg.append(label);
@@ -63,10 +61,10 @@ function buildGauge(svg) {
   const needle = svgEl('g', { id: 'needle-g' });
   needle.append(svgEl('line', {
     x1: 150, y1: 150, x2: 150, y2: 52,
-    stroke: INK, 'stroke-width': 3, 'stroke-linecap': 'round',
+    class: 'g-needle', 'stroke-width': 3, 'stroke-linecap': 'round',
   }));
-  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 7, fill: INK }));
-  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 2.5, fill: HUB_ACCENT }));
+  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 7, class: 'g-hub' }));
+  needle.append(svgEl('circle', { cx: 150, cy: 150, r: 2.5, class: 'g-hub-dot' }));
   svg.append(needle);
   return needle;
 }
@@ -89,8 +87,13 @@ export class Tuner {
   }
 
   setNeedle(cents) {
-    const deg = Math.max(-50, Math.min(50, cents));
-    this.needle.style.transform = `rotate(${deg}deg)`;
+    const target = Math.max(-50, Math.min(50, cents));
+    // light smoothing (updates arrive ~86×/s) so the needle glides
+    this._deg = this._deg === undefined ? target : this._deg + (target - this._deg) * 0.35;
+    // SVG-attribute rotation with an explicit pivot: CSS transform-origin
+    // on SVG children is measured off-center by Safari once the svg is
+    // scaled, which made the needle disagree with the cents readout.
+    this.needle.setAttribute('transform', `rotate(${this._deg.toFixed(2)} 150 150)`);
   }
 
   update(reading) {

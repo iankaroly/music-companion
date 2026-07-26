@@ -4,8 +4,8 @@ import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
-import { saveRecording, listRecordings, loadRecording, deleteRecording } from './store/db.js';
-import { toggleDroneNote, retuneDrones, setDroneTimbre } from './audio/drone.js';
+import { saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording } from './store/db.js';
+import { toggleDroneNote, retuneDrones, retuneDroneNote, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import { getVolume, setVolume } from './audio/context.js';
 import { fftMagnitudes } from './audio/fft.js';
@@ -13,31 +13,42 @@ import { RingBuffer } from './audio/ring-buffer.js';
 import { Metronome, tempoName } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { intonationStatus } from './ui/chart-utils.js';
+import { initLiquidTabs } from './ui/liquid-tabs.js';
+import { initControls, actionMenu, refreshRangeFill } from './ui/controls.js';
+import { renderCoach } from './ui/coach.js';
+import { initSettings } from './ui/settings.js';
+
+initSettings(document); // theme first: the canvases read their colours from it
 
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
-const listenBtn = document.querySelector('#listen');
 const statusEl = document.querySelector('#status');
 const notesRow = document.querySelector('#notes-row');
 const saveBar = document.querySelector('#save-bar');
 
 const MAX_CHIPS = 24;
 
-let capture = null;   // active mic session
-let lastTake = null;  // finished recording awaiting save/discard
+let capture = null;       // active mic session
+let lastTake = null;      // finished recording awaiting save/discard
+let tunerStarting = false; // declared before tabs init — onShown fires during it
 
 // --- tabs ------------------------------------------------------------------
 
-const tabButtons = document.querySelectorAll('.tab-btn');
-function showTab(name) {
-  for (const btn of tabButtons) btn.setAttribute('aria-selected', String(btn.dataset.tab === name));
-  for (const panel of document.querySelectorAll('.tab-panel')) {
-    panel.classList.toggle('active', panel.id === `tab-${name}`);
-  }
-  localStorage.setItem('tab', name);
-}
-for (const btn of tabButtons) btn.addEventListener('click', () => showTab(btn.dataset.tab));
-showTab(localStorage.getItem('tab') ?? 'tuner');
+const tabs = initLiquidTabs({
+  nav: document.querySelector('nav[role="tablist"]'),
+  panes: document.querySelector('#panes'),
+  order: ['tuner', 'analyze', 'library', 'coach', 'metronome'],
+  initial: localStorage.getItem('tab') ?? 'tuner',
+  onShown: (name) => {
+    localStorage.setItem('tab', name);
+    if (name === 'coach') renderCoach(document); // fresh habits every visit
+    // deferred a tick: the initial onShown fires while this module is still
+    // initializing, and beginCapture reads consts declared further down
+    if (name === 'tuner') queueMicrotask(autoStartTuner); // the tuner just runs here
+    else autoStopTuner();
+  },
+});
+const showTab = (name) => tabs.show(name);
 
 // --- calibration -----------------------------------------------------------
 
@@ -169,7 +180,6 @@ function stopEverything() {
     capture = null;
   }
   startBtn.textContent = 'Record';
-  listenBtn.textContent = 'Start tuner';
   statusEl.textContent = '';
   tuner.update({ frequency: null, confidence: 0, rms: 0 });
 }
@@ -201,22 +211,26 @@ async function beginCapture(extra = {}) {
   return session;
 }
 
-// --- live tuner (listen only, no review) -----------------------------------
+// --- live tuner: always on while the tuner tab is open ----------------------
 
-listenBtn.addEventListener('click', async () => {
-  if (capture?.listen) {
-    stopEverything();
-    return;
-  }
-  stopEverything();
+async function autoStartTuner() {
+  // an active recording already feeds the tuner display — don't touch it
+  if (capture || tunerStarting) return;
+  tunerStarting = true;
   try {
     capture = await beginCapture({ listen: true });
-    listenBtn.textContent = 'Stop';
-    statusEl.textContent = 'listening';
   } catch (err) {
     statusEl.textContent = `mic unavailable: ${err.message}`;
+  } finally {
+    tunerStarting = false;
   }
-});
+  // the user may have left the tab while the mic was being granted
+  if (capture?.listen && tabs.current !== 'tuner') stopEverything();
+}
+
+function autoStopTuner() {
+  if (capture?.listen) stopEverything();
+}
 
 // --- record → review → save or discard -------------------------------------
 
@@ -259,7 +273,7 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
   if (!lastTake) return;
   const { recorder, notes, readings, a4 } = lastTake;
   try {
-    await saveRecording({
+    const id = await saveRecording({
       date: Date.now(),
       duration: recorder.duration,
       sampleRate: recorder.sampleRate,
@@ -271,6 +285,9 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     saveBar.hidden = true;
     lastTake = null;
     statusEl.textContent = 'saved to library';
+    // Re-render the same review now that the take has an id, so passages can
+    // be marked without reopening it from the library.
+    renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
     refreshLibrary();
   } catch (err) {
     statusEl.textContent = `could not save: ${err.message}`;
@@ -291,16 +308,20 @@ function downloadWav(samples, sampleRate, when) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
-document.querySelector('#export-rec').addEventListener('click', () => {
-  if (!lastTake) return;
-  const { recorder } = lastTake;
-  downloadWav(recorder.extract(0, recorder.duration), recorder.sampleRate, Date.now());
-});
-
 // --- library ---------------------------------------------------------------
 
 const libraryList = document.querySelector('#library-list');
 const libraryEmpty = document.querySelector('#library-empty');
+const renameDialog = document.querySelector('#rename-dialog');
+const renameInput = document.querySelector('#rename-input');
+let renameId = null;
+
+renameDialog.addEventListener('close', async () => {
+  if (renameDialog.returnValue !== 'save' || renameId === null) return;
+  await renameRecording(renameId, renameInput.value.trim());
+  renameId = null;
+  refreshLibrary();
+});
 
 function formatWhen(date) {
   return new Date(date).toLocaleString(undefined, {
@@ -314,46 +335,90 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
+async function openRecording(r) {
+  const data = await loadRecording(r.id);
+  if (!data) return;
+  clearTake();
+  const rec = new Recorder(r.sampleRate);
+  rec.push(new Float32Array(data.audio));
+  showTab('analyze');
+  renderFreeReview(document, data.notes, rec, {
+    readings: data.readings, a4: data.a4, recordingId: r.id,
+  });
+}
+
+// One library row: the row itself opens the take, so the name gets the width
+// it deserves and the rarer actions sit behind ⋯.
+function libraryRow(r) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = r.name || formatWhen(r.date);
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = r.name
+    ? `${formatWhen(r.date)} · ${formatDuration(r.duration)} · ${r.noteCount} notes`
+    : `${formatDuration(r.duration)} · ${r.noteCount} notes`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(text, chev);
+  open.addEventListener('click', () => openRecording(r));
+
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-expanded', 'false');
+  more.setAttribute('aria-label', `More actions for ${r.name || formatWhen(r.date)}`);
+  more.addEventListener('click', () => actionMenu(more, [
+    {
+      label: 'Rename',
+      onPick: () => {
+        renameId = r.id;
+        renameInput.value = r.name ?? '';
+        renameDialog.showModal();
+      },
+    },
+    {
+      label: 'Download WAV',
+      onPick: async () => {
+        const data = await loadRecording(r.id);
+        if (data) downloadWav(new Float32Array(data.audio), r.sampleRate, r.date);
+      },
+    },
+    {
+      label: 'Delete',
+      danger: true,
+      onPick: async () => {
+        await deleteRecording(r.id);
+        refreshLibrary();
+      },
+    },
+  ]));
+
+  li.append(open, more);
+  return li;
+}
+
 async function refreshLibrary() {
   try {
     const recordings = await listRecordings();
     libraryEmpty.style.display = recordings.length ? 'none' : 'block';
     libraryList.replaceChildren();
     for (const r of recordings) {
-      const li = document.createElement('li');
-      li.className = 'lib-item';
-      const meta = document.createElement('div');
-      meta.className = 'lib-meta';
-      meta.innerHTML = `<b>${formatWhen(r.date)}</b>${formatDuration(r.duration)} · ${r.noteCount} notes`;
-      const actions = document.createElement('div');
-      actions.className = 'lib-actions';
-      const openBtn = document.createElement('button');
-      openBtn.textContent = 'Open';
-      openBtn.addEventListener('click', async () => {
-        const data = await loadRecording(r.id);
-        if (!data) return;
-        clearTake();
-        const rec = new Recorder(r.sampleRate);
-        rec.push(new Float32Array(data.audio));
-        showTab('analyze');
-        renderFreeReview(document, data.notes, rec, { readings: data.readings, a4: data.a4 });
-      });
-      const wavBtn = document.createElement('button');
-      wavBtn.textContent = 'WAV';
-      wavBtn.addEventListener('click', async () => {
-        const data = await loadRecording(r.id);
-        if (data) downloadWav(new Float32Array(data.audio), r.sampleRate, r.date);
-      });
-      const delBtn = document.createElement('button');
-      delBtn.className = 'danger';
-      delBtn.textContent = 'Delete';
-      delBtn.addEventListener('click', async () => {
-        await deleteRecording(r.id);
-        refreshLibrary();
-      });
-      actions.append(openBtn, wavBtn, delBtn);
-      li.append(meta, actions);
-      libraryList.append(li);
+      libraryList.append(libraryRow(r));
     }
   } catch { /* blocked IndexedDB — library stays empty */ }
 }
@@ -379,6 +444,7 @@ function setBpm(bpm) {
   bpmDisplay.textContent = String(metronome.bpm);
   tempoNameEl.textContent = tempoName(metronome.bpm);
   bpmSlider.value = String(metronome.bpm);
+  refreshRangeFill(bpmSlider); // tap tempo and the trainer move it from code
   localStorage.setItem('bpm', String(metronome.bpm));
 }
 
@@ -496,7 +562,7 @@ function drawSpectrum() {
 
   if (vizMode === 'wave') {
     const wave = spectrumRing.latest(1024);
-    ctx.strokeStyle = '#3056d3';
+    ctx.strokeStyle = '#6d4ef6';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     for (let i = 0; i < wave.length; i++) {
@@ -519,7 +585,7 @@ function drawSpectrum() {
   const maxBin = Math.min(mags.length - 1, Math.ceil(2200 / (sr / 2048)));
   const bars = 56;
   const barW = w / bars;
-  ctx.fillStyle = '#3056d3';
+  ctx.fillStyle = '#6d4ef6';
   for (let b = 0; b < bars; b++) {
     const bin = 1 + Math.floor((b / bars) * maxBin);
     const mag = Math.min(1, mags[bin] * 14);
@@ -586,15 +652,24 @@ function refreshPresets() {
   for (const name of Object.keys(presets)) presetSel.append(new Option(name, name));
 }
 
+const presetDialog = document.querySelector('#preset-dialog');
+const presetName = document.querySelector('#preset-name');
+
 document.querySelector('#preset-save').addEventListener('click', () => {
-  const name = prompt('Preset name:');
-  if (!name) return;
+  presetName.value = '';
+  presetDialog.showModal();
+});
+
+presetDialog.addEventListener('close', () => {
+  const name = presetName.value.trim();
+  if (presetDialog.returnValue !== 'save' || !name) return;
   const presets = JSON.parse(localStorage.getItem('presets') ?? '{}');
   presets[name] = Object.fromEntries(
     PRESET_KEYS.map((k) => [k, localStorage.getItem(k)]).filter(([, v]) => v !== null));
   localStorage.setItem('presets', JSON.stringify(presets));
   refreshPresets();
   presetSel.value = name;
+  presetSel.dispatchEvent(new Event('refresh-label'));
 });
 
 presetSel.addEventListener('change', () => {
@@ -606,6 +681,33 @@ presetSel.addEventListener('change', () => {
   location.reload(); // simplest way to apply every setting consistently
 });
 refreshPresets();
+
+// --- free drone: any note, layered over whatever else is sounding --------------
+
+const anyNoteSel = document.querySelector('#any-drone-note');
+const anyDroneBtn = document.querySelector('#any-drone');
+for (let oct = 2; oct <= 5; oct++) {
+  for (const name of PIPE_NOTES) {
+    anyNoteSel.append(new Option(`${name}${oct}`, `${name}${oct}`));
+  }
+}
+anyNoteSel.value = localStorage.getItem('anyDrone') ?? 'A3';
+
+function anyDroneFrequency() {
+  return currentA4() * 2 ** ((nameToMidi(anyNoteSel.value) - 69) / 12);
+}
+anyDroneBtn.addEventListener('click', () => {
+  const on = toggleDroneNote('free-drone', anyDroneFrequency());
+  anyDroneBtn.classList.toggle('active', on);
+});
+anyNoteSel.addEventListener('change', () => {
+  localStorage.setItem('anyDrone', anyNoteSel.value);
+  retuneDroneNote('free-drone', anyDroneFrequency()); // glides if it's sounding
+});
+
+// --- custom pickers replace every native select --------------------------------
+
+initControls(document);
 
 // --- installable app: register the service worker -----------------------------
 

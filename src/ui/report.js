@@ -1,19 +1,18 @@
-import { tempoStats } from '../analysis/scoring.js';
 import { audioContext, masterOut } from '../audio/context.js';
-import { buildEmphasizedClip, buildComparisonClip, findComparisonNote } from '../audio/clips.js';
+import { findComparisonNote } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
-import { intonationStatus } from './chart-utils.js';
+import { intonationStatus, findNoteAt } from './chart-utils.js';
+import { midiToName } from '../analysis/note-utils.js';
+import { renderTiming, hideTiming } from './timing.js';
+import { initPassages, hidePassages, offerNote } from './passages.js';
 
-const GOOD_CENTS = 8;
 const CONTEXT_SEC = 1.2;
-const PAD_SEC = 0.06;
-const GAP_SEC = 0.35;
+let zoomContextSec = CONTEXT_SEC; // pinch on the zoom chart adjusts this
 
 let playbackCtx = null;
 let currentSource = null;
 let playbackSpeed = 1;
-let replayCurrent = null;   // re-plays the active note (used by speed buttons)
 let currentChart = null;    // the overview chart
 let zoomChart = null;       // the per-note inset below it
 
@@ -65,6 +64,15 @@ function stopNoteDrone() {
   noteDrone = null;
 }
 
+let compareDrone = null; // { osc, gain, btn } — your best take of the note, held
+
+function stopCompareDrone() {
+  if (!compareDrone) return;
+  fadeOutOsc(compareDrone);
+  compareDrone.btn.classList.remove('active');
+  compareDrone = null;
+}
+
 function startRefDrone(frequency, btn) {
   stopRefDrone();
   refDrone = { ...makeOsc(frequency, 0.26), btn };
@@ -87,10 +95,13 @@ function stopPlayback(root) {
   cancelAnimationFrame(animationFrame);
   setPlayheads(null);
   if (zoom) zoomChart?.setPlayhead(zoom.pos);
+  if (full) currentChart?.setPlayhead(full.pos);
   stopNoteDrone();
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
   if (zoom) zoom.playing = false;
+  if (full) full.playing = false;
   updateZoomButton(root);
+  updateFullButton(root);
 }
 
 // Plays a clip with a live playhead on both charts. `timeMap` converts
@@ -141,9 +152,69 @@ function playClip(clip, root, timeMap, spans, onDone) {
   return startTime;
 }
 
+// --- whole-take player: play/pause on the overview chart --------------------
+
+let full = null; // { recording, spans, pos, playing, playInfo }
+
+function updateFullButton(root) {
+  const btn = root.querySelector('#clip-play');
+  if (btn) btn.textContent = full?.playing ? '❚❚' : '▶';
+}
+
+function playFullFrom(root, from) {
+  if (!full) return;
+  const clip = {
+    samples: full.recording.extract(from, full.recording.duration),
+    sampleRate: full.recording.sampleRate,
+  };
+  const startTime = playClip(
+    clip, root,
+    (t) => from + t,
+    full.spans,
+    () => { if (full) { full.playing = false; full.pos = 0; } updateFullButton(root); },
+  );
+  full.playing = true;
+  full.pos = from;
+  full.playInfo = { from, startTime };
+  updateFullButton(root);
+}
+
+// Play one marked span and stop at its end — the whole-take player's spans and
+// playhead still apply, so the chart follows along as usual.
+function playSpan(root, startSec, endSec) {
+  if (!full) return;
+  const from = Math.max(0, startSec);
+  const to = Math.min(full.recording.duration, endSec);
+  if (!(to > from)) return;
+  const clip = {
+    samples: full.recording.extract(from, to),
+    sampleRate: full.recording.sampleRate,
+  };
+  const startTime = playClip(
+    clip, root,
+    (t) => from + t,
+    full.spans,
+    () => { if (full) { full.playing = false; full.pos = from; } updateFullButton(root); },
+  );
+  full.playing = true;
+  full.pos = from;
+  full.playInfo = { from, startTime };
+  updateFullButton(root);
+}
+
+function pauseFull(root) {
+  if (!full?.playing) return;
+  const { from, startTime } = full.playInfo;
+  const elapsed = (playbackCtx.currentTime - startTime) * playbackSpeed;
+  full.pos = Math.min(full.recording.duration, from + elapsed);
+  stopPlayback(root);
+  updateFullButton(root);
+}
+
 // --- zoom section player: play/pause and a draggable playhead --------------
 
-let zoom = null; // { recording, t0, t1, pos, playing, wasPlaying, tile, note, playInfo }
+let zoom = null; // { recording, t0, t1, pos, playing, wasPlaying, tile, note, playInfo, retune }
+let selectedNote = null; // the note whose zoom inset is open
 
 function updateZoomButton(root) {
   const btn = root.querySelector('#zoom-play');
@@ -184,11 +255,32 @@ function centsLabel(cents) {
   return `${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`;
 }
 
-function showOverview(root, allNotes, extras, selectNote, tileByNote) {
+// Amplitude peaks at 1ms resolution, computed once per take — the waveform
+// view reads these instead of rescanning raw audio on every redraw.
+function buildWave(recording) {
+  if (!recording || recording.duration === 0) return null;
+  const samples = recording.extract(0, recording.duration);
+  const perSec = 1000;
+  const bucket = Math.max(1, Math.round(recording.sampleRate / perSec));
+  const peaks = new Float32Array(Math.ceil(samples.length / bucket));
+  for (let i = 0; i < samples.length; i++) {
+    const a = Math.abs(samples[i]);
+    const b = (i / bucket) | 0;
+    if (a > peaks[b]) peaks[b] = a;
+  }
+  // normalize to the take's own peak so quiet phone recordings still read
+  let max = 0;
+  for (const p of peaks) if (p > max) max = p;
+  if (max > 0.001) for (let i = 0; i < peaks.length; i++) peaks[i] /= max;
+  return { peaks, perSec };
+}
+
+let overviewPxPerSec = Number(localStorage.getItem('chartPxPerSec')) || 120;
+let overviewMode = localStorage.getItem('chartMode') === 'wave' ? 'wave' : 'pitch';
+
+function showOverview(root, allNotes, recording, extras, selectNote, tileByNote) {
   stopPlayback(root);
   root.querySelector('#playback').hidden = false;
-  root.querySelector('#playback-label').textContent =
-    'click any note on the graph (or a box) to hear it';
   root.querySelector('#selected-note').hidden = true;
   root.querySelector('#compare').hidden = true;
   root.querySelector('#note-drone').hidden = true;
@@ -198,24 +290,122 @@ function showOverview(root, allNotes, extras, selectNote, tileByNote) {
   root.querySelector('#note-zoom').hidden = true;
   zoomChart = null;
   zoom = null;
-  replayCurrent = null;
-  currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
-    readings: extras.readings,
-    notes: allNotes,
-    a4: extras.a4 ?? 440,
-    onNoteClick: selectNote,
-    onNoteHover: (note) => {
-      for (const { tile } of tileByNote.values()) tile.classList.remove('peek');
-      if (note) tileByNote.get(note)?.tile.classList.add('peek');
-    },
-  });
+  selectedNote = null;
+
+  // whole-take play/pause above the overview chart
+  full = recording ? {
+    recording,
+    spans: allNotes.map((n) => ({
+      tile: tileByNote.get(n)?.tile, start: n.start, end: n.end, note: n,
+    })),
+    pos: 0,
+    playing: false,
+    playInfo: null,
+  } : null;
+  root.querySelector('#clip-head').hidden = !recording;
+  updateFullButton(root);
+  root.querySelector('#clip-play').onclick = () => {
+    if (!full) return;
+    if (full.playing) pauseFull(root);
+    else playFullFrom(root, full.pos);
+  };
+
+  // Dragging the overview cursor (or tapping the chart) steers everything:
+  // the whole-take play position, which note the zoom inset shows, and the
+  // pitch any held drone follows.
+  const overviewSeek = (t, phase) => {
+    if (phase === 'start' || phase === 'tap') {
+      if (full?.playing) pauseFull(root);
+      else if (zoom?.playing) pauseZoom(root);
+    }
+    if (full) full.pos = Math.max(0, t);
+    const n = findNoteAt(allNotes, t);
+    if (n && n !== selectedNote) {
+      selectNote(n, t);
+    } else if (zoom) {
+      zoom.pos = Math.max(zoom.t0, Math.min(zoom.t1, t));
+      zoom.retune?.();
+    }
+    setPlayheads(t);
+  };
+
+  const wave = buildWave(recording);
+  const scroller = root.querySelector('#chart-scroll');
+  let scalePending = null;
+
+  const buildChart = () => {
+    currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
+      readings: extras.readings,
+      notes: allNotes,
+      a4: extras.a4 ?? 440,
+      pxPerSec: overviewPxPerSec,
+      mode: wave ? overviewMode : 'pitch',
+      wave,
+      onSeek: overviewSeek,
+      onScale: (s) => {
+        // rebuild at most once a frame while the pinch is moving
+        scalePending = s;
+        if (scalePending !== null && scalePending !== overviewPxPerSec) {
+          requestAnimationFrame(() => {
+            if (scalePending === null) return;
+            overviewPxPerSec = scalePending;
+            scalePending = null;
+            localStorage.setItem('chartPxPerSec', String(Math.round(overviewPxPerSec)));
+            rebuild();
+          });
+        }
+      },
+      onNoteHover: (note) => {
+        for (const { tile } of tileByNote.values()) tile.classList.remove('peek');
+        if (note) tileByNote.get(note)?.tile.classList.add('peek');
+      },
+    });
+    currentChart.setPlayhead(full ? full.pos : null);
+    if (selectedNote) currentChart.setHighlight(selectedNote);
+  };
+
+  // Re-render at a new scale/mode, keeping the time at the viewport center
+  // under the viewport center.
+  const rebuild = () => {
+    const half = scroller.clientWidth / 2;
+    const centerTime = currentChart?.timeAtX?.(scroller.scrollLeft + half) ?? null;
+    buildChart();
+    if (centerTime !== null) {
+      scroller.scrollLeft = Math.max(0, currentChart.xOfTime(centerTime) - half);
+    }
+  };
+
+  // pitch ↔ waveform toggle (hidden when there is no audio to draw)
+  const modeGroup = root.querySelector('#chart-mode');
+  modeGroup.hidden = !wave;
+  for (const btn of modeGroup.querySelectorAll('button')) {
+    btn.classList.toggle('active', btn.dataset.mode === overviewMode);
+    btn.onclick = () => {
+      if (overviewMode === btn.dataset.mode) return;
+      overviewMode = btn.dataset.mode;
+      localStorage.setItem('chartMode', overviewMode);
+      for (const b of modeGroup.querySelectorAll('button')) {
+        b.classList.toggle('active', b === btn);
+      }
+      rebuild();
+    };
+  }
+
+  buildChart();
+
+  // the cursor knob starts at the beginning of the take
+  if (full) {
+    full.pos = Math.max(0, currentChart.range?.t0 ?? 0);
+    currentChart.setPlayhead(full.pos);
+  }
 }
 
-// Selecting a note plays it right on the overview — the playhead sweeps
-// both charts — and its cents-level detail opens in a zoom inset below,
-// replaced whenever a different note is picked.
-function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote) {
+// Selecting a note opens its cents-level detail in the zoom inset below —
+// nothing plays until the zoom's own play button is pressed. `atTime`
+// places the zoom cursor (used when the overview cursor drags in).
+function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote, atTime = null) {
   root.querySelector('#playback').hidden = false;
+  selectedNote = note;
 
   // The selected note as a box: name, cents, chord marker, status color.
   const selected = root.querySelector('#selected-note');
@@ -224,16 +414,68 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   selected.dataset.state = intonationStatus(note.cents);
   selected.innerHTML = `<b>${note.chord ? '+' : ''}${name}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
 
-  root.querySelector('#playback-label').textContent = 'surrounding notes ducked';
+  const a4 = extras.a4 ?? 440;
+
+  // Pitch actually played at time t, from the recorded readings — this is
+  // what the cursor drone holds and retunes to while it's dragged.
+  const readingFreqAt = (t) => {
+    let best = null;
+    for (const r of extras.readings ?? []) {
+      if (r.frequency === null || r.confidence < 0.6) continue;
+      if (best === null || Math.abs(r.time - t) < Math.abs(best.time - t)) best = r;
+    }
+    return best && Math.abs(best.time - t) < 0.25 ? best.frequency : null;
+  };
+  const cursorMidi = () => {
+    const f = readingFreqAt(zoom?.pos ?? note.start);
+    return f ? Math.round(69 + 12 * Math.log2(f / a4)) : note.midi;
+  };
+
+  const noteDroneBtn = root.querySelector('#note-drone');
+  const refBtn = root.querySelector('#ref-drone');
+  const refOct = root.querySelector('#ref-octave');
+  const refInterval = root.querySelector('#ref-interval');
+
+  // Fifths are pure (3:2), not equal-tempered — a correctly played note
+  // locks beat-free against a pure fifth, the same way open strings are
+  // tuned. Unison stays equal-tempered (it IS the reference pitch).
+  const INTERVAL_RATIOS = { unison: 1, 'fifth-up': 3 / 2, 'fifth-down': 2 / 3 };
+  const refFrequency = () =>
+    a4 * 2 ** ((cursorMidi() + Number(refOct.value) * 12 - 69) / 12) *
+    INTERVAL_RATIOS[refInterval.value];
+  const refreshRefLabel = () => {
+    refBtn.textContent = `+ in-tune ${midiToName(cursorMidi())} drone`;
+  };
+  const retuneCursorDrones = () => {
+    if (noteDrone) {
+      const f = readingFreqAt(zoom.pos);
+      if (f) noteDrone.osc.frequency.setTargetAtTime(f, playbackCtx.currentTime, 0.03);
+    }
+    if (refDrone) {
+      refDrone.osc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.03);
+    }
+    refreshRefLabel();
+    // the note box tracks the cursor: what note is here, how far off is it
+    const f = readingFreqAt(zoom?.pos ?? note.start);
+    if (f) {
+      const mf = 69 + 12 * Math.log2(f / a4);
+      const m = Math.round(mf);
+      const cents = (mf - m) * 100;
+      selected.dataset.state = intonationStatus(cents);
+      selected.innerHTML = `<b>${midiToName(m)}</b>${centsLabel(cents)}`;
+    }
+  };
 
   if (extras.readings?.length) {
     root.querySelector('#note-zoom').hidden = false;
     root.querySelector('#zoom-label').textContent = `${name} up close`;
     zoom = {
       recording,
-      t0: Math.max(0, note.start - CONTEXT_SEC),
-      t1: Math.min(recording.duration, note.end + CONTEXT_SEC),
-      pos: Math.max(0, note.start - CONTEXT_SEC),
+      t0: 0,
+      t1: 0,
+      // the cursor starts ON the note (or where the overview cursor is),
+      // so the drone grabs this note's pitch
+      pos: atTime ?? note.start + Math.min(0.15, (note.end - note.start) / 2),
       playing: false,
       wasPlaying: false,
       tile,
@@ -245,63 +487,67 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
       if (zoom.playing) pauseZoom(root);
       else playZoomFrom(root, zoom.pos);
     };
-    zoomChart = renderNoteChart(root.querySelector('#note-chart'), {
-      readings: extras.readings,
-      note,
-      a4: extras.a4 ?? 440,
-      contextSec: CONTEXT_SEC,
-      onSeek: (t, phase) => {
-        if (phase === 'start') {
-          zoom.wasPlaying = zoom.playing;
-          if (zoom.playing) pauseZoom(root);
-        }
-        zoom.pos = t;
-        setPlayheads(t);
-        if (phase === 'end' && zoom.wasPlaying) playZoomFrom(root, t);
-      },
-    });
-    zoomChart.setPlayhead(zoom.pos);
+
+    let zoomScalePending = null;
+    const buildZoomChart = () => {
+      zoom.t0 = Math.max(0, note.start - zoomContextSec);
+      zoom.t1 = Math.min(recording.duration, note.end + zoomContextSec);
+      zoom.pos = Math.max(zoom.t0, Math.min(zoom.t1, zoom.pos));
+      zoomChart = renderNoteChart(root.querySelector('#note-chart'), {
+        readings: extras.readings,
+        note,
+        a4,
+        contextSec: zoomContextSec,
+        onSeek: (t, phase) => {
+          if (phase === 'start') {
+            zoom.wasPlaying = zoom.playing;
+            if (zoom.playing) pauseZoom(root);
+          }
+          zoom.pos = t;
+          setPlayheads(t);
+          retuneCursorDrones();
+          if (phase === 'end' && zoom.wasPlaying) playZoomFrom(root, t);
+        },
+        onScale: (c) => {
+          zoomScalePending = c;
+          requestAnimationFrame(() => {
+            if (zoomScalePending === null || zoomScalePending === zoomContextSec) return;
+            zoomContextSec = zoomScalePending;
+            zoomScalePending = null;
+            buildZoomChart();
+          });
+        },
+      });
+      zoomChart.setPlayhead(zoom.pos);
+    };
+    buildZoomChart();
+    zoom.retune = retuneCursorDrones;
   }
 
-  const play = () => {
-    const clip = buildEmphasizedClip(recording, note.start, note.end, { contextSec: CONTEXT_SEC });
-    const clipStart = Math.max(0, note.start - CONTEXT_SEC);
-    playClip(clip, root, (t) => clipStart + t, [{ tile, start: note.start, end: note.end, note }]);
-  };
-  replayCurrent = play;
-  play();
-
-  // Hold the note as a drone, and layer an in-tune reference over it.
-  const noteDroneBtn = root.querySelector('#note-drone');
-  const refBtn = root.querySelector('#ref-drone');
-  const refOct = root.querySelector('#ref-octave');
-  const refInterval = root.querySelector('#ref-interval');
+  // Hold the pitch under the zoom cursor as a drone (it retunes live as
+  // the cursor is dragged), and layer an in-tune reference over it. Any
+  // drone already sounding stays alive and glides to the new cursor spot.
   noteDroneBtn.hidden = false;
   refBtn.hidden = false;
   refOct.hidden = false;
   refInterval.hidden = false;
-  stopRefDrone();
-  stopNoteDrone();
-  refBtn.textContent = `+ in-tune ${name} drone`;
+  if (noteDrone) {
+    noteDrone.tile?.classList.remove('playing');
+    noteDrone.tile = tile;
+    tile.classList.add('playing');
+  }
+  retuneCursorDrones();
 
-  const a4 = extras.a4 ?? 440;
   const playedFrequency = a4 * 2 ** ((note.midi + note.cents / 100 - 69) / 12);
   noteDroneBtn.onclick = () => {
     if (noteDrone) {
       stopNoteDrone();
     } else {
-      if (currentSource) stopPlayback(root); // a held pitch replaces any replay
-      startNoteDrone(playedFrequency, noteDroneBtn, tile);
+      if (currentSource) stopPlayback(root); // a held pitch replaces playback
+      startNoteDrone(readingFreqAt(zoom?.pos ?? note.start) ?? playedFrequency, noteDroneBtn, tile);
     }
   };
 
-  // Fifths are pure (3:2), not equal-tempered — a correctly played note
-  // locks beat-free against a pure fifth, the same way open strings are
-  // tuned. Unison stays equal-tempered (it IS the reference pitch).
-  const INTERVAL_RATIOS = { unison: 1, 'fifth-up': 3 / 2, 'fifth-down': 2 / 3 };
-  const refFrequency = () =>
-    a4 * 2 ** ((note.midi + Number(refOct.value) * 12 - 69) / 12) *
-    INTERVAL_RATIOS[refInterval.value];
   refBtn.onclick = () => {
     if (refDrone) stopRefDrone();
     else startRefDrone(refFrequency(), refBtn);
@@ -312,24 +558,20 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   refOct.onchange = retune;
   refInterval.onchange = retune;
 
+  // Your most in-tune take of this same note, held as a drone to match.
   const compareBtn = root.querySelector('#compare');
   const ref = findComparisonNote(allNotes, note);
+  stopCompareDrone();
   if (ref) {
     compareBtn.hidden = false;
-    compareBtn.textContent = `hear vs your other ${name} (${centsLabel(ref.cents)})`;
+    compareBtn.textContent = `drone your other ${name} (${centsLabel(ref.cents)})`;
+    const refPlayedFreq = a4 * 2 ** ((ref.midi + ref.cents / 100 - 69) / 12);
     compareBtn.onclick = () => {
-      const clip = buildComparisonClip(recording, ref, note, { padSec: PAD_SEC, gapSec: GAP_SEC });
-      const refStart = ref.start - PAD_SEC;
-      const targetStart = note.start - PAD_SEC;
-      const timeMap = (t) => {
-        if (t <= clip.refDuration) return refStart + t;
-        if (t <= clip.refDuration + clip.gapDuration) return null;
-        return targetStart + (t - clip.refDuration - clip.gapDuration);
-      };
-      playClip(clip, root, timeMap, [
-        { tile: tileByNote.get(ref)?.tile, start: ref.start, end: ref.end, note: ref },
-        { tile, start: note.start, end: note.end, note },
-      ]);
+      if (compareDrone) stopCompareDrone();
+      else {
+        compareDrone = { ...makeOsc(refPlayedFreq, 0.28), btn: compareBtn };
+        compareBtn.classList.add('active');
+      }
     };
   } else {
     compareBtn.hidden = true;
@@ -343,7 +585,9 @@ function wireSpeedButtons(root) {
       for (const b of root.querySelectorAll('#playback-speed button')) {
         b.classList.toggle('active', b === btn);
       }
-      replayCurrent?.();
+      // whichever player is running restarts at the new speed
+      if (zoom?.playing) { pauseZoom(root); playZoomFrom(root, zoom.pos); }
+      else if (full?.playing) { pauseFull(root); playFullFrom(root, full.pos); }
     };
   }
 }
@@ -360,20 +604,23 @@ function degreeState(d) {
 export function renderReport(root, alignment, recording = null, extras = {}) {
   const report = root.querySelector('#report');
   const grid = root.querySelector('#report-grid');
-  const summary = root.querySelector('#report-summary');
 
-  const { degrees, matched, missed, tonic } = alignment;
+  const { degrees } = alignment;
   const allNotes = degrees.filter((d) => d.played).map((d) => d.played);
 
-  replayCurrent = null;
   wireSpeedButtons(root);
 
   const tileByNote = new Map();
-  const selectNote = (note) => {
+  const selectNote = (note, atTime = null) => {
     const entry = tileByNote.get(note);
     if (!entry) return;
+    // While a passage is being marked, taps name its bounds instead of playing.
+    if (offerNote(note)) {
+      currentChart?.setHighlight?.(note);
+      return;
+    }
     currentChart?.setHighlight?.(note);
-    showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote);
+    showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote, atTime);
   };
 
   grid.replaceChildren();
@@ -395,18 +642,6 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     grid.append(tile);
   }
 
-  const parts = [];
-  if (tonic) parts.push(`from ${tonic}`);
-  parts.push(`${matched}/${degrees.length} notes`);
-  const tempo = tempoStats(allNotes.map((n) => n.start));
-  if (tempo) {
-    parts.push(`≈${tempo.bpm.toFixed(0)} notes/min`);
-    parts.push(`evenness ${(tempo.evenness * 100).toFixed(0)}%`);
-    parts.push(tempo.drift < -0.08 ? 'rushing' : tempo.drift > 0.08 ? 'dragging' : 'steady tempo');
-  }
-  if (missed > 0) parts.push(`${missed} missed`);
-  if (recording) parts.push('click a note to hear it');
-  summary.textContent = parts.join(' · ');
   root.querySelector('#notes-summary').textContent =
     `${allNotes.length} notes — expand to browse`;
 
@@ -415,22 +650,33 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   report.classList.add('visible');
 
   if (extras.readings?.length && allNotes.length > 0) {
-    showOverview(root, allNotes, extras, selectNote, tileByNote);
+    showOverview(root, allNotes, recording, extras, selectNote, tileByNote);
+    renderTiming(root, allNotes, { onPickNote: (note) => selectNote(note) });
+    initPassages(root, allNotes, {
+      recordingId: extras.recordingId ?? null,
+      onPlaySpan: (from, to) => playSpan(root, from, to),
+    });
   } else {
     root.querySelector('#playback').hidden = true;
+    hideTiming(root);
+    hidePassages(root);
   }
 }
 
 export function hideReport(root) {
   stopPlayback(root);
   stopRefDrone();
+  stopCompareDrone();
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
+  hideTiming(root);
+  hidePassages(root);
   root.querySelector('#note-zoom').hidden = true;
-  replayCurrent = null;
   currentChart = null;
   zoomChart = null;
   zoom = null;
+  full = null;
+  selectedNote = null;
 }
 
 // Free-play review: every detected note as a replayable tile, no expected

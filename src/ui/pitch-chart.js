@@ -1,19 +1,21 @@
 import { midiToName } from '../analysis/note-utils.js';
 import { findNoteAt, intonationStatus } from './chart-utils.js';
+import { palette, onThemeChange } from './theme.js';
 
 // Two synced views: the session overview (pitch contour, notes tinted by
 // verdict, click to play in place) and a zoom inset below it showing one
 // note's cents-level detail. Both take the playhead during playback.
 
-const INK = '#1c2230';
-const MUTED = '#6d7688';
-const GRID = '#e3e7ef';
-const GOOD = '#2e9e63';
-const STATUS_LINE = { good: '#2e9e63', off: '#e08a1e', bad: '#d64545' };
-const STATUS_SPAN = {
-  good: 'rgba(46, 158, 99, 0.12)',
-  off: 'rgba(224, 138, 30, 0.15)',
-  bad: 'rgba(214, 69, 69, 0.13)',
+// A canvas can't see CSS variables, so every colour comes from the theme's
+// palette at draw time. C() is cached and invalidated on a theme switch.
+const C = palette;
+const STATUS_LINE = () => {
+  const p = C();
+  return { good: p.good, off: p.off, bad: p.bad };
+};
+const STATUS_SPAN = () => {
+  const p = C();
+  return { good: p.goodFill, off: p.offFill, bad: p.badFill };
 };
 const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
 const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -45,6 +47,13 @@ function makeController(canvas, drawFn) {
   const draw = () => drawFn(canvas, dpr, cssW, cssH, hoverPt, playhead, highlight);
   draw();
 
+  // A canvas keeps whatever it was last painted with, so a theme switch has to
+  // ask it to repaint. These canvases are permanent fixtures re-rendered many
+  // times over (every note click builds a fresh zoom controller), so the
+  // previous handler is dropped first — same bookkeeping as attachPinch below.
+  canvas._themeOff?.();
+  canvas._themeOff = onThemeChange(draw);
+
   return {
     cssW,
     setHover(pt) { hoverPt = pt; draw(); },
@@ -54,12 +63,55 @@ function makeController(canvas, drawFn) {
 }
 
 function drawPlayhead(ctx, x, top, height) {
-  ctx.strokeStyle = INK;
+  ctx.strokeStyle = C().ink;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(x, top);
   ctx.lineTo(x, top + height);
   ctx.stroke();
+}
+
+// Two-finger pinch (or trackpad ctrl+wheel) rescales a chart's time axis.
+// Gesture state lives ON the canvas element because charts re-render
+// mid-gesture and their listeners are recreated; the new value is always
+// computed from the gesture's start so re-renders stay stable. `invert`
+// is for values where spreading fingers should SHRINK the number (like a
+// context-window width).
+function attachPinch(canvas, { value, min, max, invert = false, onScale }) {
+  for (const [type, fn] of canvas._pinchListeners ?? []) canvas.removeEventListener(type, fn);
+  canvas._pinchListeners = [];
+  if (!onScale) return;
+  const clamp = (v) => Math.max(min, Math.min(max, v));
+  const dist = (touches) => Math.hypot(
+    touches[0].clientX - touches[1].clientX,
+    touches[0].clientY - touches[1].clientY,
+  );
+  const listen = (type, fn) => {
+    canvas.addEventListener(type, fn, { passive: false });
+    canvas._pinchListeners.push([type, fn]);
+  };
+  listen('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      canvas._pinch = { d0: dist(e.touches), v0: value };
+    }
+  });
+  listen('touchmove', (e) => {
+    if (canvas._pinch && e.touches.length === 2) {
+      e.preventDefault();
+      const ratio = dist(e.touches) / canvas._pinch.d0;
+      onScale(clamp(invert ? canvas._pinch.v0 / ratio : canvas._pinch.v0 * ratio));
+    }
+  });
+  const endPinch = (e) => { if (e.touches.length < 2) canvas._pinch = null; };
+  listen('touchend', endPinch);
+  listen('touchcancel', endPinch);
+  listen('gesturestart', (e) => e.preventDefault()); // Safari page-zoom
+  listen('wheel', (e) => {
+    if (!e.ctrlKey) return; // trackpad pinch arrives as ctrl+wheel
+    e.preventDefault();
+    onScale(clamp(value * Math.exp((invert ? e.deltaY : -e.deltaY) * 0.01)));
+  });
 }
 
 function nearestPoint(pts, time, key) {
@@ -76,10 +128,13 @@ function nearestPoint(pts, time, key) {
 // The chart always fills the container (the original look). When the
 // session is longer than fits at a readable density, the canvas grows
 // rightward and scrolls instead of squeezing everything in.
-const PX_PER_SEC = 75;
+const PX_PER_SEC = 120;
 const MAX_CHART_PX = 24000;
 
-export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, onNoteHover }) {
+export function renderOverviewChart(canvas, {
+  readings, notes, a4, onSeek, onNoteHover, onScale,
+  pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null,
+}) {
   if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
   const padT = 0.4;
   const starts = notes.map((n) => n.start);
@@ -90,7 +145,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
   const container = canvas.parentElement;
   const fitW = container?.clientWidth || 900;
   const duration = t1 - t0;
-  const cssWidth = Math.min(Math.max(fitW, duration * PX_PER_SEC), MAX_CHART_PX);
+  const cssWidth = Math.min(Math.max(fitW, duration * pxPerSec), MAX_CHART_PX);
   canvas.style.width = `${Math.round(cssWidth)}px`;
   const midis = notes.map((n) => n.midi);
   const yMin = Math.min(...midis) - 1;
@@ -119,27 +174,63 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     // note spans, tinted by intonation; the selected/hovered note lights up
     for (const n of notes) {
       const spanW = Math.max(2, x(n.end) - x(n.start));
-      ctx.fillStyle = STATUS_SPAN[intonationStatus(n.cents)];
+      ctx.fillStyle = STATUS_SPAN()[intonationStatus(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, spanW, h);
       if (n === highlight) {
-        ctx.strokeStyle = INK;
+        ctx.strokeStyle = C().ink;
         ctx.lineWidth = 1;
         ctx.strokeRect(x(n.start), PAD.top, spanW, h);
       }
     }
 
-    // semitone gridlines; label sparsely when the range is wide
+    if (mode === 'wave' && wave) {
+      // amplitude envelope: symmetric peak bars around the vertical middle,
+      // wearing each note's intonation verdict like the pitch trace does
+      const mid = PAD.top + h / 2;
+      for (let px = PAD.left; px < cssW - PAD.right; px++) {
+        const ta = t0 + ((px - PAD.left) / w) * (t1 - t0);
+        const tb = t0 + ((px + 1 - PAD.left) / w) * (t1 - t0);
+        let amp = 0;
+        const b0 = Math.max(0, Math.floor(ta * wave.perSec));
+        const b1 = Math.min(wave.peaks.length - 1, Math.ceil(tb * wave.perSec));
+        for (let b = b0; b <= b1; b++) if (wave.peaks[b] > amp) amp = wave.peaks[b];
+        if (amp <= 0) continue;
+        const note = findNoteAt(notes, (ta + tb) / 2, 0);
+        ctx.fillStyle = note ? STATUS_LINE()[intonationStatus(note.cents)] : C().muted;
+        const barH = Math.max(0.6, amp * 0.92 * (h / 2 - 2));
+        ctx.fillRect(px, mid - barH, 1, barH * 2);
+      }
+      if (playhead !== null && playhead >= t0 && playhead <= t1) {
+        drawPlayhead(ctx, x(playhead), PAD.top, h);
+        ctx.fillStyle = C().primary;
+        ctx.beginPath();
+        ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = C().onPrimary;
+        ctx.beginPath();
+        ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+      return;
+    }
+
+    // semitone gridlines; label as densely as the row spacing allows —
+    // every semitone when roomy, naturals when tighter, landmarks when cramped
     ctx.font = FONT;
     ctx.textBaseline = 'middle';
-    const range = yMax - yMin;
+    const rowH = h / (yMax - yMin);
     for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) {
-      ctx.strokeStyle = GRID;
+      ctx.strokeStyle = C().grid;
       ctx.beginPath();
       ctx.moveTo(PAD.left, y(m));
       ctx.lineTo(cssW - PAD.right, y(m));
       ctx.stroke();
-      if (range <= 13 || m % 12 === 0 || m % 12 === 2 || m % 12 === 7) {
-        ctx.fillStyle = MUTED;
+      const pc = ((m % 12) + 12) % 12;
+      const natural = ![1, 3, 6, 8, 10].includes(pc);
+      const labeled = rowH >= 13 || (rowH >= 6.5 && natural)
+        || pc === 0 || pc === 2 || pc === 7;
+      if (labeled) {
+        ctx.fillStyle = C().muted;
         ctx.textAlign = 'right';
         ctx.fillText(midiToName(m), PAD.left - 5, y(m));
       }
@@ -151,7 +242,7 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
     for (const p of pts) {
       if (p.mf === null) { prev = null; continue; }
       if (prev) {
-        ctx.strokeStyle = p.status && p.status === prev.status ? STATUS_LINE[p.status] : MUTED;
+        ctx.strokeStyle = p.status && p.status === prev.status ? STATUS_LINE()[p.status] : C().muted;
         ctx.beginPath();
         ctx.moveTo(x(prev.time), y(prev.mf));
         ctx.lineTo(x(p.time), y(p.mf));
@@ -162,10 +253,19 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
       drawPlayhead(ctx, x(playhead), PAD.top, h);
+      // the grab handle — drag it along the take to steer the zoom below
+      ctx.fillStyle = C().primary;
+      ctx.beginPath();
+      ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
+      ctx.fill();
+      ctx.fillStyle = C().onPrimary;
+      ctx.beginPath();
+      ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
+      ctx.fill();
     }
 
     if (hoverPt) {
-      ctx.fillStyle = INK;
+      ctx.fillStyle = C().ink;
       ctx.beginPath();
       ctx.arc(x(hoverPt.time), y(hoverPt.mf), 4, 0, 2 * Math.PI);
       ctx.fill();
@@ -181,27 +281,10 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
   const timeAt = (e) => {
     const xCss = canvasX(e, canvas, controller.cssW);
     const w = controller.cssW - PAD.left - PAD.right;
-    return t0 + ((xCss - PAD.left) / w) * (t1 - t0);
-  };
-  canvas.onmousemove = (e) => {
-    const time = timeAt(e);
-    const note = findNoteAt(notes, time);
-    canvas.style.cursor = note ? 'pointer' : 'default';
-    onNoteHover?.(note);
-    controller.setHighlight(note);
-    controller.setHover(nearestPoint(pts, time, 'mf'));
-  };
-  canvas.onmouseleave = () => {
-    onNoteHover?.(null);
-    controller.setHighlight(null);
-    controller.setHover(null);
-  };
-  canvas.onclick = (e) => {
-    const note = findNoteAt(notes, timeAt(e));
-    if (note) onNoteClick?.(note);
+    return Math.max(t0, Math.min(t1, t0 + ((xCss - PAD.left) / w) * (t1 - t0)));
   };
 
-  // During playback, keep the sweeping playhead in view.
+  // Keep the sweeping playhead in view during playback.
   const basePlayhead = controller.setPlayhead;
   controller.setPlayhead = (t) => {
     basePlayhead(t);
@@ -213,12 +296,80 @@ export function renderOverviewChart(canvas, { readings, notes, a4, onNoteClick, 
       container.scrollLeft = Math.max(0, px - view / 3);
     }
   };
+
+  const xOf = (t) => {
+    const w = controller.cssW - PAD.left - PAD.right;
+    return PAD.left + ((t - t0) / (t1 - t0)) * w;
+  };
+
+  // The drag handle is a real DOM element floating over the drawn knob:
+  // it declares touch-action none, so grabbing it always drags the cursor,
+  // while touch anywhere else still pans the scrollable chart natively.
+  let knob = container?.querySelector('.chart-knob');
+  if (container && !knob) {
+    knob = document.createElement('div');
+    knob.className = 'chart-knob';
+    container.append(knob);
+  }
+  const placeKnob = (t) => {
+    if (!knob) return;
+    if (t === null || t < t0 || t > t1) { knob.style.display = 'none'; return; }
+    knob.style.display = 'block';
+    knob.style.left = `${canvas.offsetLeft + (xOf(t) / controller.cssW) * canvas.clientWidth}px`;
+    knob.style.top = `${canvas.offsetTop + PAD.top + 7}px`;
+  };
+  const withKnob = controller.setPlayhead;
+  controller.setPlayhead = (t) => { withKnob(t); placeKnob(t); };
+
+  let dragging = false;
+  if (knob) {
+    knob.onpointerdown = (e) => {
+      if (!onSeek) return;
+      dragging = true;
+      knob.setPointerCapture(e.pointerId);
+      e.preventDefault();
+      onSeek(timeAt(e), 'start');
+    };
+    knob.onpointermove = (e) => { if (dragging) onSeek(timeAt(e), 'move'); };
+    knob.onpointerup = (e) => {
+      if (!dragging) return;
+      dragging = false;
+      onSeek(timeAt(e), 'end');
+    };
+    knob.onpointercancel = knob.onpointerup;
+  }
+
+  canvas.onmousemove = (e) => {
+    const time = timeAt(e);
+    const note = findNoteAt(notes, time);
+    canvas.style.cursor = note ? 'pointer' : 'default';
+    onNoteHover?.(note);
+    controller.setHighlight(note);
+    controller.setHover(nearestPoint(pts, time, 'mf'));
+  };
+  canvas.onclick = (e) => onSeek?.(timeAt(e), 'tap');
+  canvas.onmouseleave = () => {
+    onNoteHover?.(null);
+    controller.setHighlight(null);
+    controller.setHover(null);
+  };
+
+  attachPinch(canvas, {
+    value: pxPerSec, min: 30, max: 500, onScale,
+  });
+
+  controller.range = { t0, t1 };
+  controller.xOfTime = xOf;
+  controller.timeAtX = (px) => {
+    const w = controller.cssW - PAD.left - PAD.right;
+    return t0 + ((px - PAD.left) / w) * (t1 - t0);
+  };
   return controller;
 }
 
 // --- zoom inset: one note in cents detail ----------------------------------
 
-export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek }) {
+export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek, onScale }) {
   const CLAMP = 150;
   const t0 = note.start - contextSec;
   const t1 = note.end + contextSec;
@@ -239,20 +390,20 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
     const y = (dev) => PAD.top + (1 - (dev + CLAMP) / (2 * CLAMP)) * h;
 
-    ctx.fillStyle = 'rgba(28, 34, 48, 0.05)';
+    ctx.fillStyle = C().wave;
     ctx.fillRect(x(note.start), PAD.top, x(note.end) - x(note.start), h);
 
     ctx.font = FONT;
     ctx.textBaseline = 'middle';
     for (const dev of [-100, 0, 100]) {
-      ctx.strokeStyle = dev === 0 ? GOOD : GRID;
+      ctx.strokeStyle = dev === 0 ? C().good : C().grid;
       ctx.setLineDash(dev === 0 ? [4, 4] : []);
       ctx.beginPath();
       ctx.moveTo(PAD.left, y(dev));
       ctx.lineTo(cssW - PAD.right, y(dev));
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = MUTED;
+      ctx.fillStyle = C().muted;
       ctx.textAlign = 'right';
       ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - 5, y(dev));
     }
@@ -265,8 +416,8 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
       if (prev) {
         // inside the note, each moment wears its own in-tune color
         ctx.strokeStyle = p.inTarget && prev.inTarget
-          ? STATUS_LINE[intonationStatus(p.dev)]
-          : MUTED;
+          ? STATUS_LINE()[intonationStatus(p.dev)]
+          : C().muted;
         ctx.beginPath();
         ctx.moveTo(x(prev.time), y(prev.dev));
         ctx.lineTo(x(p.time), y(p.dev));
@@ -278,18 +429,18 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
       drawPlayhead(ctx, x(playhead), PAD.top, h);
       // the grab handle — dragging starts only on this knob
-      ctx.fillStyle = '#3056d3';
+      ctx.fillStyle = C().primary;
       ctx.beginPath();
       ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
       ctx.fill();
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = C().onPrimary;
       ctx.beginPath();
       ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
       ctx.fill();
     }
 
     if (hoverPt) {
-      ctx.fillStyle = INK;
+      ctx.fillStyle = C().ink;
       ctx.beginPath();
       ctx.arc(x(hoverPt.time), y(hoverPt.dev), 4, 0, 2 * Math.PI);
       ctx.fill();
@@ -342,5 +493,10 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     onSeek(timeFromEvent(e), 'end');
   };
   canvas.onmouseleave = () => { if (!dragging) controller.setHover(null); };
+
+  // pinch out = tighter context window = more detail on this note
+  attachPinch(canvas, {
+    value: contextSec, min: 0.25, max: 4, invert: true, onScale,
+  });
   return controller;
 }
