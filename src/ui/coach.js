@@ -3,6 +3,7 @@ import { aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgre
 import { passageProgress } from '../analysis/passages.js';
 import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
 import { intonationStatus } from './chart-utils.js';
+import { palette, onThemeChange } from './theme.js';
 
 // The coach tab: personal intonation habits mined from the library.
 // Three cards — today's drill (act on it), the tendency map (see it),
@@ -22,7 +23,15 @@ function midiFrequency(midi) {
   return currentA4() * 2 ** ((midi - 69) / 12);
 }
 
+// The trend line and the piece sparklines are canvases, so a theme switch has
+// to redraw them — the tab is only re-rendered when it's opened.
+let lastRoot = null;
+onThemeChange(() => {
+  if (lastRoot && !lastRoot.querySelector('#coach-content')?.hidden) renderCoach(lastRoot);
+});
+
 export async function renderCoach(root) {
+  lastRoot = root;
   const empty = root.querySelector('#coach-empty');
   const content = root.querySelector('#coach-content');
   let recordings = [];
@@ -170,13 +179,13 @@ function drawSpark(canvas, values) {
   const max = Math.max(10, ...values);
   const x = (i) => (values.length === 1 ? cssW / 2 : 2 + (i / (values.length - 1)) * (cssW - 4));
   const y = (v) => 3 + (1 - v / max) * (cssH - 6);
-  ctx.strokeStyle = '#6d4ef6';
+  ctx.strokeStyle = palette().primary;
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
   values.forEach((v, i) => (i === 0 ? ctx.moveTo(x(i), y(v)) : ctx.lineTo(x(i), y(v))));
   ctx.stroke();
-  ctx.fillStyle = '#6d4ef6';
+  ctx.fillStyle = palette().primary;
   ctx.beginPath();
   ctx.arc(x(values.length - 1), y(values.at(-1)), 3, 0, 2 * Math.PI);
   ctx.fill();
@@ -280,13 +289,13 @@ function renderTrend(canvas, noteEl, days) {
   const y = (v) => PADT + (1 - v / maxY) * h;
 
   // baseline + endpoint date labels, recessive
-  ctx.strokeStyle = 'rgba(42, 33, 73, 0.12)';
+  ctx.strokeStyle = palette().grid;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(PADL, y(0));
   ctx.lineTo(PADL + w, y(0));
   ctx.stroke();
-  ctx.fillStyle = '#7b74a0';
+  ctx.fillStyle = palette().muted;
   ctx.font = '10px -apple-system, sans-serif';
   const short = (day) => new Date(`${day}T12:00`).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
   ctx.textAlign = 'left';
@@ -294,7 +303,7 @@ function renderTrend(canvas, noteEl, days) {
   ctx.textAlign = 'right';
   ctx.fillText(short(days.at(-1).day), PADL + w, cssH - 4);
 
-  ctx.strokeStyle = '#6d4ef6';
+  ctx.strokeStyle = palette().primary;
   ctx.lineWidth = 2;
   ctx.lineJoin = 'round';
   ctx.beginPath();
@@ -303,11 +312,11 @@ function renderTrend(canvas, noteEl, days) {
 
   // latest point gets the marker and the direct label
   const li = days.length - 1;
-  ctx.fillStyle = '#6d4ef6';
+  ctx.fillStyle = palette().primary;
   ctx.beginPath();
   ctx.arc(x(li), y(days[li].absMean), 4, 0, 2 * Math.PI);
   ctx.fill();
-  ctx.fillStyle = '#2a2149';
+  ctx.fillStyle = palette().ink;
   ctx.textAlign = 'left';
   ctx.font = '600 11px -apple-system, sans-serif';
   ctx.fillText(`${days[li].absMean.toFixed(0)}¢`, x(li) + 8, y(days[li].absMean) + 4);
