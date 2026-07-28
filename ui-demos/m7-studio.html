@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Studio &mdash; Music Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Inter:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+*{box-sizing:border-box;margin:0}
+body{-webkit-font-smoothing:antialiased;padding-bottom:6.5rem;min-height:100vh}
+.app{max-width:34rem;margin:0 auto;padding:0 1rem}
+.bar{display:flex;align-items:center;justify-content:space-between;padding:1.1rem .25rem 1.2rem}
+.icon-btn{display:grid;place-items:center;width:2.4rem;height:2.4rem;cursor:pointer;border:0;background:none;color:inherit}
+.icon-btn svg{width:1.15rem;height:1.15rem}
+.card{margin-bottom:.9rem;padding:1.25rem}
+.card-head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;margin-bottom:1rem}
+.tuner-main{display:flex;align-items:baseline;gap:1rem}
+.meter{margin:1.2rem 0 .2rem}
+.meter-track{position:relative;height:8px;border-radius:99px}
+.meter-zero{position:absolute;left:50%;top:-5px;bottom:-5px;width:2px;border-radius:2px}
+.meter-needle{position:absolute;top:-6px;left:47%;width:4px;height:20px;border-radius:99px}
+.meter-labels{display:flex;justify-content:space-between;margin-top:.85rem;font-size:.72rem}
+.trace{width:100%;height:190px;display:block}
+.chips{display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.9rem}
+.chip{border:0;cursor:pointer;font:inherit;padding:.42rem .85rem}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:.5rem}
+.stat b{display:block}
+.stat i{font-style:normal}
+.rows{list-style:none;padding:0;margin:0;display:grid}
+.row{display:flex;align-items:center;justify-content:space-between;gap:1rem}
+.row-name em{display:block;font-style:normal}
+.dock{position:fixed;left:50%;transform:translateX(-50%);bottom:1rem;display:flex}
+.dock-btn{border:0;cursor:pointer;font:inherit}
+.sub{margin-top:.9rem}
+@media(max-width:560px){.stats{grid-template-columns:repeat(2,1fr)}.dock-btn{padding-left:.55rem!important;padding-right:.55rem!important}}
+
+:root{--peach:#ff9d6b;--sand:#f0c07a;--sage:#8fd4a8}
+body{background:#17151a;color:#f2ede8;font-family:"Inter",system-ui,sans-serif}
+.brand{font-family:"Sora";font-weight:700;font-size:1rem;letter-spacing:-.01em}
+.icon-btn{border-radius:11px;background:#221f27;color:#a9a1b3}
+.card{background:linear-gradient(180deg,#211e26,#1d1a22);border:1px solid #2c2833;border-radius:20px;padding:1.35rem}
+.eyebrow{font-family:"Sora";font-size:.76rem;font-weight:600;color:#a9a1b3}
+.meta,.meter-labels{color:#7d7589;font-size:.75rem}
+.note{font-family:"Sora";font-size:3.2rem;font-weight:700;letter-spacing:-.04em;line-height:1;
+  background:linear-gradient(120deg,#ff9d6b,#f0c07a);-webkit-background-clip:text;background-clip:text;color:transparent}
+.cents{font-family:"Sora";font-size:1.45rem;font-weight:600;color:var(--sage)}
+.cents small{font-size:1rem;opacity:.7}
+.meter-track{background:#2c2833;height:9px}
+.meter-zero{background:#453e4f}
+.meter-needle{background:var(--peach);height:21px;top:-6px;box-shadow:0 0 18px rgba(255,157,107,.6)}
+.sub{color:#a9a1b3;font-size:.87rem;line-height:1.6}
+.grid line{stroke:#282430}
+.band-bad{fill:rgba(255,157,107,.1)}
+.band-off{fill:rgba(240,192,122,.1)}
+.trace-line{stroke:url(#g);stroke:var(--peach);stroke-width:2.6;stroke-linejoin:round;stroke-linecap:round}
+.playhead{stroke:#5a5266;stroke-width:1.5}
+.playhead-dot{fill:var(--sand)}
+.chip{border-radius:10px;background:#282430;color:#c9c2d1;font-size:.8rem;font-weight:500}
+.chip.is-live{background:rgba(143,212,168,.15);color:var(--sage)}
+.chip.is-bad{background:rgba(255,157,107,.15);color:var(--peach)}
+.chip.is-off{background:rgba(240,192,122,.15);color:var(--sand)}
+.pill{font-size:.74rem;font-weight:600;padding:.24rem .7rem;border-radius:8px;background:rgba(143,212,168,.15);color:var(--sage)}
+.stat{background:#282430;border-radius:14px;padding:.9rem .8rem}
+.stat b{font-family:"Sora";font-size:1.45rem;font-weight:700;letter-spacing:-.03em}
+.stat i{font-size:.85rem;color:#7d7589;font-weight:400}
+.stat span{font-size:.68rem;color:#a9a1b3}
+.rows{gap:.4rem}
+.row{background:#282430;border-radius:14px;padding:.9rem 1rem}
+.row-name{font-weight:500;font-size:.95rem}
+.row-name em{font-size:.76rem;color:#7d7589;margin-top:.15rem}
+.row-val{font-family:"Sora";font-weight:600;color:var(--sand)}
+.dock{gap:.15rem;padding:.4rem;border-radius:18px;background:#211e26;border:1px solid #2c2833;box-shadow:0 18px 40px -18px #000}
+.dock-btn{border-radius:13px;padding:.65rem 1rem;font-size:.79rem;font-weight:500;color:#7d7589;background:none}
+.dock-btn.is-on{background:linear-gradient(180deg,#ff9d6b,#e8834f);color:#2a1a12;font-weight:600}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">Music Companion</div>
+    <button class="icon-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18"/>
+      </svg>
+    </button>
+  </header>
+
+  <section class="card tuner">
+    <div class="card-head"><span class="eyebrow">Listening</span><span class="meta">D string</span></div>
+    <div class="tuner-main">
+      <div class="note">D3</div>
+      <div class="cents">&minus;6<small>&cent;</small></div>
+    </div>
+    <div class="meter">
+      <div class="meter-track"><i class="meter-zero"></i><i class="meter-needle"></i></div>
+      <div class="meter-labels"><span>&minus;50</span><span>in tune</span><span>+50</span></div>
+    </div>
+    <p class="sub">Vibrato &plusmn;14&cent; at 5.4&nbsp;Hz &mdash; measured at the centre it orbits.</p>
+  </section>
+
+  <section class="card take">
+    <div class="card-head"><span class="eyebrow">The take</span><span class="meta">32 notes &middot; 0:38</span></div>
+    <svg class="trace" viewBox="0 0 600 190" preserveAspectRatio="none" aria-label="Pitch over time">
+      <rect class="band band-bad" x="196" y="0" width="34" height="190"/>
+      <rect class="band band-off" x="352" y="0" width="34" height="190"/>
+      <g class="grid">
+        <line x1="0" y1="38" x2="600" y2="38"/><line x1="0" y1="76" x2="600" y2="76"/>
+        <line x1="0" y1="114" x2="600" y2="114"/><line x1="0" y1="152" x2="600" y2="152"/>
+      </g>
+      <polyline class="trace-line" fill="none"
+        points="10,150 40,150 42,132 80,131 82,113 120,115 122,96 160,95 162,78 200,79 202,60 240,58 242,42 280,44 282,60 320,58 322,78 360,80 362,96 400,95 402,113 440,114 442,131 480,133 482,150 520,149 560,150"/>
+      <line class="playhead" x1="470" y1="0" x2="470" y2="190"/>
+      <rect class="playhead-dot" x="466" y="0" width="8" height="16" rx="4"/>
+    </svg>
+    <div class="chips">
+      <button class="chip is-live">C3 +2&cent;</button>
+      <button class="chip is-bad">F&sharp;3 +21&cent;</button>
+      <button class="chip is-off">A3 &minus;18&cent;</button>
+    </div>
+  </section>
+
+  <section class="card timing">
+    <div class="card-head"><span class="eyebrow">Timing</span><span class="pill">steady</span></div>
+    <div class="stats">
+      <div class="stat"><b>96</b><span>pulse</span></div>
+      <div class="stat"><b>12<i>ms</i></b><span>off beat</span></div>
+      <div class="stat"><b>94<i>%</i></b><span>evenness</span></div>
+      <div class="stat"><b>+0.4<i>%</i></b><span>drift</span></div>
+    </div>
+    <p class="sub">Pulse read from your own playing &mdash; no metronome needed. One entry to look at: the 12th note, 73&nbsp;ms late.</p>
+  </section>
+
+  <section class="card library">
+    <div class="card-head"><span class="eyebrow">Library</span><span class="meta">11 takes</span></div>
+    <ul class="rows">
+      <li class="row"><span class="row-name">Bach &mdash; Suite No.&nbsp;1, Prelude<em>4 takes &middot; Friday</em></span><span class="row-val">6.2&cent;</span></li>
+      <li class="row"><span class="row-name">Elgar &mdash; Concerto, opening<em>3 takes &middot; Tuesday</em></span><span class="row-val">11.4&cent;</span></li>
+      <li class="row"><span class="row-name">Scales &mdash; D major, three octaves<em>4 takes &middot; today</em></span><span class="row-val">5.1&cent;</span></li>
+    </ul>
+  </section>
+</div>
+
+<nav class="dock">
+  <button class="dock-btn is-on">Tuner</button>
+  <button class="dock-btn">Record</button>
+  <button class="dock-btn">Library</button>
+  <button class="dock-btn">Coach</button>
+  <button class="dock-btn">Metronome</button>
+</nav>
+
+</body>
+</html>

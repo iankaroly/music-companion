@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Poster — Music Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Archivo:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ── POSTER ────────────────────────────────────────────────────────────────
+     A concert poster's discipline applied to an instrument: flat blocks of
+     colour, an asymmetric grid, type set enormous where it matters and tiny
+     everywhere else. No gradients, no shadows, no rounding — the interest
+     comes from scale and placement. Vermilion is reserved for one thing:
+     the number that says how far off you are.                               */
+  :root {
+    --paper: #ffffff;
+    --ink: #101012;
+    --grey: #6c6f76;
+    --rule: #101012;
+    --vermilion: #ff3b16;
+    --sky: #1d4ed8;      /* the second voice: used for measured data only */
+    --wash: #f1f0ec;
+    --display: "Archivo Black", -apple-system, sans-serif;
+    --sans: "Archivo", -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body { background: var(--paper); color: var(--ink); font-family: var(--sans); padding-bottom: 5rem; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 52rem; margin: 0 auto; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 1.1rem 1.25rem; border-bottom: 3px solid var(--ink);
+  }
+  .word { font-family: var(--display); font-size: 1.1rem; letter-spacing: -0.02em; text-transform: uppercase; }
+  .meta { font-size: 0.66rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey); }
+  .gear { background: var(--ink); color: var(--paper); border: 0; width: 2.1rem; height: 2.1rem; display: grid; place-items: center; cursor: pointer; }
+  .gear:hover { background: var(--vermilion); }
+
+  /* The hero: the number, at poster scale */
+  .hero { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 1rem; padding: 2.2rem 1.25rem 1.6rem; border-bottom: 3px solid var(--ink); }
+  .hero .kicker { font-size: 0.66rem; letter-spacing: 0.22em; text-transform: uppercase; color: var(--grey); }
+  .hero .note { font-family: var(--display); font-size: clamp(4.5rem, 17vw, 9rem); line-height: 0.82; letter-spacing: -0.045em; text-transform: uppercase; }
+  .hero .cents { font-family: var(--display); font-size: clamp(2.4rem, 8vw, 4rem); line-height: 0.9; color: var(--vermilion); letter-spacing: -0.03em; text-align: right; }
+  .hero .cents small { display: block; font-family: var(--sans); font-size: 0.66rem; letter-spacing: 0.2em; color: var(--grey); text-transform: uppercase; margin-top: 0.5rem; }
+
+  .strip { display: flex; border-bottom: 3px solid var(--ink); }
+  .strip div { flex: 1; padding: 0.7rem 1.25rem; border-right: 1px solid var(--ink); font-size: 0.72rem; }
+  .strip div:last-child { border-right: 0; }
+  .strip b { display: block; font-family: var(--display); font-size: 1.3rem; letter-spacing: -0.02em; }
+  .strip span { color: var(--grey); font-size: 0.6rem; letter-spacing: 0.16em; text-transform: uppercase; }
+  .strip .flag { background: var(--vermilion); color: var(--paper); }
+  .strip .flag span { color: rgba(255,255,255,0.8); }
+
+  section { border-bottom: 3px solid var(--ink); }
+  .sec-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 1rem 1.25rem 0.6rem;
+  }
+  .sec-head h2 { font-family: var(--display); font-size: 1.5rem; letter-spacing: -0.03em; text-transform: uppercase; }
+  .sec-head span { font-size: 0.64rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--grey); }
+
+  .plot { background: var(--wash); border-top: 1px solid var(--ink); }
+  .trace { width: 100%; height: 210px; display: block; }
+
+  /* The list: rank, name, figure — poster billing */
+  .billing { padding: 0.4rem 0 0.6rem; }
+  .bill {
+    display: grid; grid-template-columns: 2.4rem 1fr auto; align-items: baseline; gap: 0.8rem;
+    padding: 0.75rem 1.25rem; border-bottom: 1px solid #dcdbd6; cursor: pointer;
+  }
+  .bill:last-child { border-bottom: 0; }
+  .bill:hover { background: var(--wash); }
+  .bill .rank { font-family: var(--display); font-size: 0.9rem; color: var(--grey); }
+  .bill .name { font-size: 1.05rem; font-weight: 500; }
+  .bill .name em { display: block; font-style: normal; font-size: 0.72rem; color: var(--grey); margin-top: 0.15rem; letter-spacing: 0.02em; }
+  .bill .fig { font-family: var(--display); font-size: 1.05rem; color: var(--sky); }
+
+  .callout { padding: 1rem 1.25rem 1.3rem; font-size: 0.95rem; line-height: 1.6; max-width: 34rem; }
+  .callout b { background: var(--vermilion); color: var(--paper); padding: 0 0.25rem; }
+
+  nav { position: fixed; left: 0; right: 0; bottom: 0; display: flex; background: var(--ink); }
+  nav button {
+    flex: 1; background: none; border: 0; color: rgba(255,255,255,0.55);
+    font-family: var(--sans); font-size: 0.64rem; font-weight: 600; letter-spacing: 0.16em;
+    text-transform: uppercase; padding: 1.05rem 0.2rem; cursor: pointer;
+  }
+  nav button[aria-current="true"] { background: var(--vermilion); color: #fff; }
+  @media (max-width: 560px) {
+    .hero { grid-template-columns: 1fr; align-items: start; }
+    .hero .cents { text-align: left; }
+    .strip { flex-wrap: wrap; }
+    .strip div { flex: 1 1 50%; border-bottom: 1px solid var(--ink); }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="word">Music Companion</div>
+    <div class="meta">27 July · Take 4</div>
+    <button class="gear" aria-label="Settings">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="hero">
+    <div>
+      <div class="kicker">Sounding now · D string</div>
+      <div class="note">D3</div>
+    </div>
+    <div class="cents">−6<small>cents flat</small></div>
+  </div>
+
+  <div class="strip">
+    <div><b>±14¢</b><span>Vibrato width</span></div>
+    <div><b>5.4 Hz</b><span>Vibrato rate</span></div>
+    <div><b>440.0</b><span>Reference</span></div>
+    <div class="flag"><b>2</b><span>Notes out</span></div>
+  </div>
+
+  <section>
+    <div class="sec-head"><h2>The take</h2><span>32 notes · 38 seconds</span></div>
+    <div class="plot">
+      <svg class="trace" viewBox="0 0 600 210" preserveAspectRatio="none">
+        <rect x="196" y="0" width="34" height="210" fill="#ff3b16" opacity="0.16"/>
+        <rect x="352" y="0" width="34" height="210" fill="#ff3b16" opacity="0.16"/>
+        <g stroke="#c9c8c2" stroke-width="1">
+          <line x1="0" y1="42" x2="600" y2="42"/><line x1="0" y1="84" x2="600" y2="84"/>
+          <line x1="0" y1="126" x2="600" y2="126"/><line x1="0" y1="168" x2="600" y2="168"/>
+        </g>
+        <polyline fill="none" stroke="#1d4ed8" stroke-width="3" stroke-linejoin="round"
+          points="10,175 40,175 42,155 80,154 82,133 120,135 122,113 160,112 162,92 200,93 202,70 240,68 242,50 280,52 282,70 320,68 322,92 360,94 362,113 400,112 402,133 440,134 442,155 480,157 482,175 520,174 560,175"/>
+        <line x1="470" y1="0" x2="470" y2="210" stroke="#101012" stroke-width="2"/>
+        <rect x="474" y="128" width="78" height="26" fill="#101012"/>
+        <text x="482" y="146" font-family="Archivo" font-weight="600" font-size="13" fill="#ffffff">C3 +2¢</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="sec-head"><h2>Timing</h2><span>pulse read from your playing</span></div>
+    <div class="strip" style="border-bottom:0">
+      <div><b>96</b><span>Pulse</span></div>
+      <div><b>12ms</b><span>Off the beat</span></div>
+      <div><b>94%</b><span>Evenness</span></div>
+      <div><b>+0.4%</b><span>Drift</span></div>
+    </div>
+    <p class="callout">Steady throughout. One entry to look at: the <b>12th note, 73 ms late</b>. Tap it to hear that bar again.</p>
+  </section>
+
+  <section style="border-bottom:0">
+    <div class="sec-head"><h2>Library</h2><span>11 takes</span></div>
+    <div class="billing">
+      <div class="bill"><span class="rank">01</span><span class="name">Bach — Suite No. 1, Prelude<em>4 takes · Friday</em></span><span class="fig">6.2¢</span></div>
+      <div class="bill"><span class="rank">02</span><span class="name">Elgar — Concerto, opening<em>3 takes · Tuesday</em></span><span class="fig">11.4¢</span></div>
+      <div class="bill"><span class="rank">03</span><span class="name">Scales — D major, three octaves<em>4 takes · today</em></span><span class="fig">5.1¢</span></div>
+    </div>
+  </section>
+</div>
+
+<nav>
+  <button aria-current="true">Tuner</button>
+  <button>Record</button>
+  <button>Library</button>
+  <button>Coach</button>
+  <button>Metronome</button>
+</nav>
+</body>
+</html>

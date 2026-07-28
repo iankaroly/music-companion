@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Blueprint — Music Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  /* ── BLUEPRINT ─────────────────────────────────────────────────────────────
+     The app takes a measurement 86 times a second; this direction admits it.
+     Drafting conventions do the work: a grid you can read distances off,
+     dimension lines with arrowheads calling out the error, annotation
+     leaders, and a title block at the bottom. Cyanotype indigo, chalk, and
+     one signal orange reserved strictly for "this is out".                  */
+  :root {
+    --blue: #16283f;
+    --blue-2: #1d3350;
+    --plate: #17293f;
+    --chalk: #e8eef5;
+    --chalk-dim: #8fa6c0;
+    --line: rgba(143,166,192,0.4);
+    --signal: #ff7a1a;
+    --true: #47d6a0;
+    --sans: "Archivo", -apple-system, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--blue);
+    background-image:
+      linear-gradient(var(--line) 0.5px, transparent 0.5px),
+      linear-gradient(90deg, var(--line) 0.5px, transparent 0.5px);
+    background-size: 24px 24px;
+    color: var(--chalk);
+    font-family: var(--sans);
+    padding: 0 0 6rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet { max-width: 44rem; margin: 0 auto; padding: 1.25rem; }
+
+  header {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    border-bottom: 1.5px solid var(--chalk); padding-bottom: 0.7rem; margin-bottom: 1.5rem;
+  }
+  .drawing-no { font-family: var(--mono); font-size: 0.7rem; color: var(--chalk-dim); letter-spacing: 0.06em; }
+  h1 { font-size: 1.15rem; font-weight: 700; letter-spacing: -0.01em; text-transform: uppercase; }
+  .gear { background: none; border: 1px solid var(--line); color: var(--chalk-dim); width: 2.1rem; height: 2.1rem; display: grid; place-items: center; cursor: pointer; }
+  .gear:hover { color: var(--signal); border-color: var(--signal); }
+
+  .block { border: 1px solid var(--line); background: rgba(23,41,63,0.78); margin-bottom: 1.1rem; }
+  .block > .head {
+    display: flex; justify-content: space-between; align-items: center;
+    border-bottom: 1px solid var(--line); padding: 0.5rem 0.8rem;
+    font-family: var(--mono); font-size: 0.66rem; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--chalk-dim);
+  }
+  .block > .body { padding: 1.1rem 0.9rem; }
+
+  /* Reading, called out like a dimension */
+  .measure { display: flex; align-items: center; gap: 1.6rem; flex-wrap: wrap; }
+  .value { font-family: var(--mono); font-size: 3.4rem; font-weight: 500; line-height: 1; }
+  .value small { font-size: 1.1rem; color: var(--chalk-dim); }
+  .dev { font-family: var(--mono); font-size: 1.6rem; color: var(--signal); }
+  .dim-line { flex: 1; min-width: 12rem; position: relative; height: 40px; }
+  .dim-line .rail { position: absolute; top: 20px; left: 0; right: 0; height: 1px; background: var(--chalk-dim); }
+  .dim-line .tick { position: absolute; top: 12px; width: 1px; height: 17px; background: var(--chalk-dim); }
+  .dim-line .tick.zero { background: var(--chalk); height: 24px; top: 8px; }
+  .dim-line .pin { position: absolute; top: 6px; width: 2px; height: 28px; background: var(--signal); }
+  .dim-line .pin::after {
+    content: "−6.2¢"; position: absolute; bottom: -1.15rem; left: 50%; transform: translateX(-50%);
+    font-family: var(--mono); font-size: 0.7rem; color: var(--signal); white-space: nowrap;
+  }
+  .spec { font-family: var(--mono); font-size: 0.72rem; color: var(--chalk-dim); margin-top: 1.2rem; }
+
+  .trace { width: 100%; height: 190px; display: block; }
+
+  /* Schedule table — drawings carry schedules, not cards */
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.8rem; }
+  th, td { text-align: left; padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line); }
+  th { font-size: 0.62rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--chalk-dim); font-weight: 500; }
+  td.num { text-align: right; }
+  td.out { color: var(--signal); }
+  td.ok { color: var(--true); }
+  tbody tr:last-child td { border-bottom: 0; }
+
+  /* Title block, bottom-right as on a real drawing */
+  .title-block { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); }
+  .title-block div { padding: 0.7rem 0.8rem; border-right: 1px solid var(--line); }
+  .title-block div:last-child { border-right: 0; }
+  .title-block b { display: block; font-family: var(--mono); font-size: 1.35rem; font-weight: 500; }
+  .title-block span { font-size: 0.58rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--chalk-dim); }
+  .title-block .flag b { color: var(--signal); }
+
+  nav {
+    position: fixed; left: 0; right: 0; bottom: 0; display: flex;
+    background: var(--plate); border-top: 1.5px solid var(--chalk);
+  }
+  nav button {
+    flex: 1; background: none; border: 0; border-right: 1px solid var(--line);
+    color: var(--chalk-dim); font-family: var(--mono); font-size: 0.66rem;
+    letter-spacing: 0.1em; text-transform: uppercase; padding: 1rem 0.2rem; cursor: pointer;
+  }
+  nav button:last-child { border-right: 0; }
+  nav button[aria-current="true"] { color: var(--blue); background: var(--signal); font-weight: 500; }
+  @media (max-width: 560px) { .value { font-size: 2.6rem; } .title-block { grid-template-columns: repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="sheet">
+  <header>
+    <div>
+      <div class="drawing-no">SHEET 04 · SESSION 2026-07-27 · A4=440.0 Hz</div>
+      <h1>Music Companion</h1>
+    </div>
+    <button class="gear" aria-label="Settings">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="block">
+    <div class="head"><span>Detail A — sounding pitch</span><span>scale 1:1</span></div>
+    <div class="body">
+      <div class="measure">
+        <div class="value">D<small>3</small></div>
+        <div class="dev">−6.2¢</div>
+        <div class="dim-line">
+          <div class="rail"></div>
+          <div class="tick" style="left:0"></div><div class="tick" style="left:25%"></div>
+          <div class="tick zero" style="left:50%"></div>
+          <div class="tick" style="left:75%"></div><div class="tick" style="left:100%"></div>
+          <div class="pin" style="left:47%"></div>
+        </div>
+      </div>
+      <div class="spec">MEASURED 146.29 Hz · NOMINAL 146.83 Hz · VIBRATO ±14¢ @ 5.4 Hz · TOLERANCE ±8¢</div>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="head"><span>Detail B — pitch over time</span><span>32 notes · 00:38</span></div>
+    <div class="body" style="padding:0.6rem 0.4rem">
+      <svg class="trace" viewBox="0 0 600 190" preserveAspectRatio="none">
+        <g stroke="rgba(143,166,192,0.22)" stroke-width="0.5">
+          <line x1="0" y1="35" x2="600" y2="35"/><line x1="0" y1="70" x2="600" y2="70"/>
+          <line x1="0" y1="105" x2="600" y2="105"/><line x1="0" y1="140" x2="600" y2="140"/>
+        </g>
+        <polyline fill="none" stroke="#e8eef5" stroke-width="1.75" stroke-linejoin="round"
+          points="10,150 40,150 42,132 80,131 82,113 120,115 122,96 160,95 162,78 200,79 202,60 240,58 242,42 280,44 282,60 320,58 322,78 360,80 362,96 400,95 402,113 440,114 442,131 480,133 482,150 520,149 560,150"/>
+        <!-- dimension callout on the note that ran sharp -->
+        <g stroke="#ff7a1a" stroke-width="1">
+          <line x1="213" y1="60" x2="213" y2="26"/>
+          <line x1="196" y1="26" x2="230" y2="26"/>
+          <path d="M196 26 l6 -3 v6 z" fill="#ff7a1a" stroke="none"/>
+          <path d="M230 26 l-6 -3 v6 z" fill="#ff7a1a" stroke="none"/>
+          <line x1="213" y1="26" x2="268" y2="14" stroke-dasharray="3 3"/>
+        </g>
+        <text x="272" y="18" font-family="JetBrains Mono" font-size="11" fill="#ff7a1a">+21¢ SHARP</text>
+        <g stroke="#ff7a1a" stroke-width="1">
+          <line x1="369" y1="80" x2="369" y2="168"/>
+          <line x1="352" y1="168" x2="386" y2="168"/>
+          <line x1="369" y1="168" x2="424" y2="178" stroke-dasharray="3 3"/>
+        </g>
+        <text x="428" y="182" font-family="JetBrains Mono" font-size="11" fill="#ff7a1a">−18¢ FLAT</text>
+      </svg>
+    </div>
+  </div>
+
+  <div class="block">
+    <div class="head"><span>Schedule — departures over tolerance</span><span>2 of 32</span></div>
+    <table>
+      <thead><tr><th>Ref</th><th>Note</th><th>Time</th><th class="num">Pitch</th><th class="num">Timing</th></tr></thead>
+      <tbody>
+        <tr><td>12</td><td>F♯3</td><td>00:14</td><td class="num out">+21¢</td><td class="num out">+73 ms</td></tr>
+        <tr><td>23</td><td>A3</td><td>00:27</td><td class="num out">−18¢</td><td class="num ok">−4 ms</td></tr>
+        <tr><td>—</td><td>30 others</td><td>—</td><td class="num ok">in tol.</td><td class="num ok">in tol.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="title-block">
+    <div><b>96</b><span>Pulse bpm</span></div>
+    <div><b>12ms</b><span>Mean off beat</span></div>
+    <div><b>94%</b><span>Evenness</span></div>
+    <div class="flag"><b>+0.4%</b><span>Tempo drift</span></div>
+  </div>
+</div>
+
+<nav>
+  <button aria-current="true">Tuner</button>
+  <button>Record</button>
+  <button>Library</button>
+  <button>Coach</button>
+  <button>Metro</button>
+</nav>
+</body>
+</html>

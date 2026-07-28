@@ -1,0 +1,213 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Case — Music Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ── CASE ──────────────────────────────────────────────────────────────────
+     The inside of a cello case: dark green felt, brass hardware, honey
+     varnish, ivory bone. Warm and enclosed — the app as the place you open
+     when you take the instrument out. Surfaces are matte and soft-edged;
+     the only shine is brass, and it is used only for what is in tune.       */
+  :root {
+    --felt: #1c2f2a;
+    --felt-2: #243933;
+    --felt-3: #2d453e;
+    --brass: #c9a24a;
+    --brass-lit: #e8c874;
+    --honey: #d98d3f;
+    --ivory: #efe7d8;
+    --ivory-soft: #a9a294;
+    --oxblood: #a8443f;
+    --serif: "Instrument Serif", Georgia, serif;
+    --sans: "Instrument Sans", -apple-system, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--felt);
+    /* felt tooth */
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(255,255,255,0.035), transparent 45%),
+      radial-gradient(circle at 85% 60%, rgba(201,162,74,0.05), transparent 40%);
+    color: var(--ivory);
+    font-family: var(--sans);
+    padding: 0 0 5.5rem;
+    -webkit-font-smoothing: antialiased;
+  }
+  .case { max-width: 40rem; margin: 0 auto; padding: 1.25rem; display: grid; gap: 1.1rem; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 1rem 0.25rem 0.5rem; }
+  .title { font-family: var(--serif); font-size: 1.7rem; letter-spacing: 0.01em; }
+  .title i { font-style: italic; color: var(--brass); }
+  .gear {
+    width: 2.4rem; height: 2.4rem; border-radius: 50%; border: 1px solid rgba(201,162,74,0.35);
+    background: rgba(201,162,74,0.08); color: var(--brass); display: grid; place-items: center; cursor: pointer;
+  }
+  .gear:hover { background: rgba(201,162,74,0.16); }
+
+  .lined {
+    background: var(--felt-2);
+    border-radius: 1.25rem;
+    padding: 1.4rem 1.3rem;
+    box-shadow: inset 0 0 0 1px rgba(239,231,216,0.06), 0 10px 24px rgba(0,0,0,0.28);
+  }
+  .label {
+    font-size: 0.66rem; letter-spacing: 0.22em; text-transform: uppercase;
+    color: var(--ivory-soft); margin-bottom: 1rem;
+  }
+
+  /* Tuner: a bone-inlay dial. Brass fills only as the note comes true. */
+  .dial-wrap { display: flex; align-items: center; gap: 1.6rem; }
+  .dial { position: relative; width: 132px; height: 132px; flex: none; }
+  .dial svg { transform: rotate(-90deg); }
+  .dial .center {
+    position: absolute; inset: 0; display: grid; place-content: center; text-align: center;
+  }
+  .dial .n { font-family: var(--serif); font-size: 2.6rem; line-height: 1; }
+  .dial .c { font-size: 0.78rem; color: var(--honey); margin-top: 0.15rem; }
+  .tuner-copy .big { font-family: var(--serif); font-size: 1.5rem; font-style: italic; }
+  .tuner-copy p { color: var(--ivory-soft); font-size: 0.9rem; line-height: 1.6; margin-top: 0.4rem; max-width: 20rem; }
+  .strings { display: flex; gap: 0.4rem; margin-top: 1rem; }
+  .strings button {
+    flex: 1; background: rgba(239,231,216,0.06); border: 1px solid rgba(239,231,216,0.1);
+    color: var(--ivory); border-radius: 0.7rem; padding: 0.6rem 0; font-family: var(--serif);
+    font-size: 1.1rem; cursor: pointer;
+  }
+  .strings button[aria-pressed="true"] {
+    background: linear-gradient(180deg, var(--brass-lit), var(--brass));
+    color: #23301f; border-color: transparent; font-weight: 500;
+  }
+
+  .trace { width: 100%; height: 178px; display: block; border-radius: 0.6rem; }
+
+  .figures { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.6rem; }
+  .fig {
+    background: rgba(239,231,216,0.05); border-radius: 0.9rem; padding: 0.85rem 0.7rem;
+    border: 1px solid rgba(239,231,216,0.07);
+  }
+  .fig b { display: block; font-family: var(--serif); font-size: 1.75rem; line-height: 1.05; color: var(--brass-lit); }
+  .fig span { font-size: 0.62rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ivory-soft); }
+  .note-line { margin-top: 1rem; font-size: 0.88rem; color: var(--ivory-soft); line-height: 1.6; }
+  .note-line b { color: var(--ivory); font-weight: 500; }
+
+  .takes { display: grid; gap: 0.55rem; }
+  .take {
+    display: flex; align-items: center; gap: 0.9rem; padding: 0.85rem 1rem;
+    background: rgba(239,231,216,0.045); border-radius: 0.9rem; cursor: pointer;
+    border: 1px solid transparent;
+  }
+  .take:hover { border-color: rgba(201,162,74,0.35); }
+  .take .nm { flex: 1; font-size: 0.98rem; }
+  .take .sub { display: block; font-size: 0.74rem; color: var(--ivory-soft); margin-top: 0.15rem; }
+  .take .val { font-family: var(--serif); font-size: 1.15rem; color: var(--brass); }
+
+  nav {
+    position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem;
+    display: flex; gap: 0.15rem; padding: 0.35rem;
+    background: rgba(20,32,28,0.92); border: 1px solid rgba(201,162,74,0.25);
+    border-radius: 999px; backdrop-filter: blur(12px);
+  }
+  nav button {
+    background: none; border: 0; color: var(--ivory-soft); border-radius: 999px;
+    padding: 0.6rem 0.95rem; font-size: 0.76rem; cursor: pointer; font-family: var(--sans);
+  }
+  nav button[aria-current="true"] { background: rgba(201,162,74,0.18); color: var(--brass-lit); }
+  @media (max-width: 560px) {
+    .dial-wrap { flex-direction: column; align-items: flex-start; gap: 1rem; }
+    .figures { grid-template-columns: repeat(2, 1fr); }
+    nav button { padding: 0.55rem 0.7rem; font-size: 0.7rem; }
+  }
+</style>
+</head>
+<body>
+<div class="case">
+  <header>
+    <div class="title">Music <i>Companion</i></div>
+    <button class="gear" aria-label="Settings">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18"/>
+      </svg>
+    </button>
+  </header>
+
+  <div class="lined">
+    <div class="label">Listening</div>
+    <div class="dial-wrap">
+      <div class="dial">
+        <svg width="132" height="132" viewBox="0 0 132 132">
+          <circle cx="66" cy="66" r="58" fill="none" stroke="rgba(239,231,216,0.1)" stroke-width="6"/>
+          <circle cx="66" cy="66" r="58" fill="none" stroke="#d98d3f" stroke-width="6"
+                  stroke-linecap="round" stroke-dasharray="364" stroke-dashoffset="318"
+                  transform="rotate(90 66 66)"/>
+        </svg>
+        <div class="center">
+          <div class="n">D3</div>
+          <div class="c">−6 cents</div>
+        </div>
+      </div>
+      <div class="tuner-copy">
+        <div class="big">A shade under.</div>
+        <p>Your vibrato swings ±14¢ at 5.4 Hz — this reads the centre it orbits, not the swing.</p>
+      </div>
+    </div>
+    <div class="strings">
+      <button aria-pressed="false">C</button>
+      <button aria-pressed="false">G</button>
+      <button aria-pressed="true">D</button>
+      <button aria-pressed="false">A</button>
+    </div>
+  </div>
+
+  <div class="lined">
+    <div class="label">Prelude · 38 seconds · 32 notes</div>
+    <svg class="trace" viewBox="0 0 600 178" preserveAspectRatio="none">
+      <rect width="600" height="178" fill="rgba(0,0,0,0.18)" rx="8"/>
+      <g stroke="rgba(239,231,216,0.08)" stroke-width="1">
+        <line x1="0" y1="40" x2="600" y2="40"/><line x1="0" y1="75" x2="600" y2="75"/>
+        <line x1="0" y1="110" x2="600" y2="110"/><line x1="0" y1="145" x2="600" y2="145"/>
+      </g>
+      <rect x="196" y="0" width="34" height="178" fill="#a8443f" opacity="0.22" rx="4"/>
+      <rect x="352" y="0" width="34" height="178" fill="#d98d3f" opacity="0.2" rx="4"/>
+      <polyline fill="none" stroke="#e8c874" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"
+        points="10,150 40,150 42,132 80,131 82,113 120,115 122,96 160,95 162,78 200,79 202,60 240,58 242,42 280,44 282,60 320,58 322,78 360,80 362,96 400,95 402,113 440,114 442,131 480,133 482,150 520,149 560,150"/>
+      <line x1="470" y1="0" x2="470" y2="178" stroke="#efe7d8" stroke-width="1" opacity="0.5"/>
+      <circle cx="470" cy="115" r="4" fill="#efe7d8"/>
+      <rect x="480" y="102" width="70" height="24" rx="12" fill="rgba(28,47,42,0.95)" stroke="#c9a24a"/>
+      <text x="490" y="118" font-family="Instrument Sans" font-size="12" fill="#e8c874">C3 +2¢</text>
+    </svg>
+  </div>
+
+  <div class="lined">
+    <div class="label">Timing</div>
+    <div class="figures">
+      <div class="fig"><b>96</b><span>Pulse</span></div>
+      <div class="fig"><b>12ms</b><span>Off beat</span></div>
+      <div class="fig"><b>94%</b><span>Even</span></div>
+      <div class="fig"><b>+0.4%</b><span>Drift</span></div>
+    </div>
+    <p class="note-line">Steady. The <b>12th note</b> came in 73 ms late — everything else sat inside the beat.</p>
+  </div>
+
+  <div class="lined">
+    <div class="label">Library</div>
+    <div class="takes">
+      <div class="take"><span class="nm">Bach — Suite No. 1, Prelude<span class="sub">4 takes · last practised Friday</span></span><span class="val">6.2¢</span></div>
+      <div class="take"><span class="nm">Elgar — Concerto, opening<span class="sub">3 takes · last practised Tuesday</span></span><span class="val">11.4¢</span></div>
+      <div class="take"><span class="nm">Scales — D major, three octaves<span class="sub">4 takes · today</span></span><span class="val">5.1¢</span></div>
+    </div>
+  </div>
+</div>
+
+<nav>
+  <button aria-current="true">Tuner</button>
+  <button>Record</button>
+  <button>Library</button>
+  <button>Coach</button>
+  <button>Metronome</button>
+</nav>
+</body>
+</html>
