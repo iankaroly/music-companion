@@ -157,6 +157,7 @@ document.addEventListener('settings-change', (e) => {
     refreshRangeFill(volumeSlider);
   }
   if (e.detail?.key === 'tolerance') tuner.refreshZones();
+  if (e.detail?.key === 'library') refreshLibrary(); // a restore just landed
 });
 
 // --- shared display helpers ------------------------------------------------
@@ -384,13 +385,50 @@ document.querySelector('#discard-rec').addEventListener('click', () => {
   statusEl.textContent = 'recording discarded';
 });
 
-function downloadWav(samples, sampleRate, when) {
-  const blob = new Blob([encodeWav(samples, sampleRate)], { type: 'audio/wav' });
+function saveBlob(blob, filename) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `music-companion-${new Date(when).toISOString().slice(0, 16).replace(/[T:]/g, '-')}.wav`;
+  a.download = filename;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+// A filename someone else can make sense of when it lands in their downloads.
+function takeFilename(name, when, extension) {
+  const stamp = new Date(when).toISOString().slice(0, 16).replace(/[T:]/g, '-');
+  const safe = String(name ?? '').trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 40);
+  return `${safe ? `${safe}-` : ''}${stamp}.${extension}`;
+}
+
+function downloadWav(samples, sampleRate, name, when) {
+  saveBlob(new Blob([encodeWav(samples, sampleRate)], { type: 'audio/wav' }),
+    takeFilename(name, when, 'wav'));
+}
+
+// Send a take to a teacher.
+//
+// Playing something and having someone hear it is the whole point of a practice
+// recording, and until now a take could only leave the app as a file you then
+// had to find. The share sheet puts it into Messages or Mail in two taps; where
+// there is no share sheet (desktop) it falls back to a download.
+async function shareTake(r) {
+  const data = await loadRecording(r.id);
+  if (!data) return;
+  const samples = data.samples ?? new Float32Array(data.audio);
+  const rate = data.sampleRate ?? r.sampleRate;
+  const filename = takeFilename(r.name, r.date, 'wav');
+  const file = new File([encodeWav(samples, rate)], filename, { type: 'audio/wav' });
+  const title = r.name || 'Practice take';
+  if (navigator.canShare?.({ files: [file] })) {
+    try {
+      await navigator.share({ files: [file], title, text: `${title} — ${formatDuration(r.duration)}` });
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return; // they changed their mind
+    }
+  }
+  downloadWav(samples, rate, r.name, r.date);
+  statusEl.textContent = 'saved as a WAV file';
 }
 
 // --- library ---------------------------------------------------------------
@@ -424,8 +462,11 @@ async function openRecording(r) {
   const data = await loadRecording(r.id);
   if (!data) return;
   clearTake();
-  const rec = new Recorder(r.sampleRate);
-  rec.push(new Float32Array(data.audio));
+  // The decoded rate, not the rate it was captured at — compressed takes come
+  // back at the codec's own rate. Everything downstream is in seconds, so the
+  // note and reading times still line up.
+  const rec = new Recorder(data.sampleRate ?? r.sampleRate);
+  rec.push(data.samples ?? new Float32Array(data.audio));
   showTab('analyze');
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
@@ -590,6 +631,10 @@ function libraryRow(r) {
       },
     },
     {
+      label: 'Share…',
+      onPick: () => shareTake(r),
+    },
+    {
       label: 'Move to folder…',
       onPick: () => moveMenu(more, r),
     },
@@ -597,7 +642,10 @@ function libraryRow(r) {
       label: 'Download WAV',
       onPick: async () => {
         const data = await loadRecording(r.id);
-        if (data) downloadWav(new Float32Array(data.audio), r.sampleRate, r.date);
+        if (data) {
+          downloadWav(data.samples ?? new Float32Array(data.audio),
+            data.sampleRate ?? r.sampleRate, r.name ?? r.date, r.date);
+        }
       },
     },
     {

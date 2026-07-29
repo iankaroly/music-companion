@@ -1958,6 +1958,16 @@
         <p class="set-hint">Stills the colour behind the glass if the drift is distracting.</p>
       </div>
       <div class="set-group">
+        <span class="set-label">Your practice history</span>
+        <p class="set-hint" id="storage-line">Counting…</p>
+        <button id="set-backup" type="button" class="set-wide">Back up practice history</button>
+        <button id="set-restore" type="button" class="set-wide">Restore from a backup</button>
+        <input id="restore-file" type="file" accept="application/json,.json" class="native-hidden" />
+        <p class="set-hint">The backup holds every take's notes, timing and landings —
+        the part the coach reads — plus folders and passages. Audio is left out to keep
+        the file small; share individual takes from the library instead.</p>
+      </div>
+      <div class="set-group">
         <button id="set-reset" type="button" class="set-wide">Restore default settings</button>
         <p class="set-hint">Puts every preference back. Your recordings, folders and
         saved presets are untouched.</p>

@@ -8,6 +8,7 @@
 // so the coach can read every attempt without touching a recording.
 
 import { landingStats } from '../analysis/landing.js';
+import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/codec.js';
 
 const DB_NAME = 'music-companion';
 const VERSION = 4;
@@ -88,6 +89,9 @@ function statsOf(notes) {
 
 export async function saveRecording({ date, duration, sampleRate, audio, notes, readings, a4 }) {
   const db = await openDB();
+  // Compressed before it ever reaches the store — see audio/codec.js for why
+  // raw Float32 was not an option for a library you keep forever.
+  const stored = await encodeStoredAudio(new Float32Array(audio), sampleRate);
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['recordings', 'recording-data'], 'readwrite');
     const metaReq = tx.objectStore('recordings').add({
@@ -99,7 +103,7 @@ export async function saveRecording({ date, duration, sampleRate, audio, notes, 
       landingStats: landingStats(notes, readings, a4) ?? [],
     });
     metaReq.onsuccess = () => {
-      tx.objectStore('recording-data').add({ id: metaReq.result, audio, notes, readings, a4 });
+      tx.objectStore('recording-data').add({ id: metaReq.result, audio: stored, notes, readings, a4 });
     };
     tx.oncomplete = () => resolve(metaReq.result);
     tx.onerror = () => reject(tx.error);
@@ -117,11 +121,107 @@ export async function listRecordings() {
 
 export async function loadRecording(id) {
   const db = await openDB();
-  return new Promise((resolve, reject) => {
+  const row = await new Promise((resolve, reject) => {
     const req = db.transaction('recording-data', 'readonly').objectStore('recording-data').get(id);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+  if (!row) return row;
+  // Recordings written before compression existed hold a bare Float32 buffer;
+  // decodeStoredAudio reads both, so nothing in the library goes stale.
+  const { samples, sampleRate } = await decodeStoredAudio(row.audio);
+  return { ...row, audio: samples.buffer, sampleRate, samples };
+}
+
+// How much of the device this library is using, and the browser's own numbers
+// for how much it is allowed.
+export async function storageReport() {
+  const db = await openDB();
+  const rows = await new Promise((resolve, reject) => {
+    const req = db.transaction('recording-data', 'readonly').objectStore('recording-data').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+  const audioBytes = rows.reduce((a, r) => a + storedBytes(r.audio), 0);
+  let quota = null;
+  let usage = null;
+  try {
+    const est = await navigator.storage?.estimate?.();
+    quota = est?.quota ?? null;
+    usage = est?.usage ?? null;
+  } catch { /* not supported */ }
+  return { takes: rows.length, audioBytes, usage, quota };
+}
+
+// Ask the browser not to evict this. Script-writable storage is fair game for
+// cleanup otherwise, and the coach's whole value is the takes from months ago.
+export async function requestPersistence() {
+  try {
+    if (await navigator.storage?.persisted?.()) return true;
+    return (await navigator.storage?.persist?.()) ?? false;
+  } catch {
+    return false;
+  }
+}
+
+// --- backup ----------------------------------------------------------------
+//
+// Everything except the audio. That is a deliberate trade: the audio is by far
+// the biggest thing here and it is the LEAST valuable to keep — a take you can
+// no longer listen to still carries every note, every cent of error and every
+// landing, which is what the coach reads and what took months to accumulate.
+// A year of practice history fits in a file small enough to email; a year of
+// audio does not. Individual takes can be shared as WAV from the library.
+
+export async function exportLibrary() {
+  const [recordings, passages, folders] = await Promise.all([
+    listRecordings(), listPassages(), listFolders(),
+  ]);
+  return {
+    format: 'music-companion-backup',
+    version: 1,
+    exported: Date.now(),
+    note: 'Practice history: notes, timing, landings, passages and folders. Audio is not included.',
+    recordings,
+    passages,
+    folders,
+  };
+}
+
+// Additive by design: a restore onto a device that has been practising must not
+// throw away what is already there. Takes are matched on their date, which is
+// the one thing about a recording that is already unique.
+export async function importLibrary(backup) {
+  if (backup?.format !== 'music-companion-backup') {
+    throw new Error('that file is not a Music Companion backup');
+  }
+  const db = await openDB();
+  const existing = await listRecordings();
+  const seen = new Set(existing.map((r) => r.date));
+  const folders = await listFolders();
+  const folderByName = new Map(folders.map((f) => [f.name, f.id]));
+
+  let added = 0;
+  for (const folder of backup.folders ?? []) {
+    if (folderByName.has(folder.name)) continue;
+    folderByName.set(folder.name, await createFolder(folder.name));
+  }
+  const oldFolderName = new Map((backup.folders ?? []).map((f) => [f.id, f.name]));
+
+  for (const rec of backup.recordings ?? []) {
+    if (seen.has(rec.date)) continue;
+    const { id, folderId, ...meta } = rec;
+    const mapped = folderId != null ? folderByName.get(oldFolderName.get(folderId)) : undefined;
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((resolve, reject) => {
+      const tx = db.transaction('recordings', 'readwrite');
+      tx.objectStore('recordings').add(mapped ? { ...meta, folderId: mapped } : meta);
+      tx.oncomplete = resolve;
+      tx.onerror = () => reject(tx.error);
+    });
+    added++;
+  }
+  return { added, skipped: (backup.recordings ?? []).length - added };
 }
 
 // Recordings saved before a given stat existed get it computed once from the

@@ -12,6 +12,7 @@ import { getVolume, setVolume } from '../audio/context.js';
 import { setIntonationTolerance } from './chart-utils.js';
 import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
+import { storageReport, requestPersistence, exportLibrary, importLibrary } from '../store/db.js';
 
 const MOTION_KEY = 'mc-motion';
 const TOLERANCE_KEY = 'tolerance';
@@ -164,6 +165,60 @@ export function initSettings(doc = document) {
     set: (v) => write('clickLevel', String(v)),
     format: (v) => `${Math.round(v * 100)}%`,
   }));
+
+  // --- practice history: how big it is, and getting it off the device -------
+
+  const mb = (bytes) => (bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(bytes > 10485760 ? 0 : 1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`);
+
+  const storageLine = doc.querySelector('#storage-line');
+  const refreshStorage = async () => {
+    if (!storageLine) return;
+    try {
+      const { takes, audioBytes, quota } = await storageReport();
+      const persisted = await requestPersistence();
+      const room = quota ? ` of about ${mb(quota)} available` : '';
+      storageLine.textContent = takes === 0
+        ? 'Nothing saved yet.'
+        : `${takes} ${takes === 1 ? 'take' : 'takes'}, ${mb(audioBytes)} of audio${room}.`
+          + (persisted ? ' Stored persistently.' : '');
+    } catch {
+      storageLine.textContent = 'Could not read storage.';
+    }
+  };
+  levels.push({ sync: refreshStorage }); // refreshed whenever the sheet opens
+
+  doc.querySelector('#set-backup')?.addEventListener('click', async () => {
+    try {
+      const backup = await exportLibrary();
+      const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
+      const a = doc.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `music-companion-history-${new Date(backup.exported).toISOString().slice(0, 10)}.json`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      announce(doc, 'backup');
+    } catch (err) {
+      storageLine.textContent = `Backup failed: ${err.message}`;
+    }
+  });
+
+  const restoreInput = doc.querySelector('#restore-file');
+  doc.querySelector('#set-restore')?.addEventListener('click', () => restoreInput?.click());
+  restoreInput?.addEventListener('change', async () => {
+    const file = restoreInput.files?.[0];
+    restoreInput.value = '';
+    if (!file) return;
+    try {
+      const { added, skipped } = await importLibrary(JSON.parse(await file.text()));
+      storageLine.textContent = `Restored ${added} ${added === 1 ? 'take' : 'takes'}`
+        + (skipped ? `, skipped ${skipped} already here.` : '.');
+      announce(doc, 'library');
+    } catch (err) {
+      storageLine.textContent = `Restore failed: ${err.message}`;
+    }
+  });
 
   const reset = doc.querySelector('#set-reset');
   if (reset) {
