@@ -92,6 +92,8 @@ export class Tuner {
     this.centsEl = root.querySelector('#cents');
     this.secondEl = root.querySelector('#second');
     this.freqEl = root.querySelector('#freq');
+    this.sayEl = root.querySelector('#tuner-say');
+    this._said = '';
     const gauge = buildGauge(root.querySelector('#gauge-svg'));
     this.needle = gauge.needle;
     this.arcs = gauge.arcs;
@@ -109,6 +111,14 @@ export class Tuner {
       const [x2, y2] = polar(108, c2);
       this.arcs[i]?.setAttribute('d', `M ${x1} ${y1} A 108 108 0 0 1 ${x2} ${y2}`);
     });
+  }
+
+  // A live region repeats itself if you write the same string twice, so only
+  // real changes are pushed.
+  say(text) {
+    if (!this.sayEl || text === this._said) return;
+    this._said = text;
+    this.sayEl.textContent = text;
   }
 
   setNeedle(cents) {
@@ -131,6 +141,7 @@ export class Tuner {
       this.centsEl.textContent = 'listening';
       this.freqEl.textContent = '';
       this.secondEl.textContent = '';
+      this.say('listening');
       this.setNeedle(0);
       return;
     }
@@ -150,6 +161,13 @@ export class Tuner {
       ? `${centsText} · vibrato ±${vibrato.widthCents.toFixed(0)}¢ @ ${vibrato.rateHz.toFixed(1)} Hz`
       : centsText;
     this.freqEl.textContent = `${frequency.toFixed(1)} Hz`;
+    // Spoken form of the dial, which is a canvas-shaped SVG to a screen reader.
+    // Rounded to 5 cents so it announces when the reading MEANS something
+    // different rather than eighty times a second.
+    const step = Math.round(cents / 5) * 5;
+    this.say(`${midiToName(midi + this.transpose)}, ${
+      Math.abs(step) < intonationTolerance() ? 'in tune'
+        : `${Math.abs(step)} cents ${step > 0 ? 'sharp' : 'flat'}`}`);
     this.setNeedle(cents);
 
     // Double stop: show the second string's note alongside.

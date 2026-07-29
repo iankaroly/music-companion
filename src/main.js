@@ -417,6 +417,9 @@ startBtn.addEventListener('click', async () => {
   startBtn.disabled = true;
   try {
     await countIn(Number(countInSel.value) || 0);
+    // A count-in is seconds long and the app is still usable during it; walking
+    // away must not leave a recording running on a tab you can't see.
+    if (tabs.current !== 'analyze') { statusEl.textContent = ''; return; }
     capture = await beginCapture({ collected: [] });
     capture.recorder.onFull = () => {
       statusEl.textContent = `that's the ${MAX_SECONDS / 60}-minute limit — stop and review`;

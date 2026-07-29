@@ -129,6 +129,16 @@
     * { margin: 0; box-sizing: border-box; }
     [hidden] { display: none !important; }
     .native-hidden { display: none !important; }
+    /* Present to a screen reader, absent to everyone else. */
+    .sr-only {
+      position: absolute;
+      width: 1px; height: 1px;
+      margin: -1px; padding: 0; border: 0;
+      overflow: hidden;
+      clip: rect(0 0 0 0);
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
     /* pan, don't zoom: also removes the double-tap-to-zoom delay on buttons */
     html, body { touch-action: pan-x pan-y; }
     html { background: var(--bg); }
@@ -1670,7 +1680,7 @@
         <div id="tuner" class="card">
           <div id="gauge-wrap">
             <svg id="gauge-svg" viewBox="0 0 300 170" aria-hidden="true"></svg>
-            <div id="note" data-state="idle">–</div>
+            <div id="note" data-state="idle" aria-hidden="true">–</div>
           </div>
           <button id="tuner-listen" class="ctl primary big" type="button" hidden>
             Tap to listen
@@ -1679,7 +1689,8 @@
             Your browser asks for the microphone once per visit. iPhone remembers
             it for apps added to the Home Screen (Share → Add to Home Screen).
           </p>
-          <div id="cents" role="status" aria-live="polite">listening</div>
+          <div id="cents">listening</div>
+          <p id="tuner-say" class="sr-only" role="status" aria-live="polite"></p>
           <div id="freq"></div>
           <div id="second"></div>
           <canvas id="spectrum" aria-hidden="true"></canvas>

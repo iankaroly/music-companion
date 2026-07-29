@@ -63,7 +63,13 @@ describe('instrument profiles', () => {
     for (const i of INSTRUMENTS) {
       expect(['strings', 'reed', 'organ', 'pure']).toContain(i.timbre);
       expect(i.aim.length).toBeGreaterThan(20);
-      expect(i.range[0]).toBeLessThan(i.range[1]);
+      expect(i.examples.length).toBeGreaterThan(0);
     }
+  });
+
+  test('a family carries no transposition — that is a per-instrument fact', () => {
+    // flute and B flat clarinet are both winds; the tuner's own instrument
+    // control is what names the actual pitch
+    for (const i of INSTRUMENTS) expect(i.transpose).toBeUndefined();
   });
 });
