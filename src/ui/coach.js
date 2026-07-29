@@ -1,5 +1,8 @@
 import { listRecordingsWithStats, listPassages } from '../store/db.js';
-import { aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgress } from '../analysis/coach.js';
+import {
+  aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgress,
+  aggregateLandings,
+} from '../analysis/coach.js';
 import { passageProgress } from '../analysis/passages.js';
 import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
 import { intonationStatus } from './chart-utils.js';
@@ -38,7 +41,12 @@ export async function renderCoach(root) {
   try {
     recordings = await listRecordingsWithStats();
   } catch { /* blocked IndexedDB — treated as no data */ }
-  const sessions = recordings.map((r) => ({ date: r.date, name: r.name, noteStats: r.noteStats ?? [] }));
+  const sessions = recordings.map((r) => ({
+    date: r.date,
+    name: r.name,
+    noteStats: r.noteStats ?? [],
+    landingStats: r.landingStats ?? [],
+  }));
   const tendencies = aggregateTendencies(sessions);
 
   if (tendencies.length === 0) {
@@ -56,12 +64,72 @@ export async function renderCoach(root) {
   } catch { /* blocked IndexedDB — the passage card just stays empty */ }
   renderPassages(root.querySelector('#passage-progress'), passageProgress(passages));
   renderDrills(root.querySelector('#drill-list'), pickDrills(tendencies));
+  renderLandings(root, aggregateLandings(sessions));
   renderTendencies(root.querySelector('#tendency-rows'), tendencies);
   renderTrend(
     root.querySelector('#trend-chart'),
     root.querySelector('#trend-note'),
     dailyScores(sessions).slice(-TREND_DAYS),
   );
+}
+
+// --- landings: how you arrive, across every take ----------------------------
+//
+// The tendency map below answers "where do my notes sit"; this one answers
+// "how do I get there". For a player whose sustained intonation is already
+// good, the second question is the one still worth asking — and the answer is
+// usually a specific reach ("shifts past a fifth") rather than a specific note.
+
+function renderLandings(root, summary) {
+  const card = root.querySelector('#landing-card');
+  if (!card) return;
+  if (!summary) {
+    card.hidden = true; // not enough saved takes to claim a habit
+    return;
+  }
+  card.hidden = false;
+
+  const pct = Math.round(summary.cleanShare * 100);
+  root.querySelector('#lg-clean').textContent = `${pct}%`;
+  const onset = Math.round(summary.meanOnsetCents);
+  root.querySelector('#lg-onset').textContent = `${onset >= 0 ? '+' : ''}${onset}¢`;
+  root.querySelector('#lg-count').textContent = String(summary.count);
+
+  const rows = root.querySelector('#landing-band-rows');
+  rows.replaceChildren();
+  for (const band of summary.byBand) {
+    const row = document.createElement('div');
+    row.className = 'ld-row';
+    const name = document.createElement('span');
+    name.className = 'ld-name';
+    name.textContent = band.label;
+    const track = document.createElement('span');
+    track.className = 'ld-track';
+    const fill = document.createElement('span');
+    fill.className = 'ld-fill';
+    fill.dataset.tier = band.cleanShare >= 0.8 ? 'good' : band.cleanShare >= 0.55 ? 'mixed' : 'poor';
+    fill.style.width = `${Math.max(2, band.cleanShare * 100)}%`;
+    track.append(fill);
+    const val = document.createElement('span');
+    val.className = 'ld-val';
+    const mean = Math.round(band.meanOnsetCents);
+    val.textContent = `${Math.round(band.cleanShare * 100)}% · ${mean >= 0 ? '+' : ''}${mean}¢`;
+    row.append(name, track, val);
+    rows.append(row);
+  }
+
+  const note = root.querySelector('#landing-card-note');
+  if (summary.weakest && summary.weakest.cleanShare < 0.8) {
+    const w = summary.weakest;
+    const mean = Math.round(w.meanOnsetCents);
+    note.textContent = `Start with ${w.plural}: ${Math.round(w.cleanShare * 100)}% of them`
+      + ` speak in tune, and on average they arrive ${Math.abs(mean)}¢`
+      + ` ${mean < 0 ? 'flat' : 'sharp'}. Aim ${mean < 0 ? 'higher' : 'lower'} than feels right`
+      + ' and let the note tell you.';
+  } else {
+    note.textContent = 'Your notes speak in tune from the start across every kind of'
+      + ' interval — this is the hard part, and it is holding.';
+  }
 }
 
 // --- this week: streak, days, notes, error vs last week ---------------------
@@ -250,7 +318,12 @@ function renderTendencies(container, tendencies) {
     track.append(center, bar);
     const val = document.createElement('span');
     val.className = 'tend-val';
-    val.textContent = `${t.meanCents >= 0 ? '+' : ''}${t.meanCents.toFixed(0)}¢ · ×${t.count}`;
+    // The mean says which way you lean; the spread says whether you land the
+    // note the same way twice. Past a certain level only the second one moves.
+    val.textContent = `${t.meanCents >= 0 ? '+' : ''}${t.meanCents.toFixed(0)}`
+      + `±${t.spreadCents.toFixed(0)}¢ · ×${t.count}`;
+    val.title = `mean ${t.meanCents.toFixed(1)}¢, spread ±${t.spreadCents.toFixed(1)}¢`
+      + ` over ${t.count} notes`;
     row.append(name, track, val);
     container.append(row);
   }

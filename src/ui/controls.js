@@ -119,6 +119,26 @@ export function toggleMenu(btn, build, { columns = false } = {}) {
   openPop = { pop, btn };
 }
 
+// A pop-over that explains a number rather than offering a choice. Same glass
+// and the same anchoring as the menus, so "what does this mean" is one tap on
+// the thing you're asking about instead of a paragraph nobody reads.
+export function explainPop(btn, { title, body }) {
+  if (openPop?.btn === btn) { closePop(); return; }
+  closePop();
+  const pop = document.createElement('div');
+  pop.className = 'pick-pop explain';
+  pop.setAttribute('role', 'dialog');
+  const h = document.createElement('b');
+  h.textContent = title;
+  const p = document.createElement('p');
+  p.textContent = body;
+  pop.append(h, p);
+  document.body.append(pop);
+  placePop(pop, btn);
+  btn.setAttribute('aria-expanded', 'true');
+  openPop = { pop, btn };
+}
+
 // A one-shot action menu: rows of [{ label, danger, onPick }]. Nothing is
 // "selected" here, unlike the select-backed menus below.
 export function actionMenu(btn, items) {

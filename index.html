@@ -511,6 +511,9 @@
       box-shadow: 0 20px 50px rgb(var(--sh) / 0.28), inset 0 1px 0 var(--inset-hi);
       animation: pop-in 240ms var(--spring);
     }
+    .pick-pop.explain { display: block; max-width: min(19rem, 88vw); padding: 0.85rem 1rem; text-align: left; }
+    .pick-pop.explain b { display: block; font-family: var(--display); font-weight: 500; font-size: 0.9rem; margin-bottom: 0.3rem; }
+    .pick-pop.explain p { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
     .pick-pop.cols { display: grid; grid-template-columns: repeat(4, minmax(3.1rem, 1fr)); }
     .pick-pop.cols .pick-row { padding: 0.5rem 0.4rem; }
     .pick-pop.from-bottom { transform-origin: 50% 100%; }
@@ -636,6 +639,10 @@
     #note[data-state="good"] { color: var(--good); }
     #note[data-state="off"] { color: var(--off); }
     #note[data-state="idle"] { color: var(--muted); }
+    #tuner-listen { margin-top: 0.2rem; }
+    /* the explanation belongs with the button and goes when it does */
+    #tuner-listen[hidden] + #tuner-listen-note { display: none; }
+    #tuner-listen-note { max-width: 20rem; margin: 0.7rem auto 0; text-align: center; }
     #cents { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; min-height: 1.3em; font-family: var(--num); font-variant-numeric: tabular-nums; }
     #freq { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.15rem; font-family: var(--num); font-variant-numeric: tabular-nums; }
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; font-family: var(--num); font-variant-numeric: tabular-nums; }
@@ -907,6 +914,69 @@
     .pg-delta.worse { color: var(--bad); }
     .pg-delta.flat { color: var(--muted); }
 
+    /* ---- landing ---- */
+    #landing { margin-top: 1.1rem; border-top: 1px dashed var(--line-strong); padding-top: 0.9rem; }
+    #landing-verdict {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.82rem;
+      padding: 0.2rem 0.7rem;
+      border-radius: 999px;
+    }
+    #landing-verdict[data-verdict="clean"] { background: var(--good-soft); color: var(--good); }
+    #landing-verdict[data-verdict="mixed"] { background: var(--off-soft); color: var(--off); }
+    #landing-verdict[data-verdict="scooping"] { background: var(--bad-soft); color: var(--bad); }
+    #landing-summary { font-size: 0.88rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
+    #landing-hint { color: var(--muted); font-size: 0.72rem; line-height: 1.45; margin-top: 0.5rem; text-align: center; }
+    #landing-bars { display: grid; gap: 0.5rem; }
+    /* one row per interval size: how often notes of that reach spoke in tune */
+    .ld-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; }
+    .ld-name {
+      width: 7.2rem;
+      flex-shrink: 0;
+      text-align: right;
+      font-family: var(--display);
+      font-weight: 500;
+      color: var(--ink);
+    }
+    .ld-track {
+      position: relative;
+      flex: 1;
+      height: 14px;
+      background: var(--fill);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .ld-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--good); }
+    .ld-fill[data-tier="mixed"] { background: var(--off); }
+    .ld-fill[data-tier="poor"] { background: var(--bad); }
+    .ld-val {
+      width: 5.6rem;
+      flex-shrink: 0;
+      color: var(--muted);
+      font-size: 0.72rem;
+      font-variant-numeric: tabular-nums;
+    }
+    #landing-worst { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin-top: 0.7rem; }
+    .ld-chip {
+      font-family: var(--display);
+      font-size: 0.78rem;
+      font-weight: 500;
+      background: var(--fill);
+      border: none;
+      border-radius: 999px;
+      padding: 0.35rem 0.8rem;
+      cursor: pointer;
+      transition: background 150ms, color 150ms;
+    }
+    .ld-chip:hover { background: var(--fill-2); color: var(--primary); }
+    .ld-chip.flat { color: var(--sky); }
+    .ld-chip.sharp { color: var(--off); }
+    /* the same rows again inside the coach card, which is centre-aligned */
+    #landing-card #week-tiles { margin-bottom: 0.9rem; }
+    #landing-band-rows { display: grid; gap: 0.5rem; text-align: left; }
+    #landing-card-note { text-align: left; line-height: 1.5; margin-top: 0.75rem; }
+
     /* ---- timing ---- */
     #timing { margin-top: 1.1rem; border-top: 1px dashed var(--line-strong); padding-top: 0.9rem; }
     #timing-head { display: flex; align-items: baseline; justify-content: center; gap: 0.5rem; margin-bottom: 0.7rem; }
@@ -1012,6 +1082,26 @@
     }
     #timing-filter { margin-top: 0.7rem; }
     .tm-none { color: var(--muted); font-size: 0.74rem; align-self: center; }
+    /* The tiles are numbers with names a musician hasn't agreed to; each one
+       is a button that says what it means and what good looks like. */
+    #timing-tiles .wk-tile {
+      border: none;
+      font: inherit;
+      color: inherit;
+      cursor: pointer;
+      text-align: center;
+      transition: transform 260ms var(--spring), background 150ms;
+    }
+    #timing-tiles .wk-tile:hover { background: rgb(var(--sf) / 0.9); }
+    #timing-tiles .wk-tile:active { transform: scale(0.95); }
+    #timing-summary {
+      font-size: 0.88rem;
+      line-height: 1.5;
+      color: var(--ink);
+      text-align: center;
+      margin-bottom: 0.8rem;
+    }
+    #timing-legend { color: var(--muted); font-size: 0.72rem; line-height: 1.45; margin-top: 0.45rem; text-align: center; }
     .tm-chip {
       font-family: var(--display);
       font-size: 0.78rem;
@@ -1203,7 +1293,7 @@
       font-family: var(--display);
       font-weight: 500;
       font-size: 0.7rem;
-      padding: 0 4.1rem 0.3rem 2.6rem;
+      padding: 0 5.7rem 0.3rem 2.6rem;
     }
     #tendency-rows { display: grid; gap: 0.4rem; }
     .tend-row { display: flex; align-items: center; gap: 0.6rem; }
@@ -1237,7 +1327,7 @@
       min-width: 3px;
     }
     .tend-val {
-      width: 3.5rem;
+      width: 5.1rem;
       text-align: left;
       color: var(--muted);
       font-size: 0.72rem;
@@ -1250,9 +1340,10 @@
 
     /* ---- metronome ---- */
     #metro-card { padding: 2.2rem 1.6rem 1.8rem; }
-    /* The numeral face stays — a bare "80" in the rounded display face read as
-       decoration — but the violet-to-sky gradient comes back over it, because
-       that gradient is what ties this screen to the rest of the app. */
+    /* The gradient belongs to the controls on this screen — the slider, Accent,
+       Start, the tempo name. The tempo itself is a reading, and a reading is
+       set in ink: at this size the violet-to-sky fill turned the number into
+       the loudest decoration on the page. */
     #bpm-display {
       font-family: var(--num);
       font-size: 5.6rem;
@@ -1260,10 +1351,7 @@
       line-height: 1;
       letter-spacing: -0.035em;
       font-variant-numeric: tabular-nums;
-      background: var(--grad);
-      -webkit-background-clip: text;
-      background-clip: text;
-      color: transparent;
+      color: var(--ink);
     }
     #tempo-name {
       font-family: var(--display);
@@ -1440,6 +1528,13 @@
             <svg id="gauge-svg" viewBox="0 0 300 170" aria-hidden="true"></svg>
             <div id="note" data-state="idle">–</div>
           </div>
+          <button id="tuner-listen" class="ctl primary big" type="button" hidden>
+            Tap to listen
+          </button>
+          <p id="tuner-listen-note" class="set-hint">
+            Your browser asks for the microphone once per visit. iPhone remembers
+            it for apps added to the Home Screen (Share → Add to Home Screen).
+          </p>
           <div id="cents">listening</div>
           <div id="freq"></div>
           <div id="second"></div>
@@ -1580,6 +1675,19 @@
             <div id="passage-status"></div>
             <ul id="passage-list"></ul>
           </div>
+          <div id="landing" hidden>
+            <div id="timing-head">
+              <span class="timing-title">landing</span>
+              <span id="landing-verdict"></span>
+            </div>
+            <p id="landing-summary"></p>
+            <div id="landing-bars"></div>
+            <div id="landing-worst"></div>
+            <p id="landing-hint">
+              How each note arrived, before you corrected it — the part a
+              sustained reading can't show. Tap one to hear it.
+            </p>
+          </div>
           <div id="timing" hidden>
             <div id="timing-head">
               <span class="timing-title">timing</span>
@@ -1602,14 +1710,19 @@
               </span>
               <button id="timing-click" type="button">Play with click</button>
             </div>
+            <p id="timing-summary"></p>
             <div id="timing-tiles">
-              <div class="wk-tile"><b id="tm-bpm">–</b><span>pulse (bpm)</span></div>
-              <div class="wk-tile"><b id="tm-error">–</b><span>avg off beat</span></div>
-              <div class="wk-tile"><b id="tm-on">–</b><span>on the beat</span></div>
-              <div class="wk-tile"><b id="tm-even">–</b><span>evenness</span></div>
-              <div class="wk-tile"><b id="tm-drift">–</b><span>tempo drift</span></div>
+              <button class="wk-tile" type="button" data-explain="bpm"><b id="tm-bpm">–</b><span>your tempo</span></button>
+              <button class="wk-tile" type="button" data-explain="error"><b id="tm-error">–</b><span>typical miss</span></button>
+              <button class="wk-tile" type="button" data-explain="on"><b id="tm-on">–</b><span>on time</span></button>
+              <button class="wk-tile" type="button" data-explain="even"><b id="tm-even">–</b><span>steadiness</span></button>
+              <button class="wk-tile" type="button" data-explain="drift"><b id="tm-drift">–</b><span>drift</span></button>
             </div>
             <canvas id="timing-chart"></canvas>
+            <p id="timing-legend">
+              Top line: the tempo through the take. Below: one bar per note —
+              above the middle is late, below is early.
+            </p>
             <div id="timing-filter" role="group" aria-label="Which notes to list">
               <button data-filter="worst" type="button" class="active">worst</button>
               <button data-filter="late" type="button">late</button>
@@ -1671,11 +1784,23 @@
             <div class="cluster-title">today's drill</div>
             <div id="drill-list"></div>
           </div>
+          <div class="cluster" id="landing-card" hidden>
+            <div class="cluster-title">how you land</div>
+            <div id="week-tiles">
+              <div class="wk-tile"><b id="lg-clean">–</b><span>speak in tune</span></div>
+              <div class="wk-tile"><b id="lg-onset">–</b><span>typical arrival</span></div>
+              <div class="wk-tile"><b id="lg-count">–</b><span>notes read</span></div>
+            </div>
+            <div id="landing-band-rows"></div>
+            <p id="landing-card-note" class="tend-hint"></p>
+          </div>
           <div class="cluster">
             <div class="cluster-title">your tendencies</div>
             <div class="tend-legend"><span>← flat</span><span>sharp →</span></div>
             <div id="tendency-rows"></div>
-            <div class="tend-hint">average across all saved takes · bars cap at ±30¢</div>
+            <div class="tend-hint">Average across all saved takes, then the spread —
+            +2±14¢ means you lean barely sharp but land it differently every time.
+            Bars cap at ±30¢.</div>
           </div>
           <div class="cluster">
             <div class="cluster-title">trend</div>

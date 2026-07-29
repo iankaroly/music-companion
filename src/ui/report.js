@@ -6,6 +6,7 @@ import { intonationStatus, findNoteAt } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
 import { renderTiming, hideTiming } from './timing.js';
+import { renderLanding, hideLanding } from './landing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
 import { scheduleClick } from '../audio/metronome.js';
 
@@ -739,6 +740,9 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 
   if (extras.readings?.length && allNotes.length > 0) {
     showOverview(root, allNotes, recording, extras, selectNote, tileByNote);
+    renderLanding(root, allNotes, extras.readings, extras.a4 ?? 440, {
+      onPickNote: (note) => selectNote(note),
+    });
     renderTiming(root, allNotes, {
       onPickNote: (note) => selectNote(note),
       onClickTrack: recording ? (grid) => {
@@ -759,6 +763,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     });
   } else {
     root.querySelector('#playback').hidden = true;
+    hideLanding(root);
     hideTiming(root);
     hidePassages(root);
   }
@@ -771,6 +776,7 @@ export function hideReport(root) {
   clickGrid = null;
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
+  hideLanding(root);
   hideTiming(root);
   hidePassages(root);
   root.querySelector('#note-zoom').hidden = true;

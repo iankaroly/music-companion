@@ -1,7 +1,10 @@
 // The coach: turns the library's saved takes into personal intonation
 // habits. Pure functions over lightweight note stats — no audio needed.
 //
-// sessions: [{ date: ms-epoch, noteStats: [{ midi, name, cents }] }]
+// sessions: [{ date: ms-epoch, noteStats: [{ midi, name, cents }],
+//              landingStats: [{ midi, band, onsetCents, settleMs }] }]
+
+import { LEAP_BANDS } from './landing.js';
 
 const VERDICT_CENTS = 6; // a mean past this reads as a real habit, not noise
 
@@ -19,12 +22,17 @@ export function aggregateTendencies(sessions, { minCount = 3 } = {}) {
     if (e.cents.length < minCount) continue; // too few samples to call a habit
     const meanCents = e.cents.reduce((a, b) => a + b, 0) / e.cents.length;
     const absMeanCents = e.cents.reduce((a, b) => a + Math.abs(b), 0) / e.cents.length;
+    // Spread, not just direction. A player whose D3 is 15¢ sharp half the time
+    // and 15¢ flat the other half has a mean of zero and a real problem; for
+    // anyone past the beginner stage this is the number that still moves.
+    const variance = e.cents.reduce((a, c) => a + (c - meanCents) ** 2, 0) / e.cents.length;
     rows.push({
       midi: e.midi,
       name: e.name,
       count: e.cents.length,
       meanCents,
       absMeanCents,
+      spreadCents: Math.sqrt(variance),
       verdict: meanCents >= VERDICT_CENTS ? 'sharp'
         : meanCents <= -VERDICT_CENTS ? 'flat'
         : 'centered',
@@ -129,6 +137,73 @@ export function pieceProgress(sessions) {
     });
   }
   return pieces.sort((a, b) => b.takes.at(-1).date - a.takes.at(-1).date);
+}
+
+// --- landings across the library -------------------------------------------
+//
+// Same idea as the tendency map, applied to how notes are arrived at rather
+// than where they end up. Reads `landingStats` off each session's metadata, so
+// it costs nothing and covers every take ever saved.
+
+
+const CLEAN_MS = 60;
+
+export function aggregateLandings(sessions, { minCount = 5 } = {}) {
+  const rows = [];
+  for (const s of sessions) {
+    for (const l of s.landingStats ?? []) {
+      if (!Number.isFinite(l?.onsetCents)) continue;
+      rows.push({ ...l, date: s.date });
+    }
+  }
+  if (rows.length < minCount) return null;
+
+  const cleanOf = (list) =>
+    list.filter((l) => Number.isFinite(l.settleMs) && l.settleMs <= CLEAN_MS).length / list.length;
+
+  const byBand = LEAP_BANDS.map((band) => {
+    const inBand = rows.filter((l) => l.band === band.key);
+    if (inBand.length < minCount) return null;
+    const onsets = inBand.map((l) => l.onsetCents);
+    return {
+      ...band,
+      count: inBand.length,
+      cleanShare: cleanOf(inBand),
+      meanOnsetCents: onsets.reduce((a, b) => a + b, 0) / onsets.length,
+    };
+  }).filter(Boolean);
+
+  // The band you land worst — what a practice session should actually open with
+  const weakest = [...byBand].sort((a, b) => a.cleanShare - b.cleanShare)[0] ?? null;
+
+  return {
+    count: rows.length,
+    cleanShare: cleanOf(rows),
+    meanOnsetCents: rows.reduce((a, l) => a + l.onsetCents, 0) / rows.length,
+    byBand,
+    weakest,
+  };
+}
+
+// Clean-landing share per practice day, for the trend line.
+export function dailyLandings(sessions) {
+  const byDay = new Map();
+  for (const s of sessions) {
+    const key = dayKey(s.date);
+    if (!byDay.has(key)) byDay.set(key, []);
+    for (const l of s.landingStats ?? []) {
+      if (Number.isFinite(l?.onsetCents)) byDay.get(key).push(l);
+    }
+  }
+  return [...byDay.entries()]
+    .filter(([, list]) => list.length > 0)
+    .map(([day, list]) => ({
+      day,
+      cleanShare: list.filter((l) => Number.isFinite(l.settleMs) && l.settleMs <= CLEAN_MS).length
+        / list.length,
+      count: list.length,
+    }))
+    .sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 
 // The notes most worth drilling: strongest directional habits first.

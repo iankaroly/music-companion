@@ -1,5 +1,8 @@
 import { describe, test, expect } from 'vitest';
-import { aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgress } from '../src/analysis/coach.js';
+import {
+  aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgress,
+  aggregateLandings, dailyLandings,
+} from '../src/analysis/coach.js';
 
 const session = (date, notes) => ({
   date,
@@ -180,5 +183,71 @@ describe('pickDrills', () => {
       session(T0, [[57, 'A3', 1], [57, 'A3', 2], [57, 'A3', 0]]),
     ]);
     expect(pickDrills(centered)).toEqual([]);
+  });
+});
+
+// Landings across the library: the coach side of src/analysis/landing.js.
+// `landingStats` rows are what db.js parks in each recording's metadata.
+describe('aggregateLandings', () => {
+  const land = (band, onsetCents, settleMs) => ({ midi: 57, band, onsetCents, settleMs });
+  const take = (date, rows) => ({ date, landingStats: rows });
+
+  test('finds the reach that lands worst', () => {
+    const summary = aggregateLandings([
+      take(T0, [
+        ...Array.from({ length: 6 }, () => land('step', 2, 10)),
+        ...Array.from({ length: 6 }, () => land('shift', -28, 210)),
+      ]),
+    ]);
+    expect(summary.weakest.key).toBe('shift');
+    expect(summary.weakest.cleanShare).toBe(0);
+    expect(summary.byBand.find((b) => b.key === 'step').cleanShare).toBe(1);
+    expect(summary.cleanShare).toBeCloseTo(0.5, 2);
+  });
+
+  test('a note that never settled is not counted as clean', () => {
+    const summary = aggregateLandings([
+      take(T0, Array.from({ length: 6 }, () => land('step', -30, null))),
+    ]);
+    expect(summary.cleanShare).toBe(0);
+  });
+
+  test('stays quiet until there is enough to call a habit', () => {
+    expect(aggregateLandings([take(T0, [land('step', 2, 10)])])).toBeNull();
+    expect(aggregateLandings([])).toBeNull();
+  });
+
+  test('a band with too few samples is left out rather than guessed at', () => {
+    const summary = aggregateLandings([
+      take(T0, [
+        ...Array.from({ length: 6 }, () => land('step', 2, 10)),
+        land('shift', -40, null), // one shift proves nothing
+      ]),
+    ]);
+    expect(summary.byBand.map((b) => b.key)).toEqual(['step']);
+  });
+
+  test('dailyLandings gives one clean-share per practice day', () => {
+    const days = dailyLandings([
+      take(T0, [land('step', 2, 10), land('step', 2, 10)]),
+      take(T0 + 86400000, [land('shift', -30, 300), land('step', 1, 5)]),
+    ]);
+    expect(days).toHaveLength(2);
+    expect(days[0].cleanShare).toBe(1);
+    expect(days[1].cleanShare).toBe(0.5);
+  });
+});
+
+describe('aggregateTendencies spread', () => {
+  test('separates a consistent lean from an inconsistent one', () => {
+    const [row] = aggregateTendencies([session(T0, [[57, 'A3', 10], [57, 'A3', 10], [57, 'A3', 10]])]);
+    expect(row.meanCents).toBeCloseTo(10, 5);
+    expect(row.spreadCents).toBeCloseTo(0, 5);
+
+    const [wild] = aggregateTendencies([session(T0, [[57, 'A3', -20], [57, 'A3', 20], [57, 'A3', 0]])]);
+    // mean says "centred", spread says the note is landing anywhere
+    expect(wild.meanCents).toBeCloseTo(0, 5);
+    expect(wild.verdict).toBe('centered');
+    expect(wild.spreadCents).toBeGreaterThan(15);
   });
 });

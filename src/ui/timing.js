@@ -14,6 +14,7 @@
 
 import { rhythmReport } from '../analysis/rhythm.js';
 import { palette, onThemeChange } from './theme.js';
+import { explainPop } from './controls.js';
 
 let PAD = { top: 14, right: 10, bottom: 16, left: 40 };
 const FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
@@ -185,6 +186,67 @@ function writePulse(pulse) {
   } catch { /* survivable */ }
 }
 
+// What each tile is, in a sentence, plus what a good one looks like. Numbers
+// with names you didn't choose need this — "evenness: 94%" is not a finding
+// until someone says whether 94 is good.
+const EXPLAIN = {
+  bpm: {
+    title: 'Your tempo',
+    body: 'The beat your playing implied, in beats per minute. Nothing was'
+      + ' counting it in — it comes from the spacing of the notes themselves.'
+      + ' Lock a pulse above if you meant a particular tempo and want to be held to it.',
+  },
+  error: {
+    title: 'Typical miss',
+    body: 'How far a note sat from the beat, on average, in milliseconds.'
+      + ' Under about 30 ms nobody hears it as off. Over 50 ms and it reads as'
+      + ' a real hesitation or a rush.',
+  },
+  on: {
+    title: 'On time',
+    body: 'The share of notes that landed within 30 ms of the beat — close'
+      + ' enough that a listener hears them as on it. This is the number to'
+      + ' watch across takes: it moves before the average does.',
+  },
+  even: {
+    title: 'Steadiness',
+    body: 'How consistent the spacing was, as a share of one beat. 100% would'
+      + ' be a drum machine. Above 90% is tight playing; below 75% means the'
+      + ' notes were landing wherever the bow or the breath put them.',
+  },
+  drift: {
+    title: 'Drift',
+    body: 'How much the tempo moved from the start of the take to the end.'
+      + ' Negative means you sped up, positive means you slowed down. Under'
+      + ' about 4% either way is normal musical give; more than that is a'
+      + ' direction you probably did not choose.',
+  },
+};
+
+// The panel in one sentence, before any of the numbers. This is the part you
+// read; the tiles are for when you want to know exactly how much.
+function summarise(report, pulse) {
+  const bits = [];
+  bits.push(pulse.locked
+    ? `Measured against ${pulse.bpm} bpm${pulse.subdivision > 1 ? `, ${pulse.subdivision} notes per beat` : ''}.`
+    : `You played at about ${Math.round(report.bpm)} beats per minute.`);
+
+  const share = report.onBeat;
+  const how = share >= 0.9 ? 'Almost every note landed on the beat'
+    : share >= 0.7 ? 'Most notes landed on the beat'
+      : share >= 0.45 ? 'About half the notes landed on the beat'
+        : 'Most notes missed the beat';
+  bits.push(`${how} — typically ${Math.round(report.meanAbsMs)} ms off.`);
+
+  const pct = Math.abs(report.drift * 100);
+  bits.push(!report.drifting
+    ? 'The tempo held steady from start to finish.'
+    : report.drift < 0
+      ? `You sped up about ${pct.toFixed(0)}% by the end.`
+      : `You slowed about ${pct.toFixed(0)}% by the end.`);
+  return bits.join(' ');
+}
+
 let filter = 'worst';
 
 // Fills the timing block for one take.
@@ -272,24 +334,23 @@ export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
     verdictEl.textContent = WORDS[report.verdict] ?? report.verdict;
     verdictEl.dataset.verdict = report.verdict;
 
+    const summary = root.querySelector('#timing-summary');
+    if (summary) summary.textContent = summarise(report, pulse);
+
     renderChips();
 
     const hint = root.querySelector('#timing-hint');
     if (hint) {
+      const tap = 'Tap any number to see what it means, or a bar or a chip to hear that note.';
       if (pulse.locked) {
-        const per = pulse.subdivision > 1 ? ` (${pulse.subdivision} per beat)` : '';
-        hint.textContent = `Measured against a fixed ${pulse.bpm} bpm${per} — drift counts here,`
-          + ' unlike the read-from-your-playing pulse. Tap a bar or a chip to hear that note.';
+        hint.textContent = 'Every note is measured against the tempo you set, so falling'
+          + ` behind counts against you. Set it back to auto to be read on your own terms. ${tap}`;
+      } else if (report.drifting) {
+        hint.textContent = 'The tempo moved through this take, so no single note is called'
+          + ` early or late — where it went is the line above. ${tap}`;
       } else {
-        const grid = report.grid >= report.tactus * 0.99
-          ? 'the beat itself'
-          : `${Math.round(report.tactus / report.grid)} per beat`;
-        const base = `Pulse read from your playing — no metronome needed (grid: ${grid}).`;
-        hint.textContent = report.drifting
-          ? `${base} The tempo moved through this take, so no single note is called early or late — see where it went in the curve above.`
-          : report.worst.length
-            ? `${base} Each note is measured against the pulse around it, so drift isn't counted as a mistake. Tap a bar or a chip to hear one.`
-            : `${base} Every note landed on the beat.`;
+        hint.textContent = 'Each note is compared with the beat around it rather than with'
+          + ` one fixed grid, so easing up over a phrase isn't counted as a mistake. ${tap}`;
       }
     }
 
@@ -364,6 +425,13 @@ export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
     b.onclick = () => { filter = b.dataset.filter; paintFilters(); renderChips(); };
   }
   paintFilters();
+
+  for (const tile of root.querySelectorAll('#timing-tiles [data-explain]')) {
+    const entry = EXPLAIN[tile.dataset.explain];
+    if (!entry) continue;
+    tile.setAttribute('aria-label', `${entry.title} — what does this mean?`);
+    tile.onclick = () => explainPop(tile, entry);
+  }
 
   clickBtn.hidden = !onClickTrack;
   clickBtn.classList.remove('active');

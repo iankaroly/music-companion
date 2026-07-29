@@ -7,6 +7,8 @@
 // Split so listing the library never loads audio; passages are their own store
 // so the coach can read every attempt without touching a recording.
 
+import { landingStats } from '../analysis/landing.js';
+
 const DB_NAME = 'music-companion';
 const VERSION = 4;
 const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders'];
@@ -89,7 +91,12 @@ export async function saveRecording({ date, duration, sampleRate, audio, notes, 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['recordings', 'recording-data'], 'readwrite');
     const metaReq = tx.objectStore('recordings').add({
-      date, duration, sampleRate, noteCount: notes.length, noteStats: statsOf(notes),
+      date,
+      duration,
+      sampleRate,
+      noteCount: notes.length,
+      noteStats: statsOf(notes),
+      landingStats: landingStats(notes, readings, a4) ?? [],
     });
     metaReq.onsuccess = () => {
       tx.objectStore('recording-data').add({ id: metaReq.result, audio, notes, readings, a4 });
@@ -117,14 +124,24 @@ export async function loadRecording(id) {
   });
 }
 
-// Recordings saved before noteStats existed get theirs computed once from
-// the heavy payload and written back, so later coach visits stay cheap.
+// Recordings saved before a given stat existed get it computed once from the
+// heavy payload and written back, so later coach visits stay cheap.
+//
+// The guard has to name every stat, not just test that SOME summary exists:
+// every take saved since the coach shipped already has noteStats, so a check
+// for `!rec.noteStats` would skip all of them forever and the newer panels
+// would only ever show data for takes recorded after this line was written.
+function needsBackfill(rec) {
+  return !rec.noteStats || !rec.landingStats;
+}
+
 export async function listRecordingsWithStats() {
   const db = await openDB();
   const recordings = await listRecordings();
-  for (const r of recordings.filter((rec) => !rec.noteStats)) {
+  for (const r of recordings.filter(needsBackfill)) {
     const data = await loadRecording(r.id);
-    r.noteStats = statsOf(data?.notes);
+    r.noteStats ??= statsOf(data?.notes);
+    r.landingStats ??= landingStats(data?.notes, data?.readings, data?.a4 ?? 440) ?? [];
     await new Promise((resolve, reject) => {
       const tx = db.transaction('recordings', 'readwrite');
       tx.objectStore('recordings').put(r);

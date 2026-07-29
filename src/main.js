@@ -1,4 +1,4 @@
-import { startCapture } from './audio/capture.js';
+import { startCapture, micIsHeld } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder } from './audio/recording.js';
@@ -234,16 +234,49 @@ async function beginCapture(extra = {}) {
   return session;
 }
 
-// --- live tuner: always on while the tuner tab is open ----------------------
+// --- live tuner: runs while the tuner tab is open ----------------------------
+//
+// It used to start itself the moment the app opened, which meant the browser's
+// microphone prompt was the first thing you saw on every launch — and on iOS
+// Safari a permission granted to a plain web page doesn't survive the page
+// being closed, so "every launch" was literal. Nothing here can persist that
+// grant; what it can do is stop asking unbidden. So: if the browser already
+// holds the permission we start silently, and if it doesn't, the tuner waits
+// behind a button and the prompt arrives when you ask for it.
 
-async function autoStartTuner() {
-  // an active recording already feeds the tuner display — don't touch it
+const listenBtn = document.querySelector('#tuner-listen');
+let micGranted = null; // null = not asked the browser yet
+
+async function permissionGranted() {
+  if (micGranted !== null) return micGranted;
+  try {
+    // Not in every browser, and 'microphone' is not in every implementation
+    // that does have it — an unknown name rejects, which reads as "ask first".
+    const status = await navigator.permissions.query({ name: 'microphone' });
+    micGranted = status.state === 'granted';
+    status.onchange = () => { micGranted = status.state === 'granted'; };
+  } catch {
+    micGranted = false;
+  }
+  return micGranted;
+}
+
+function showListenButton(show) {
+  listenBtn.hidden = !show;
+  if (show) document.querySelector('#cents').textContent = '';
+}
+
+async function startTuner() {
   if (capture || tunerStarting) return;
   tunerStarting = true;
+  showListenButton(false);
+  document.querySelector('#cents').textContent = 'listening';
   try {
     capture = await beginCapture({ listen: true });
+    micGranted = true; // whatever the Permissions API said, we have it now
   } catch (err) {
     statusEl.textContent = `mic unavailable: ${err.message}`;
+    showListenButton(true);
   } finally {
     tunerStarting = false;
   }
@@ -251,9 +284,20 @@ async function autoStartTuner() {
   if (capture?.listen && tabs.current !== 'tuner') stopEverything();
 }
 
+async function autoStartTuner() {
+  // an active recording already feeds the tuner display — don't touch it
+  if (capture || tunerStarting) return;
+  // Already granted, or already granted earlier in this visit (the parked
+  // stream in capture.js means restarting costs nothing): just listen.
+  if (micIsHeld() || await permissionGranted()) startTuner();
+  else showListenButton(true);
+}
+
 function autoStopTuner() {
   if (capture?.listen) stopEverything();
 }
+
+listenBtn.addEventListener('click', startTuner);
 
 // --- record → review → save or discard -------------------------------------
 
