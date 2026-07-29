@@ -4,7 +4,10 @@ import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
-import { saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording } from './store/db.js';
+import {
+  saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
+  createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
+} from './store/db.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import { getVolume, setVolume } from './audio/context.js';
@@ -145,6 +148,16 @@ applyTunerSettings();
 const volumeSlider = document.querySelector('#volume');
 volumeSlider.value = String(getVolume());
 volumeSlider.addEventListener('input', () => setVolume(Number(volumeSlider.value)));
+
+// The settings sheet owns a second copy of some of these controls; it
+// announces rather than reaching in, so everything that cares updates here.
+document.addEventListener('settings-change', (e) => {
+  if (e.detail?.key === 'volume') {
+    volumeSlider.value = String(getVolume());
+    refreshRangeFill(volumeSlider);
+  }
+  if (e.detail?.key === 'tolerance') tuner.refreshZones();
+});
 
 // --- shared display helpers ------------------------------------------------
 
@@ -357,6 +370,119 @@ async function openRecording(r) {
   });
 }
 
+// --- folders ---------------------------------------------------------------
+//
+// A folder here is a label on a take, not a place a file was moved to: the
+// library shows folders first, opening one filters the list to its takes, and
+// deleting one only removes the label. Named by piece, it's how a player finds
+// "every attempt at the Elgar" without scrolling a month of dates.
+
+let openFolder = null;   // folder id, or null for the top level
+let folders = [];
+const folderDialog = document.querySelector('#folder-dialog');
+const folderInput = document.querySelector('#folder-name');
+let folderPending = null; // { mode: 'create' | 'rename', id, then }
+
+folderDialog.addEventListener('close', async () => {
+  const pending = folderPending;
+  folderPending = null;
+  const name = folderInput.value.trim();
+  if (folderDialog.returnValue !== 'save' || !name || !pending) return;
+  if (pending.mode === 'rename') await renameFolder(pending.id, name);
+  else {
+    const id = await createFolder(name);
+    await pending.then?.(id);
+  }
+  refreshLibrary();
+});
+
+function askFolderName(mode, { id = null, current = '', then = null } = {}) {
+  folderPending = { mode, id, then };
+  folderInput.value = current;
+  document.querySelector('#folder-dialog h2').textContent =
+    mode === 'rename' ? 'Rename this folder' : 'Name this folder';
+  folderDialog.showModal();
+}
+
+function moveMenu(button, r) {
+  const rows = folders
+    .filter((f) => f.id !== r.folderId)
+    .map((f) => ({
+      label: f.name,
+      onPick: async () => { await setRecordingFolder(r.id, f.id); refreshLibrary(); },
+    }));
+  rows.push({
+    label: '＋ New folder…',
+    onPick: () => askFolderName('create', {
+      then: (id) => setRecordingFolder(r.id, id),
+    }),
+  });
+  if (r.folderId !== undefined && r.folderId !== null) {
+    rows.push({
+      label: 'Take out of folder',
+      onPick: async () => { await setRecordingFolder(r.id, null); refreshLibrary(); },
+    });
+  }
+  actionMenu(button, rows);
+}
+
+function folderRow(folder, count) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const icon = document.createElement('span');
+  icon.className = 'lib-folder';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.2h9A1.5 1.5 0 0 1 21 9.7v8.8A1.5 1.5 0 0 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = folder.name;
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = `${count} ${count === 1 ? 'take' : 'takes'}`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(icon, text, chev);
+  open.addEventListener('click', () => { openFolder = folder.id; refreshLibrary(); });
+
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-label', `More actions for the folder ${folder.name}`);
+  more.addEventListener('click', () => actionMenu(more, [
+    {
+      label: 'Rename',
+      onPick: () => askFolderName('rename', { id: folder.id, current: folder.name }),
+    },
+    {
+      label: 'Delete folder',
+      danger: true,
+      onPick: async () => {
+        await deleteFolder(folder.id);
+        if (openFolder === folder.id) openFolder = null;
+        statusEl.textContent = 'folder deleted — its takes are back in the library';
+        refreshLibrary();
+      },
+    },
+  ]));
+
+  li.append(open, more);
+  return li;
+}
+
 // One library row: the row itself opens the take, so the name gets the width
 // it deserves and the rarer actions sit behind ⋯.
 function libraryRow(r) {
@@ -402,6 +528,10 @@ function libraryRow(r) {
       },
     },
     {
+      label: 'Move to folder…',
+      onPick: () => moveMenu(more, r),
+    },
+    {
       label: 'Download WAV',
       onPick: async () => {
         const data = await loadRecording(r.id);
@@ -422,14 +552,43 @@ function libraryRow(r) {
   return li;
 }
 
+const libraryBack = document.querySelector('#library-back');
+const libraryTitle = document.querySelector('#library-title');
+
+libraryBack.addEventListener('click', () => { openFolder = null; refreshLibrary(); });
+document.querySelector('#new-folder').addEventListener('click', () => askFolderName('create'));
+
 async function refreshLibrary() {
   try {
-    const recordings = await listRecordings();
-    libraryEmpty.style.display = recordings.length ? 'none' : 'block';
+    const [recordings, allFolders] = await Promise.all([listRecordings(), listFolders()]);
+    folders = allFolders;
+    // A folder deleted in another tab shouldn't leave this one inside it.
+    if (openFolder !== null && !folders.some((f) => f.id === openFolder)) openFolder = null;
+
+    const inFolder = openFolder !== null;
+    libraryBack.hidden = !inFolder;
+    libraryTitle.textContent = inFolder
+      ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
+      : 'Library';
+
+    const shown = inFolder
+      ? recordings.filter((r) => r.folderId === openFolder)
+      : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
+
     libraryList.replaceChildren();
-    for (const r of recordings) {
-      libraryList.append(libraryRow(r));
+    if (!inFolder) {
+      const counts = new Map();
+      for (const r of recordings) {
+        if (r.folderId != null) counts.set(r.folderId, (counts.get(r.folderId) ?? 0) + 1);
+      }
+      for (const f of folders) libraryList.append(folderRow(f, counts.get(f.id) ?? 0));
     }
+    for (const r of shown) libraryList.append(libraryRow(r));
+
+    libraryEmpty.style.display = libraryList.children.length ? 'none' : 'block';
+    libraryEmpty.textContent = inFolder
+      ? 'Nothing in this folder yet — move a take in from ⋯'
+      : 'Nothing here yet — record a take and save it 🎶';
   } catch { /* blocked IndexedDB — library stays empty */ }
 }
 refreshLibrary();
@@ -652,8 +811,12 @@ for (const btn of document.querySelectorAll('#viz-toggle button')) {
 
 // --- presets: named snapshots of every setting --------------------------------
 
-const PRESET_KEYS = ['a4', 'volume', 'tunerSettings', 'timbre', 'bpm', 'beatsPerBar',
-  'subdivision', 'trainer', 'vizMode'];
+// What a named setup is made of. The levels and the in-tune tolerance belong
+// here — they're part of "how I have this set for the cello" — while the
+// microphone, screen and timing-pulse preferences are about the device and the
+// take in front of you, not the instrument, so they stay out.
+const PRESET_KEYS = ['a4', 'volume', 'droneLevel', 'clickLevel', 'tolerance',
+  'tunerSettings', 'timbre', 'bpm', 'beatsPerBar', 'subdivision', 'trainer', 'vizMode'];
 const presetSel = document.querySelector('#preset-list');
 
 function refreshPresets() {

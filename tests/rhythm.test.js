@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { inferGrid, fitGrid, tempoCurve, rhythmReport } from '../src/analysis/rhythm.js';
+import { inferGrid, fitGrid, fitPhase, tempoCurve, rhythmReport } from '../src/analysis/rhythm.js';
 
 // Note lists shaped like the segmenter's output: what rhythm.js actually reads
 // is `start` (and `end` for the fill ratio).
@@ -210,5 +210,66 @@ describe('rhythmReport', () => {
     const starts = [0, 0.31, 1.02, 1.13, 2.4, 2.44, 3.9, 5.2, 5.28, 6.9];
     const r = rhythmReport(notesAt(starts));
     if (r) expect(r.verdict).not.toBe('steady');
+  });
+});
+
+describe('fitPhase', () => {
+  it('finds the offset without moving the period it was given', () => {
+    const onsets = evenStarts(12, 0.5, 0.18);
+    const fit = fitPhase(onsets, 0.5);
+    expect(fit.grid).toBe(0.5);
+    expect(fit.phase).toBeCloseTo(0.18, 3);
+    for (const d of fit.deviations) expect(Math.abs(d)).toBeLessThan(0.001);
+  });
+
+  it('keeps the given period even when the playing disagrees with it', () => {
+    // played at 0.52 s against a 0.5 s grid: the fit must report the growing
+    // lateness rather than quietly re-fitting to what was played
+    const fit = fitPhase(evenStarts(10, 0.52), 0.5);
+    expect(fit.grid).toBe(0.5);
+    expect(Math.max(...fit.deviations)).toBeGreaterThan(0.05);
+  });
+});
+
+describe('rhythmReport with a locked pulse', () => {
+  it('measures against the named tempo, not the one that was played', () => {
+    // 100 bpm played, 120 bpm asked for
+    const r = rhythmReport(notesAt(evenStarts(16, 0.6)), { bpm: 120 });
+    expect(r.locked).toBe(true);
+    expect(r.bpm).toBe(120);
+    expect(r.meanAbsMs).toBeGreaterThan(30);
+  });
+
+  it('accepts a subdivision so eighths score against a quarter-note tempo', () => {
+    // even eighths at 120 bpm: against the beat alone every other note is half
+    // a beat out, but with ÷2 they all land
+    const eighths = notesAt(evenStarts(24, 0.25));
+    expect(rhythmReport(eighths, { bpm: 120 }).meanAbsMs).toBeGreaterThan(100);
+    const divided = rhythmReport(eighths, { bpm: 120, subdivision: 2 });
+    expect(divided.meanAbsMs).toBeLessThan(6);
+    expect(divided.bpm).toBe(120);
+    expect(divided.onBeat).toBe(1);
+  });
+
+  it('still names late notes on a take that drifted', () => {
+    // an accelerando: the inferred pulse declines to blame individual notes,
+    // but against a click the player asked for, falling behind is the answer
+    const starts = [0];
+    let step = 0.5;
+    for (let i = 0; i < 24; i++) { starts.push(starts.at(-1) + step); step *= 0.97; }
+    const auto = rhythmReport(notesAt(starts));
+    expect(auto.drifting).toBe(true);
+    expect(auto.worst).toHaveLength(0);
+    const locked = rhythmReport(notesAt(starts), { bpm: 120 });
+    expect(locked.worst.length).toBeGreaterThan(0);
+  });
+
+  it('reports the share of notes that landed on the beat', () => {
+    const r = rhythmReport(notesAt(evenStarts(16, 0.5)), { bpm: 120 });
+    expect(r.onBeat).toBe(1);
+    const sloppy = evenStarts(16, 0.5);
+    sloppy[4] += 0.09;
+    sloppy[9] -= 0.08;
+    expect(rhythmReport(notesAt(sloppy), { bpm: 120 }).onBeat).toBeCloseTo(14 / 16, 2);
   });
 });

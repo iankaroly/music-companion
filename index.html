@@ -228,6 +228,42 @@
     }
     .set-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
     .set-hint { color: var(--muted); font-size: 0.75rem; line-height: 1.45; margin-top: 0.45rem; }
+    /* the sheet is a scroll now that it holds more than two choices */
+    #settings-dialog form { max-height: 78vh; overflow-y: auto; padding-right: 0.2rem; }
+    #settings-dialog h2:focus { outline: none; }
+    .set-slider { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.35rem; }
+    .set-slider input[type="range"] { flex: 1; }
+    .set-sub {
+      width: 2.8rem;
+      text-align: left;
+      color: var(--muted);
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.75rem;
+    }
+    .set-out {
+      width: 2.8rem;
+      text-align: right;
+      color: var(--muted);
+      font-family: var(--num);
+      font-size: 0.76rem;
+      font-variant-numeric: tabular-nums;
+    }
+    .set-wide {
+      width: 100%;
+      font-family: var(--display);
+      font-size: 0.86rem;
+      font-weight: 500;
+      background: var(--fill);
+      border: none;
+      border-radius: 999px;
+      padding: 0.65rem 1rem;
+      color: var(--ink);
+      cursor: pointer;
+      transition: background 150ms, color 150ms;
+    }
+    .set-wide:hover { background: var(--fill-2); }
+    .set-wide.danger { background: var(--bad-soft); color: var(--bad); }
     h1 {
       font-family: var(--display);
       font-size: 1.5rem;
@@ -512,7 +548,16 @@
       padding: 0.5rem 1rem;
       box-shadow: inset 0 1px 3px rgb(var(--sh) / 0.06);
     }
-    #a4 { width: 4.8rem; text-align: center; font-family: var(--display); }
+    /* The calibration reading is a number you type and read back, not a
+       label — the rounded display face made "442" look hand-drawn. */
+    #a4 { width: 4.8rem; text-align: center; font-family: var(--num); letter-spacing: -0.01em; }
+    #calibration label {
+      font-family: var(--num);
+      font-weight: 500;
+      font-size: 0.85rem;
+      letter-spacing: 0;
+      color: var(--muted);
+    }
     /* Sliders are drawn rather than native: a native track's unfilled half is
        translucent and Chrome composites it against the PAGE, not the element,
        so on dark the warm blob behind the glass showed through as an olive
@@ -596,6 +641,9 @@
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; font-family: var(--num); font-variant-numeric: tabular-nums; }
     #spectrum { width: 100%; height: 54px; display: block; margin-top: 0.9rem; }
     #pitch-pipe { display: inline-flex; flex-wrap: wrap; gap: 0.38rem; justify-content: center; }
+    /* The octave picker sat right under the last row of note buttons and read
+       as part of it. `.row + .row` can't reach here — the pipe isn't a row. */
+    #pitch-pipe + .row { margin-top: 1.35rem; }
     #pitch-pipe button {
       font-family: var(--display);
       font-size: 0.95rem;
@@ -662,12 +710,15 @@
     #report { display: none; padding: 1.6rem; margin: 0 auto 1.5rem; text-align: left; }
     #report.visible { display: block; }
     #notes-details { margin-bottom: 0.6rem; }
+    /* Running text about the take, not a control label: the rounded display
+       face turned "18 notes — expand to browse" into a slogan. */
     #notes-details summary {
       cursor: pointer;
       color: var(--muted);
-      font-family: var(--display);
-      font-size: 0.85rem;
+      font-family: var(--ui);
+      font-size: 0.84rem;
       font-weight: 500;
+      letter-spacing: 0.005em;
       padding: 0.35rem 0;
       user-select: none;
       list-style-position: inside;
@@ -725,9 +776,9 @@
     .degree.clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
     .degree.playing { outline: 2px solid var(--primary); outline-offset: 1px; }
     #save-bar { margin-top: 1.2rem; }
-    #pitch-chart { height: clamp(190px, 27vh, 250px); display: block; margin: 0 auto; }
+    #pitch-chart { height: clamp(210px, 31vh, 290px); display: block; margin: 0 auto; }
     #clip-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.6rem; }
-    #clip-label { color: var(--muted); font-family: var(--display); font-weight: 500; font-size: 0.85rem; }
+    #clip-label { color: var(--muted); font-family: var(--ui); font-weight: 500; font-size: 0.84rem; letter-spacing: 0.005em; }
     #chart-mode { margin-left: auto; display: inline-flex; background: var(--fill); border-radius: 999px; padding: 0.15rem; gap: 0.1rem; }
     #chart-mode button {
       border: none;
@@ -879,8 +930,88 @@
     #timing-verdict[data-verdict="dragging"] { background: var(--off-soft); color: var(--off); }
     #timing-verdict[data-verdict="uneven"] { background: var(--bad-soft); color: var(--bad); }
     #timing-tiles { display: flex; gap: 0.4rem; justify-content: center; }
-    #timing-chart { width: 100%; height: 150px; display: block; margin-top: 0.8rem; }
+    #timing-chart { width: 100%; height: 160px; display: block; margin-top: 0.8rem; }
     #timing-worst { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin-top: 0.6rem; }
+
+    /* the pulse controls: auto, or a tempo you name and hold yourself to */
+    #timing-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 0.8rem;
+    }
+    #timing-controls > button, #timing-bpm-box {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-family: var(--display);
+      font-size: 0.82rem;
+      font-weight: 500;
+      background: var(--fill);
+      border: none;
+      border-radius: 999px;
+      padding: 0.45rem 0.95rem;
+      cursor: pointer;
+      color: var(--ink);
+      transition: transform 260ms var(--spring), background 150ms;
+    }
+    #timing-controls > button:hover { background: var(--fill-2); }
+    #timing-controls > button:active { transform: scale(0.93); }
+    #timing-controls > button.active { background: var(--grad); color: var(--on-primary); }
+    #timing-bpm-box { padding: 0.2rem 0.35rem; cursor: default; }
+    #timing-bpm-box button {
+      width: 1.6rem; height: 1.6rem;
+      border: none;
+      border-radius: 50%;
+      background: rgb(var(--sf) / 0.8);
+      font-size: 0.95rem;
+      line-height: 1;
+      color: var(--ink);
+      cursor: pointer;
+    }
+    #timing-bpm-box button:active { transform: scale(0.9); }
+    #timing-bpm {
+      width: 3.3rem;
+      text-align: center;
+      font-family: var(--num);
+      font-weight: 600;
+      font-size: 0.95rem;
+      font-variant-numeric: tabular-nums;
+      background: none;
+      border: none;
+      appearance: none;
+      -webkit-appearance: none;
+      padding: 0;
+    }
+    #timing-bpm-box small { color: var(--muted); font-size: 0.68rem; padding-right: 0.3rem; }
+    #timing-div, #timing-filter {
+      display: inline-flex;
+      background: var(--fill);
+      border-radius: 999px;
+      padding: 0.15rem;
+      gap: 0.1rem;
+    }
+    #timing-div button, #timing-filter button {
+      border: none;
+      background: none;
+      border-radius: 999px;
+      font-family: var(--display);
+      font-size: 0.74rem;
+      font-weight: 500;
+      color: var(--muted);
+      padding: 0.32rem 0.7rem;
+      cursor: pointer;
+      transition: background 150ms, color 150ms;
+    }
+    #timing-div button.active, #timing-filter button.active {
+      background: var(--surface-solid);
+      color: var(--primary);
+      box-shadow: 0 2px 6px rgb(var(--sh) / 0.14);
+    }
+    #timing-filter { margin-top: 0.7rem; }
+    .tm-none { color: var(--muted); font-size: 0.74rem; align-self: center; }
     .tm-chip {
       font-family: var(--display);
       font-size: 0.78rem;
@@ -899,6 +1030,40 @@
 
     /* ---- library ---- */
     #library { margin: 0 auto; text-align: center; width: min(34rem, 100%); }
+    #library-head {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.7rem;
+      text-align: left;
+    }
+    #library-title {
+      flex: 1;
+      min-width: 0;
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 1.05rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #library-head button {
+      font-family: var(--display);
+      font-size: 0.8rem;
+      font-weight: 500;
+      background: var(--fill);
+      border: none;
+      border-radius: 999px;
+      padding: 0.45rem 0.9rem;
+      color: var(--ink);
+      cursor: pointer;
+      white-space: nowrap;
+      transition: transform 260ms var(--spring), background 150ms;
+    }
+    #library-head button:hover { background: var(--fill-2); color: var(--primary); }
+    #library-head button:active { transform: scale(0.93); }
+    .lib-folder { color: var(--primary); flex: none; display: grid; place-items: center; }
+    .lib-folder svg { width: 1.35rem; height: 1.35rem; display: block; }
     #library-empty {
       color: var(--muted);
       font-family: var(--display);
@@ -1085,6 +1250,9 @@
 
     /* ---- metronome ---- */
     #metro-card { padding: 2.2rem 1.6rem 1.8rem; }
+    /* The numeral face stays — a bare "80" in the rounded display face read as
+       decoration — but the violet-to-sky gradient comes back over it, because
+       that gradient is what ties this screen to the rest of the app. */
     #bpm-display {
       font-family: var(--num);
       font-size: 5.6rem;
@@ -1092,9 +1260,30 @@
       line-height: 1;
       letter-spacing: -0.035em;
       font-variant-numeric: tabular-nums;
-      color: var(--ink);
+      background: var(--grad);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
     }
-    #tempo-name { color: var(--primary); font-family: var(--display); font-size: 1rem; margin-top: 0.3rem; font-weight: 500; letter-spacing: 0.08em; }
+    #tempo-name {
+      font-family: var(--display);
+      font-size: 1rem;
+      margin-top: 0.3rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      background: var(--grad);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    /* The tempo slider wears the gradient too, so the filled part of the track
+       matches the number above it. */
+    #bpm-slider::-webkit-slider-runnable-track {
+      background: linear-gradient(to right, var(--primary), var(--sky) var(--pct), var(--fill-2) var(--pct));
+    }
+    #bpm-slider::-webkit-slider-thumb { background: var(--grad); }
+    #bpm-slider::-moz-range-progress { background: var(--grad); }
+    #bpm-slider::-moz-range-thumb { background: var(--primary); }
     #bpm-slider { width: 100%; margin: 1.6rem 0 1.1rem; }
     #timer-display { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; min-width: 3.2rem; }
     #beat-dots { display: flex; gap: 0.9rem; justify-content: center; align-items: center; margin: 1.4rem 0 1.5rem; min-height: 1.3rem; }
@@ -1109,10 +1298,6 @@
     .beat-dot.on { background: var(--primary); border-color: var(--primary); transform: scale(1.45); }
     .beat-dot.downbeat.on { background: var(--accent-warm); border-color: var(--accent-warm); }
     .metro-split { border-top: 1px dashed var(--line-strong); margin: 1.2rem -0.4rem 1rem; }
-    /* The shared --grad runs violet into sky blue; the metronome wears solid
-       violet instead so nothing on this screen reads as blue. */
-    #metro-toggle.ctl.primary, #accent-toggle.ctl.active { background: var(--primary); }
-    #metro-toggle.ctl.primary:hover, #accent-toggle.ctl.active:hover { background: var(--primary-deep); }
 
     /* ---- preset name dialog ---- */
     dialog {
@@ -1160,8 +1345,25 @@
       .tab-btn svg { width: 24px; height: 24px; }
       .tab-panel { padding: 0.7rem 0.6rem calc(5.8rem + env(safe-area-inset-bottom, 0px)); }
       #report { padding: 0.9rem 0.7rem; border-radius: 1.2rem; }
-      #pitch-chart { height: min(40vh, 300px); }
-      #note-chart { height: 150px; }
+      /* The graphs are the reason this screen exists, and on a phone they were
+         losing 2.6rem of an already narrow screen to the panel's padding and
+         the card's. They run to both edges instead; everything else in the card
+         keeps its margins. (0.6rem panel + 0.7rem card = 1.3rem a side.) */
+      #chart-scroll, #note-chart, #timing-chart {
+        margin-left: -1.3rem;
+        margin-right: -1.3rem;
+        width: calc(100% + 2.6rem);
+        max-width: none;
+      }
+      #pitch-chart { height: min(46vh, 340px); }
+      #note-chart { height: 190px; }
+      #timing-chart { height: 172px; }
+      /* five tiles across a phone: the figures give up a little size so the
+         captions under them stay on one or two honest lines */
+      #timing-tiles { gap: 0.3rem; }
+      #timing-tiles .wk-tile { padding: 0.6rem 0.15rem 0.5rem; border-radius: 0.9rem; }
+      #timing-tiles .wk-tile b { font-size: 1.15rem; }
+      #timing-tiles .wk-tile span { font-size: 0.6rem; }
       #tuner { padding: 1.6rem 0.9rem 1.4rem; }
       #note { font-size: 2.9rem; }
       #playback-controls { gap: 0.5rem; }
@@ -1270,7 +1472,7 @@
           </div>
           <div class="row">
             <label for="volume">volume</label>
-            <input id="volume" type="range" min="0.3" max="3" step="0.1" aria-label="Playback volume" />
+            <input id="volume" type="range" min="0.3" max="4" step="0.1" aria-label="Playback volume" />
           </div>
         </div>
         <div class="cluster">
@@ -1383,13 +1585,37 @@
               <span class="timing-title">timing</span>
               <span id="timing-verdict"></span>
             </div>
+            <div id="timing-controls">
+              <button id="timing-lock" type="button">Pulse: auto</button>
+              <span id="timing-bpm-box" hidden>
+                <button id="timing-bpm-down" type="button" aria-label="Slower">−</button>
+                <input id="timing-bpm" type="number" min="20" max="300" step="1"
+                       aria-label="Reference tempo" />
+                <small>bpm</small>
+                <button id="timing-bpm-up" type="button" aria-label="Faster">+</button>
+              </span>
+              <span id="timing-div" role="group" aria-label="Grid steps per beat" hidden>
+                <button data-div="1" type="button" class="active">beat</button>
+                <button data-div="2" type="button">÷2</button>
+                <button data-div="3" type="button">÷3</button>
+                <button data-div="4" type="button">÷4</button>
+              </span>
+              <button id="timing-click" type="button">Play with click</button>
+            </div>
             <div id="timing-tiles">
               <div class="wk-tile"><b id="tm-bpm">–</b><span>pulse (bpm)</span></div>
               <div class="wk-tile"><b id="tm-error">–</b><span>avg off beat</span></div>
+              <div class="wk-tile"><b id="tm-on">–</b><span>on the beat</span></div>
               <div class="wk-tile"><b id="tm-even">–</b><span>evenness</span></div>
               <div class="wk-tile"><b id="tm-drift">–</b><span>tempo drift</span></div>
             </div>
             <canvas id="timing-chart"></canvas>
+            <div id="timing-filter" role="group" aria-label="Which notes to list">
+              <button data-filter="worst" type="button" class="active">worst</button>
+              <button data-filter="late" type="button">late</button>
+              <button data-filter="early" type="button">early</button>
+              <button data-filter="all" type="button">all flagged</button>
+            </div>
             <div id="timing-worst"></div>
             <div id="timing-hint"></div>
           </div>
@@ -1404,6 +1630,11 @@
     <!-- ================= library ================= -->
     <section id="tab-library" class="tab-panel" role="tabpanel">
       <div id="library">
+        <div id="library-head">
+          <button id="library-back" type="button" hidden>← All takes</button>
+          <span id="library-title">Library</span>
+          <button id="new-folder" type="button">＋ Folder</button>
+        </div>
         <ul id="library-list"></ul>
         <div id="library-empty">Nothing here yet — record a take and save it 🎶</div>
       </div>
@@ -1524,7 +1755,59 @@
 
   <dialog id="settings-dialog">
     <form method="dialog">
-      <h2>Settings</h2>
+      <!-- showModal() focuses the first focusable descendant, which drew a
+           focus ring around "System" every time the sheet opened. Sending it
+           to the heading instead lands it somewhere that never shows one, and
+           keyboard tabbing still starts at the top of the sheet. -->
+      <h2 tabindex="-1" autofocus>Settings</h2>
+      <div class="set-group">
+        <span class="set-label" id="volume-label">Volume</span>
+        <div class="set-slider">
+          <input id="set-volume" type="range" min="0.3" max="4" step="0.1" aria-labelledby="volume-label" />
+          <span id="set-volume-out" class="set-out"></span>
+        </div>
+        <div class="set-slider">
+          <span class="set-sub">Drone</span>
+          <input id="set-drone" type="range" min="0.3" max="2" step="0.05" aria-label="Drone level" />
+          <span id="set-drone-out" class="set-out"></span>
+        </div>
+        <div class="set-slider">
+          <span class="set-sub">Click</span>
+          <input id="set-click" type="range" min="0.3" max="2" step="0.05" aria-label="Metronome click level" />
+          <span id="set-click-out" class="set-out"></span>
+        </div>
+        <p class="set-hint">The top slider is everything; the two below trim the drone
+        and the metronome against it.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="tolerance-label">In tune means</span>
+        <div class="seg" role="radiogroup" aria-labelledby="tolerance-label" id="tolerance-seg">
+          <button type="button" role="radio" data-tolerance="5" aria-checked="false">±5¢</button>
+          <button type="button" role="radio" data-tolerance="8" aria-checked="true">±8¢</button>
+          <button type="button" role="radio" data-tolerance="12" aria-checked="false">±12¢</button>
+        </div>
+        <p class="set-hint">Sets the green band on the tuner and what counts as in tune
+        in every report.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="mic-label">Microphone</span>
+        <div class="seg" role="radiogroup" aria-labelledby="mic-label" id="mic-seg">
+          <button type="button" role="radio" data-mic="on" aria-checked="true">Stay ready</button>
+          <button type="button" role="radio" data-mic="off" aria-checked="false">Ask each time</button>
+        </div>
+        <p class="set-hint">Staying ready asks for the microphone once and keeps it,
+        instead of prompting every time the tuner opens. On iPhone the mic light stays
+        on — switch to “Ask each time” if playback ever sounds quieter.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="awake-label">Screen</span>
+        <div class="seg" role="radiogroup" aria-labelledby="awake-label" id="awake-seg">
+          <button type="button" role="radio" data-awake="on" aria-checked="false">Stay awake</button>
+          <button type="button" role="radio" data-awake="off" aria-checked="true">Normal</button>
+        </div>
+        <p class="set-hint">Keeps the display on while the app is open, so it doesn't
+        dim in the middle of a passage.</p>
+      </div>
       <div class="set-group">
         <span class="set-label" id="theme-label">Appearance</span>
         <div class="seg" role="radiogroup" aria-labelledby="theme-label" id="theme-seg">
@@ -1541,6 +1824,11 @@
           <button type="button" role="radio" data-motion-pick="off" aria-checked="false">Still</button>
         </div>
         <p class="set-hint">Stills the colour behind the glass if the drift is distracting.</p>
+      </div>
+      <div class="set-group">
+        <button id="set-reset" type="button" class="set-wide">Restore default settings</button>
+        <p class="set-hint">Puts every preference back. Your recordings, folders and
+        saved presets are untouched.</p>
       </div>
       <div class="row">
         <button value="close" class="ctl primary">Done</button>
@@ -1565,6 +1853,18 @@
     <form method="dialog">
       <h2>Name this recording</h2>
       <input id="rename-input" type="text" maxlength="60" placeholder="e.g. Bach prelude, m. 1–8" autocomplete="off" />
+      <div class="row">
+        <button value="cancel" class="ctl" formnovalidate>Cancel</button>
+        <button value="save" class="ctl primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="folder-dialog">
+    <form method="dialog">
+      <h2>Name this folder</h2>
+      <input id="folder-name" type="text" maxlength="60" placeholder="e.g. Elgar concerto" autocomplete="off" />
+      <p class="set-hint" style="text-align:center">Group takes by piece, étude or lesson.</p>
       <div class="row">
         <button value="cancel" class="ctl" formnovalidate>Cancel</button>
         <button value="save" class="ctl primary">Save</button>

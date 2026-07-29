@@ -1,13 +1,15 @@
 // IndexedDB glue.
-// 'recordings'      — listing metadata: { id, date, duration, sampleRate, noteCount }
+// 'recordings'      — listing metadata: { id, date, duration, sampleRate, noteCount, folderId }
 // 'recording-data'  — heavy payload keyed by the same id: { id, audio, notes, readings, a4 }
 // 'passages'        — named spans: { id, name, recordingId, startSec, endSec, date, stats }
+// 'folders'         — { id, name, date }; a recording's folderId points here,
+//                     and undefined/null means it sits at the top level
 // Split so listing the library never loads audio; passages are their own store
 // so the coach can read every attempt without touching a recording.
 
 const DB_NAME = 'music-companion';
-const VERSION = 3;
-const STORES = ['sessions', 'recordings', 'recording-data', 'passages'];
+const VERSION = 4;
+const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -23,6 +25,9 @@ function createStores(db) {
   if (!db.objectStoreNames.contains('passages')) {
     const passages = db.createObjectStore('passages', { keyPath: 'id', autoIncrement: true });
     passages.createIndex('recordingId', 'recordingId');
+  }
+  if (!db.objectStoreNames.contains('folders')) {
+    db.createObjectStore('folders', { keyPath: 'id', autoIncrement: true });
   }
 }
 
@@ -159,6 +164,83 @@ export async function deleteRecording(id) {
     const store = tx.objectStore('passages');
     for (const p of passages.filter((p) => p.recordingId === id)) store.delete(p.id);
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// --- folders ---------------------------------------------------------------
+//
+// A folder is a name and nothing else: recordings point at it, so grouping a
+// take is one field on a record that already exists rather than a move. That
+// also means deleting a folder can never take recordings with it — see below.
+
+export async function createFolder(name) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('folders', 'readwrite');
+    const req = tx.objectStore('folders').add({ name, date: Date.now() });
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function listFolders() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('folders', 'readonly').objectStore('folders').getAll();
+    req.onsuccess = () => resolve(req.result.sort((a, b) =>
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function renameFolder(id, name) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('folders', 'readwrite');
+    const store = tx.objectStore('folders');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      if (req.result && name) store.put({ ...req.result, name });
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+// Deleting a folder turns its recordings loose rather than deleting them.
+// Losing a take because a label was tidied away is not a recoverable mistake,
+// and nothing in the UI would have warned that it was about to happen.
+export async function deleteFolder(id) {
+  const db = await openDB();
+  const recordings = await listRecordings();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['folders', 'recordings'], 'readwrite');
+    tx.objectStore('folders').delete(id);
+    const store = tx.objectStore('recordings');
+    for (const r of recordings.filter((rec) => rec.folderId === id)) {
+      const { folderId, ...rest } = r;
+      store.put(rest);
+    }
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+export async function setRecordingFolder(id, folderId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('recordings', 'readwrite');
+    const store = tx.objectStore('recordings');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const meta = req.result;
+      if (!meta) return;
+      if (folderId === null || folderId === undefined) delete meta.folderId;
+      else meta.folderId = folderId;
+      store.put(meta);
+    };
+    tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
   });
 }

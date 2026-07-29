@@ -109,6 +109,25 @@ export function fitGrid(onsets, coarseGrid, rounds = 3) {
   return { grid, phase, beatIndices: ks, deviations };
 }
 
+// Phase-only fit: the grid is given and must not move.
+//
+// Locking the tempo by hand is a different question from inferring it. "How did
+// I sit against 92" has to be answered against 92 exactly — letting the fit
+// nudge the period to whatever the playing actually did would quietly re-answer
+// the question that was asked, and hide the drift the player wanted to see.
+// Only the offset of the first beat is free, and it settles in a couple of
+// re-assignment rounds the way fitGrid's does.
+export function fitPhase(onsets, grid, rounds = 3) {
+  let phase = onsets[0];
+  let ks = onsets.map(() => 0);
+  for (let round = 0; round < rounds; round++) {
+    ks = onsets.map((t) => Math.round((t - phase) / grid));
+    phase = onsets.reduce((sum, t, i) => sum + (t - grid * ks[i]), 0) / onsets.length;
+  }
+  const deviations = onsets.map((t, i) => t - (phase + grid * ks[i]));
+  return { grid, phase, beatIndices: ks, deviations };
+}
+
 // Per-note deviation from the LOCAL pulse.
 //
 // One straight line through a whole take is the wrong ruler for human playing:
@@ -279,18 +298,37 @@ function verdictFor(deviationMs) {
 }
 
 // The whole timing story for one take.
-export function rhythmReport(notes, { gridHint = null } = {}) {
+//
+// `bpm` locks the pulse to a tempo the player names instead of inferring one,
+// and `subdivision` says how many grid steps make up that beat (2 for a take of
+// eighths at a quarter-note tempo). Locked, every note is measured against one
+// unmoving grid — that's the whole point of naming a tempo — so drift stops
+// being excused and starts being reported.
+export function rhythmReport(notes, { gridHint = null, bpm = null, subdivision = 1 } = {}) {
   const usable = (notes ?? []).filter((n) => Number.isFinite(n?.start));
   if (usable.length < MIN_ONSETS) return null;
   const onsets = usable.map((n) => n.start);
 
-  const inferred = gridHint
-    ? { ...fitGrid(onsets, gridHint), tactus: gridHint, bpm: 60 / gridHint }
-    : inferGrid(onsets);
+  const locked = Number.isFinite(bpm) && bpm > 0;
+  const div = Math.max(1, Math.round(subdivision));
+  let inferred;
+  if (locked) {
+    const tactus = 60 / bpm;
+    inferred = { ...fitPhase(onsets, tactus / div), tactus, bpm };
+  } else if (gridHint) {
+    inferred = { ...fitGrid(onsets, gridHint), tactus: gridHint, bpm: 60 / gridHint };
+  } else {
+    inferred = inferGrid(onsets);
+  }
   if (!inferred) return null;
 
   const grid = inferred.grid;
-  const local = fitLocal(onsets, grid);
+  const local = locked
+    ? {
+      deviations: inferred.deviations,
+      gridTimes: inferred.beatIndices.map((k) => inferred.phase + grid * k),
+    }
+    : fitLocal(onsets, grid);
   const perNote = usable.map((n, i) => {
     const deviationMs = local.deviations[i] * 1000;
     return {
@@ -337,22 +375,30 @@ export function rhythmReport(notes, { gridHint = null } = {}) {
   // them, and calling the 22nd note "211 ms late" when the tempo simply
   // changed is worse than saying nothing. The drift verdict and the tempo
   // curve carry that story instead.
-  const worst = drifting ? [] : [...perNote]
+  //
+  // A locked tempo is the exception: there the grid is the answer to the
+  // question, so a note that fell behind it fell behind it.
+  const flagged = [...perNote]
     .filter((p) => Math.abs(p.deviationMs) >= WORST_MS)
-    .sort((a, b) => Math.abs(b.deviationMs) - Math.abs(a.deviationMs))
-    .slice(0, 5);
+    .sort((a, b) => Math.abs(b.deviationMs) - Math.abs(a.deviationMs));
+  const worst = drifting && !locked ? [] : flagged.slice(0, 5);
 
   return {
     bpm: 60 / inferred.tactus,
     grid,
+    phase: inferred.phase,
     tactus: inferred.tactus,
+    locked,
+    subdivision: div,
     evenness,
     drift,
     drifting,
     meanAbsMs,
+    onBeat: perNote.filter((p) => p.verdict === 'on').length / perNote.length,
     verdict,
     notes: perNote,
     worst,
+    flagged,
     curve,
   };
 }

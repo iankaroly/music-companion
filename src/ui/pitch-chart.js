@@ -17,7 +17,18 @@ const STATUS_SPAN = () => {
   const p = C();
   return { good: p.goodFill, off: p.offFill, bad: p.badFill };
 };
-const PAD = { top: 16, right: 10, bottom: 18, left: 44 };
+// The note-name gutter is a fixed 44px, which is a tenth of a phone screen
+// spent on labels. Narrow screens get a tighter one — reassigned wholesale
+// before each render, so every closure below reads the current geometry.
+let PAD = { top: 16, right: 10, bottom: 18, left: 44 };
+
+function syncPad() {
+  const narrow = (globalThis.innerWidth ?? 900) <= 640;
+  PAD = narrow
+    ? { top: 14, right: 5, bottom: 16, left: 28 }
+    : { top: 16, right: 10, bottom: 18, left: 44 };
+}
+
 const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
 const LIVE_FONT_PX = 12;
 const EMPTY = new Set();
@@ -213,6 +224,7 @@ export function renderOverviewChart(canvas, {
   pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null,
 }) {
   if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
+  syncPad();
   const padT = 0.4;
   const starts = notes.map((n) => n.start);
   const ends = notes.map((n) => n.end);
@@ -449,6 +461,7 @@ export function renderOverviewChart(canvas, {
 // --- zoom inset: one note in cents detail ----------------------------------
 
 export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek, onScale }) {
+  syncPad();
   const CLAMP = 150;
   const t0 = note.start - contextSec;
   const t1 = note.end + contextSec;

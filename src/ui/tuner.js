@@ -1,6 +1,7 @@
 import { freqToNote, midiToName } from '../analysis/note-utils.js';
 import { PitchCenterTracker } from '../analysis/vibrato.js';
 import { temperamentOffsetCents } from '../analysis/temperaments.js';
+import { intonationTolerance } from './chart-utils.js';
 
 const CONFIDENCE_FLOOR = 0.6;
 const RMS_FLOOR = 0.005;
@@ -9,14 +10,19 @@ const RMS_FLOOR = 0.005;
 // to ±50° of needle sweep, like the hand of a clock.
 const SVG_NS = 'http://www.w3.org/2000/svg';
 // The dial is painted by class, not by literal colour, so the palette in the
-// stylesheet — and therefore the theme — is the single source of truth.
-const ZONES = [
-  [-50, -25, 'g-bad'],
-  [-25, -8, 'g-off'],
-  [-8, 8, 'g-good'],
-  [8, 25, 'g-off'],
-  [25, 50, 'g-bad'],
-];
+// stylesheet — and therefore the theme — is the single source of truth. The
+// green band is exactly the in-tune tolerance from settings, so the dial and
+// the note colour can never disagree about what counts as in tune.
+function zones() {
+  const t = intonationTolerance();
+  return [
+    [-50, -25, 'g-bad'],
+    [-25, -t, 'g-off'],
+    [-t, t, 'g-good'],
+    [t, 25, 'g-off'],
+    [25, 50, 'g-bad'],
+  ];
+}
 
 function polar(radius, deg) {
   const a = (deg * Math.PI) / 180;
@@ -29,16 +35,24 @@ function svgEl(name, attrs) {
   return e;
 }
 
-function buildGauge(svg) {
-  for (const [c1, c2, zoneClass] of ZONES) {
+function zoneArcs(svg) {
+  const arcs = [];
+  for (const [c1, c2, zoneClass] of zones()) {
     const [x1, y1] = polar(108, c1);
     const [x2, y2] = polar(108, c2);
-    svg.append(svgEl('path', {
+    const path = svgEl('path', {
       d: `M ${x1} ${y1} A 108 108 0 0 1 ${x2} ${y2}`,
       class: `g-zone ${zoneClass}`, 'stroke-width': 5, fill: 'none',
       'stroke-linecap': 'round',
-    }));
+    });
+    svg.append(path);
+    arcs.push(path);
   }
+  return arcs;
+}
+
+function buildGauge(svg) {
+  const arcs = zoneArcs(svg);
   for (let c = -50; c <= 50; c += 5) {
     const major = c % 25 === 0;
     const [x1, y1] = polar(118, c);
@@ -66,7 +80,7 @@ function buildGauge(svg) {
   needle.append(svgEl('circle', { cx: 150, cy: 150, r: 7, class: 'g-hub' }));
   needle.append(svgEl('circle', { cx: 150, cy: 150, r: 2.5, class: 'g-hub-dot' }));
   svg.append(needle);
-  return needle;
+  return { needle, arcs };
 }
 
 // Live tuner: analog gauge (note in the middle, needle sweeping the cents
@@ -78,12 +92,23 @@ export class Tuner {
     this.centsEl = root.querySelector('#cents');
     this.secondEl = root.querySelector('#second');
     this.freqEl = root.querySelector('#freq');
-    this.needle = buildGauge(root.querySelector('#gauge-svg'));
+    const gauge = buildGauge(root.querySelector('#gauge-svg'));
+    this.needle = gauge.needle;
+    this.arcs = gauge.arcs;
     this.tracker = new PitchCenterTracker();
     this.a4 = 440;
     this.transpose = 0;          // semitones added to DISPLAYED names (Bb instr = +2)
     this.temperament = 'equal';  // 'equal' | 'just' | 'pythagorean'
     this.temperamentRoot = 0;    // pitch class of the tonic
+  }
+
+  // Re-draw the coloured bands after the in-tune tolerance changes.
+  refreshZones() {
+    zones().forEach(([c1, c2], i) => {
+      const [x1, y1] = polar(108, c1);
+      const [x2, y2] = polar(108, c2);
+      this.arcs[i]?.setAttribute('d', `M ${x1} ${y1} A 108 108 0 0 1 ${x2} ${y2}`);
+    });
   }
 
   setNeedle(cents) {
@@ -119,7 +144,7 @@ export class Tuner {
       - temperamentOffsetCents(this.temperament, this.temperamentRoot, midi);
 
     this.noteEl.textContent = midiToName(midi + this.transpose);
-    this.noteEl.dataset.state = Math.abs(cents) < 8 ? 'good' : 'off';
+    this.noteEl.dataset.state = Math.abs(cents) < intonationTolerance() ? 'good' : 'off';
     const centsText = `${cents >= 0 ? '+' : ''}${cents.toFixed(1)} cents`;
     this.centsEl.textContent = vibrato
       ? `${centsText} · vibrato ±${vibrato.widthCents.toFixed(0)}¢ @ ${vibrato.rateHz.toFixed(1)} Hz`

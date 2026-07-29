@@ -26,8 +26,42 @@ export function audioContext() {
   return audioContext.ctx;
 }
 
-// Everything audible routes through masterGain → limiter → speakers, so
-// the volume slider can push well past 1.0 without clipping distortion.
+// Everything audible routes through masterGain → limiter → makeup → ceiling →
+// speakers, so the volume slider can push well past 1.0 without clipping.
+//
+// The makeup stage is not optional, and its absence was the bug behind both
+// "the drone is too quiet on max volume" and "the metronome is too soft". A
+// DynamicsCompressorNode has no makeup gain of its own, so a limiter in front
+// of the destination is pure attenuation: at threshold −6 dB and ratio 12 a
+// sustained drone came out at 0.64 peak / 0.46 RMS however far the volume
+// slider was pushed. Putting the removed gain back after the limiter is worth
+// about 5 dB on everything the app plays.
+//
+// The ceiling is what makes that safe. Peaks past full scale are truncated by
+// the hardware — which the old chain was already doing to the metronome click,
+// measured at 1.08 — and a square edge is the worst-sounding way to lose them.
+// The shaper below is exactly linear up to 0.7 and bends smoothly to 1.0 after
+// it, so ordinary playing is untouched, a chord of six drones runs out of
+// headroom gracefully instead of buzzing, and nothing can ever leave here
+// above full scale.
+const THRESHOLD_DB = -4;
+const RATIO = 12;
+const KNEE = 0.7;
+// what the limiter does to a full-scale peak, undone
+const MAKEUP = 10 ** (-(THRESHOLD_DB + (0 - THRESHOLD_DB) / RATIO) / 20) * 0.96;
+
+function ceilingCurve(n = 4096) {
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1;
+    const a = Math.abs(x);
+    curve[i] = a <= KNEE
+      ? x
+      : Math.sign(x) * (KNEE + (1 - KNEE) * Math.tanh((a - KNEE) / (1 - KNEE)));
+  }
+  return curve;
+}
+
 let masterGain = null;
 
 export function masterOut() {
@@ -36,12 +70,17 @@ export function masterOut() {
     masterGain = ctx.createGain();
     masterGain.gain.value = getVolume();
     const limiter = ctx.createDynamicsCompressor();
-    limiter.threshold.value = -6;
-    limiter.knee.value = 4;
-    limiter.ratio.value = 12;
+    limiter.threshold.value = THRESHOLD_DB;
+    limiter.knee.value = 2;
+    limiter.ratio.value = RATIO;
     limiter.attack.value = 0.002;
-    limiter.release.value = 0.12;
-    masterGain.connect(limiter).connect(ctx.destination);
+    limiter.release.value = 0.1;
+    const makeup = ctx.createGain();
+    makeup.gain.value = MAKEUP;
+    const ceiling = ctx.createWaveShaper();
+    ceiling.curve = ceilingCurve();
+    ceiling.oversample = '4x'; // the bend makes harmonics; don't fold them back
+    masterGain.connect(limiter).connect(makeup).connect(ceiling).connect(ctx.destination);
   }
   return masterGain;
 }
@@ -55,3 +94,14 @@ export function setVolume(v) {
   localStorage.setItem('volume', String(v));
   if (masterGain) masterGain.gain.setTargetAtTime(v, audioContext().currentTime, 0.02);
 }
+
+// Per-source trims that ride on top of the master. Kept here rather than in
+// each module so the settings sheet has one place to set them and everything
+// picks the new value up on its next note.
+function trim(key, fallback) {
+  const v = Number(localStorage.getItem(key));
+  return Number.isFinite(v) && v > 0 ? v : fallback;
+}
+
+export const droneLevel = () => trim('droneLevel', 1);
+export const clickLevel = () => trim('clickLevel', 1);

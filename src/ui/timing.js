@@ -5,14 +5,29 @@
 // per-note deviation bars below. Unlike the pitch chart above it this is always
 // the whole take at container width, so it stays a summary you can take in at
 // a glance rather than something else to scroll.
+//
+// The pulse can be inferred (the default: no metronome needed, and every take
+// already in the library can be read retroactively) or LOCKED to a tempo the
+// player names. Those answer different questions. Inferred asks "was that note
+// early against what was going on around it"; locked asks "did I hold 92", and
+// counts the drift that the inferred reading deliberately forgives.
 
 import { rhythmReport } from '../analysis/rhythm.js';
 import { palette, onThemeChange } from './theme.js';
 
-const PAD = { top: 14, right: 10, bottom: 16, left: 40 };
+let PAD = { top: 14, right: 10, bottom: 16, left: 40 };
 const FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
 const CURVE_SHARE = 0.44;  // how much of the height the tempo lane takes
 const DEV_CEILING = 0.12;  // deviation axis: ±120 ms, or the worst note if larger
+
+// On a phone the axis gutter is a tenth of the screen. Trimmed there, so the
+// data gets the width instead of the labels.
+function syncPad() {
+  const narrow = (globalThis.innerWidth ?? 900) <= 640;
+  PAD = narrow
+    ? { top: 12, right: 6, bottom: 15, left: 28 }
+    : { top: 14, right: 10, bottom: 16, left: 40 };
+}
 
 function ordinal(n) {
   const rest = n % 100;
@@ -20,7 +35,19 @@ function ordinal(n) {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`;
 }
 
+// Where each note sits horizontally — shared by the drawing code and the
+// tap-a-bar hit test, so they can't drift apart.
+function axisOf(canvas, report) {
+  const cssW = canvas.clientWidth || 600;
+  const times = report.notes.map((n) => n.start);
+  const t0 = Math.min(...times);
+  const t1 = Math.max(...times, t0 + 1);
+  const w = cssW - PAD.left - PAD.right;
+  return { cssW, t0, t1, x: (t) => PAD.left + ((t - t0) / (t1 - t0)) * w };
+}
+
 function drawTiming(canvas, report) {
+  syncPad();
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth || 600;
   const cssH = canvas.clientHeight || 150;
@@ -33,11 +60,7 @@ function drawTiming(canvas, report) {
   ctx.font = FONT;
   ctx.textBaseline = 'middle';
 
-  const times = report.notes.map((n) => n.start);
-  const t0 = Math.min(...times);
-  const t1 = Math.max(...times, t0 + 1);
-  const w = cssW - PAD.left - PAD.right;
-  const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
+  const { t0, t1, x } = axisOf(canvas, report);
 
   const curveH = (cssH - PAD.top - PAD.bottom) * CURVE_SHARE;
   const devTop = PAD.top + curveH + 14;
@@ -86,13 +109,33 @@ function drawTiming(canvas, report) {
 
     ctx.textAlign = 'left';
     ctx.fillStyle = c.muted;
-    ctx.fillText('tempo', PAD.left + 2, PAD.top - 4);
+    ctx.fillText(report.locked ? `tempo · held at ${Math.round(centre)}` : 'tempo',
+      PAD.left + 2, PAD.top - 4);
   }
 
   // --- deviation lane ---
   const worstDev = Math.max(DEV_CEILING, ...report.notes.map((n) => Math.abs(n.deviationMs) / 1000));
   const msLabel = Math.round(worstDev * 800);
   const yDev = (seconds) => mid - (seconds / worstDev) * (devH / 2);
+
+  // With the pulse locked, the beats themselves are a fact worth drawing:
+  // the bars are distances from these lines.
+  if (report.locked && Number.isFinite(report.phase)) {
+    ctx.strokeStyle = c.grid;
+    ctx.lineWidth = 1;
+    const step = report.tactus;
+    const first = Math.ceil((t0 - report.phase) / step);
+    const last = Math.floor((t1 - report.phase) / step);
+    if (last - first < 400) { // don't hairline the whole lane on a long take
+      for (let k = first; k <= last; k++) {
+        const px = x(report.phase + k * step);
+        ctx.beginPath();
+        ctx.moveTo(px, devTop);
+        ctx.lineTo(px, devTop + devH);
+        ctx.stroke();
+      }
+    }
+  }
 
   ctx.strokeStyle = c.gridStrong;
   ctx.lineWidth = 1;
@@ -108,81 +151,230 @@ function drawTiming(canvas, report) {
   ctx.textAlign = 'left';
   ctx.fillText('late / early (ms)', PAD.left + 2, devTop - 4);
 
-  const barW = Math.max(1.5, Math.min(7, w / Math.max(1, report.notes.length) - 1));
+  const w = cssW - PAD.left - PAD.right;
+  const barW = Math.max(2.5, Math.min(9, w / Math.max(1, report.notes.length) - 1));
   for (const n of report.notes) {
     const dev = n.deviationMs / 1000;
     ctx.fillStyle = n.verdict === 'on' ? c.good : n.verdict === 'late' ? c.off : c.primary;
     const top = dev >= 0 ? yDev(dev) : mid;
-    const height = Math.max(1.5, Math.abs(yDev(dev) - mid));
+    const height = Math.max(2, Math.abs(yDev(dev) - mid));
     ctx.fillRect(x(n.start) - barW / 2, top, barW, height);
   }
 }
 
-// Fills the timing block for one take. `onPickNote(note)` wires a flagged note
-// back to the chart above, so a timing mistake can be played straight away.
-export function renderTiming(root, notes, { onPickNote } = {}) {
+// mm:ss, matching the passage list.
+function clock(seconds) {
+  return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
+}
+
+// The pulse the panel is currently reading against. Persisted, because a
+// player working on one étude wants the same tempo next session.
+function readPulse() {
+  try {
+    const raw = JSON.parse(globalThis.localStorage?.getItem('timingPulse') ?? 'null');
+    if (raw && Number.isFinite(raw.bpm)) {
+      return { bpm: raw.bpm, subdivision: raw.subdivision ?? 1, locked: !!raw.locked };
+    }
+  } catch { /* fresh install */ }
+  return { bpm: 80, subdivision: 1, locked: false };
+}
+
+function writePulse(pulse) {
+  try {
+    globalThis.localStorage?.setItem('timingPulse', JSON.stringify(pulse));
+  } catch { /* survivable */ }
+}
+
+let filter = 'worst';
+
+// Fills the timing block for one take.
+//   onPickNote(note)  — wires a flagged note back to the chart above
+//   onClickTrack(grid) — hands over { phase, step, until } to play a click with
+//                        the take, or null to stop
+export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
   const section = root.querySelector('#timing');
   if (!section) return null;
 
-  const report = rhythmReport(notes);
-  if (!report) {
-    section.hidden = true;
-    return null;
-  }
-  section.hidden = false;
+  const pulse = readPulse();
+  let report = null;
+  let clicking = false;
 
-  const set = (id, text) => { const el = root.querySelector(id); if (el) el.textContent = text; };
-  set('#tm-bpm', String(Math.round(report.bpm)));
-  set('#tm-error', `${Math.round(report.meanAbsMs)}ms`);
-  set('#tm-even', `${Math.round(report.evenness * 100)}%`);
-  const driftPct = report.drift * 100;
-  set('#tm-drift', `${driftPct > 0 ? '+' : ''}${driftPct.toFixed(1)}%`);
-
-  const verdictEl = root.querySelector('#timing-verdict');
-  const WORDS = {
-    steady: 'steady',
-    rushing: 'rushing',
-    dragging: 'dragging',
-    uneven: 'uneven',
-  };
-  verdictEl.textContent = WORDS[report.verdict] ?? report.verdict;
-  verdictEl.dataset.verdict = report.verdict;
-
-  const worstBox = root.querySelector('#timing-worst');
-  worstBox.replaceChildren();
-  for (const w of report.worst) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = `tm-chip ${w.verdict}`;
-    const ms = Math.round(Math.abs(w.deviationMs));
-    chip.textContent = `${ordinal(w.index + 1)} note · ${ms}ms ${w.verdict}`;
-    chip.addEventListener('click', () => onPickNote?.(notes[w.index]));
-    worstBox.append(chip);
-  }
-
-  const hint = root.querySelector('#timing-hint');
-  if (hint) {
-    const grid = report.grid >= report.tactus * 0.99
-      ? 'the beat itself'
-      : `${Math.round(report.tactus / report.grid)} per beat`;
-    const base = `Pulse read from your playing — no metronome needed (grid: ${grid}).`;
-    hint.textContent = report.drifting
-      ? `${base} The tempo moved through this take, so no single note is called early or late — see where it went in the curve above.`
-      : report.worst.length
-        ? `${base} Each note is measured against the pulse around it, so drift isn't counted as a mistake. Tap a chip to hear one.`
-        : `${base} Every note landed on the beat.`;
-  }
-
+  const chipBox = root.querySelector('#timing-worst');
   const canvas = root.querySelector('#timing-chart');
-  if (canvas) {
-    drawTiming(canvas, report);
-    // The canvas outlives every take rendered into it, so the previous take's
-    // repaint handler has to go before this one is registered — otherwise every
-    // review leaves another listener behind, all drawing stale reports.
-    canvas._themeOff?.();
-    canvas._themeOff = onThemeChange(() => drawTiming(canvas, report));
+  const set = (id, text) => { const el = root.querySelector(id); if (el) el.textContent = text; };
+
+  const clickGrid = () => (report ? {
+    phase: report.phase ?? 0,
+    step: report.tactus,
+    until: Math.max(...report.notes.map((n) => n.start)) + report.tactus,
+  } : null);
+
+  function renderChips() {
+    chipBox.replaceChildren();
+    const source = filter === 'worst' ? report.worst
+      : filter === 'late' ? report.flagged.filter((p) => p.verdict === 'late')
+        : filter === 'early' ? report.flagged.filter((p) => p.verdict === 'early')
+          : report.flagged;
+    const shown = source.slice(0, filter === 'worst' ? 5 : 24);
+    for (const w of shown) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `tm-chip ${w.verdict}`;
+      const ms = Math.round(Math.abs(w.deviationMs));
+      chip.textContent = `${ordinal(w.index + 1)} · ${w.name ?? ''} ${ms}ms ${w.verdict}`.replace('  ', ' ');
+      chip.title = `at ${clock(w.start)}`;
+      chip.addEventListener('click', () => onPickNote?.(notes[w.index]));
+      chipBox.append(chip);
+    }
+    if (shown.length === 0) {
+      const none = document.createElement('span');
+      none.className = 'tm-none';
+      none.textContent = report.drifting && !report.locked
+        ? 'the tempo moved through this take — lock a pulse to see notes named'
+        : 'nothing outside 45 ms here';
+      chipBox.append(none);
+    }
+    if (source.length > shown.length) {
+      const more = document.createElement('span');
+      more.className = 'tm-none';
+      more.textContent = `+${source.length - shown.length} more`;
+      chipBox.append(more);
+    }
   }
-  return report;
+
+  function paintFilters() {
+    for (const b of root.querySelectorAll('#timing-filter button')) {
+      b.classList.toggle('active', b.dataset.filter === filter);
+    }
+  }
+
+  function run() {
+    report = rhythmReport(notes, pulse.locked
+      ? { bpm: pulse.bpm, subdivision: pulse.subdivision }
+      : {});
+    if (!report) {
+      section.hidden = true;
+      return null;
+    }
+    section.hidden = false;
+
+    set('#tm-bpm', String(Math.round(report.bpm)));
+    set('#tm-error', `${Math.round(report.meanAbsMs)}ms`);
+    set('#tm-on', `${Math.round(report.onBeat * 100)}%`);
+    set('#tm-even', `${Math.round(report.evenness * 100)}%`);
+    const driftPct = report.drift * 100;
+    set('#tm-drift', `${driftPct > 0 ? '+' : ''}${driftPct.toFixed(1)}%`);
+
+    const verdictEl = root.querySelector('#timing-verdict');
+    const WORDS = {
+      steady: 'steady', rushing: 'rushing', dragging: 'dragging', uneven: 'uneven',
+    };
+    verdictEl.textContent = WORDS[report.verdict] ?? report.verdict;
+    verdictEl.dataset.verdict = report.verdict;
+
+    renderChips();
+
+    const hint = root.querySelector('#timing-hint');
+    if (hint) {
+      if (pulse.locked) {
+        const per = pulse.subdivision > 1 ? ` (${pulse.subdivision} per beat)` : '';
+        hint.textContent = `Measured against a fixed ${pulse.bpm} bpm${per} — drift counts here,`
+          + ' unlike the read-from-your-playing pulse. Tap a bar or a chip to hear that note.';
+      } else {
+        const grid = report.grid >= report.tactus * 0.99
+          ? 'the beat itself'
+          : `${Math.round(report.tactus / report.grid)} per beat`;
+        const base = `Pulse read from your playing — no metronome needed (grid: ${grid}).`;
+        hint.textContent = report.drifting
+          ? `${base} The tempo moved through this take, so no single note is called early or late — see where it went in the curve above.`
+          : report.worst.length
+            ? `${base} Each note is measured against the pulse around it, so drift isn't counted as a mistake. Tap a bar or a chip to hear one.`
+            : `${base} Every note landed on the beat.`;
+      }
+    }
+
+    if (canvas) {
+      drawTiming(canvas, report);
+      // The canvas outlives every take rendered into it, so the previous take's
+      // repaint handler has to go before this one is registered — otherwise every
+      // review leaves another listener behind, all drawing stale reports.
+      canvas._themeOff?.();
+      canvas._themeOff = onThemeChange(() => drawTiming(canvas, report));
+      // Tapping a bar picks that note: the deviation lane is a map of the take,
+      // and the thing you want after seeing a tall bar is to hear it.
+      canvas.onclick = (e) => {
+        if (!report) return;
+        const rect = canvas.getBoundingClientRect();
+        const px = ((e.clientX - rect.left) / rect.width) * (canvas.clientWidth || rect.width);
+        const { x } = axisOf(canvas, report);
+        let best = null;
+        for (const n of report.notes) {
+          const d = Math.abs(x(n.start) - px);
+          if (!best || d < best.d) best = { d, n };
+        }
+        if (best && best.d < 18) onPickNote?.(notes[best.n.index]);
+      };
+      canvas.style.cursor = 'pointer';
+    }
+    if (clicking) onClickTrack?.(clickGrid());
+    return report;
+  }
+
+  // --- the pulse controls ---------------------------------------------------
+
+  const bpmField = root.querySelector('#timing-bpm');
+  const lockBtn = root.querySelector('#timing-lock');
+  const divGroup = root.querySelector('#timing-div');
+  const clickBtn = root.querySelector('#timing-click');
+
+  const paintPulse = () => {
+    lockBtn.classList.toggle('active', pulse.locked);
+    lockBtn.textContent = pulse.locked ? 'Pulse: locked' : 'Pulse: auto';
+    bpmField.parentElement.hidden = !pulse.locked;
+    divGroup.hidden = !pulse.locked;
+    bpmField.value = String(pulse.bpm);
+    for (const b of divGroup.querySelectorAll('button')) {
+      b.classList.toggle('active', Number(b.dataset.div) === pulse.subdivision);
+    }
+  };
+
+  const commit = () => { writePulse(pulse); paintPulse(); run(); };
+
+  lockBtn.onclick = () => {
+    // Locking with nothing chosen yet starts from the tempo the app just read,
+    // which is almost always the tempo the player meant.
+    if (!pulse.locked && report) pulse.bpm = Math.max(20, Math.min(300, Math.round(report.bpm)));
+    pulse.locked = !pulse.locked;
+    commit();
+  };
+  bpmField.oninput = () => {
+    const v = Number(bpmField.value);
+    if (Number.isFinite(v) && v >= 20 && v <= 300) { pulse.bpm = Math.round(v); commit(); }
+  };
+  root.querySelector('#timing-bpm-down').onclick = () => {
+    pulse.bpm = Math.max(20, pulse.bpm - 1); commit();
+  };
+  root.querySelector('#timing-bpm-up').onclick = () => {
+    pulse.bpm = Math.min(300, pulse.bpm + 1); commit();
+  };
+  for (const b of divGroup.querySelectorAll('button')) {
+    b.onclick = () => { pulse.subdivision = Number(b.dataset.div); commit(); };
+  }
+  for (const b of root.querySelectorAll('#timing-filter button')) {
+    b.onclick = () => { filter = b.dataset.filter; paintFilters(); renderChips(); };
+  }
+  paintFilters();
+
+  clickBtn.hidden = !onClickTrack;
+  clickBtn.classList.remove('active');
+  clickBtn.onclick = () => {
+    clicking = !clicking;
+    clickBtn.classList.toggle('active', clicking);
+    onClickTrack?.(clicking ? clickGrid() : null);
+  };
+
+  paintPulse();
+  return run();
 }
 
 export function hideTiming(root) {

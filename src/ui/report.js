@@ -7,6 +7,7 @@ import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
 import { renderTiming, hideTiming } from './timing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
+import { scheduleClick } from '../audio/metronome.js';
 
 const CONTEXT_SEC = 1.2;
 let zoomContextSec = CONTEXT_SEC; // pinch on the zoom chart adjusts this
@@ -101,7 +102,42 @@ function stopRefDrone() {
   refDrone = null;
 }
 
+// --- click track: hear the take against the pulse the timing panel read -----
+//
+// Practising against a metronome tells you where you are now; hearing a take
+// you already played laid over the click tells you where you were, which is
+// the thing a recording can do that a metronome can't. The clicks are placed
+// on the audio clock the same way the metronome places them, mapped through
+// the same speed factor as the audio, so they stay in step at ¼× too.
+
+let clickGrid = null;      // { phase, step, until } in recording seconds
+let clickNodes = [];
+const MAX_CLICKS = 2000;
+
+function stopClicks() {
+  for (const node of clickNodes) {
+    try { node.stop(); } catch { /* already finished */ }
+  }
+  clickNodes = [];
+}
+
+function scheduleClickTrack(startTime, from, recSpan) {
+  stopClicks();
+  if (!clickGrid || !(clickGrid.step > 0)) return;
+  const { phase, step, until } = clickGrid;
+  const end = Math.min(until, from + recSpan);
+  let k = Math.ceil((from - phase) / step);
+  for (let n = 0; n < MAX_CLICKS; n++, k++) {
+    const g = phase + k * step;
+    if (g > end) break;
+    const at = startTime + (g - from) / playbackSpeed;
+    if (at < playbackCtx.currentTime) continue;
+    clickNodes.push(...scheduleClick(playbackCtx, at, 'beat'));
+  }
+}
+
 function stopPlayback(root) {
+  stopClicks();
   if (currentSource) {
     currentSource.onended = null;
     currentSource.stop();
@@ -163,6 +199,7 @@ function playClip(clip, root, timeMap, spans, onDone) {
   source.onended = () => { stopPlayback(root); onDone?.(); };
   source.start();
   currentSource = source;
+  scheduleClickTrack(startTime, timeMap(0), (samples.length / clip.sampleRate) * playbackSpeed);
   tick();
   return startTime;
 }
@@ -653,6 +690,12 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   const { degrees } = alignment;
   const allNotes = degrees.filter((d) => d.played).map((d) => d.played);
 
+  // renderTiming re-renders its button switched off, so the grid it was
+  // playing has to go with it — saving a take re-renders the review without
+  // going through hideReport, which would otherwise leave clicks armed under
+  // a button that says they aren't.
+  clickGrid = null;
+
   wireSpeedButtons(root);
 
   const tileByNote = new Map();
@@ -696,7 +739,20 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 
   if (extras.readings?.length && allNotes.length > 0) {
     showOverview(root, allNotes, recording, extras, selectNote, tileByNote);
-    renderTiming(root, allNotes, { onPickNote: (note) => selectNote(note) });
+    renderTiming(root, allNotes, {
+      onPickNote: (note) => selectNote(note),
+      onClickTrack: recording ? (grid) => {
+        clickGrid = grid;
+        // Toggled mid-playback, it takes effect at once rather than at the
+        // next press — the point is to A/B the click against what you played.
+        if (full?.playing) {
+          pauseFull(root); // updates full.pos to where the audio actually is
+          playFullFrom(root, full.pos);
+        } else {
+          stopClicks();
+        }
+      } : null,
+    });
     initPassages(root, allNotes, {
       recordingId: extras.recordingId ?? null,
       onPlaySpan: (from, to) => playSpan(root, from, to),
@@ -712,6 +768,7 @@ export function hideReport(root) {
   stopPlayback(root);
   stopRefDrone();
   stopCompareDrones();
+  clickGrid = null;
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   hideTiming(root);

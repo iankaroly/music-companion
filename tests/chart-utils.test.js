@@ -1,5 +1,7 @@
-import { describe, test, expect } from 'vitest';
-import { findNoteAt, intonationStatus } from '../src/ui/chart-utils.js';
+import { describe, test, expect, afterEach } from 'vitest';
+import {
+  findNoteAt, intonationStatus, setIntonationTolerance, intonationTolerance,
+} from '../src/ui/chart-utils.js';
 
 const notes = [
   { name: 'A3', start: 1.0, end: 1.5, cents: 2 },
@@ -24,6 +26,8 @@ describe('findNoteAt', () => {
 });
 
 describe('intonationStatus', () => {
+  afterEach(() => setIntonationTolerance(8));
+
   test('tiers by absolute cents', () => {
     expect(intonationStatus(3)).toBe('good');
     expect(intonationStatus(-7.9)).toBe('good');
@@ -31,5 +35,23 @@ describe('intonationStatus', () => {
     expect(intonationStatus(-24)).toBe('off');
     expect(intonationStatus(25)).toBe('bad');
     expect(intonationStatus(-40)).toBe('bad');
+  });
+
+  test('the in-tune door is a setting', () => {
+    setIntonationTolerance(5);
+    expect(intonationTolerance()).toBe(5);
+    expect(intonationStatus(6)).toBe('off');
+    setIntonationTolerance(12);
+    expect(intonationStatus(6)).toBe('good');
+    expect(intonationStatus(11.9)).toBe('good');
+    // badly-off is the same call whatever the door is set to
+    expect(intonationStatus(26)).toBe('bad');
+  });
+
+  test('nonsense tolerances fall back to the default', () => {
+    setIntonationTolerance(0);
+    expect(intonationTolerance()).toBe(8);
+    setIntonationTolerance(NaN);
+    expect(intonationTolerance()).toBe(8);
   });
 });

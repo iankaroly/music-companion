@@ -1,4 +1,4 @@
-import { audioContext, masterOut } from './context.js';
+import { audioContext, masterOut, clickLevel } from './context.js';
 
 // Lookahead-scheduled metronome: clicks are placed on the AudioContext
 // clock ahead of time (the setInterval only tops up the schedule), so
@@ -12,6 +12,63 @@ function makeNoiseBuffer(ctx) {
   const data = buf.getChannelData(0);
   for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
   return buf;
+}
+
+let noiseBuffer = null;
+
+// One click at one moment on the audio clock. Exported because the timing
+// panel plays a take back against the pulse it measured, and that click has to
+// be the same click — a second, slightly different one would read as an
+// artefact rather than as the metronome.
+export function scheduleClick(ctx, time, kind = 'beat') {
+  // An octave below where this started: a mechanical metronome is a wooden
+  // tock, not a beep, and the old pitches (A6 over a D6 beat) were shrill
+  // over a cello. Still comfortably above the instrument's range, so the
+  // pulse stays audible while you play.
+  const [freq, base] =
+    kind === 'accent' ? [880, 2.5] :
+    kind === 'beat' ? [587.33, 1.9] :
+    [440, 0.95];
+  const level = base * clickLevel();
+  // Body: square wave — dense harmonics read far louder than a sine blip
+  // on small speakers; the master limiter keeps the peaks clean. A lowpass
+  // just above the fundamental keeps the loudness of those harmonics while
+  // dropping the ones that made it piercing.
+  const osc = ctx.createOscillator();
+  osc.type = 'square';
+  osc.frequency.value = freq;
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = freq * 2.4;
+  tone.Q.value = 0.7;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, time);
+  gain.gain.exponentialRampToValueAtTime(level, time + 0.002);
+  gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
+  osc.connect(tone).connect(gain).connect(masterOut());
+  osc.start(time);
+  osc.stop(time + 0.09);
+  // Attack: a band-passed noise tick gives the click a percussive edge that
+  // cuts through playing — centred nearer the fundamental than before, so
+  // it reads as wood rather than as hiss.
+  if (!noiseBuffer || noiseBuffer.sampleRate !== ctx.sampleRate) {
+    noiseBuffer = makeNoiseBuffer(ctx);
+  }
+  const noise = ctx.createBufferSource();
+  noise.buffer = noiseBuffer;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = freq * 1.4;
+  bp.Q.value = 1.2;
+  const ng = ctx.createGain();
+  ng.gain.setValueAtTime(level * 0.85, time);
+  ng.gain.exponentialRampToValueAtTime(0.0001, time + 0.018);
+  noise.connect(bp).connect(ng).connect(masterOut());
+  noise.start(time);
+  noise.stop(time + 0.03);
+  // Both nodes come back so a caller that scheduled a whole click track ahead
+  // of time can call stop() on them and cancel what hasn't sounded yet.
+  return [osc, noise];
 }
 
 // Sub-click positions within one beat, as fractions of the beat length.
@@ -86,48 +143,7 @@ export class Metronome {
   }
 
   click(time, kind) {
-    // An octave below where this started: a mechanical metronome is a wooden
-    // tock, not a beep, and the old pitches (A6 over a D6 beat) were shrill
-    // over a cello. Still comfortably above the instrument's range, so the
-    // pulse stays audible while you play.
-    const [freq, level] =
-      kind === 'accent' ? [880, 1.6] :
-      kind === 'beat' ? [587.33, 1.15] :
-      [440, 0.55];
-    // Body: square wave — dense harmonics read far louder than a sine blip
-    // on small speakers; the master limiter keeps the peaks clean. A lowpass
-    // just above the fundamental keeps the loudness of those harmonics while
-    // dropping the ones that made it piercing.
-    const osc = this.ctx.createOscillator();
-    osc.type = 'square';
-    osc.frequency.value = freq;
-    const tone = this.ctx.createBiquadFilter();
-    tone.type = 'lowpass';
-    tone.frequency.value = freq * 2.4;
-    tone.Q.value = 0.7;
-    const gain = this.ctx.createGain();
-    gain.gain.setValueAtTime(0.0001, time);
-    gain.gain.exponentialRampToValueAtTime(level, time + 0.002);
-    gain.gain.exponentialRampToValueAtTime(0.0001, time + 0.06);
-    osc.connect(tone).connect(gain).connect(masterOut());
-    osc.start(time);
-    osc.stop(time + 0.09);
-    // Attack: a band-passed noise tick gives the click a percussive edge that
-    // cuts through playing — centred nearer the fundamental than before, so
-    // it reads as wood rather than as hiss.
-    this.noiseBuffer ??= makeNoiseBuffer(this.ctx);
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = this.noiseBuffer;
-    const bp = this.ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = freq * 1.4;
-    bp.Q.value = 1.2;
-    const ng = this.ctx.createGain();
-    ng.gain.setValueAtTime(level * 0.85, time);
-    ng.gain.exponentialRampToValueAtTime(0.0001, time + 0.018);
-    noise.connect(bp).connect(ng).connect(masterOut());
-    noise.start(time);
-    noise.stop(time + 0.03);
+    scheduleClick(this.ctx, time, kind);
   }
 }
 
