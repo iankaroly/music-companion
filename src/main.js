@@ -220,6 +220,16 @@ async function beginCapture(extra = {}) {
     recorder?.push(chunk);
     spectrumRing.write(chunk);
     feed(analyzer, segmenter, chunk, handleNote, readings, chord);
+  }, {
+    // A phone call mid-take used to truncate it in silence while the button
+    // still said "Stop & review". Now the take is closed off and offered for
+    // review with what was actually captured, and the reason is said out loud.
+    onInterrupted: (reason) => {
+      if (!capture) return;
+      if (capture.listen) { stopEverything(); showListenButton(true); }
+      else finishRecording(`${reason} — here's the take up to that point`);
+      statusEl.textContent = reason;
+    },
   });
   startSpectrum();
   // Fine 11.6ms hop for fast passages; the long window plus a fast
@@ -308,21 +318,29 @@ function clearTake() {
   notesRow.replaceChildren();
 }
 
+// Close off the take and put the review up. Shared by the Stop button and by
+// an interruption, which has to leave the player with what they played rather
+// than with a screen that still claims to be recording.
+function finishRecording(note = null) {
+  if (!capture || capture.listen) return;
+  const { segmenter, chord, collected, recorder, readings } = capture;
+  for (const n of segmenter.flush()) collected.push(n);
+  for (const n of chord.segmenter.flush()) chord.onNote(n);
+  stopEverything();
+  if (collected.length === 0) {
+    statusEl.textContent = note ?? 'nothing detected — recording discarded';
+    return;
+  }
+  lastTake = { recorder, notes: collected, readings, a4: currentA4() };
+  notesRow.replaceChildren(); // chips are redundant once the review is up
+  renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
+  saveBar.hidden = false;
+  if (note) statusEl.textContent = note;
+}
+
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.listen) {
-    // finish: flush, review, offer save/discard
-    const { segmenter, chord, collected, recorder, readings } = capture;
-    for (const note of segmenter.flush()) collected.push(note);
-    for (const note of chord.segmenter.flush()) chord.onNote(note);
-    stopEverything();
-    if (collected.length === 0) {
-      statusEl.textContent = 'nothing detected — recording discarded';
-      return;
-    }
-    lastTake = { recorder, notes: collected, readings, a4: currentA4() };
-    notesRow.replaceChildren(); // chips are redundant once the review is up
-    renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
-    saveBar.hidden = false;
+    finishRecording();
     return;
   }
   stopEverything();
@@ -746,6 +764,21 @@ metroToggle.addEventListener('click', () => {
     metroToggle.textContent = 'Stop';
     const minutes = Number(timerSel.value);
     if (minutes > 0) startTimer(minutes);
+  }
+});
+
+// Backgrounding stops the metronome rather than letting it fall apart.
+//
+// The scheduler tops up a 120 ms lookahead from a 25 ms setInterval, and a
+// backgrounded web view throttles timers to seconds — so the click doesn't keep
+// time in the background, it drifts and then stalls. Scheduling far enough
+// ahead to survive that would mean minutes of clicks committed to the audio
+// clock, which then can't respond to the tempo slider. Stopping is the honest
+// behaviour, and it also means the app never sits on the lock screen ticking.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && metronome.running) {
+    stopMetronome();
+    statusEl.textContent = 'metronome stopped when the app went to the background';
   }
 });
 

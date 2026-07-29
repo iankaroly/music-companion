@@ -67,7 +67,30 @@ async function open() {
   return { stream, ctx, source, worklet };
 }
 
-export async function startCapture(onChunk) {
+// Something took the microphone away mid-session: a phone call, Siri, AirPods
+// disconnecting, the OS reclaiming the input. The track ends and the chunks
+// simply stop — which used to look exactly like a quiet passage, so a take
+// silently truncated while the screen still said "recording". Callers pass
+// onInterrupted so they can stop and say what happened.
+function watchForInterruption(session, onInterrupted) {
+  const fire = (reason) => {
+    if (session.interrupted) return;
+    session.interrupted = true;
+    onInterrupted?.(reason);
+  };
+  for (const track of session.stream.getTracks()) {
+    track.onended = () => fire('the microphone was taken by something else');
+    track.onmute = () => fire('the microphone went silent');
+  }
+  session.ctx.onstatechange = () => {
+    // iOS suspends the capture context when the audio session is interrupted
+    if (session.ctx.state === 'suspended' && !session.parked) {
+      fire('recording was interrupted');
+    }
+  };
+}
+
+export async function startCapture(onChunk, { onInterrupted } = {}) {
   // record-capable session only while the mic is live — it halves iOS
   // output volume, so playback-only features must not inherit it
   setAudioSessionType('play-and-record');
@@ -80,10 +103,13 @@ export async function startCapture(onChunk) {
   held = session;
   inUse = true;
 
+  session.parked = false;
+  session.interrupted = false;
   session.stream.getTracks().forEach((t) => { t.enabled = true; });
   // auto-started tuners run outside a user gesture — nudge the context awake
   if (session.ctx.state !== 'running') await session.ctx.resume().catch(() => {});
   session.worklet.port.onmessage = (e) => onChunk(e.data);
+  watchForInterruption(session, onInterrupted);
 
   let stopped = false;
   return {
@@ -92,7 +118,10 @@ export async function startCapture(onChunk) {
       if (stopped) return;
       stopped = true;
       inUse = false;
+      session.parked = true; // our own suspend, not an interruption
       session.worklet.port.onmessage = null;
+      session.ctx.onstatechange = null;
+      session.stream.getTracks().forEach((t) => { t.onended = null; t.onmute = null; });
       if (micRetains()) {
         // Parked, not closed: the chunks stop arriving and the context is
         // suspended, so nothing is being listened to, but the permission
