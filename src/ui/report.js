@@ -422,18 +422,28 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
     setPlayheads(t);
   };
 
-  const wave = buildWave(recording);
+  // Built on demand rather than on every report open: it walks every sample,
+  // which is 26 million of them on a ten-minute take, and most reports are
+  // never switched to the waveform view at all.
+  let wave = null;
+  let waveBuilt = false;
+  const waveFor = () => {
+    if (!waveBuilt) { wave = buildWave(recording); waveBuilt = true; }
+    return wave;
+  };
+  const hasAudio = !!recording && recording.duration > 0;
   const scroller = root.querySelector('#chart-scroll');
   let scalePending = null;
 
   const buildChart = () => {
+    const useWave = overviewMode === 'wave' && hasAudio;
     currentChart = renderOverviewChart(root.querySelector('#pitch-chart'), {
       readings: extras.readings,
       notes: allNotes,
       a4: extras.a4 ?? 440,
       pxPerSec: overviewPxPerSec,
-      mode: wave ? overviewMode : 'pitch',
-      wave,
+      mode: useWave ? 'wave' : 'pitch',
+      wave: useWave ? waveFor() : null,
       onSeek: overviewSeek,
       onScale: (s) => {
         // rebuild at most once a frame while the pinch is moving
@@ -470,7 +480,7 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
 
   // pitch ↔ waveform toggle (hidden when there is no audio to draw)
   const modeGroup = root.querySelector('#chart-mode');
-  modeGroup.hidden = !wave;
+  modeGroup.hidden = !hasAudio;
   for (const btn of modeGroup.querySelectorAll('button')) {
     btn.classList.toggle('active', btn.dataset.mode === overviewMode);
     btn.onclick = () => {
@@ -511,9 +521,22 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
 
   // Pitch actually played at time t, from the recorded readings — this is
   // what the cursor drone holds and retunes to while it's dragged.
+  // Called on every pointermove while the cursor drone is dragged, so it
+  // bisects the (time-ordered) readings and looks at a handful around the
+  // target rather than scanning the take — which on a ten-minute session was
+  // 52,000 comparisons per mouse event.
   const readingFreqAt = (t) => {
+    const rs = extras.readings ?? [];
+    let lo = 0;
+    let hi = rs.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (rs[mid].time < t) lo = mid + 1;
+      else hi = mid;
+    }
     let best = null;
-    for (const r of extras.readings ?? []) {
+    for (let i = Math.max(0, lo - 30); i < Math.min(rs.length, lo + 30); i++) {
+      const r = rs[i];
       if (r.frequency === null || r.confidence < 0.6) continue;
       if (best === null || Math.abs(r.time - t) < Math.abs(best.time - t)) best = r;
     }

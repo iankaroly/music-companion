@@ -732,6 +732,13 @@
     }
     #notes-details summary:hover { color: var(--ink); }
     #report-grid { display: flex; flex-wrap: wrap; gap: 0.45rem; margin: 0.6rem 0 0.4rem; }
+    /* The overview chart is virtualised: .chart-span is an empty block whose
+       width is the whole take, and the canvas is pinned over the left edge of
+       the scrollport showing whichever slice is scrolled into view. Sticky
+       rather than a transform on scroll, so the pinning is done by the
+       compositor and doesn't lag behind momentum scrolling. */
+    .chart-span { height: 1px; margin-bottom: -1px; pointer-events: none; }
+    #pitch-chart { position: sticky; left: 0; }
     #chart-scroll {
       position: relative;
       overflow-x: auto;

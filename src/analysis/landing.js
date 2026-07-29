@@ -48,11 +48,27 @@ function median(values) {
   return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
 }
 
+// First index whose time is >= t. Readings arrive in time order, so the window
+// for a note is found by bisection rather than by scanning: this runs once per
+// note, and a ten-minute take has ~1,100 notes over ~52,000 readings — scanning
+// made opening its report tens of millions of iterations.
+function lowerBound(readings, t) {
+  let lo = 0;
+  let hi = readings.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (readings[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 // Cents away from this note's nominal pitch, at each reading inside it.
 function traceOf(note, readings, a4) {
   const out = [];
-  for (const r of readings) {
-    if (r.time < note.start || r.time > note.end) continue;
+  for (let i = lowerBound(readings, note.start); i < readings.length; i++) {
+    const r = readings[i];
+    if (r.time > note.end) break;
     if (r.frequency === null || r.confidence < CONFIDENCE_FLOOR) continue;
     const cents = (69 + 12 * Math.log2(r.frequency / a4) - note.midi) * 100;
     // A reading an octave out is the detector slipping, not the player

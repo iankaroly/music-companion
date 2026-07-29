@@ -81,6 +81,7 @@ function makeController(canvas, drawFn) {
 
   return {
     cssW,
+    repaint: draw, // the virtualised overview repaints on scroll
     setHover(pt) { hoverPt = pt; draw(); },
     setPlayhead(t) { playhead = t; draw(); },
     // Accepts one note, a list of them, or null — comparison highlights every
@@ -222,14 +223,69 @@ function nearestPoint(pts, time, key) {
   }
   return nearest;
 }
-
 // --- session overview ------------------------------------------------------
-
-// The chart always fills the container (the original look). When the
-// session is longer than fits at a readable density, the canvas grows
-// rightward and scrolls instead of squeezing everything in.
+//
+// The chart is VIRTUALISED: the canvas is only as wide as the window onto it,
+// and a spacer beside it provides the scroll extent. Time maps to a position in
+// that scroll extent, and each paint draws the slice currently on screen.
+//
+// It used to be one canvas as wide as the whole take. That is fine for the
+// ten-second scales this was built against and falls apart at the length people
+// actually practise: a ten-minute take at 120 px/s wants 72,000 px, which
+// blew past the 24,000 px cap (silently compressing the time axis threefold),
+// exceeded the maximum canvas area Safari will allocate at all, and cost ~100 MB
+// of texture. Worse, every playhead move repainted the entire thing — measured
+// at 10 fps on a desktop, and playback redraws once per frame.
+//
+// Drawing a screenful instead makes the cost independent of take length, so the
+// density is whatever the player pinches it to and nothing is capped.
 const PX_PER_SEC = 120;
-const MAX_CHART_PX = 24000;
+
+// Consecutive trace points sharing an intonation verdict are stroked as ONE
+// path rather than one path per point. A ten-minute take is ~52,000 points;
+// as individual strokes that alone missed frame budget by an order of magnitude.
+function drawTrace(ctx, pts, from, to, x, y) {
+  ctx.lineWidth = LINE_WIDTH;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  let i = from;
+  while (i < to) {
+    if (pts[i].mf === null) { i++; continue; }
+    // a run ends at a gap, or where the verdict changes
+    const status = pts[i].status;
+    let j = i + 1;
+    while (j < to && pts[j].mf !== null && pts[j].status === status) j++;
+    if (j - i > 1) {
+      ctx.strokeStyle = status ? STATUS_LINE()[status] : C().muted;
+      ctx.beginPath();
+      ctx.moveTo(x(pts[i].time), y(pts[i].mf));
+      for (let k = i + 1; k < j; k++) ctx.lineTo(x(pts[k].time), y(pts[k].mf));
+      ctx.stroke();
+      // bridge to the next run so a verdict change isn't a visible break
+      if (j < to && pts[j].mf !== null) {
+        ctx.strokeStyle = C().muted;
+        ctx.beginPath();
+        ctx.moveTo(x(pts[j - 1].time), y(pts[j - 1].mf));
+        ctx.lineTo(x(pts[j].time), y(pts[j].mf));
+        ctx.stroke();
+      }
+    }
+    i = j;
+  }
+}
+
+// First index with time >= t, by bisection: the paint path runs per frame and
+// must not scan the whole take to find where the screen starts.
+function lowerBound(pts, t) {
+  let lo = 0;
+  let hi = pts.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (pts[mid].time < t) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
 
 export function renderOverviewChart(canvas, {
   readings, notes, a4, onSeek, onNoteHover, onScale,
@@ -250,11 +306,29 @@ export function renderOverviewChart(canvas, {
   for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) rowNames.push(midiToName(m));
   syncPad(canvas, rowNames);
 
-  const container = canvas.parentElement;
-  const fitW = container?.clientWidth || 900;
+  const scroller = canvas.closest('#chart-scroll') ?? canvas.parentElement;
+  // The spacer is what actually scrolls; the canvas is pinned over it.
+  let spacer = scroller?.querySelector('.chart-span');
+  if (scroller && !spacer) {
+    spacer = document.createElement('div');
+    spacer.className = 'chart-span';
+    spacer.setAttribute('aria-hidden', 'true');
+    scroller.prepend(spacer);
+  }
+  const viewW = Math.max(240, scroller?.clientWidth || 900);
   const duration = t1 - t0;
-  const cssWidth = Math.min(Math.max(fitW, duration * pxPerSec), MAX_CHART_PX);
-  canvas.style.width = `${Math.round(cssWidth)}px`;
+  // Below this the take fits and there is nothing to scroll; above it, the
+  // spacer grows and the canvas stays put.
+  const plotW = viewW - PAD.left - PAD.right;
+  const scale = Math.max(pxPerSec, plotW / Math.max(duration, 0.001));
+  const contentW = PAD.left + duration * scale + PAD.right;
+  if (spacer) spacer.style.width = `${Math.round(contentW)}px`;
+  canvas.style.width = `${viewW}px`;
+
+  const scrollLeft = () => (scroller ? scroller.scrollLeft : 0);
+  // content space ↔ time
+  const contentX = (t) => PAD.left + (t - t0) * scale;
+  const timeAtContentX = (px) => t0 + (px - PAD.left) / scale;
 
   const pts = [];
   for (const r of readings) {
@@ -266,18 +340,31 @@ export function renderOverviewChart(canvas, {
     const note = findNoteAt(notes, r.time, 0);
     pts.push({ time: r.time, mf, status: note ? intonationStatus(note.cents) : null });
   }
+  // Notes are drawn per screenful too, so they get the same bisection.
+  const noteStarts = notes.map((n) => ({ time: n.start, n }));
 
   const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead, highlight) => {
     const ctx = cv.getContext('2d');
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, cssW, cssH);
-    const w = cssW - PAD.left - PAD.right;
     const h = cssH - PAD.top - PAD.bottom;
-    const x = (t) => PAD.left + ((t - t0) / (t1 - t0)) * w;
+    const left = scrollLeft();
+    const x = (t) => contentX(t) - left;
     const y = (mf) => PAD.top + (1 - (mf - yMin) / (yMax - yMin)) * h;
+    // the slice on screen, with a little margin so partial marks aren't clipped
+    const tVis0 = timeAtContentX(left + PAD.left) - 0.2;
+    const tVis1 = timeAtContentX(left + cssW - PAD.right) + 0.2;
+
+    // Everything left of the gutter is the axis, so the plot is clipped to the
+    // right of it — otherwise a scrolled trace would run under the note names.
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(PAD.left, 0, cssW - PAD.left - PAD.right, cssH);
+    ctx.clip();
 
     // note spans, tinted by intonation; the selected/hovered note lights up
     for (const n of notes) {
+      if (n.end < tVis0 || n.start > tVis1) continue;
       const spanW = Math.max(2, x(n.end) - x(n.start));
       ctx.fillStyle = STATUS_SPAN()[intonationStatus(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, spanW, h);
@@ -293,8 +380,8 @@ export function renderOverviewChart(canvas, {
       // wearing each note's intonation verdict like the pitch trace does
       const mid = PAD.top + h / 2;
       for (let px = PAD.left; px < cssW - PAD.right; px++) {
-        const ta = t0 + ((px - PAD.left) / w) * (t1 - t0);
-        const tb = t0 + ((px + 1 - PAD.left) / w) * (t1 - t0);
+        const ta = timeAtContentX(left + px);
+        const tb = timeAtContentX(left + px + 1);
         let amp = 0;
         const b0 = Math.max(0, Math.floor(ta * wave.perSec));
         const b1 = Math.min(wave.peaks.length - 1, Math.ceil(tb * wave.perSec));
@@ -305,70 +392,35 @@ export function renderOverviewChart(canvas, {
         const barH = Math.max(0.6, amp * 0.92 * (h / 2 - 2));
         ctx.fillRect(px, mid - barH, 1, barH * 2);
       }
-      if (playhead !== null && playhead >= t0 && playhead <= t1) {
-        drawPlayhead(ctx, x(playhead), PAD.top, h);
-        ctx.fillStyle = C().primary;
+    } else {
+      // semitone gridlines
+      for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) {
+        ctx.strokeStyle = C().grid;
+        ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillStyle = C().onPrimary;
-        ctx.beginPath();
-        ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
-        ctx.fill();
-      }
-      return;
-    }
-
-    // semitone gridlines; label as densely as the row spacing allows —
-    // every semitone when roomy, naturals when tighter, landmarks when cramped
-    ctx.font = FONT;
-    ctx.textBaseline = 'middle';
-    const rowH = h / (yMax - yMin);
-    for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) {
-      ctx.strokeStyle = C().grid;
-      ctx.beginPath();
-      ctx.moveTo(PAD.left, y(m));
-      ctx.lineTo(cssW - PAD.right, y(m));
-      ctx.stroke();
-      const pc = ((m % 12) + 12) % 12;
-      const natural = ![1, 3, 6, 8, 10].includes(pc);
-      const labeled = rowH >= 13 || (rowH >= 6.5 && natural)
-        || pc === 0 || pc === 2 || pc === 7;
-      if (labeled) {
-        ctx.fillStyle = C().muted;
-        ctx.textAlign = 'right';
-        ctx.fillText(midiToName(m), PAD.left - LABEL_GAP, y(m));
-      }
-    }
-
-    ctx.lineWidth = LINE_WIDTH;
-    ctx.lineJoin = 'round';
-    let prev = null;
-    for (const p of pts) {
-      if (p.mf === null) { prev = null; continue; }
-      if (prev) {
-        ctx.strokeStyle = p.status && p.status === prev.status ? STATUS_LINE()[p.status] : C().muted;
-        ctx.beginPath();
-        ctx.moveTo(x(prev.time), y(prev.mf));
-        ctx.lineTo(x(p.time), y(p.mf));
+        ctx.moveTo(PAD.left, y(m));
+        ctx.lineTo(cssW - PAD.right, y(m));
         ctx.stroke();
       }
-      prev = p;
+      const from = Math.max(0, lowerBound(pts, tVis0) - 1);
+      const to = Math.min(pts.length, lowerBound(pts, tVis1) + 1);
+      drawTrace(ctx, pts, from, to, x, y);
     }
 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
-      drawPlayhead(ctx, x(playhead), PAD.top, h);
-      // the grab handle — drag it along the take to steer the zoom below
-      ctx.fillStyle = C().primary;
-      ctx.beginPath();
-      ctx.arc(x(playhead), PAD.top + 7, 8, 0, 2 * Math.PI);
-      ctx.fill();
-      ctx.fillStyle = C().onPrimary;
-      ctx.beginPath();
-      ctx.arc(x(playhead), PAD.top + 7, 3, 0, 2 * Math.PI);
-      ctx.fill();
-      // ...and how far off the pitch is right there, moving with the sound
-      if (!hoverPt) drawLiveCents(ctx, cv, pts, playhead, x, y, cssW, cssH);
+      const px = x(playhead);
+      if (px >= PAD.left - 20 && px <= cssW - PAD.right + 20) {
+        drawPlayhead(ctx, px, PAD.top, h);
+        // the grab handle — drag it along the take to steer the zoom below
+        ctx.fillStyle = C().primary;
+        ctx.beginPath();
+        ctx.arc(px, PAD.top + 7, 8, 0, 2 * Math.PI);
+        ctx.fill();
+        ctx.fillStyle = C().onPrimary;
+        ctx.beginPath();
+        ctx.arc(px, PAD.top + 7, 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
     }
 
     if (hoverPt) {
@@ -378,52 +430,84 @@ export function renderOverviewChart(canvas, {
       ctx.fill();
       const nearest = Math.round(hoverPt.mf);
       const cents = (hoverPt.mf - nearest) * 100;
+      ctx.font = FONT;
+      ctx.textBaseline = 'middle';
       ctx.textAlign = x(hoverPt.time) > cssW / 2 ? 'right' : 'left';
       const dx = x(hoverPt.time) > cssW / 2 ? -8 : 8;
       ctx.fillText(`${midiToName(nearest)} ${cents >= 0 ? '+' : ''}${cents.toFixed(0)}¢`,
         x(hoverPt.time) + dx, Math.max(PAD.top + 8, y(hoverPt.mf) - 10));
     }
+    ctx.restore();
+
+    // The axis sits outside the clip so it stays legible at any scroll offset —
+    // it is the one part of the chart that must not move.
+    if (mode !== 'wave' || !wave) {
+      ctx.font = FONT;
+      ctx.textBaseline = 'middle';
+      ctx.textAlign = 'right';
+      const rowH = h / (yMax - yMin);
+      for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) {
+        const pc = ((m % 12) + 12) % 12;
+        const natural = ![1, 3, 6, 8, 10].includes(pc);
+        const labeled = rowH >= 13 || (rowH >= 6.5 && natural) || pc === 0 || pc === 2 || pc === 7;
+        if (!labeled) continue;
+        ctx.fillStyle = C().muted;
+        ctx.fillText(midiToName(m), PAD.left - LABEL_GAP, y(m));
+      }
+    }
+    // ...and how far off the pitch is right there, moving with the sound
+    if (playhead !== null && !hoverPt) {
+      drawLiveCents(ctx, cv, pts, playhead, x, y, cssW, cssH);
+    }
   });
 
   const timeAt = (e) => {
     const xCss = canvasX(e, canvas, controller.cssW);
-    const w = controller.cssW - PAD.left - PAD.right;
-    return Math.max(t0, Math.min(t1, t0 + ((xCss - PAD.left) / w) * (t1 - t0)));
+    return Math.max(t0, Math.min(t1, timeAtContentX(xCss + scrollLeft())));
   };
+
+  // Repaint as the take scrolls under the pinned canvas, at most once a frame.
+  let scrollPending = false;
+  const onScroll = () => {
+    if (scrollPending) return;
+    scrollPending = true;
+    requestAnimationFrame(() => { scrollPending = false; controller.repaint(); });
+  };
+  scroller?.removeEventListener('scroll', scroller._chartScroll ?? (() => {}));
+  if (scroller) {
+    scroller._chartScroll = onScroll;
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+  }
 
   // Keep the sweeping playhead in view during playback.
   const basePlayhead = controller.setPlayhead;
   controller.setPlayhead = (t) => {
-    basePlayhead(t);
-    if (t === null || !container) return;
-    const w = controller.cssW - PAD.left - PAD.right;
-    const px = PAD.left + ((t - t0) / (t1 - t0)) * w;
-    const view = container.clientWidth;
-    if (px < container.scrollLeft + 40 || px > container.scrollLeft + view - 40) {
-      container.scrollLeft = Math.max(0, px - view / 3);
+    if (t !== null && scroller) {
+      const px = contentX(t);
+      const view = scroller.clientWidth;
+      if (px < scroller.scrollLeft + PAD.left + 20 || px > scroller.scrollLeft + view - 60) {
+        scroller.scrollLeft = Math.max(0, px - view / 3);
+      }
     }
-  };
-
-  const xOf = (t) => {
-    const w = controller.cssW - PAD.left - PAD.right;
-    return PAD.left + ((t - t0) / (t1 - t0)) * w;
+    basePlayhead(t);
   };
 
   // The drag handle is a real DOM element floating over the drawn knob:
   // it declares touch-action none, so grabbing it always drags the cursor,
-  // while touch anywhere else still pans the scrollable chart natively.
-  let knob = container?.querySelector('.chart-knob');
-  if (container && !knob) {
+  // while touch anywhere else still pans the scrollable chart natively. It
+  // lives in the scroll content, so its position is in content space.
+  let knob = scroller?.querySelector('.chart-knob');
+  if (scroller && !knob) {
     knob = document.createElement('div');
     knob.className = 'chart-knob';
-    container.append(knob);
+    scroller.append(knob);
   }
   const placeKnob = (t) => {
     if (!knob) return;
     if (t === null || t < t0 || t > t1) { knob.style.display = 'none'; return; }
     knob.style.display = 'block';
-    knob.style.left = `${canvas.offsetLeft + (xOf(t) / controller.cssW) * canvas.clientWidth}px`;
-    knob.style.top = `${canvas.offsetTop + PAD.top + 7}px`;
+    knob.style.left = `${contentX(t)}px`;
+    knob.style.top = `${PAD.top + 7}px`;
   };
   const withKnob = controller.setPlayhead;
   controller.setPlayhead = (t) => { withKnob(t); placeKnob(t); };
@@ -452,7 +536,8 @@ export function renderOverviewChart(canvas, {
     canvas.style.cursor = note ? 'pointer' : 'default';
     onNoteHover?.(note);
     controller.setHighlight(note);
-    controller.setHover(nearestPoint(pts, time, 'mf'));
+    const i = lowerBound(pts, time);
+    controller.setHover(nearestPoint(pts.slice(Math.max(0, i - 12), i + 12), time, 'mf'));
   };
   canvas.onclick = (e) => onSeek?.(timeAt(e), 'tap');
   canvas.onmouseleave = () => {
@@ -466,11 +551,9 @@ export function renderOverviewChart(canvas, {
   });
 
   controller.range = { t0, t1 };
-  controller.xOfTime = xOf;
-  controller.timeAtX = (px) => {
-    const w = controller.cssW - PAD.left - PAD.right;
-    return t0 + ((px - PAD.left) / w) * (t1 - t0);
-  };
+  controller.xOfTime = contentX;
+  controller.timeAtX = timeAtContentX;
+  controller.notes = noteStarts;
   return controller;
 }
 

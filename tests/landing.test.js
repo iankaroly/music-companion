@@ -201,3 +201,43 @@ describe('landing survives the real analysis pipeline', () => {
     expect(l.settleMs).toBeLessThan(60);
   });
 });
+
+// A ten-minute practice session is the length this app is FOR, and every other
+// test here is a handful of notes. traceOf used to scan the whole readings
+// array once per note, which at this size is tens of millions of iterations on
+// every report open — invisible at ten seconds, a frozen screen at ten minutes.
+describe('landing at practice length', () => {
+  function tenMinuteTake() {
+    const HOP = 512 / SR;
+    const notes = [];
+    const readings = [];
+    let i = 0;
+    for (let start = 0; start + 0.55 < 600; start += 0.55, i++) {
+      const midi = 48 + [0, 2, 4, 5, 7, 9, 11, 12][i % 8];
+      const end = start + 0.46;
+      for (let t = start; t <= end; t += HOP) {
+        const mf = midi + Math.sin(i) * 0.06;
+        readings.push({ time: t, frequency: A4 * 2 ** ((mf - 69) / 12), confidence: 0.9, rms: 0.1 });
+      }
+      for (let t = end; t < start + 0.55; t += HOP) {
+        readings.push({ time: t, frequency: null, confidence: 0, rms: 0.001 });
+      }
+      notes.push({ midi, name: midiName(midi), cents: Math.sin(i) * 6, start, end });
+    }
+    return { notes, readings };
+  }
+  const midiName = (m) => `${['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][m % 12]}${Math.floor(m / 12) - 1}`;
+
+  test('reads a full session without scanning it once per note', () => {
+    const { notes, readings } = tenMinuteTake();
+    expect(notes.length).toBeGreaterThan(1000);
+    expect(readings.length).toBeGreaterThan(50000);
+    const started = Date.now();
+    const report = landingReport(notes, readings, A4);
+    const elapsed = Date.now() - started;
+    expect(report).not.toBeNull();
+    expect(report.rows.length).toBe(notes.length);
+    // Generous by an order of magnitude — the scanning version took seconds.
+    expect(elapsed).toBeLessThan(500);
+  });
+});
