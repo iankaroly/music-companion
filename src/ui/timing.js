@@ -20,14 +20,24 @@ let PAD = { top: 14, right: 10, bottom: 16, left: 40 };
 const FONT = '11px -apple-system, "Segoe UI", Roboto, sans-serif';
 const CURVE_SHARE = 0.44;  // how much of the height the tempo lane takes
 const DEV_CEILING = 0.12;  // deviation axis: ±120 ms, or the worst note if larger
+const LABEL_GAP = 6;
+const EDGE_GAP = 3;
 
-// On a phone the axis gutter is a tenth of the screen. Trimmed there, so the
-// data gets the width instead of the labels.
-function syncPad() {
+// On a phone the axis gutter is a tenth of the screen, so it starts narrow —
+// but then widens to whatever the labels in it actually measure, because a
+// gutter guessed too small doesn't crop the label, it slices it down the
+// middle against the edge of the canvas.
+function syncPad(canvas, labels = []) {
   const narrow = (globalThis.innerWidth ?? 900) <= 640;
   PAD = narrow
     ? { top: 12, right: 6, bottom: 15, left: 28 }
     : { top: 14, right: 10, bottom: 16, left: 40 };
+  const ctx = canvas?.getContext?.('2d');
+  if (!ctx || labels.length === 0) return;
+  ctx.font = FONT;
+  let widest = 0;
+  for (const label of labels) widest = Math.max(widest, ctx.measureText(label).width);
+  PAD.left = Math.max(PAD.left, Math.ceil(widest) + LABEL_GAP + EDGE_GAP);
 }
 
 function ordinal(n) {
@@ -47,8 +57,30 @@ function axisOf(canvas, report) {
   return { cssW, t0, t1, x: (t) => PAD.left + ((t - t0) / (t1 - t0)) * w };
 }
 
+// A single fumbled note throws the local tempo estimate a long way, and scaling
+// the axis to that would squash the shape everyone came to see. The axis covers
+// the bulk of the curve (and never less than ±6%); outliers are clamped to the
+// edge instead of stretching it.
+function curveSpread(report) {
+  const centre = report.bpm;
+  const offsets = report.curve.map((p) => Math.abs(p.bpm - centre)).sort((a, b) => a - b);
+  const bulk = offsets[Math.floor(offsets.length * 0.9)] ?? 0;
+  return Math.max(centre * 0.06, bulk);
+}
+
 function drawTiming(canvas, report) {
-  syncPad();
+  // Everything that will be written in the gutter, so it can be sized to fit:
+  // the tempo readings above, the deviation scale below.
+  const centre = report.bpm;
+  const spread = curveSpread(report);
+  const worstMs = Math.round(Math.max(DEV_CEILING,
+    ...report.notes.map((n) => Math.abs(n.deviationMs) / 1000)) * 800);
+  syncPad(canvas, [
+    `${Math.round(centre)}`,
+    `${Math.round(centre + spread)}`,
+    `+${worstMs}`,
+    `−${worstMs}`,
+  ]);
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.clientWidth || 600;
   const cssH = canvas.clientHeight || 150;
@@ -70,14 +102,6 @@ function drawTiming(canvas, report) {
 
   // --- tempo lane ---
   if (report.curve.length > 1) {
-    const centre = report.bpm;
-    // A single fumbled note throws the local tempo estimate a long way, and
-    // scaling the axis to that would squash the shape everyone came to see. The
-    // axis covers the bulk of the curve (and never less than ±6%); outliers are
-    // clamped to the edge instead of stretching it.
-    const offsets = report.curve.map((p) => Math.abs(p.bpm - centre)).sort((a, b) => a - b);
-    const bulk = offsets[Math.floor(offsets.length * 0.9)] ?? 0;
-    const spread = Math.max(centre * 0.06, bulk);
     const yBpm = (bpm) => {
       const clamped = Math.max(centre - spread, Math.min(centre + spread, bpm));
       return PAD.top + curveH * (1 - (clamped - (centre - spread)) / (2 * spread));
@@ -94,8 +118,8 @@ function drawTiming(canvas, report) {
 
     ctx.fillStyle = c.muted;
     ctx.textAlign = 'right';
-    ctx.fillText(`${Math.round(centre)}`, PAD.left - 6, yBpm(centre));
-    ctx.fillText(`${Math.round(centre + spread)}`, PAD.left - 6, PAD.top + 4);
+    ctx.fillText(`${Math.round(centre)}`, PAD.left - LABEL_GAP, yBpm(centre));
+    ctx.fillText(`${Math.round(centre + spread)}`, PAD.left - LABEL_GAP, PAD.top + 4);
 
     ctx.strokeStyle = c.primary;
     ctx.lineWidth = 2;
@@ -147,8 +171,8 @@ function drawTiming(canvas, report) {
 
   ctx.fillStyle = c.muted;
   ctx.textAlign = 'right';
-  ctx.fillText(`+${msLabel}`, PAD.left - 6, yDev(worstDev * 0.8));
-  ctx.fillText(`−${msLabel}`, PAD.left - 6, yDev(-worstDev * 0.8));
+  ctx.fillText(`+${msLabel}`, PAD.left - LABEL_GAP, yDev(worstDev * 0.8));
+  ctx.fillText(`−${msLabel}`, PAD.left - LABEL_GAP, yDev(-worstDev * 0.8));
   ctx.textAlign = 'left';
   ctx.fillText('late / early (ms)', PAD.left + 2, devTop - 4);
 

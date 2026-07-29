@@ -1,4 +1,4 @@
-import { audioContext, masterOut, clickLevel } from './context.js';
+import { audioContext, masterOut, clickLevel, holdAudio, releaseAudio } from './context.js';
 
 // Lookahead-scheduled metronome: clicks are placed on the AudioContext
 // clock ahead of time (the setInterval only tops up the schedule), so
@@ -105,7 +105,7 @@ export class Metronome {
 
   start() {
     if (this.running) return;
-    this.ctx = audioContext();
+    this.ctx = holdAudio('metronome');
     this.nextTime = this.ctx.currentTime + 0.1;
     this.count = 0;
     this.barCount = 0;
@@ -116,6 +116,7 @@ export class Metronome {
   stop() {
     clearInterval(this.timer);
     this.timer = null;
+    releaseAudio('metronome');
   }
 
   schedule() {

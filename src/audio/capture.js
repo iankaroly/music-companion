@@ -1,4 +1,4 @@
-import { setAudioSessionType } from './context.js';
+import { setAudioSessionType, releaseCaptureSession } from './context.js';
 
 // Mic capture: getUserMedia → AudioWorklet → onChunk(Float32Array).
 // Returns { sampleRate, stop }.
@@ -38,7 +38,7 @@ export function releaseMic() {
   held.stream.getTracks().forEach((t) => t.stop());
   held.ctx.close().catch(() => {});
   held = null;
-  setAudioSessionType('playback');
+  releaseCaptureSession();
 }
 
 export function micIsHeld() {
@@ -99,7 +99,7 @@ export async function startCapture(onChunk) {
         // grant survives to the next start.
         session.stream.getTracks().forEach((t) => { t.enabled = false; });
         session.ctx.suspend().catch(() => {});
-        setAudioSessionType('playback');
+        releaseCaptureSession();
       } else {
         releaseMic();
       }

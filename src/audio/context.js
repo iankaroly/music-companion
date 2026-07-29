@@ -8,11 +8,33 @@
 // - Safari caps the number of live AudioContexts — sharing one keeps us
 //   under it alongside the mic capture context.
 // iOS plays 'play-and-record' sessions at a much lower output level (call
-// routing), so we stay in 'playback' — full media volume, still beats the
+// routing), so we claim 'playback' — full media volume, still beats the
 // silent switch — and only switch to 'play-and-record' while the mic runs.
-let sessionType = 'playback';
+//
+// But claiming it is not free, and claiming it CONSTANTLY was a bug the user
+// felt on every app switch: a running context holding a 'playback' session is
+// the system's definition of an app playing media. It routes the hardware
+// volume keys to media, which is what made iOS play its mute/unmute blip and
+// flash the speaker HUD in the notch every time the app was swiped away, and
+// it puts the app on the lock screen as though a track were paused there.
+//
+// So the session is a claim we make while sound is actually happening and give
+// back when it isn't. Anything that produces sound takes a hold (holdAudio) and
+// drops it when it stops; when the last hold goes the context is suspended and
+// the session handed back to the system. Nothing is claimed at rest — which is
+// most of the time, since a tuner and a chart make no sound at all.
+
+const IDLE_MS = 1200;   // grace period, so gaps between notes don't churn it
+const IDLE_TYPE = 'auto'; // "no opinion" — the system stops calling us a player
+
+let sessionType = null;
+let idleTimer = null;
+const holds = new Set();
 
 export function setAudioSessionType(type) {
+  // Re-assigning the same type still re-activates the session on iOS, and this
+  // used to run on every single audioContext() call. Assign only on a change.
+  if (type === sessionType) return;
   sessionType = type;
   if (navigator.audioSession) {
     try { navigator.audioSession.type = type; } catch { /* older iOS */ }
@@ -20,11 +42,72 @@ export function setAudioSessionType(type) {
 }
 
 export function audioContext() {
-  setAudioSessionType(sessionType);
   audioContext.ctx ??= new AudioContext();
-  if (audioContext.ctx.state !== 'running') audioContext.ctx.resume();
   return audioContext.ctx;
 }
+
+// Called the moment anything audible is wired up. Claims the session, wakes
+// the context, and cancels any pending sleep.
+export function wakeAudio() {
+  const ctx = audioContext();
+  clearTimeout(idleTimer);
+  idleTimer = null;
+  // never downgrade the mic's session while it is capturing
+  if (sessionType !== 'play-and-record') setAudioSessionType('playback');
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+  return ctx;
+}
+
+function sleepAudio() {
+  idleTimer = null;
+  if (holds.size || sessionType === 'play-and-record') return;
+  audioContext.ctx?.suspend().catch(() => {});
+  setAudioSessionType(IDLE_TYPE);
+  // Some browsers surface a paused Web Audio app to the lock screen through
+  // the Media Session API; say plainly that there is nothing to show.
+  try {
+    if (navigator.mediaSession) {
+      navigator.mediaSession.playbackState = 'none';
+      navigator.mediaSession.metadata = null;
+    }
+  } catch { /* not supported */ }
+}
+
+function scheduleSleep(delay = IDLE_MS) {
+  clearTimeout(idleTimer);
+  idleTimer = holds.size ? null : setTimeout(sleepAudio, delay);
+}
+
+// Anything that makes a sound holds the session for as long as it lasts:
+// 'drone', 'metronome', 'playback'. Re-holding the same key is a no-op, so
+// callers can be sloppy about matching every start with exactly one stop.
+export function holdAudio(key) {
+  holds.add(key);
+  return wakeAudio();
+}
+
+export function releaseAudio(key) {
+  holds.delete(key);
+  scheduleSleep();
+}
+
+export function audioIsHeld() {
+  return holds.size > 0;
+}
+
+// The mic gives the session back when it stops capturing. It must NOT hand it
+// back as 'playback' — that is a claim to be playing media, and the tuner
+// stopping is precisely a moment when nothing is.
+export function releaseCaptureSession() {
+  setAudioSessionType(holds.size ? 'playback' : IDLE_TYPE);
+  if (holds.size === 0) sleepAudio();
+}
+
+// Swiping away with nothing playing should leave no trace of us behind, and
+// there is no reason to wait out the grace period for it.
+globalThis.addEventListener?.('visibilitychange', () => {
+  if (globalThis.document?.visibilityState === 'hidden' && holds.size === 0) sleepAudio();
+});
 
 // Everything audible routes through masterGain → limiter → makeup → ceiling →
 // speakers, so the volume slider can push well past 1.0 without clipping.
@@ -65,7 +148,9 @@ function ceilingCurve(n = 4096) {
 let masterGain = null;
 
 export function masterOut() {
-  const ctx = audioContext();
+  // Everything audible connects here, so this is the one place guaranteed to
+  // run at the moment a sound is created — the safe place to wake up.
+  const ctx = wakeAudio();
   if (!masterGain) {
     masterGain = ctx.createGain();
     masterGain.gain.value = getVolume();

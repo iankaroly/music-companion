@@ -1,4 +1,4 @@
-import { audioContext, masterOut, droneLevel } from './context.js';
+import { audioContext, masterOut, droneLevel, holdAudio, releaseAudio } from './context.js';
 
 // Pitch pipe / drone generator (TonalEnergy-style): any number of chromatic
 // notes can sound at once, so whole chords can be held and tuned against.
@@ -78,6 +78,7 @@ export function toggleDroneNote(name, frequency) {
   osc.connect(gain).connect(masterOut());
   osc.start();
   active.set(name, { osc, gain, shaped: frequency });
+  holdAudio('drone');
   return true;
 }
 
@@ -88,6 +89,8 @@ function stopDroneNote(name) {
   const ctx = audioContext();
   voice.gain.gain.setTargetAtTime(0, ctx.currentTime, RAMP / 3);
   setTimeout(() => voice.osc.stop(), RAMP * 2000);
+  // the fade has to finish before the context may be suspended under it
+  if (active.size === 0) setTimeout(() => releaseAudio('drone'), RAMP * 2000);
 }
 
 export function stopAllDrones() {

@@ -1,4 +1,4 @@
-import { audioContext, masterOut } from '../audio/context.js';
+import { audioContext, masterOut, holdAudio, releaseAudio } from '../audio/context.js';
 import { findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
@@ -47,6 +47,16 @@ function makeOsc(frequency, level) {
 function fadeOutOsc({ osc, gain }) {
   gain.gain.setTargetAtTime(0, playbackCtx.currentTime, 0.04);
   setTimeout(() => osc.stop(), 250);
+  // let the fade finish before the context is allowed to sleep under it
+  setTimeout(reviewVoicesChanged, 300);
+}
+
+// The review screen can have several voices going at once — a held note, a
+// reference pitch, any number of comparison drones. The audio session is held
+// while ANY of them sound, so it is recounted rather than toggled.
+function reviewVoicesChanged() {
+  if (noteDrone || refDrone || compareDrones.size) holdAudio('review');
+  else releaseAudio('review');
 }
 
 // "Hold as drone": not a loop of the recording — a steady synthesized tone
@@ -55,6 +65,7 @@ function fadeOutOsc({ osc, gain }) {
 function startNoteDrone(frequency, btn, tile) {
   stopNoteDrone();
   noteDrone = { ...makeOsc(frequency, 0.3), btn, tile };
+  reviewVoicesChanged();
   btn.classList.add('active');
   tile.classList.add('playing');
 }
@@ -86,6 +97,7 @@ function toggleCompareDrone(sibling, a4, btn) {
     // the pitch actually produced, cents error and all — that's the point
     const frequency = a4 * 2 ** ((sibling.midi + sibling.cents / 100 - 69) / 12);
     compareDrones.set(sibling, makeOsc(frequency, 0.28));
+    reviewVoicesChanged();
   }
   btn.classList.toggle('active', compareDrones.size > 0);
 }
@@ -93,6 +105,7 @@ function toggleCompareDrone(sibling, a4, btn) {
 function startRefDrone(frequency, btn) {
   stopRefDrone();
   refDrone = { ...makeOsc(frequency, 0.26), btn };
+  reviewVoicesChanged();
   btn.classList.add('active');
 }
 
@@ -139,6 +152,7 @@ function scheduleClickTrack(startTime, from, recSpan) {
 
 function stopPlayback(root) {
   stopClicks();
+  releaseAudio('playback');
   if (currentSource) {
     currentSource.onended = null;
     currentSource.stop();
@@ -161,8 +175,11 @@ function stopPlayback(root) {
 // `spans` are tiles that light up exactly while their note is sounding.
 // Returns the audio-clock start time (used for pause bookkeeping).
 function playClip(clip, root, timeMap, spans, onDone) {
+  // Tearing down the previous clip drops its hold, so this one is taken after,
+  // not before — otherwise the context would be free to sleep mid-playback.
   playbackCtx = audioContext();
   stopPlayback(root);
+  playbackCtx = holdAudio('playback');
 
   const samples = playbackSpeed < 0.999
     ? timeStretch(clip.samples, clip.sampleRate, playbackSpeed)

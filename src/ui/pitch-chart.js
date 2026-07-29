@@ -17,19 +17,31 @@ const STATUS_SPAN = () => {
   const p = C();
   return { good: p.goodFill, off: p.offFill, bad: p.badFill };
 };
-// The note-name gutter is a fixed 44px, which is a tenth of a phone screen
-// spent on labels. Narrow screens get a tighter one — reassigned wholesale
-// before each render, so every closure below reads the current geometry.
+// The note-name gutter used to be a fixed 44px, which is a tenth of a phone
+// screen spent on labels. Trimming it to a guess was worse: "C#4" is wider
+// than the guess, so the labels ran off the left edge of the canvas and were
+// sliced in half. The gutter is measured from the widest label the chart will
+// actually draw, so it is exactly as wide as it needs to be and never less.
+// Reassigned wholesale before each render, so every closure below reads the
+// current geometry.
+const LABEL_GAP = 5;  // between the label and the axis
+const EDGE_GAP = 3;   // between the label and the canvas edge
 let PAD = { top: 16, right: 10, bottom: 18, left: 44 };
 
-function syncPad() {
+const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
+
+function syncPad(canvas, labels = []) {
   const narrow = (globalThis.innerWidth ?? 900) <= 640;
   PAD = narrow
     ? { top: 14, right: 5, bottom: 16, left: 28 }
     : { top: 16, right: 10, bottom: 18, left: 44 };
+  const ctx = canvas?.getContext?.('2d');
+  if (!ctx || labels.length === 0) return;
+  ctx.font = FONT;
+  let widest = 0;
+  for (const label of labels) widest = Math.max(widest, ctx.measureText(label).width);
+  PAD.left = Math.max(PAD.left, Math.ceil(widest) + LABEL_GAP + EDGE_GAP);
 }
-
-const FONT = '12px -apple-system, "Segoe UI", Roboto, sans-serif';
 const LIVE_FONT_PX = 12;
 const EMPTY = new Set();
 const LINE_WIDTH = 2.5;
@@ -224,21 +236,25 @@ export function renderOverviewChart(canvas, {
   pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null,
 }) {
   if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
-  syncPad();
   const padT = 0.4;
   const starts = notes.map((n) => n.start);
   const ends = notes.map((n) => n.end);
   const t0 = Math.min(...starts) - padT;
   const t1 = Math.max(...ends) + padT;
 
+  const midis = notes.map((n) => n.midi);
+  const yMin = Math.min(...midis) - 1;
+  const yMax = Math.max(...midis) + 1;
+  // every name that could appear in the gutter, so it can be sized to fit
+  const rowNames = [];
+  for (let m = Math.ceil(yMin); m <= Math.floor(yMax); m++) rowNames.push(midiToName(m));
+  syncPad(canvas, rowNames);
+
   const container = canvas.parentElement;
   const fitW = container?.clientWidth || 900;
   const duration = t1 - t0;
   const cssWidth = Math.min(Math.max(fitW, duration * pxPerSec), MAX_CHART_PX);
   canvas.style.width = `${Math.round(cssWidth)}px`;
-  const midis = notes.map((n) => n.midi);
-  const yMin = Math.min(...midis) - 1;
-  const yMax = Math.max(...midis) + 1;
 
   const pts = [];
   for (const r of readings) {
@@ -321,7 +337,7 @@ export function renderOverviewChart(canvas, {
       if (labeled) {
         ctx.fillStyle = C().muted;
         ctx.textAlign = 'right';
-        ctx.fillText(midiToName(m), PAD.left - 5, y(m));
+        ctx.fillText(midiToName(m), PAD.left - LABEL_GAP, y(m));
       }
     }
 
@@ -461,8 +477,8 @@ export function renderOverviewChart(canvas, {
 // --- zoom inset: one note in cents detail ----------------------------------
 
 export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek, onScale }) {
-  syncPad();
   const CLAMP = 150;
+  syncPad(canvas, [-100, 0, 100].map((dev) => midiToName(note.midi + dev / 100)));
   const t0 = note.start - contextSec;
   const t1 = note.end + contextSec;
   const pts = [];
@@ -497,7 +513,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
       ctx.setLineDash([]);
       ctx.fillStyle = C().muted;
       ctx.textAlign = 'right';
-      ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - 5, y(dev));
+      ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - LABEL_GAP, y(dev));
     }
 
     ctx.lineWidth = LINE_WIDTH;
