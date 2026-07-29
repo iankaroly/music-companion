@@ -4,7 +4,7 @@
 // sessions: [{ date: ms-epoch, noteStats: [{ midi, name, cents }],
 //              landingStats: [{ midi, band, onsetCents, settleMs }] }]
 
-import { LEAP_BANDS } from './landing.js';
+import { LEAP_BANDS, named } from './landing.js';
 
 const VERDICT_CENTS = 6; // a mean past this reads as a real habit, not noise
 
@@ -148,7 +148,7 @@ export function pieceProgress(sessions) {
 
 const CLEAN_MS = 60;
 
-export function aggregateLandings(sessions, { minCount = 5 } = {}) {
+export function aggregateLandings(sessions, { minCount = 5, motion = null } = {}) {
   const rows = [];
   for (const s of sessions) {
     for (const l of s.landingStats ?? []) {
@@ -166,7 +166,7 @@ export function aggregateLandings(sessions, { minCount = 5 } = {}) {
     if (inBand.length < minCount) return null;
     const onsets = inBand.map((l) => l.onsetCents);
     return {
-      ...band,
+      ...named(band, motion),
       count: inBand.length,
       cleanShare: cleanOf(inBand),
       meanOnsetCents: onsets.reduce((a, b) => a + b, 0) / onsets.length,

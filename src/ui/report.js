@@ -752,14 +752,29 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote, atTime);
   };
 
+  // Spoken form of a tile, for anyone who isn't looking at the colour.
+  const spoken = (d) => {
+    if (!d.played) return `${d.name}, missed`;
+    const cents = Math.round(d.played.cents);
+    const how = cents === 0 ? 'exactly in tune'
+      : `${Math.abs(cents)} cents ${cents > 0 ? 'sharp' : 'flat'}`;
+    const tier = { good: 'in tune', off: 'slightly off', bad: 'badly off' }[degreeState(d)];
+    return `${d.name}, ${how}, ${tier}${d.played.chord ? ', chord note' : ''}`;
+  };
+
   grid.replaceChildren();
   for (const d of degrees) {
-    const tile = document.createElement('div');
+    // A real button when it does something: a div with a click handler cannot
+    // be reached by keyboard and is announced as nothing at all.
+    const playable = !!(recording && d.played);
+    const tile = document.createElement(playable ? 'button' : 'div');
+    if (playable) tile.type = 'button';
     tile.className = d.played?.chord ? 'degree chord' : 'degree';
     tile.dataset.state = degreeState(d);
     const label = d.played ? centsLabel(d.played.cents) : 'missed';
     tile.innerHTML = `<b>${d.played?.chord ? '+' : ''}${d.name}</b>${label}`;
-    if (recording && d.played) {
+    tile.setAttribute('aria-label', playable ? `${spoken(d)}. Play it back.` : spoken(d));
+    if (playable) {
       tileByNote.set(d.played, { tile, name: d.name });
       tile.classList.add('clickable');
       tile.title = 'play this note back';
@@ -773,6 +788,20 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
 
   root.querySelector('#notes-summary').textContent =
     `${allNotes.length} notes — expand to browse`;
+
+  // The chart is the centre of this screen and a canvas says nothing to a
+  // screen reader, so it carries a summary of what it draws.
+  const chartEl = root.querySelector('#pitch-chart');
+  if (chartEl && allNotes.length) {
+    const tally = { good: 0, off: 0, bad: 0 };
+    for (const n of allNotes) tally[intonationStatus(n.cents)]++;
+    const span = allNotes.at(-1).end - allNotes[0].start;
+    chartEl.setAttribute('role', 'img');
+    chartEl.setAttribute('aria-label',
+      `Pitch over ${Math.round(span)} seconds. ${allNotes.length} notes: `
+      + `${tally.good} in tune, ${tally.off} slightly off, ${tally.bad} badly off. `
+      + 'The note list above has each one.');
+  }
 
   // Make the card visible BEFORE rendering the chart — a hidden container
   // measures 0 wide and the chart would fall back to a guessed width.

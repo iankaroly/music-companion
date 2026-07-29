@@ -7,6 +7,7 @@ import { passageProgress } from '../analysis/passages.js';
 import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
 import { intonationStatus } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
+import { instrument } from '../analysis/instruments.js';
 
 // The coach tab: personal intonation habits mined from the library.
 // Three cards — today's drill (act on it), the tendency map (see it),
@@ -64,7 +65,7 @@ export async function renderCoach(root) {
   } catch { /* blocked IndexedDB — the passage card just stays empty */ }
   renderPassages(root.querySelector('#passage-progress'), passageProgress(passages));
   renderDrills(root.querySelector('#drill-list'), pickDrills(tendencies));
-  renderLandings(root, aggregateLandings(sessions));
+  renderLandings(root, aggregateLandings(sessions, { motion: instrument().motion }));
   renderTendencies(root.querySelector('#tendency-rows'), tendencies);
   renderTrend(
     root.querySelector('#trend-chart'),
@@ -124,8 +125,7 @@ function renderLandings(root, summary) {
     const mean = Math.round(w.meanOnsetCents);
     note.textContent = `Start with ${w.plural}: ${Math.round(w.cleanShare * 100)}% of them`
       + ` speak in tune, and on average they arrive ${Math.abs(mean)}¢`
-      + ` ${mean < 0 ? 'flat' : 'sharp'}. Aim ${mean < 0 ? 'higher' : 'lower'} than feels right`
-      + ' and let the note tell you.';
+      + ` ${mean < 0 ? 'flat' : 'sharp'}. ${instrument().aim}`;
   } else {
     note.textContent = 'Your notes speak in tune from the start across every kind of'
       + ' interval — this is the hard part, and it is holding.';

@@ -29,16 +29,30 @@ const HOLD_SEC = 0.09;        // must stay in tune this long to count as settled
 // How wide a leap the player had to make to get here. Landing a step is a
 // different skill from landing a tenth, and lumping them together hides the
 // only part of this a player can act on.
+// The distances are the same for everyone; only the words differ. A cellist
+// covers a tenth with a SHIFT — a left-hand motion along a fingerboard — and a
+// flutist covering the same tenth does nothing of the kind. The names come from
+// the instrument profile so the report reads as though it were written for the
+// person holding the instrument.
 export const LEAP_BANDS = [
-  { key: 'same', label: 'repeated note', plural: 'repeated notes', max: 0 },
-  { key: 'step', label: 'step', plural: 'steps', max: 2 },
-  { key: 'leap', label: 'leap to a 5th', plural: 'leaps up to a 5th', max: 7 },
-  { key: 'shift', label: 'shift past a 5th', plural: 'shifts past a 5th', max: Infinity },
+  { key: 'same', max: 0 },
+  { key: 'step', max: 2 },
+  { key: 'leap', max: 7 },
+  { key: 'shift', max: Infinity },
 ];
 
-export function leapBand(semitones) {
+export function named(band, motion = null) {
+  if (!motion) return band;
+  return {
+    ...band,
+    label: motion[band.key] ?? band.key,
+    plural: motion[`${band.key}Plural`] ?? motion[band.key] ?? band.key,
+  };
+}
+
+export function leapBand(semitones, motion = null) {
   const distance = Math.abs(semitones);
-  return LEAP_BANDS.find((b) => distance <= b.max) ?? LEAP_BANDS.at(-1);
+  return named(LEAP_BANDS.find((b) => distance <= b.max) ?? LEAP_BANDS.at(-1), motion);
 }
 
 function median(values) {
@@ -130,7 +144,7 @@ export function isClean(landing) {
 }
 
 // Every note in a take, plus what they add up to.
-export function landingReport(notes, readings, a4 = 440, { tolerance = 8 } = {}) {
+export function landingReport(notes, readings, a4 = 440, { tolerance = 8, motion = null } = {}) {
   const rows = [];
   const ordered = [...(notes ?? [])].sort((a, b) => a.start - b.start);
   ordered.forEach((note, i) => {
@@ -143,7 +157,7 @@ export function landingReport(notes, readings, a4 = 440, { tolerance = 8 } = {})
       name: note.name,
       start: note.start,
       // the first note of a take was not arrived at from anywhere
-      band: previous ? leapBand(note.midi - previous.midi) : null,
+      band: previous ? leapBand(note.midi - previous.midi, motion) : null,
       ...landing,
     });
   });
@@ -157,7 +171,7 @@ export function landingReport(notes, readings, a4 = 440, { tolerance = 8 } = {})
     const inBand = rows.filter((r) => r.band?.key === band.key);
     if (inBand.length === 0) return null;
     return {
-      ...band,
+      ...named(band, motion),
       count: inBand.length,
       cleanShare: inBand.filter(isClean).length / inBand.length,
       medianSettleMs: median(inBand.filter((r) => r.settled).map((r) => r.settleMs)),

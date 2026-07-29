@@ -13,6 +13,7 @@ import { setIntonationTolerance } from './chart-utils.js';
 import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
 import { storageReport, requestPersistence, exportLibrary, importLibrary } from '../store/db.js';
+import { INSTRUMENTS, instrument, saveInstrument, loadInstrument } from '../analysis/instruments.js';
 
 const MOTION_KEY = 'mc-motion';
 const TOLERANCE_KEY = 'tolerance';
@@ -108,9 +109,39 @@ function releaseWakeLock() {
   wakeLock = null;
 }
 
+// The instrument picker, built from the profile list so adding a family is one
+// entry rather than a markup edit.
+function wireInstrument(doc) {
+  const group = doc.querySelector('#instrument-seg');
+  const hint = doc.querySelector('#instrument-hint');
+  if (!group) return;
+  const paint = () => {
+    for (const b of group.querySelectorAll('[data-instrument]')) {
+      b.setAttribute('aria-checked', String(b.dataset.instrument === instrument().id));
+    }
+    if (hint) hint.textContent = `${instrument().examples} — sets the words the coach uses`
+      + ' for how you get from one note to the next, and the drone it starts with.';
+  };
+  group.replaceChildren(...INSTRUMENTS.map((i) => {
+    const b = doc.createElement('button');
+    b.type = 'button';
+    b.setAttribute('role', 'radio');
+    b.dataset.instrument = i.id;
+    b.textContent = i.label;
+    b.addEventListener('click', () => {
+      saveInstrument(i.id);
+      paint();
+      announce(doc, 'instrument');
+    });
+    return b;
+  }));
+  paint();
+}
+
 export function initSettings(doc = document) {
   const pref = initTheme(doc);
   setIntonationTolerance(readTolerance());
+  loadInstrument();
 
   const dialog = doc.querySelector('#settings-dialog');
   const openBtn = doc.querySelector('#settings-btn');
@@ -133,6 +164,8 @@ export function initSettings(doc = document) {
     write(MOTION_KEY, value);
     doc.documentElement.dataset.motion = value;
   });
+
+  wireInstrument(doc);
 
   wireSegment(doc.querySelector('#tolerance-seg'), 'data-tolerance', readTolerance(), (value) => {
     write(TOLERANCE_KEY, value);

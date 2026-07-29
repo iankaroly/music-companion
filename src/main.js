@@ -1,7 +1,7 @@
 import { startCapture, micIsHeld } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
-import { Recorder } from './audio/recording.js';
+import { Recorder, MAX_SECONDS } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport } from './ui/report.js';
 import {
@@ -10,16 +10,18 @@ import {
 } from './store/db.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
-import { getVolume, setVolume } from './audio/context.js';
+import { getVolume, setVolume, audioContext, wakeAudio } from './audio/context.js';
 import { fftMagnitudes } from './audio/fft.js';
 import { RingBuffer } from './audio/ring-buffer.js';
-import { Metronome, tempoName } from './audio/metronome.js';
+import { Metronome, tempoName, scheduleClick } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { intonationStatus } from './ui/chart-utils.js';
 import { initLiquidTabs } from './ui/liquid-tabs.js';
 import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/controls.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings } from './ui/settings.js';
+import { initWelcome } from './ui/welcome.js';
+import { instrument } from './analysis/instruments.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
 
@@ -113,7 +115,9 @@ timbreSel.addEventListener('change', () => {
   setDroneTimbre(timbreSel.value);
   localStorage.setItem('timbre', timbreSel.value);
 });
-timbreSel.value = localStorage.getItem('timbre') ?? 'strings';
+// The instrument profile supplies the starting drone voice; once the player has
+// touched the control, their choice wins.
+timbreSel.value = localStorage.getItem('timbre') ?? instrument().timbre;
 setDroneTimbre(timbreSel.value);
 
 // --- tuner display: transposition & temperament ------------------------------
@@ -324,6 +328,8 @@ function clearTake() {
 // than with a screen that still claims to be recording.
 function finishRecording(note = null) {
   if (!capture || capture.listen) return;
+  pauseBtn.hidden = true;
+  stopClock();
   const { segmenter, chord, collected, recorder, readings } = capture;
   for (const n of segmenter.flush()) collected.push(n);
   for (const n of chord.segmenter.flush()) chord.onNote(n);
@@ -339,6 +345,68 @@ function finishRecording(note = null) {
   if (note) statusEl.textContent = note;
 }
 
+// --- the recording clock, count-in and pause --------------------------------
+
+const pauseBtn = document.querySelector('#pause-rec');
+const recClock = document.querySelector('#rec-clock');
+const countInSel = document.querySelector('#count-in');
+let clockTimer = null;
+
+const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+function stopClock() {
+  clearInterval(clockTimer);
+  clockTimer = null;
+  recClock.textContent = '';
+  recClock.classList.remove('warn');
+}
+
+function startClock(recorder) {
+  clearInterval(clockTimer);
+  clockTimer = setInterval(() => {
+    if (!capture || capture.listen) return stopClock();
+    const left = recorder.remaining;
+    recClock.textContent = recorder.paused
+      ? `paused at ${mmss(recorder.duration)}`
+      : mmss(recorder.duration);
+    // The cap is not a surprise any more: the last minute counts down.
+    if (left <= 60) {
+      recClock.textContent += ` · ${Math.ceil(left)}s left`;
+      recClock.classList.add('warn');
+    }
+  }, 250);
+}
+
+// Four clicks (or eight) before the take starts, so a tempo is already in your
+// head — the thing every player does with a metronome before they play.
+function countIn(bars) {
+  if (bars <= 0) return Promise.resolve();
+  const beats = bars * metronome.beatsPerBar;
+  const ctx = wakeAudio();
+  const beat = 60 / metronome.bpm;
+  const from = ctx.currentTime + 0.15;
+  for (let i = 0; i < beats; i++) {
+    scheduleClick(ctx, from + i * beat, i % metronome.beatsPerBar === 0 ? 'accent' : 'beat');
+  }
+  let left = beats;
+  const tick = setInterval(() => {
+    left--;
+    statusEl.textContent = left > 0 ? `count-in… ${left}` : 'recording';
+    if (left <= 0) clearInterval(tick);
+  }, beat * 1000);
+  statusEl.textContent = `count-in… ${beats}`;
+  return new Promise((resolve) => setTimeout(resolve, (from - ctx.currentTime + beats * beat) * 1000));
+}
+
+pauseBtn.addEventListener('click', () => {
+  const recorder = capture?.recorder;
+  if (!recorder) return;
+  recorder.paused = !recorder.paused;
+  pauseBtn.textContent = recorder.paused ? 'Resume' : 'Pause';
+  pauseBtn.classList.toggle('active', recorder.paused);
+  statusEl.textContent = recorder.paused ? 'paused' : 'recording';
+});
+
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.listen) {
     finishRecording();
@@ -346,12 +414,23 @@ startBtn.addEventListener('click', async () => {
   }
   stopEverything();
   clearTake();
+  startBtn.disabled = true;
   try {
+    await countIn(Number(countInSel.value) || 0);
     capture = await beginCapture({ collected: [] });
+    capture.recorder.onFull = () => {
+      statusEl.textContent = `that's the ${MAX_SECONDS / 60}-minute limit — stop and review`;
+    };
     startBtn.textContent = 'Stop & review';
+    pauseBtn.hidden = false;
+    pauseBtn.textContent = 'Pause';
+    pauseBtn.classList.remove('active');
     statusEl.textContent = 'recording';
+    startClock(capture.recorder);
   } catch (err) {
     statusEl.textContent = `mic unavailable: ${err.message}`;
+  } finally {
+    startBtn.disabled = false;
   }
 });
 
@@ -1026,6 +1105,17 @@ anyDroneBtn.addEventListener('click', () => {
   toggleMenu(anyDroneBtn, () => rows.map((r) => ({ ...r, on: sounding.has(r.label) })), { columns: true });
 });
 refreshDroneButton();
+
+// --- first run -----------------------------------------------------------------
+
+initWelcome(document, {
+  onDone: (chosen) => {
+    timbreSel.value = chosen.timbre;
+    setDroneTimbre(chosen.timbre);
+    localStorage.setItem('timbre', chosen.timbre);
+    timbreSel.dispatchEvent(new Event('refresh-label'));
+  },
+});
 
 // --- custom pickers replace every native select --------------------------------
 

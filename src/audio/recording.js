@@ -1,19 +1,33 @@
-const MAX_SECONDS = 600;
+export const MAX_SECONDS = 600;
 
 // Keeps the session's raw audio in memory so the report can play back the
-// exact moment a note was out of tune. Mono Float32 at the capture rate:
-// ten minutes ≈ 100 MB ceiling, a normal scale session is a few MB.
+// exact moment a note was out of tune. Mono Float32 at the capture rate — the
+// ceiling is what memory will take while recording; what gets STORED is
+// compressed (see audio/codec.js).
 export class Recorder {
   constructor(sampleRate) {
     this.sampleRate = sampleRate;
     this.chunks = [];
     this.length = 0;
+    this.full = false;
+    this.onFull = null;   // told once, so the UI can say the take is capped
+    this.paused = false;
   }
 
   push(chunk) {
-    if (this.length >= MAX_SECONDS * this.sampleRate) return;
+    if (this.paused) return;
+    if (this.length >= MAX_SECONDS * this.sampleRate) {
+      // It used to just drop the audio. Silently: the take kept "recording"
+      // for as long as you let it and the second half simply wasn't there.
+      if (!this.full) { this.full = true; this.onFull?.(); }
+      return;
+    }
     this.chunks.push(chunk.slice(0));
     this.length += chunk.length;
+  }
+
+  get remaining() {
+    return Math.max(0, MAX_SECONDS - this.duration);
   }
 
   get duration() {

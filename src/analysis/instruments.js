@@ -1,0 +1,157 @@
+// Who is holding the instrument.
+//
+// The app was built by and for a cellist and it showed everywhere a word
+// appeared. Landing bands said "shift past a 5th" — a shift is a left-hand
+// motion on a fingerboard, and a flutist does not make one. Drone timbres
+// defaulted to strings. Nothing knew that a soprano's low C and a cello's are
+// two octaves apart, or that a clarinet reads a written C and sounds a B flat.
+//
+// A profile is that knowledge in one place: the vocabulary for how you get from
+// one note to the next, a written-to-sounding transposition, a plausible range,
+// and which drone sounds like the room you practise in. Everything user-facing
+// asks the profile rather than assuming a fingerboard.
+
+export const INSTRUMENTS = [
+  {
+    id: 'strings',
+    label: 'Strings',
+    examples: 'violin, viola, cello, bass, guitar',
+    timbre: 'strings',
+    transpose: 0,
+    // how a player of this instrument describes getting from note to note
+    motion: {
+      same: 'repeated note',
+      step: 'step',
+      leap: 'leap to a 5th',
+      shift: 'shift past a 5th',
+      samePlural: 'repeated notes',
+      stepPlural: 'steps',
+      leapPlural: 'leaps up to a 5th',
+      shiftPlural: 'shifts past a 5th',
+    },
+    // what the coach suggests when a band lands badly
+    aim: 'Play the shift slowly and stop the bow on arrival — land it, then play it.',
+    range: [36, 88], // C2–E6, the family end to end
+  },
+  {
+    id: 'winds',
+    label: 'Winds',
+    examples: 'flute, clarinet, oboe, sax, bassoon',
+    timbre: 'reed',
+    transpose: 0,
+    motion: {
+      same: 'repeated note',
+      step: 'step',
+      leap: 'leap to a 5th',
+      shift: 'leap past a 5th',
+      samePlural: 'repeated notes',
+      stepPlural: 'steps',
+      leapPlural: 'leaps up to a 5th',
+      shiftPlural: 'leaps past a 5th',
+    },
+    aim: 'Take the leap without changing air speed first — set the embouchure, then blow.',
+    range: [46, 96], // Bb2–C7
+  },
+  {
+    id: 'brass',
+    label: 'Brass',
+    examples: 'trumpet, horn, trombone, tuba',
+    timbre: 'reed',
+    transpose: 0,
+    motion: {
+      same: 'repeated note',
+      step: 'step',
+      leap: 'slur to a 5th',
+      shift: 'leap past a 5th',
+      samePlural: 'repeated notes',
+      stepPlural: 'steps',
+      leapPlural: 'slurs up to a 5th',
+      shiftPlural: 'leaps past a 5th',
+    },
+    aim: 'Hear the partial before you play it — arriving flat usually means arriving late.',
+    range: [34, 84],
+  },
+  {
+    id: 'voice',
+    label: 'Voice',
+    examples: 'any part',
+    timbre: 'pure',
+    transpose: 0,
+    motion: {
+      same: 'repeated note',
+      step: 'step',
+      leap: 'leap to a 5th',
+      shift: 'leap past a 5th',
+      samePlural: 'repeated notes',
+      stepPlural: 'steps',
+      leapPlural: 'leaps up to a 5th',
+      shiftPlural: 'leaps past a 5th',
+    },
+    aim: 'Approach the interval on the breath, not the throat — sing the top note first, then the phrase.',
+    range: [36, 84],
+  },
+  {
+    id: 'keys',
+    label: 'Keys & other',
+    examples: 'piano, mallets, anything else',
+    timbre: 'organ',
+    transpose: 0,
+    motion: {
+      same: 'repeated note',
+      step: 'step',
+      leap: 'leap to a 5th',
+      shift: 'leap past a 5th',
+      samePlural: 'repeated notes',
+      stepPlural: 'steps',
+      leapPlural: 'leaps up to a 5th',
+      shiftPlural: 'leaps past a 5th',
+    },
+    aim: 'Listen for the arrival rather than the departure.',
+    range: [21, 108],
+  },
+];
+
+const DEFAULT_ID = 'strings';
+const KEY = 'instrument';
+
+export function instrumentById(id) {
+  return INSTRUMENTS.find((i) => i.id === id) ?? INSTRUMENTS.find((i) => i.id === DEFAULT_ID);
+}
+
+// Module state rather than a storage read on every call: this is asked for on
+// every note label the app draws, and the analysis modules stay pure.
+let current = instrumentById(DEFAULT_ID);
+
+export function instrument() {
+  return current;
+}
+
+export function setInstrument(id) {
+  current = instrumentById(id);
+  return current;
+}
+
+export function loadInstrument(storage = globalThis.localStorage) {
+  try {
+    return setInstrument(storage?.getItem(KEY) ?? DEFAULT_ID);
+  } catch {
+    return setInstrument(DEFAULT_ID);
+  }
+}
+
+export function saveInstrument(id, storage = globalThis.localStorage) {
+  try {
+    storage?.setItem(KEY, id);
+  } catch { /* survivable */ }
+  return setInstrument(id);
+}
+
+// Has the player ever said what they play? A fresh install hasn't, which is
+// what the first-run screen keys off.
+export function instrumentChosen(storage = globalThis.localStorage) {
+  try {
+    return !!storage?.getItem(KEY);
+  } catch {
+    return false;
+  }
+}

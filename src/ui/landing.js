@@ -7,6 +7,7 @@
 
 import { landingReport } from '../analysis/landing.js';
 import { intonationTolerance } from './chart-utils.js';
+import { instrument } from '../analysis/instruments.js';
 
 function clock(seconds) {
   return `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -47,7 +48,8 @@ export function renderLanding(root, notes, readings, a4, { onPickNote } = {}) {
   const section = root.querySelector('#landing');
   if (!section) return null;
 
-  const report = landingReport(notes, readings, a4, { tolerance: intonationTolerance() });
+  const report = landingReport(notes, readings, a4,
+    { tolerance: intonationTolerance(), motion: instrument().motion });
   if (!report) {
     section.hidden = true;
     return null;

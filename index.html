@@ -765,11 +765,14 @@
       display: none;
     }
     .chart-knob:active { cursor: grabbing; }
+    /* A playable tile is a real <button> so it can be tabbed to and announced;
+       the reset keeps it looking identical to the plain ones beside it. */
     .degree {
       border: 1px solid transparent;
       background: rgb(var(--sf) / 0.65);
       border-radius: 0.9rem;
       padding: 0.4rem 0.55rem;
+      font-family: inherit;
       font-size: 0.8rem;
       text-align: center;
       min-width: 3.4rem;
@@ -790,6 +793,15 @@
     .degree.clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
     .degree.playing { outline: 2px solid var(--primary); outline-offset: 1px; }
     #save-bar { margin-top: 1.2rem; }
+    #rec-clock {
+      font-family: var(--num);
+      font-variant-numeric: tabular-nums;
+      font-size: 0.85rem;
+      color: var(--muted);
+      min-width: 3rem;
+    }
+    #rec-clock.warn { color: var(--bad); font-weight: 600; }
+    #pause-rec.active { background: var(--off-soft); color: var(--off); }
     #pitch-chart { height: clamp(210px, 31vh, 290px); display: block; margin: 0 auto; }
     #clip-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.6rem; }
     #clip-label { color: var(--muted); font-family: var(--ui); font-weight: 500; font-size: 0.84rem; letter-spacing: 0.005em; }
@@ -1423,6 +1435,69 @@
     }
     dialog .row { margin-top: 1rem; }
 
+    /* ---- first run ---- */
+    #welcome {
+      position: fixed;
+      inset: 0;
+      z-index: 100;
+      display: grid;
+      place-items: center;
+      padding: 1rem;
+      overflow-y: auto;
+      background: rgb(var(--sh) / 0.2);
+      -webkit-backdrop-filter: blur(6px);
+      backdrop-filter: blur(6px);
+    }
+    #welcome-card {
+      width: min(30rem, 100%);
+      max-height: 92vh;
+      overflow-y: auto;
+      text-align: center;
+      padding: 1.6rem 1.4rem 1.4rem;
+      border-radius: 2rem;
+      background: rgb(var(--sf) / 0.9);
+      -webkit-backdrop-filter: blur(28px) saturate(1.8);
+      backdrop-filter: blur(28px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 24px 60px rgb(var(--sh) / 0.35);
+      animation: pop-in 320ms var(--spring);
+    }
+    #welcome-title {
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 1.5rem;
+      background: linear-gradient(100deg, #6d4ef6, #ff7a6e 130%);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    #welcome-title span { -webkit-text-fill-color: initial; color: initial; font-size: 1.15rem; }
+    .welcome-lead { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin: 0.6rem 0 1.2rem; }
+    .welcome-step { text-align: left; margin-bottom: 1.2rem; }
+    .welcome-tabs {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 1.1rem;
+      display: grid;
+      gap: 0.45rem;
+      text-align: left;
+      font-size: 0.84rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .welcome-tabs li { display: grid; grid-template-columns: 5.6rem 1fr; gap: 0.5rem; align-items: baseline; }
+    .welcome-tabs b { font-family: var(--display); font-weight: 500; color: var(--ink); }
+    #welcome-start { width: 100%; margin-top: 0.9rem; }
+    /* segmented groups that hold more than a screen's worth of options wrap */
+    .seg-wrap { display: flex; flex-wrap: wrap; border-radius: 1.4rem; }
+    .seg-wrap button { flex: 1 1 7rem; }
+    /* An even grid rather than flex: the labels are different lengths and a
+       ragged last row read as a mistake. */
+    #welcome-instruments { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem; }
+    #welcome-instruments button { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem 0.7rem; }
+    #welcome-instruments button:last-child:nth-child(odd) { grid-column: span 2; }
+    #welcome-instruments small { font-size: 0.62rem; opacity: 0.75; font-weight: 400; }
+
     :root[data-motion="off"] #blobs i { animation: none !important; }
 
     @media (prefers-reduced-motion: reduce) {
@@ -1430,6 +1505,40 @@
       #blobs i { animation: none !important; }
       .beat-dot.on { transform: none; }
       .note-chip, .pick-pop { animation: none !important; }
+    }
+
+    /* ---- tablet ----
+       A music stand holds a tablet, so this is a real posture for the app, and
+       between the phone query and the 72rem cap there was nothing: the whole
+       interface sat in a phone-width column down the middle of an iPad. The
+       column widens, the report gets the room it deserves, and the tap targets
+       stay finger-sized rather than shrinking toward desktop. */
+    @media (min-width: 641px) and (max-width: 1180px) {
+      .column { width: min(44rem, 100%); }
+      .tab-panel { padding: 1.1rem clamp(1.2rem, 4vw, 2.6rem) calc(7rem + env(safe-area-inset-bottom, 0px)); }
+      #report { padding: 1.6rem 1.8rem; }
+      #pitch-chart { height: clamp(260px, 34vh, 380px); }
+      #note-chart { height: 220px; }
+      #timing-chart { height: 200px; }
+      #library { width: min(44rem, 100%); }
+      #tuner { padding: 2.6rem 2rem 2rem; }
+      #gauge-wrap { max-width: 30rem; }
+      #note { font-size: 4rem; }
+      #metro-card { padding: 2.6rem 2rem 2.2rem; }
+      #bpm-display { font-size: 7rem; }
+      .tab-btn { min-width: 5.6rem; font-size: 0.76rem; padding: 0.7rem 1.2rem 0.6rem; }
+      .tab-btn svg { width: 27px; height: 27px; }
+      #timing-tiles .wk-tile b, .wk-tile b { font-size: 1.7rem; }
+      /* two columns of report detail, since there is width for it */
+      #landing-bars, #landing-band-rows { max-width: 34rem; margin: 0 auto; }
+    }
+
+    /* ---- larger text ----
+       Dynamic Type and desktop zoom both arrive as a bigger root font size.
+       The layout is in rem so it follows, but the fixed-height charts and the
+       dock would crowd out the content, so they get room too. */
+    @media (min-resolution: 0.001dpcm) {
+      .tab-panel { padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px)); }
     }
 
     /* ---- phone layout ---- */
@@ -1471,6 +1580,34 @@
 </head>
 <body>
   <div id="blobs" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+  <!-- First run. Hidden by default and shown by main.js only when no
+       instrument has ever been chosen, so it never flashes on a return visit. -->
+  <div id="welcome" hidden>
+    <div id="welcome-card" role="dialog" aria-labelledby="welcome-title" aria-modal="true">
+      <h2 id="welcome-title">music <span aria-hidden="true">🎻</span> companion</h2>
+      <p class="welcome-lead">It listens while you practise and tells you what actually
+      happened — which notes ran sharp or flat, where the tempo moved, and how cleanly
+      you land after a leap.</p>
+
+      <div class="welcome-step">
+        <span class="set-label" id="welcome-instrument-label">What do you play?</span>
+        <div class="seg seg-wrap" role="radiogroup" aria-labelledby="welcome-instrument-label" id="welcome-instruments"></div>
+      </div>
+
+      <ul class="welcome-tabs">
+        <li><b>Tuner</b> a dial, drones and a spectrum — for tuning up.</li>
+        <li><b>Record</b> play something, then read it back note by note.</li>
+        <li><b>Library</b> every take you keep, grouped into folders by piece.</li>
+        <li><b>Coach</b> what your takes say about you over weeks, not minutes.</li>
+        <li><b>Metronome</b> subdivisions, a tempo trainer and a practice timer.</li>
+      </ul>
+
+      <p class="set-hint">Everything stays on this device. The microphone is only used
+      while you are on the Tuner or recording.</p>
+      <button id="welcome-start" class="ctl primary big" type="button">Start playing</button>
+    </div>
+  </div>
   <header>
     <h1>music <span>🎻</span> companion</h1>
     <button id="settings-btn" type="button" aria-label="Settings">
@@ -1524,7 +1661,7 @@
       <span>Metronome</span>
     </button>
   </nav>
-  <div id="status"></div>
+  <div id="status" role="status" aria-live="polite"></div>
 
   <main id="panes">
     <!-- ================= tuner ================= -->
@@ -1542,7 +1679,7 @@
             Your browser asks for the microphone once per visit. iPhone remembers
             it for apps added to the Home Screen (Share → Add to Home Screen).
           </p>
-          <div id="cents">listening</div>
+          <div id="cents" role="status" aria-live="polite">listening</div>
           <div id="freq"></div>
           <div id="second"></div>
           <canvas id="spectrum" aria-hidden="true"></canvas>
@@ -1619,6 +1756,16 @@
       <div class="column">
         <div class="row">
           <button id="start" class="ctl primary big">Record</button>
+          <button id="pause-rec" class="ctl" type="button" hidden>Pause</button>
+        </div>
+        <div class="row">
+          <span class="mini-label">count-in</span>
+          <select id="count-in" aria-label="Count-in before recording">
+            <option value="0" selected>none</option>
+            <option value="1">1 bar</option>
+            <option value="2">2 bars</option>
+          </select>
+          <span id="rec-clock" aria-live="polite"></span>
         </div>
       </div>
       <div id="notes-row"></div>
@@ -1643,7 +1790,7 @@
               <span id="zoom-label"></span>
               <span id="zoom-hint">drag on the graph to move the playhead</span>
             </div>
-            <canvas id="note-chart"></canvas>
+            <canvas id="note-chart" role="img" aria-label="Pitch of the selected note in cents"></canvas>
           </div>
           <div id="playback-controls">
             <span id="selected-note" class="degree" hidden></span>
@@ -1725,7 +1872,7 @@
               <button class="wk-tile" type="button" data-explain="even"><b id="tm-even">–</b><span>steadiness</span></button>
               <button class="wk-tile" type="button" data-explain="drift"><b id="tm-drift">–</b><span>drift</span></button>
             </div>
-            <canvas id="timing-chart"></canvas>
+            <canvas id="timing-chart" aria-hidden="true"></canvas>
             <p id="timing-legend">
               Top line: the tempo through the take. Below: one bar per note —
               above the middle is late, below is early.
@@ -1811,7 +1958,7 @@
           </div>
           <div class="cluster">
             <div class="cluster-title">trend</div>
-            <canvas id="trend-chart"></canvas>
+            <canvas id="trend-chart" aria-hidden="true"></canvas>
             <div id="trend-note"></div>
           </div>
         </div>
@@ -1910,6 +2057,11 @@
         </div>
         <p class="set-hint">The top slider is everything; the two below trim the drone
         and the metronome against it.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="instrument-label">You play</span>
+        <div class="seg seg-wrap" role="radiogroup" aria-labelledby="instrument-label" id="instrument-seg"></div>
+        <p class="set-hint" id="instrument-hint"></p>
       </div>
       <div class="set-group">
         <span class="set-label" id="tolerance-label">In tune means</span>

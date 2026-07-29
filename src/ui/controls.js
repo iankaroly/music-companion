@@ -278,6 +278,7 @@ export function initControls(root) {
   pick('#preset-list');
   pick('#ref-interval');
   pick('#ref-octave');
+  seg('#count-in', { format: (o) => o.value === '0' ? 'none' : `${o.value} bar${o.value === '1' ? '' : 's'}` });
   seg('#beats-per-bar', { format: (o) => o.value });
   seg('#subdivision', { format: stacked((o) => o.textContent.split(' ')[0]) });
   pick('#timer-mins');
