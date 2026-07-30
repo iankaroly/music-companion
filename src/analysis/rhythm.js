@@ -292,6 +292,31 @@ export function tempoCurve(onsets, grid, window = 4) {
 const ON_MS = 30;    // inside this, a listener hears the note as on the beat
 const WORST_MS = 45; // past this it's worth pointing at
 
+// Can this note fairly be blamed? Only if its NEIGHBOURS were on the beat.
+//
+// A take-wide drift flag misses the two cases that matter most. A phrase that
+// breathes and comes back has no net drift at all — first third and last third
+// agree — so the notes at the peak of the rubato were reported as 150 ms
+// errors. And a piece with two sections in it is perfectly steady inside each
+// one; the movement is at the join, not spread across the take, and the grid
+// that gets fitted to both is a compromise that makes the section you played
+// well look as wrong as the other.
+//
+// What separates a mistake from a tempo that moved is whether the notes around
+// it agree. One late entry sits among neighbours that landed; a rubato, a
+// section change or a fitted grid that never suited the take put everything in
+// the neighbourhood off together. Median, so the note beside a real mistake
+// isn't itself excused by it.
+const NEIGHBOURS = 4; // either side
+
+function neighboursHeld(perNote, i) {
+  const others = [];
+  for (let j = Math.max(0, i - NEIGHBOURS); j < Math.min(perNote.length, i + NEIGHBOURS + 1); j++) {
+    if (j !== i) others.push(Math.abs(perNote[j].deviationMs));
+  }
+  return others.length >= 3 && median(others) <= ON_MS;
+}
+
 function verdictFor(deviationMs) {
   if (Math.abs(deviationMs) <= ON_MS) return 'on';
   return deviationMs > 0 ? 'late' : 'early';
@@ -369,19 +394,27 @@ export function rhythmReport(notes, { gridHint = null, bpm = null, subdivision =
       : meanAbsMs <= ON_MS ? 'steady'
         : 'uneven';
 
-  // Naming individual notes only makes sense against a pulse that held still.
-  // Once the tempo has moved — a rubato phrase, an accelerando, or just a take
-  // that ran away — even a local fit charges notes for the movement around
-  // them, and calling the 22nd note "211 ms late" when the tempo simply
-  // changed is worse than saying nothing. The drift verdict and the tempo
-  // curve carry that story instead.
+  // Naming individual notes only makes sense against a pulse that held still
+  // where that note was. Calling the 22nd note "211 ms late" when the tempo
+  // simply changed underneath it is worse than saying nothing, so a note is
+  // named only if the pulse around it was steady — and, separately, only if a
+  // grid was ever found that explained the take at all. Where the fallback ran,
+  // the ruler is a compromise between tempi that never coexisted, and notes in
+  // the section that was played perfectly would take the blame for it.
   //
-  // A locked tempo is the exception: there the grid is the answer to the
+  // A locked tempo is the exception on both counts: there the grid IS the
   // question, so a note that fell behind it fell behind it.
   const flagged = [...perNote]
     .filter((p) => Math.abs(p.deviationMs) >= WORST_MS)
     .sort((a, b) => Math.abs(b.deviationMs) - Math.abs(a.deviationMs));
-  const worst = drifting && !locked ? [] : flagged.slice(0, 5);
+  // Two gates, because they catch different things. The take-wide one covers a
+  // tempo that went somewhere and stayed there — an accelerando, a take that
+  // ran away — where nothing local looks wrong because everything moved
+  // together. The neighbour one covers movement that leaves no net drift: a
+  // phrase that breathes and returns, or a grid fitted across two sections.
+  const worst = locked ? flagged.slice(0, 5)
+    : drifting ? []
+      : flagged.filter((p) => neighboursHeld(perNote, p.index)).slice(0, 5);
 
   return {
     bpm: 60 / inferred.tactus,

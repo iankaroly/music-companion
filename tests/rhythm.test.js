@@ -164,6 +164,34 @@ describe('rhythmReport', () => {
     expect(r.worst.map((w) => w.index)).toEqual([8]);
   });
 
+  it('blames nobody for a phrase that breathes and comes back', () => {
+    // Rubato leaves no take-wide drift at all — the first third and the last
+    // third are at the same tempo — so the drift verdict cannot catch it, and
+    // the notes at the peak of the stretch were being called 150 ms errors.
+    const gaps = [
+      ...Array(8).fill(0.5),
+      0.55, 0.62, 0.7, 0.62, 0.55,
+      ...Array(8).fill(0.5),
+    ];
+    const starts = [0];
+    for (const g of gaps) starts.push(starts.at(-1) + g);
+    const r = rhythmReport(notesAt(starts));
+    expect(r.drifting).toBe(false);        // nothing drifted, correctly
+    expect(r.flagged.length).toBeGreaterThan(0); // the deviations are real
+    expect(r.worst).toEqual([]);           // ...but they are not the player's fault
+  });
+
+  it('blames nobody in the steady half of a take with two tempi in it', () => {
+    // No single grid suits 120 and 88, so the one that gets fitted suits
+    // neither — and the section played metronomically came out looking as
+    // wrong as the section that changed.
+    const starts = [0];
+    for (let i = 0; i < 9; i++) starts.push(starts.at(-1) + 0.5);
+    for (let i = 0; i < 10; i++) starts.push(starts.at(-1) + 60 / 88);
+    const r = rhythmReport(notesAt(starts));
+    expect(r.worst).toEqual([]);
+  });
+
   it('calls out dragging when the take slows down', () => {
     const starts = [0];
     let step = 0.5;

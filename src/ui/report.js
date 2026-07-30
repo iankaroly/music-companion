@@ -19,6 +19,10 @@ let playbackSpeed = 1;
 let currentChart = null;    // the overview chart
 let zoomChart = null;       // the per-note inset below it
 
+// Set by whichever note is open, read by the playback tick: what to write in
+// the note box for a given moment of the recording.
+let cursorReadout = null;
+
 function setPlayheads(t) {
   currentChart?.setPlayhead(t);
   zoomChart?.setPlayhead(t);
@@ -205,6 +209,11 @@ function playClip(clip, root, timeMap, spans, onDone) {
     if (source !== currentSource) return;
     const recTime = timeMap((playbackCtx.currentTime - startTime) * playbackSpeed);
     setPlayheads(recTime);
+    // The note box reads whatever is under the cursor, so while the cursor is
+    // moving on its own it should keep reading — watching the playhead cross a
+    // scoop and seeing the box still describe where the cursor was left is the
+    // opposite of what it is for.
+    if (recTime !== null) cursorReadout?.(recTime);
     let sounding = null;
     for (const s of spans) {
       const active = recTime !== null && recTime >= s.start && recTime <= s.end;
@@ -567,6 +576,22 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   const refreshRefLabel = () => {
     refBtn.textContent = `+ in-tune ${midiToName(cursorMidi())} drone`;
   };
+  // What the box says for a given moment: the note under it and how far off it
+  // was. Written from two kept nodes rather than an innerHTML string — this
+  // runs on every pointer move of a drag and on every frame of playback.
+  const showCursorReading = (t) => {
+    const f = readingFreqAt(t);
+    if (!f) return;
+    const mf = 69 + 12 * Math.log2(f / a4);
+    const m = Math.round(mf);
+    const cents = (mf - m) * 100;
+    selected.dataset.state = intonationStatus(cents);
+    cursorName.textContent = midiToName(m);
+    cursorCents.textContent = centsLabel(cents);
+    if (selected.firstChild !== cursorName) selected.replaceChildren(cursorName, cursorCents);
+  };
+  cursorReadout = showCursorReading;
+
   const retuneCursorDrones = () => {
     if (noteDrone) {
       const f = readingFreqAt(zoom.pos);
@@ -576,19 +601,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
       refDrone.osc.frequency.setTargetAtTime(refFrequency(), playbackCtx.currentTime, 0.03);
     }
     refreshRefLabel();
-    // the note box tracks the cursor: what note is here, how far off is it
-    const f = readingFreqAt(zoom?.pos ?? note.start);
-    if (f) {
-      const mf = 69 + 12 * Math.log2(f / a4);
-      const m = Math.round(mf);
-      const cents = (mf - m) * 100;
-      selected.dataset.state = intonationStatus(cents);
-      // Two nodes kept and rewritten, not a string parsed back into elements:
-      // this runs on every pointer move while the cursor drone is dragged.
-      cursorName.textContent = midiToName(m);
-      cursorCents.textContent = centsLabel(cents);
-      if (selected.firstChild !== cursorName) selected.replaceChildren(cursorName, cursorCents);
-    }
+    showCursorReading(zoom?.pos ?? note.start);
   };
 
   if (extras.readings?.length) {
@@ -862,6 +875,7 @@ export function hideReport(root) {
   zoomChart = null;
   zoom = null;
   full = null;
+  cursorReadout = null; // the box it wrote into belongs to a closed report
   selectedNote = null;
 }
 

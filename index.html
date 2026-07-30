@@ -999,20 +999,20 @@
     #landing-verdict {
       font-family: var(--display);
       font-weight: 500;
-      font-size: 0.82rem;
-      padding: 0.2rem 0.7rem;
+      font-size: 0.92rem;
+      padding: 0.3rem 0.9rem;
       border-radius: 999px;
     }
     #landing-verdict[data-verdict="clean"] { background: var(--good-soft); color: var(--good); }
     #landing-verdict[data-verdict="mixed"] { background: var(--off-soft); color: var(--off); }
     #landing-verdict[data-verdict="scooping"] { background: var(--bad-soft); color: var(--bad); }
-    #landing-summary { font-size: 0.88rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
-    #landing-hint { color: var(--muted); font-size: 0.72rem; line-height: 1.45; margin-top: 0.5rem; text-align: center; }
-    #landing-bars { display: grid; gap: 0.5rem; }
+    #landing-summary { font-size: 0.95rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
+    #landing-hint { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
+    #landing-bars { display: grid; gap: 0.6rem; }
     /* one row per interval size: how often notes of that reach spoke in tune */
-    .ld-row { display: flex; align-items: center; gap: 0.6rem; font-size: 0.8rem; }
+    .ld-row { display: flex; align-items: center; gap: 0.7rem; font-size: 0.92rem; }
     .ld-name {
-      width: 7.2rem;
+      width: 8.6rem;
       flex-shrink: 0;
       text-align: right;
       font-family: var(--display);
@@ -1022,7 +1022,12 @@
     .ld-track {
       position: relative;
       flex: 1;
-      height: 14px;
+      /* The bar is the row. Two fixed-width labels either side of a flexible
+         middle will happily starve it to nothing on a narrow screen — which is
+         exactly what widening them for legibility did — so it keeps a floor and
+         the labels give way instead. */
+      min-width: 3.5rem;
+      height: 18px;
       background: var(--fill);
       border-radius: 999px;
       overflow: hidden;
@@ -1031,21 +1036,25 @@
     .ld-fill[data-tier="mixed"] { background: var(--off); }
     .ld-fill[data-tier="poor"] { background: var(--bad); }
     .ld-val {
-      width: 5.6rem;
+      width: 6.6rem;
       flex-shrink: 0;
       color: var(--muted);
-      font-size: 0.72rem;
+      font-size: 0.84rem;
       font-variant-numeric: tabular-nums;
     }
-    #landing-worst { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin-top: 0.7rem; }
+    #landing-worst { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 0.85rem; }
+    /* Sized to the playback controls above them (see #playback-controls >
+       button): these are the same kind of thing — a tap target on a phone,
+       under a finger, next to a graph — and they were being drawn at chip size
+       as though they were labels. */
     .ld-chip {
       font-family: var(--display);
-      font-size: 0.78rem;
+      font-size: 0.92rem;
       font-weight: 500;
       background: var(--fill);
       border: none;
       border-radius: 999px;
-      padding: 0.35rem 0.8rem;
+      padding: 0.62rem 1.2rem;
       cursor: pointer;
       transition: background 150ms, color 150ms;
     }
@@ -1063,7 +1072,7 @@
     .timing-title {
       font-family: var(--display);
       font-weight: 500;
-      font-size: 0.72rem;
+      font-size: 0.8rem;
       letter-spacing: 0.14em;
       text-transform: uppercase;
       color: var(--muted);
@@ -1071,23 +1080,23 @@
     #timing-verdict {
       font-family: var(--display);
       font-weight: 500;
-      font-size: 0.82rem;
-      padding: 0.2rem 0.7rem;
+      font-size: 0.92rem;
+      padding: 0.3rem 0.9rem;
       border-radius: 999px;
     }
     #timing-verdict[data-verdict="steady"] { background: var(--good-soft); color: var(--good); }
     #timing-verdict[data-verdict="rushing"],
     #timing-verdict[data-verdict="dragging"] { background: var(--off-soft); color: var(--off); }
     #timing-verdict[data-verdict="uneven"] { background: var(--bad-soft); color: var(--bad); }
-    #timing-tiles { display: flex; gap: 0.4rem; justify-content: center; }
+    #timing-tiles { display: flex; gap: 0.5rem; justify-content: center; }
     #timing-chart { width: 100%; height: 160px; display: block; margin-top: 0.8rem; }
-    #timing-worst { display: flex; flex-wrap: wrap; gap: 0.35rem; justify-content: center; margin-top: 0.6rem; }
+    #timing-worst { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 0.8rem; }
 
     /* the pulse controls: auto, or a tempo you name and hold yourself to */
     #timing-controls {
       display: flex;
       flex-wrap: wrap;
-      gap: 0.45rem;
+      gap: 0.55rem;
       align-items: center;
       justify-content: center;
       margin-bottom: 0.8rem;
@@ -1095,14 +1104,14 @@
     #timing-controls > button, #timing-bpm-box {
       display: inline-flex;
       align-items: center;
-      gap: 0.3rem;
+      gap: 0.35rem;
       font-family: var(--display);
-      font-size: 0.82rem;
+      font-size: 0.92rem;
       font-weight: 500;
       background: var(--fill);
       border: none;
       border-radius: 999px;
-      padding: 0.45rem 0.95rem;
+      padding: 0.62rem 1.2rem;
       cursor: pointer;
       color: var(--ink);
       transition: transform 260ms var(--spring), background 150ms;
@@ -1110,24 +1119,24 @@
     #timing-controls > button:hover { background: var(--fill-2); }
     #timing-controls > button:active { transform: scale(0.93); }
     #timing-controls > button.active { background: var(--grad); color: var(--on-primary); }
-    #timing-bpm-box { padding: 0.2rem 0.35rem; cursor: default; }
+    #timing-bpm-box { padding: 0.28rem 0.45rem; cursor: default; }
     #timing-bpm-box button {
-      width: 1.6rem; height: 1.6rem;
+      width: 1.95rem; height: 1.95rem;
       border: none;
       border-radius: 50%;
       background: rgb(var(--sf) / 0.8);
-      font-size: 0.95rem;
+      font-size: 1.05rem;
       line-height: 1;
       color: var(--ink);
       cursor: pointer;
     }
     #timing-bpm-box button:active { transform: scale(0.9); }
     #timing-bpm {
-      width: 3.3rem;
+      width: 3.7rem;
       text-align: center;
       font-family: var(--num);
       font-weight: 600;
-      font-size: 0.95rem;
+      font-size: 1.05rem;
       font-variant-numeric: tabular-nums;
       background: none;
       border: none;
@@ -1161,7 +1170,7 @@
       box-shadow: 0 2px 6px rgb(var(--sh) / 0.14);
     }
     #timing-filter { margin-top: 0.7rem; }
-    .tm-none { color: var(--muted); font-size: 0.74rem; align-self: center; }
+    .tm-none { color: var(--muted); font-size: 0.86rem; align-self: center; }
     /* The tiles are numbers with names a musician hasn't agreed to; each one
        is a button that says what it means and what good looks like. */
     #timing-tiles .wk-tile {
@@ -1174,29 +1183,35 @@
     }
     #timing-tiles .wk-tile:hover { background: rgb(var(--sf) / 0.9); }
     #timing-tiles .wk-tile:active { transform: scale(0.95); }
+    /* Scoped to the report: these are tap targets beside a graph, sized with
+       the rest of the timing panel. The coach's own week tiles keep the
+       smaller scale that suits a dense summary card. */
+    #timing-tiles .wk-tile { padding: 0.85rem 0.4rem 0.75rem; }
+    #timing-tiles .wk-tile b { font-size: 1.65rem; }
+    #timing-tiles .wk-tile span { font-size: 0.78rem; }
     #timing-summary {
-      font-size: 0.88rem;
+      font-size: 0.95rem;
       line-height: 1.5;
       color: var(--ink);
       text-align: center;
       margin-bottom: 0.8rem;
     }
-    #timing-legend { color: var(--muted); font-size: 0.72rem; line-height: 1.45; margin-top: 0.45rem; text-align: center; }
+    #timing-legend { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
     .tm-chip {
       font-family: var(--display);
-      font-size: 0.78rem;
+      font-size: 0.92rem;
       font-weight: 500;
       background: var(--fill);
       border: none;
       border-radius: 999px;
-      padding: 0.35rem 0.8rem;
+      padding: 0.62rem 1.2rem;
       cursor: pointer;
       transition: background 150ms, color 150ms;
     }
     .tm-chip:hover { background: var(--fill-2); color: var(--primary); }
     .tm-chip.late { color: var(--off); }
     .tm-chip.early { color: var(--sky); }
-    #timing-hint { color: var(--muted); font-size: 0.72rem; margin-top: 0.5rem; line-height: 1.45; }
+    #timing-hint { color: var(--muted); font-size: 0.82rem; margin-top: 0.6rem; line-height: 1.45; }
 
     /* ---- library ---- */
     #library { margin: 0 auto; text-align: center; width: min(34rem, 100%); }
@@ -1636,6 +1651,11 @@
       #bpm-display { font-size: 4.6rem; }
       .cluster { padding: 0.95rem 0.7rem 1rem; border-radius: 1.5rem; }
       .seg-btn { padding: 0.5rem 0.78rem; font-size: 0.86rem; }
+      /* Keep the bigger type on the landing rows; give back the gutters it
+         needs to fit beside the bar. */
+      .ld-row { gap: 0.5rem; }
+      .ld-name { width: 5.4rem; }
+      .ld-val { width: 4.9rem; font-size: 0.78rem; }
     }
   </style>
 </head>
