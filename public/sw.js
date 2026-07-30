@@ -1,6 +1,10 @@
 // Network-first service worker: fresh deploys win when online, the cached
 // app shell keeps the whole tool working offline in the practice room.
-const CACHE = 'music-companion-v1';
+//
+// Bump this on a release. It has to actually change for the activate handler
+// to delete anything — pinned at one value it swept nothing, and every dead
+// asset from every past deploy stayed in the box forever.
+const CACHE = 'music-companion-v2';
 
 self.addEventListener('install', () => self.skipWaiting());
 
@@ -18,10 +22,25 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(request)
       .then((response) => {
-        const copy = response.clone();
-        caches.open(CACHE).then((cache) => cache.put(request, copy));
+        // Only keep what came back whole. A 404 or an error cached here is
+        // served in place of the real file on every later visit.
+        if (response.ok) {
+          const copy = response.clone();
+          caches.open(CACHE).then((cache) => cache.put(request, copy));
+        }
         return response;
       })
-      .catch(() => caches.match(request).then((hit) => hit ?? caches.match('/'))),
+      .catch(async () => {
+        const hit = await caches.match(request);
+        if (hit) return hit;
+        // The shell is only a sensible answer to "give me a page". Handing it
+        // to a missing script returned HTML under a JavaScript content type,
+        // which fails far more confusingly than simply failing.
+        if (request.mode === 'navigate') {
+          const shell = await caches.match('/');
+          if (shell) return shell;
+        }
+        return Response.error();
+      }),
   );
 });

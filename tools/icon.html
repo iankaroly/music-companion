@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>icon source</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600&display=block" rel="stylesheet" />
+<!--
+  The app's icons and share image, drawn rather than stored, so a theme change
+  is a re-render instead of a hunt for whatever tool made the last set. The
+  cobalt icons this replaced outlived their theme by a whole redesign and
+  nobody noticed until the app looked like a different product on the home
+  screen than it did once opened.
+
+  Render with tools/build-icons.sh — it screenshots each variant below.
+    ?v=icon      512 full-bleed, the normal icon
+    ?v=maskable  512 with Android's 20% safe-zone padding
+    ?v=og        1200x630 link preview
+-->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: transparent; }
+  body { display: grid; place-items: center; overflow: hidden; }
+
+  .tile {
+    background: linear-gradient(135deg, #7c5cff, #4cb8ff);
+    display: grid;
+    place-items: center;
+  }
+  /* Android crops to a circle inscribed in the square; keep the gauge inside
+     the inner 80% or the needle loses its tip on a Pixel. */
+     The gauge is only ~59% of its own viewBox wide to begin with, so it clears
+     the safe circle almost unscaled; 0.85 keeps a margin without shrinking the
+     art to a dot inside the mask. */
+  body[data-v="maskable"] .gauge { transform: scale(0.85); }
+
+  body[data-v="og"] { background: #eeebfa; }
+  body[data-v="og"] .tile {
+    width: 1200px; height: 630px;
+    grid-auto-flow: column;
+    gap: 4.5rem;
+    place-content: center;
+    padding: 0 5rem;
+  }
+  body[data-v="og"] .gauge { width: 300px; height: 300px; }
+
+  .words { font: 400 1rem/1.25 "Fredoka", ui-rounded, "SF Pro Rounded", "Avenir Next", sans-serif; color: #fff; }
+  .words h1 { font-size: 5.4rem; font-weight: 600; letter-spacing: -0.02em; }
+  .words p { font-size: 2.1rem; margin-top: 1.1rem; opacity: 0.86; max-width: 22ch; }
+</style>
+</head>
+<body>
+  <div class="tile">
+    <svg class="gauge" viewBox="0 0 300 300" width="512" height="512" aria-hidden="true">
+      <!-- dial -->
+      <path d="M 62 208 A 88 88 0 0 1 238 208" fill="none"
+            stroke="rgba(255,255,255,0.42)" stroke-width="17" stroke-linecap="round" />
+      <!-- the in-tune band, where the needle is pointing -->
+      <path d="M 132 120 A 88 88 0 0 1 168 120" fill="none"
+            stroke="#17b578" stroke-width="17" stroke-linecap="round" />
+      <!-- needle, pivoting from the hub -->
+      <line x1="150" y1="208" x2="150" y2="124" stroke="#fff" stroke-width="11" stroke-linecap="round" />
+      <circle cx="150" cy="208" r="21" fill="#fff" />
+    </svg>
+    <div class="words" hidden>
+      <h1>Music Companion</h1>
+      <p>A tuner that remembers what you played.</p>
+    </div>
+  </div>
+<script>
+  const v = new URLSearchParams(location.search).get('v') ?? 'icon';
+  document.body.dataset.v = v;
+  const tile = document.querySelector('.tile');
+  if (v === 'og') {
+    document.querySelector('.words').hidden = false;
+  } else {
+    tile.style.width = tile.style.height = '512px';
+  }
+</script>
+</body>
+</html>

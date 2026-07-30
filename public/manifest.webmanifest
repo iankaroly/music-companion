@@ -1,13 +1,15 @@
 {
   "name": "Music Companion",
   "short_name": "Companion",
-  "description": "Tuner, recording analysis, drones, and metronome for string players.",
+  "description": "A tuner, recorder and practice coach for anyone who plays a pitch — strings, winds, brass or voice. Everything stays on your device.",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#eef1f6",
-  "theme_color": "#eef1f6",
+  "background_color": "#eeebfa",
+  "theme_color": "#eeebfa",
+  "categories": ["music", "education", "utilities"],
   "icons": [
     { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

@@ -2,23 +2,44 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <!-- The charts own the pinch gesture (it rescales the time axis), so the page
-       itself must not zoom underneath them — otherwise a stray pinch leaves the
-       whole app magnified. iOS Safari ignores maximum-scale, which is why
-       attachPinch also stands aside whenever the page IS zoomed, so a pinch on
-       a chart can always undo it. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <!-- No maximum-scale: blocking page zoom fails WCAG 1.4.4, and iOS Safari
+       ignored the request anyway, so it only ever took magnification away from
+       the people on Android who needed it. The charts still own the pinch
+       gesture, but only on their own canvas and only while the page is not
+       already zoomed (pageIsZoomed in pitch-chart.js) — so a pinch anywhere
+       else zooms the page as usual, and a pinch on a chart can always undo it. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Music Companion</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎻</text></svg>" />
+  <meta name="description" content="A tuner, recorder and practice coach for anyone who plays a pitch. It listens while you play and tells you which notes ran sharp or flat, where the tempo drifted, and what has improved since last week. No account, no server — every recording stays on your device." />
+  <link rel="icon" href="/icon-180.png" />
   <link rel="manifest" href="/manifest.webmanifest" />
   <link rel="apple-touch-icon" href="/icon-180.png" />
-  <meta name="theme-color" content="#eeebfa" />
+  <!-- Light and dark are two different apps to the OS chrome; say both, or the
+       status bar stays porcelain behind a dark screen. -->
+  <meta name="theme-color" content="#eeebfa" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#14131f" media="(prefers-color-scheme: dark)" />
+  <!-- Absolute, not relative: Facebook's crawler rejects a relative og:image
+       outright and X is unreliable with one, so a share card is precisely the
+       case a relative path fails. Update these two if the site moves to a
+       custom domain — they are the only place the origin is written down. -->
+  <link rel="canonical" href="https://music-companion-eight.vercel.app/" />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://music-companion-eight.vercel.app/" />
+  <meta property="og:title" content="Music Companion" />
+  <meta property="og:description" content="A tuner that remembers what you played — intonation, timing and progress from your own practice, all on your device." />
+  <meta property="og:image" content="https://music-companion-eight.vercel.app/og.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Companion" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet" />
+  <!-- Fredoka is served from here, not from Google. A practice room is exactly
+       where the wifi is bad, and a tool that claims to work offline should not
+       render in a fallback face on its first visit — nor hand every player's IP
+       to a third party to draw its own name. 34 KB for the two subsets. -->
+  <link rel="preload" href="/fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin />
   <script>
     // Stamp the theme before the first paint. main.js is a deferred module, so
     // deciding this there would flash a light screen on every dark launch.
@@ -31,6 +52,32 @@
     } catch (e) { /* blocked storage: the stylesheet default stands */ }
   </script>
   <style>
+    /* ---- typeface ---------------------------------------------------------
+       One variable file per subset covers 400–600, which is every weight the
+       app asks for. Latin-ext is here for the accented characters in tempo
+       names; the Hebrew subset Google also serves is not, since nothing in
+       this interface is written in it. */
+    @font-face {
+      font-family: "Fredoka";
+      font-style: normal;
+      font-weight: 400 600;
+      font-display: swap;
+      src: url("/fonts/fredoka-latin.woff2") format("woff2");
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA,
+        U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
+        U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: "Fredoka";
+      font-style: normal;
+      font-weight: 400 600;
+      font-display: swap;
+      src: url("/fonts/fredoka-latin-ext.woff2") format("woff2");
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF,
+        U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020,
+        U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+
     /* ---- palette ----------------------------------------------------------
        Three colour bases drive nearly everything, so a theme is a short
        override list rather than a second stylesheet:
@@ -2138,6 +2185,19 @@
         <p class="set-hint">The backup holds every take's notes, timing and landings —
         the part the coach reads — plus folders and passages. Audio is left out to keep
         the file small; share individual takes from the library instead.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label">Privacy</span>
+        <p class="set-hint">Your recordings never leave this device. They are stored by
+        the browser, on the phone or computer you played them on. There is no account,
+        no server and nothing to sign into — once the app has loaded it makes no network
+        requests at all, so there is nowhere for a take to go.</p>
+        <p class="set-hint">The microphone is open only while you are on the Tuner tab or
+        recording, and is handed back when you leave. Nothing listens in the background.</p>
+        <p class="set-hint">The only things that ever leave are the ones you send yourself:
+        sharing a take, exporting a WAV, or saving a backup file. Because everything lives
+        in this browser, clearing its data — or deleting the app — deletes your recordings
+        too, so keep a backup of anything you would miss.</p>
       </div>
       <div class="set-group">
         <button id="set-reset" type="button" class="set-wide">Restore default settings</button>

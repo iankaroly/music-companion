@@ -1,6 +1,6 @@
 # Music Companion
 
-A practice companion for string players, built from scratch — every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped.
+A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Nothing you record leaves your device.
 
 **Tuner · Record & analyze · Library · Coach · Metronome**
 
