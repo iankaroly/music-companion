@@ -1,4 +1,4 @@
-import { startCapture, micIsHeld } from './audio/capture.js';
+import { startCapture, micIsHeld, prepareCapture, ensureMic } from './audio/capture.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder, MAX_SECONDS } from './audio/recording.js';
@@ -61,6 +61,7 @@ const tabs = initLiquidTabs({
     // initializing, and beginCapture reads consts declared further down
     if (name === 'tuner') queueMicrotask(autoStartTuner); // the tuner just runs here
     else autoStopTuner();
+    if (name === 'analyze') queueMicrotask(refreshMicButton);
   },
 });
 const showTab = (name) => tabs.show(name);
@@ -312,7 +313,36 @@ function autoStopTuner() {
   if (capture?.listen) stopEverything();
 }
 
-listenBtn.addEventListener('click', startTuner);
+// prepareCapture must run in the tap itself, before startTuner's first await
+listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });
+
+// --- the microphone, granted on its own terms --------------------------------
+//
+// Asking for it inside the Record flow put the permission sheet between the tap
+// and the capture: the count-in ran without it, and on iOS the audio context
+// built afterwards was no longer allowed to start, so the take recorded
+// silence. Granting it here is a tap of its own, with nothing waiting on it.
+
+const micBtn = document.querySelector('#mic-enable');
+
+async function refreshMicButton() {
+  micBtn.hidden = micIsHeld() || await permissionGranted();
+}
+
+micBtn.addEventListener('click', async () => {
+  prepareCapture();
+  micBtn.disabled = true;
+  try {
+    await ensureMic();
+    micGranted = true;
+    micBtn.hidden = true;
+    statusEl.textContent = 'microphone ready';
+  } catch (err) {
+    statusEl.textContent = `mic unavailable: ${err.message}`;
+  } finally {
+    micBtn.disabled = false;
+  }
+});
 
 // --- record → review → save or discard -------------------------------------
 
@@ -412,6 +442,8 @@ startBtn.addEventListener('click', async () => {
     finishRecording();
     return;
   }
+  // in the tap, before the count-in — see prepareCapture in capture.js
+  prepareCapture();
   stopEverything();
   clearTake();
   startBtn.disabled = true;

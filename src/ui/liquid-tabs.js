@@ -18,6 +18,11 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
 
   let current = order.includes(initial) ? initial : order[0];
   let animating = false;
+  // A tap that lands mid-slide used to be thrown away, which on a touch screen
+  // reads as the dock simply not working: the slide plus its backstop timer is
+  // most of a second, and two taps in a row is how people use a tab bar. Hold
+  // the last one asked for and run it when the current slide settles.
+  let pending = null;
 
   const panelOf = (name) => panes.querySelector(`#tab-${name}`);
   const idx = (name) => order.indexOf(name);
@@ -57,8 +62,14 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
   }
 
   function show(name, { animate = true } = {}) {
-    if (!order.includes(name) || name === current || animating) {
-      if (name === current) placeGlider(name);
+    if (!order.includes(name)) return;
+    if (animating) {
+      // queued, not dropped — settle() picks it up
+      pending = name === current ? null : name;
+      return;
+    }
+    if (name === current) {
+      placeGlider(name);
       return;
     }
     if (!animate || reduced.matches) {
@@ -118,6 +129,9 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
       placeGlider(to, false);
       window.scrollTo({ top: 0, behavior: 'instant' });
       animating = false;
+      const queued = pending;
+      pending = null;
+      if (queued) show(queued);
     };
     b.addEventListener('transitionend', done);
     // transitionend can be swallowed if the tab is backgrounded — backstop it

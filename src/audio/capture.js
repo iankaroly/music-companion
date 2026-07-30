@@ -15,6 +15,7 @@ const KEY = 'micRetain';
 
 let held = null;      // { stream, ctx, worklet, source } parked between uses
 let inUse = false;
+let primed = null;    // context built during a user gesture, waiting for open()
 
 export function micRetains() {
   try {
@@ -51,20 +52,71 @@ function usable(session) {
   return session?.stream.getTracks().some((t) => t.readyState === 'live');
 }
 
-async function open() {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      echoCancellation: false,
-      noiseSuppression: false,
-      autoGainControl: false,
-    },
-  });
+// Call this synchronously from inside a user gesture, BEFORE any await.
+//
+// iOS lets an AudioContext run only if it was constructed while the tap that
+// asked for it was still live. Everything capture used to do first outlives
+// that window — the permission sheet sits there until the user reads it, and a
+// count-in is seconds long — so a context built afterwards is born suspended
+// and resume() is refused. The worklet then never runs: no chunks arrive, the
+// screen says "recording", and the take is silent. That was the whole of the
+// "I allowed the microphone and it still didn't hear me" bug on iPad.
+//
+// Building the context at the tap costs nothing if capture never starts (it is
+// reused by the next attempt) and is what makes the first recording work.
+export function prepareCapture() {
+  const ctx = held?.ctx ?? (primed ??= newCaptureContext()).ctx;
+  if (ctx.state !== 'running') ctx.resume().catch(() => {});
+}
+
+function newCaptureContext() {
   const ctx = new AudioContext();
-  await ctx.audioWorklet.addModule(new URL('./capture-processor.js', import.meta.url));
-  const source = ctx.createMediaStreamSource(stream);
-  const worklet = new AudioWorkletNode(ctx, 'capture-processor');
-  source.connect(worklet);
-  return { stream, ctx, source, worklet };
+  // start fetching the worklet now too; open() awaits it later
+  const module = ctx.audioWorklet.addModule(new URL('./capture-processor.js', import.meta.url));
+  return { ctx, module };
+}
+
+async function open() {
+  // A caller outside a gesture still gets a context — just one that may refuse
+  // to run, which startCapture reports rather than swallowing.
+  const { ctx, module } = primed ?? newCaptureContext();
+  primed = null;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false,
+      },
+    });
+    await module;
+    const source = ctx.createMediaStreamSource(stream);
+    const worklet = new AudioWorkletNode(ctx, 'capture-processor');
+    source.connect(worklet);
+    return { stream, ctx, source, worklet };
+  } catch (err) {
+    ctx.close().catch(() => {});
+    throw err;
+  }
+}
+
+// Settle the permission ahead of time and park the stream without listening to
+// it. Recording then has nothing left to negotiate: no prompt arriving in the
+// middle of a count-in, and prepareCapture() at the Record tap resumes a
+// context that already exists rather than building one too late to run.
+export async function ensureMic() {
+  if (held && usable(held)) return;
+  if (held) {
+    held.ctx.close().catch(() => {});
+    held = null;
+  }
+  setAudioSessionType('play-and-record');
+  const session = await open();
+  held = session;
+  session.parked = true;
+  session.stream.getTracks().forEach((t) => { t.enabled = false; });
+  session.ctx.suspend().catch(() => {});
+  releaseCaptureSession();
 }
 
 // Something took the microphone away mid-session: a phone call, Siri, AirPods
@@ -108,6 +160,14 @@ export async function startCapture(onChunk, { onInterrupted } = {}) {
   session.stream.getTracks().forEach((t) => { t.enabled = true; });
   // auto-started tuners run outside a user gesture — nudge the context awake
   if (session.ctx.state !== 'running') await session.ctx.resume().catch(() => {});
+  // A context that will not run produces no chunks at all, which used to look
+  // exactly like a player who wasn't playing. Say so instead: the callers turn
+  // this into a visible message and a button that asks again from a real tap.
+  if (session.ctx.state !== 'running') {
+    inUse = false;
+    session.parked = true;
+    throw new Error('audio is blocked until you tap again');
+  }
   session.worklet.port.onmessage = (e) => onChunk(e.data);
   watchForInterruption(session, onInterrupted);
 
