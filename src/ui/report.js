@@ -517,6 +517,11 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   selected.dataset.state = intonationStatus(note.cents);
   selected.innerHTML = `<b>${note.chord ? '+' : ''}${name}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
 
+  // Reused by retuneCursorDrones below, which rewrites this box on every move
+  // of a dragged cursor and should not be parsing HTML to do it.
+  const cursorName = document.createElement('b');
+  const cursorCents = document.createTextNode('');
+
   const a4 = extras.a4 ?? 440;
 
   // Pitch actually played at time t, from the recorded readings — this is
@@ -578,7 +583,11 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
       const m = Math.round(mf);
       const cents = (mf - m) * 100;
       selected.dataset.state = intonationStatus(cents);
-      selected.innerHTML = `<b>${midiToName(m)}</b>${centsLabel(cents)}`;
+      // Two nodes kept and rewritten, not a string parsed back into elements:
+      // this runs on every pointer move while the cursor drone is dragged.
+      cursorName.textContent = midiToName(m);
+      cursorCents.textContent = centsLabel(cents);
+      if (selected.firstChild !== cursorName) selected.replaceChildren(cursorName, cursorCents);
     }
   };
 

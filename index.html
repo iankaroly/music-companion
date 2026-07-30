@@ -813,11 +813,13 @@
     #chart-scroll::-webkit-scrollbar-thumb:hover { background: var(--muted); }
     /* invisible drag handle over the drawn cursor knob; touch-action none
        so grabbing it never turns into a chart scroll */
+    /* A grab strip down the whole cursor line, not a dot on top of it. Height
+       is set per render from the plot box; only the horizontal centring is
+       here. Invisible on purpose — the line it covers is already drawn. */
     .chart-knob {
       position: absolute;
       width: 44px;
-      height: 44px;
-      margin: -22px 0 0 -22px;
+      margin-left: -22px;
       touch-action: none;
       z-index: 5;
       cursor: grab;

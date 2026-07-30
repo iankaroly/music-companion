@@ -70,6 +70,19 @@ function makeController(canvas, drawFn) {
   let playhead = null;
   let highlight = EMPTY; // a set: comparison lights up several notes at once
   const draw = () => drawFn(canvas, dpr, cssW, cssH, hoverPt, playhead, highlight);
+
+  // A phone reports pointer moves faster than it can paint — two or three per
+  // displayed frame is normal — and every one of them used to repaint the whole
+  // canvas synchronously. Dragging the cursor was therefore doing most of its
+  // work to produce pixels nobody ever saw, and it felt exactly as slow as that
+  // sounds. Draws are collapsed to one per frame instead: state is written
+  // immediately, so the last value in a frame is the one drawn, and a reader
+  // asking for the current position still gets the truth.
+  let frame = 0;
+  const scheduleDraw = () => {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; draw(); });
+  };
   draw();
 
   // A canvas keeps whatever it was last painted with, so a theme switch has to
@@ -81,9 +94,9 @@ function makeController(canvas, drawFn) {
 
   return {
     cssW,
-    repaint: draw, // the virtualised overview repaints on scroll
-    setHover(pt) { hoverPt = pt; draw(); },
-    setPlayhead(t) { playhead = t; draw(); },
+    repaint: scheduleDraw, // the virtualised overview repaints on scroll
+    setHover(pt) { hoverPt = pt; scheduleDraw(); },
+    setPlayhead(t) { playhead = t; scheduleDraw(); },
     // Accepts one note, a list of them, or null — comparison highlights every
     // other take of the same pitch, while playback highlights just the one
     // that's sounding.
@@ -91,7 +104,7 @@ function makeController(canvas, drawFn) {
       highlight = notes == null ? EMPTY
         : notes instanceof Set ? notes
           : new Set(Array.isArray(notes) ? notes : [notes]);
-      draw();
+      scheduleDraw();
     },
   };
 }
@@ -502,15 +515,31 @@ export function renderOverviewChart(canvas, {
     knob.className = 'chart-knob';
     scroller.append(knob);
   }
+  // The handle spans the cursor's whole height rather than sitting as a dot at
+  // the top of it. What is drawn is a line down the chart, so that line is what
+  // people reach for — and on a phone the old 44px circle meant hunting for a
+  // target the size of the dot while the thing you wanted to grab ran the full
+  // height of the graph.
   const placeKnob = (t) => {
     if (!knob) return;
     if (t === null || t < t0 || t > t1) { knob.style.display = 'none'; return; }
     knob.style.display = 'block';
     knob.style.left = `${contentX(t)}px`;
-    knob.style.top = `${PAD.top + 7}px`;
+    knob.style.top = `${PAD.top}px`;
+    knob.style.height = `${Math.max(44, (canvas.clientHeight || 0) - PAD.top - PAD.bottom)}px`;
   };
   const withKnob = controller.setPlayhead;
   controller.setPlayhead = (t) => { withKnob(t); placeKnob(t); };
+
+  const hoverAt = (e) => {
+    const time = timeAt(e);
+    const note = findNoteAt(notes, time);
+    canvas.style.cursor = note ? 'pointer' : 'default';
+    onNoteHover?.(note);
+    controller.setHighlight(note);
+    const i = lowerBound(pts, time);
+    controller.setHover(nearestPoint(pts.slice(Math.max(0, i - 12), i + 12), time, 'mf'));
+  };
 
   let dragging = false;
   if (knob) {
@@ -521,24 +550,23 @@ export function renderOverviewChart(canvas, {
       e.preventDefault();
       onSeek(timeAt(e), 'start');
     };
-    knob.onpointermove = (e) => { if (dragging) onSeek(timeAt(e), 'move'); };
+    // Not dragging means this is a mouse passing over, and the strip is now
+    // tall enough to shadow a whole column of the chart — so it has to do the
+    // hovering the canvas underneath it can no longer be told about.
+    knob.onpointermove = (e) => (dragging ? onSeek(timeAt(e), 'move') : hoverAt(e));
     knob.onpointerup = (e) => {
       if (!dragging) return;
       dragging = false;
       onSeek(timeAt(e), 'end');
     };
     knob.onpointercancel = knob.onpointerup;
+    // Same reason: a tap that lands on the strip is a tap on the chart, and
+    // without this the cursor's own column would be the one place tapping did
+    // nothing at all.
+    knob.onclick = (e) => onSeek?.(timeAt(e), 'tap');
   }
 
-  canvas.onmousemove = (e) => {
-    const time = timeAt(e);
-    const note = findNoteAt(notes, time);
-    canvas.style.cursor = note ? 'pointer' : 'default';
-    onNoteHover?.(note);
-    controller.setHighlight(note);
-    const i = lowerBound(pts, time);
-    controller.setHover(nearestPoint(pts.slice(Math.max(0, i - 12), i + 12), time, 'mf'));
-  };
+  canvas.onmousemove = hoverAt;
   canvas.onclick = (e) => onSeek?.(timeAt(e), 'tap');
   canvas.onmouseleave = () => {
     onNoteHover?.(null);
@@ -564,9 +592,14 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
   syncPad(canvas, [-100, 0, 100].map((dev) => midiToName(note.midi + dev / 100)));
   const t0 = note.start - contextSec;
   const t1 = note.end + contextSec;
+  // Bisect in rather than filtering the whole take. This runs again every time
+  // the cursor crosses into another note, and dragging the overview across a
+  // fast passage crosses several a second — scanning fifty thousand readings
+  // each time is most of what made that drag expensive.
   const pts = [];
-  for (const r of readings) {
-    if (r.time < t0 || r.time > t1) continue;
+  for (let i = lowerBound(readings, t0); i < readings.length; i++) {
+    const r = readings[i];
+    if (r.time > t1) break;
     if (r.frequency === null || r.confidence < 0.6) { pts.push({ time: r.time, dev: null }); continue; }
     const dev = Math.max(-CLAMP, Math.min(CLAMP, (toMidiFloat(r, a4) - note.midi) * 100));
     pts.push({ time: r.time, dev, inTarget: r.time >= note.start && r.time <= note.end });
