@@ -85,6 +85,21 @@ export const INSTRUMENTS = [
       shiftPlural: 'leaps past a 5th',
     },
     aim: 'Approach the interval on the breath, not the throat — sing the top note first, then the phrase.',
+    // A voice is the one family here whose vibrato is wide enough to be read as
+    // a change of note. At ±60 cents — ordinary for a trained singer — every
+    // swing crosses the 0.6-semitone split threshold, and once one swing has
+    // split the note the new note's median IS that peak, so the opposite peak
+    // is a whole tone away and splits again. A five-syllable phrase came out
+    // as forty-eight notes, measured.
+    //
+    // The fix is time, not a wider threshold: above a semitone the segmenter
+    // stops hearing stepwise melody at all. A vibrato swing is past the
+    // threshold for a few tens of milliseconds and returns; a real note change
+    // stays. 70 ms tells them apart and is still far shorter than any sung
+    // note. Silence stays where it is on purpose — in singing a consonant gap
+    // usually IS the boundary between one syllable and the next, and bridging
+    // them merged notes that were genuinely separate.
+    segmentation: { holdFrames: 6, silenceFrames: 4, minDuration: 0.08 },
   },
   {
     id: 'keys',
@@ -107,6 +122,14 @@ export const INSTRUMENTS = [
 
 const DEFAULT_ID = 'strings';
 const KEY = 'instrument';
+
+// What the note segmenter should do for this player. Absent means the defaults
+// in notes.js, which is deliberate: those were tuned on a cello and every
+// family that has not been shown to need something else keeps them, so a
+// profile only ever appears here on evidence.
+export function segmentation(profile = current) {
+  return profile.segmentation ?? {};
+}
 
 export function instrumentById(id) {
   return INSTRUMENTS.find((i) => i.id === id) ?? INSTRUMENTS.find((i) => i.id === DEFAULT_ID);

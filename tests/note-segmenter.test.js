@@ -129,3 +129,47 @@ describe('NoteSegmenter', () => {
     expect(notes.map((n) => n.name)).toEqual(['A3', 'A3']);
   });
 });
+
+// A voice is the one family whose vibrato is wide enough to read as a change of
+// note, and the failure compounds — see the note in notes.js. These use the
+// analyzer's finer live hop rather than the 23ms one above, because how many
+// frames a vibrato swing spends past the threshold is the whole question.
+describe('a singer, whose vibrato is wider than a semitone split', () => {
+  const FINE = 0.0116;
+
+  // one held pitch with a 6 Hz, ±60-cent swing on it
+  function sung(midi, seconds, { from = 0, cents = 60 } = {}) {
+    const frames = [];
+    for (let u = 0; u < seconds; u += FINE) {
+      const vib = (cents / 100) * Math.sin(2 * Math.PI * 6 * u);
+      frames.push(voiced(midi + vib, from + u));
+    }
+    return frames;
+  }
+
+  test('splits one held note into dozens on the defaults', () => {
+    const notes = run(new NoteSegmenter(), sung(60, 1.5));
+    expect(notes.length).toBeGreaterThan(10);
+  });
+
+  test('holding the deviation longer hears it as the one note it is', () => {
+    const notes = run(new NoteSegmenter({ holdFrames: 6 }), sung(60, 1.5));
+    expect(notes.map((n) => n.name)).toEqual(['C4']);
+    // and the swing still averages to the pitch that was actually sung
+    expect(Math.abs(notes[0].cents)).toBeLessThan(15);
+  });
+
+  test('still hears a step between two sung notes', () => {
+    const frames = [...sung(60, 0.8), ...sung(62, 0.8, { from: 0.8 })];
+    const notes = run(new NoteSegmenter({ holdFrames: 6 }), frames);
+    expect(notes.map((n) => n.name)).toEqual(['C4', 'D4']);
+  });
+
+  test('an octave glitch is still thrown away, not folded in', () => {
+    const frames = [...sung(60, 0.5)];
+    frames.splice(20, 0, voiced(72, frames[20].time)); // one frame an octave up
+    const notes = run(new NoteSegmenter({ holdFrames: 6 }), frames);
+    expect(notes.map((n) => n.name)).toEqual(['C4']);
+    expect(Math.abs(notes[0].cents)).toBeLessThan(15);
+  });
+});

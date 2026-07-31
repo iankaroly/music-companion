@@ -1,7 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import {
   INSTRUMENTS, instrument, setInstrument, instrumentById,
-  loadInstrument, saveInstrument, instrumentChosen,
+  loadInstrument, saveInstrument, instrumentChosen, segmentation,
 } from '../src/analysis/instruments.js';
 import { leapBand } from '../src/analysis/landing.js';
 
@@ -71,5 +71,19 @@ describe('instrument profiles', () => {
     // flute and B flat clarinet are both winds; the tuner's own instrument
     // control is what names the actual pitch
     for (const i of INSTRUMENTS) expect(i.transpose).toBeUndefined();
+  });
+});
+
+describe('segmentation profiles', () => {
+  test('only voice asks for anything other than the defaults', () => {
+    const named = INSTRUMENTS.filter((i) => i.segmentation).map((i) => i.id);
+    expect(named).toEqual(['voice']);
+  });
+
+  test('segmentation() follows the chosen instrument', () => {
+    setInstrument('strings');
+    expect(segmentation()).toEqual({});
+    setInstrument('voice');
+    expect(segmentation().holdFrames).toBe(6);
   });
 });

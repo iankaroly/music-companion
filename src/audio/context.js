@@ -42,7 +42,19 @@ export function setAudioSessionType(type) {
 }
 
 export function audioContext() {
-  audioContext.ctx ??= new AudioContext();
+  if (!audioContext.ctx) {
+    const ctx = new AudioContext();
+    // Claiming a session type re-activates it on iOS, and that re-activation
+    // can suspend the context a moment AFTER wakeAudio resumed it. The first
+    // tap on play comes from the idle 'auto' session, so it is the one that
+    // changes type and the one that gets undone — which is why playing worked
+    // on the second press and not the first. A suspend nobody asked for, while
+    // something is still holding the session, is put back.
+    ctx.onstatechange = () => {
+      if (ctx.state === 'suspended' && holds.size > 0) ctx.resume().catch(() => {});
+    };
+    audioContext.ctx = ctx;
+  }
   return audioContext.ctx;
 }
 

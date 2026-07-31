@@ -10,6 +10,12 @@ import { renderLanding, hideLanding } from './landing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
 import { scheduleClick } from '../audio/metronome.js';
 
+// The one status line the app has, shared with the recorder above.
+function say(root, message) {
+  const el = (root ?? document).querySelector('#status');
+  if (el) el.textContent = message;
+}
+
 const CONTEXT_SEC = 1.2;
 let zoomContextSec = CONTEXT_SEC; // pinch on the zoom chart adjusts this
 
@@ -185,9 +191,16 @@ function playClip(clip, root, timeMap, spans, onDone) {
   stopPlayback(root);
   playbackCtx = holdAudio('playback');
 
+  // Every caller hands us a fresh array out of Recorder.extract, so the copy
+  // that used to be here was pure waste — and not a small one. Playing a
+  // ten-minute take from the beginning extracts ~115 MB of float samples, and
+  // copying it again before handing a third copy to createBuffer asked iOS for
+  // a third of a gigabyte in one gesture. That allocation is what "it won't
+  // play from the start" looks like from the outside: the further in you began,
+  // the less it needed, which is why playing from later in the take worked.
   const samples = playbackSpeed < 0.999
     ? timeStretch(clip.samples, clip.sampleRate, playbackSpeed)
-    : clip.samples.slice(0);
+    : clip.samples;
 
   // Phone recordings are quiet — normalize each clip's peak toward full
   // scale (gain capped so the noise floor of near-silence isn't blasted).
@@ -198,8 +211,18 @@ function playClip(clip, root, timeMap, spans, onDone) {
     for (let i = 0; i < samples.length; i++) samples[i] *= boost;
   }
 
-  const buffer = playbackCtx.createBuffer(1, samples.length, clip.sampleRate);
-  buffer.copyToChannel(samples, 0);
+  // A long take is a big allocation and it can simply be refused. Saying so is
+  // the point: this used to throw out of a click handler, which left the button
+  // looking like it had ignored the tap.
+  let buffer;
+  try {
+    buffer = playbackCtx.createBuffer(1, samples.length, clip.sampleRate);
+    buffer.copyToChannel(samples, 0);
+  } catch (err) {
+    releaseAudio('playback');
+    say(root, `couldn't play that much at once — ${err.message}`);
+    return null;
+  }
   const source = playbackCtx.createBufferSource();
   source.buffer = buffer;
   source.connect(masterOut());
@@ -252,6 +275,9 @@ function playFullFrom(root, from) {
     full.spans,
     () => { if (full) { full.playing = false; full.pos = 0; } updateFullButton(root); },
   );
+  // Nothing started: leave the player alone rather than flipping the button to
+  // "pause" for a sound that does not exist.
+  if (startTime === null) return;
   full.playing = true;
   full.pos = from;
   full.playInfo = { from, startTime };
@@ -275,6 +301,7 @@ function playSpan(root, startSec, endSec) {
     full.spans,
     () => { if (full) { full.playing = false; full.pos = from; } updateFullButton(root); },
   );
+  if (startTime === null) return;
   full.playing = true;
   full.pos = from;
   full.playInfo = { from, startTime };
@@ -331,6 +358,7 @@ function playZoomFrom(root, from) {
       }, 0);
     },
   );
+  if (startTime === null) return;
   zoom.playing = true;
   zoom.pos = from;
   zoom.playInfo = { from, startTime };

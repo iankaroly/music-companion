@@ -21,7 +21,7 @@ import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/con
 import { renderCoach } from './ui/coach.js';
 import { initSettings } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
-import { instrument } from './analysis/instruments.js';
+import { instrument, segmentation } from './analysis/instruments.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
 
@@ -217,9 +217,10 @@ async function beginCapture(extra = {}) {
   let analyzer = null;
   let recorder = null;
   const readings = [];
-  const segmenter = new NoteSegmenter({ a4: currentA4() });
+  const segmenter = new NoteSegmenter({ a4: currentA4(), ...segmentation() });
   const chord = {
-    segmenter: new NoteSegmenter({ a4: currentA4(), minDuration: 0.12 }),
+    // the profile first, then the second voice's own longer floor on top
+    segmenter: new NoteSegmenter({ a4: currentA4(), ...segmentation(), minDuration: 0.12 }),
     onNote: (note) => { note.chord = true; handleNote(note); },
   };
   const session = await startCapture((chunk) => {
