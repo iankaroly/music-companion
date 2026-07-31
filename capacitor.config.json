@@ -1,0 +1,9 @@
+{
+  "appId": "com.iankaroly.practicepartner",
+  "appName": "Practice Partner",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#eeebfa"
+  }
+}

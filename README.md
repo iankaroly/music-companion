@@ -43,8 +43,33 @@ onsets → autocorrelation → grid period → least-squares fit → local devia
 ```
 npm install
 npm run dev      # local
-npm test         # 161 tests — the DSP and analysis are unit-tested with synthesized signals
+npm test         # the DSP and analysis are unit-tested with synthesized signals
 npm run build    # static bundle in dist/
 ```
 
 Chrome/Edge/Safari, HTTPS or localhost (the mic requires it).
+
+## On an iPhone or iPad
+
+The web app is wrapped for iOS with Capacitor. The wrapper is a shell: all the
+code is still the same web build, so `dist/` is what actually ships.
+
+```
+npm run ios      # build, sync into the Xcode project, and open it
+```
+
+**Xcode is required and is not installed here yet** — get it from the Mac App
+Store. CocoaPods is not needed; Capacitor 8 uses Swift Package Manager.
+
+Then in Xcode: pick your device in the toolbar, set a team under
+*Signing & Capabilities*, and press run. A free Apple ID works — the app is
+signed for 7 days at a time. The $99/year Developer Program extends that to a
+year and opens TestFlight.
+
+Nothing here is public. An App Store listing happens only when a build is
+submitted, and builds can sit on your own device or in TestFlight indefinitely
+before that.
+
+Icons: `tools/icon.html` is the source, `tools/build-icons.sh` renders the web
+icons, the maskable variant, the share image, **and** the 1024 iOS app icon in
+one pass.

@@ -26,12 +26,27 @@
     background: linear-gradient(135deg, #7c5cff, #4cb8ff);
     display: grid;
     place-items: center;
+    color: #fff;   /* the mark paints in currentColor; splash overrides it */
   }
   /* Android crops to a circle inscribed in the square, so the mark has to sit
      inside the inner 80% or its edges are cut on a Pixel. The mark is only
      about 59% of its own viewBox wide to begin with and clears that circle
      almost unscaled; 0.85 keeps a margin without shrinking it to a dot. */
   body[data-v="maskable"] .gauge { transform: scale(0.85); }
+
+  /* The launch screen is not a billboard — it is the app's first frame drawn a
+     moment early, so it wears the app's own background and shows the mark at
+     the size it sits at in the header, not a logo blown up to fill a phone. */
+  body[data-v="splash"] { background: #eeebfa; }
+  body[data-v="splash"] .tile {
+    /* the render window's size, not the final one — build-icons.sh shoots this
+       at 1366 and scales up, and a tile bigger than the window puts the mark
+       off centre in the part that gets captured */
+    width: 1366px; height: 1366px;
+    background: #eeebfa;
+    border-radius: 0;
+  }
+  body[data-v="splash"] .gauge { width: 260px; height: 260px; color: #6d4ef6; }
 
   body[data-v="og"] { background: #eeebfa; }
   body[data-v="og"] .tile {
@@ -56,9 +71,9 @@
          is the whole reason the app has a different name now. -->
     <svg class="gauge" viewBox="0 0 300 300" width="512" height="512" aria-hidden="true">
       <path d="M114 48 A 114 114 0 0 0 114 252" fill="none"
-            stroke="#fff" stroke-width="27" stroke-linecap="round" />
+            stroke="currentColor" stroke-width="27" stroke-linecap="round" />
       <path d="M186 48 A 114 114 0 0 1 186 252" fill="none"
-            stroke="rgba(255,255,255,0.5)" stroke-width="27" stroke-linecap="round" />
+            stroke="currentColor" stroke-opacity="0.5" stroke-width="27" stroke-linecap="round" />
       <circle cx="150" cy="150" r="23" fill="#17b578" />
     </svg>
     <div class="words" hidden>
@@ -72,7 +87,8 @@
   const tile = document.querySelector('.tile');
   if (v === 'og') {
     document.querySelector('.words').hidden = false;
-  } else {
+  } else if (v !== 'splash') {
+    // splash sizes itself in CSS; the icons are a fixed 512 square
     tile.style.width = tile.style.height = '512px';
   }
 </script>

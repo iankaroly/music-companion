@@ -6,3 +6,12 @@ dist/
 .playwright-mcp/
 .vercel
 .env*
+
+# Capacitor / iOS build output — the project is committed, its build products are not
+ios/App/App/public/
+ios/App/App/capacitor.config.json
+ios/App/Pods/
+ios/App/build/
+ios/DerivedData/
+*.xcuserstate
+xcuserdata/
