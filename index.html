@@ -100,6 +100,11 @@
       --primary-deep: #5a3be0;
       --sky: #4cb8ff;
       --grad: linear-gradient(135deg, #7c5cff, #4cb8ff);
+      /* The wordmark runs wide and short, so it sweeps almost horizontally
+         rather than at --grad's 135deg — the same two colours, given the
+         length of the words to travel. */
+      --wordmark: linear-gradient(100deg, #6d4ef6, #4cb8ff 118%);
+      --wordmark-mark: #5b83f9;
       --good: #17b578;
       --off: #f29b38;
       --bad: #ef5c73;
@@ -150,6 +155,8 @@
       --primary-deep: #8163ff;
       --sky: #62c4ff;
       --grad: linear-gradient(135deg, #9b83ff, #57bdff);
+      --wordmark: linear-gradient(100deg, #9b83ff, #57bdff 118%);
+      --wordmark-mark: #86aaff;
       --good: #35d295;
       --off: #ffb257;
       --bad: #ff7d90;
@@ -326,7 +333,7 @@
       font-size: 1.5rem;
       font-weight: 600;
       letter-spacing: 0.01em;
-      background: linear-gradient(100deg, #6d4ef6, #ff7a6e 130%);
+      background: var(--wordmark);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
@@ -1545,7 +1552,7 @@
       font-family: var(--display);
       font-weight: 600;
       font-size: 1.5rem;
-      background: linear-gradient(100deg, #6d4ef6, #ff7a6e 130%);
+      background: var(--wordmark);
       -webkit-background-clip: text;
       background-clip: text;
       color: transparent;
@@ -1557,9 +1564,8 @@
       width: 1em; height: 1em;
       vertical-align: -0.14em;
       margin: 0 0.08em;
-      color: var(--primary);
+      color: var(--wordmark-mark);
     }
-    #welcome-title .mark { color: #6d4ef6; }
     .welcome-lead { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin: 0.6rem 0 1.2rem; }
     .welcome-step { text-align: left; margin-bottom: 1.2rem; }
     .welcome-tabs {
