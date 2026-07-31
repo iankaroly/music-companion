@@ -8,7 +8,7 @@
        gesture, but only on their own canvas and only while the page is not
        already zoomed (pageIsZoomed in pitch-chart.js) — so a pinch anywhere
        else zooms the page as usual, and a pinch on a chart can always undo it. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Practice Partner</title>
   <meta name="description" content="A tuner, recorder and practice coach for anyone who plays a pitch. It listens while you play and tells you which notes ran sharp or flat, where the tempo drifted, and what has improved since last week. No account, no server — every recording stays on your device." />
   <link rel="icon" href="/icon-180.png" />
@@ -195,7 +195,15 @@
     }
     /* pan, don't zoom: also removes the double-tap-to-zoom delay on buttons */
     html, body { touch-action: pan-x pan-y; }
-    html { background: var(--bg); }
+    /* viewport-fit=cover hands the webview the notch and the home indicator,
+       so these two are what paint them — without it iOS insets the webview and
+       those strips show the native background instead, which is a fixed colour
+       and cannot follow the theme. The rubber-band overscroll at either end
+       reveals this same background, which is the other half of the white. */
+    html {
+      background: var(--bg);
+      background-color: var(--bg);
+    }
     body {
       background: var(--bg);
       color: var(--ink);
@@ -223,7 +231,8 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      padding: 1.4rem 1rem 0.9rem;
+      /* room for the status bar it now sits beneath */
+      padding: calc(1.4rem + env(safe-area-inset-top, 0px)) 1rem 0.9rem;
     }
     /* Centred in the header rather than pinned below its top edge: the button
        is taller than the header's text row, so a fixed offset left it hanging
@@ -1637,7 +1646,7 @@
 
     /* ---- phone layout ---- */
     @media (max-width: 640px) {
-      header { padding: 0.9rem 0.6rem 0.75rem; }
+      header { padding: calc(0.9rem + env(safe-area-inset-top, 0px)) 0.6rem 0.75rem; }
       h1 { font-size: 1.3rem; }
       .tab-btn { padding: 0.6rem 0.5rem 0.55rem; min-width: 3.9rem; font-size: 0.66rem; }
       .tab-btn svg { width: 24px; height: 24px; }

@@ -3,7 +3,7 @@
   "appName": "Practice Partner",
   "webDir": "dist",
   "ios": {
-    "contentInset": "always",
+    "contentInset": "never",
     "backgroundColor": "#eeebfa"
   }
 }

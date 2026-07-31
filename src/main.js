@@ -264,6 +264,35 @@ async function beginCapture(extra = {}) {
 const listenBtn = document.querySelector('#tuner-listen');
 let micGranted = null; // null = not asked the browser yet
 
+// Whether the mic has EVER been granted on this install.
+//
+// Safari has no 'microphone' descriptor for the Permissions API, so the query
+// below rejects there and always read as "not granted" — which is why the app
+// asked again on every single launch even though iOS had long since remembered
+// the answer. Once a capture has actually succeeded we know the grant exists,
+// and iOS keeps it across launches, so that fact is worth writing down.
+//
+// It is a cache of something the system owns, not the permission itself: if the
+// grant is revoked in Settings the next capture throws, and the failure paths
+// below clear this and put the button back.
+const GRANTED_KEY = 'micGranted';
+
+function grantedBefore() {
+  try {
+    return globalThis.localStorage?.getItem(GRANTED_KEY) === 'yes';
+  } catch {
+    return false;
+  }
+}
+
+function rememberGrant(granted) {
+  micGranted = granted;
+  try {
+    if (granted) globalThis.localStorage?.setItem(GRANTED_KEY, 'yes');
+    else globalThis.localStorage?.removeItem(GRANTED_KEY);
+  } catch { /* survivable */ }
+}
+
 async function permissionGranted() {
   if (micGranted !== null) return micGranted;
   try {
@@ -271,9 +300,10 @@ async function permissionGranted() {
     // that does have it — an unknown name rejects, which reads as "ask first".
     const status = await navigator.permissions.query({ name: 'microphone' });
     micGranted = status.state === 'granted';
-    status.onchange = () => { micGranted = status.state === 'granted'; };
+    status.onchange = () => rememberGrant(status.state === 'granted');
   } catch {
-    micGranted = false;
+    // No usable answer from the browser; fall back to what we saw ourselves.
+    micGranted = grantedBefore();
   }
   return micGranted;
 }
@@ -290,9 +320,10 @@ async function startTuner() {
   document.querySelector('#cents').textContent = 'listening';
   try {
     capture = await beginCapture({ listen: true });
-    micGranted = true; // whatever the Permissions API said, we have it now
+    rememberGrant(true); // whatever the Permissions API said, we have it now
   } catch (err) {
     statusEl.textContent = `mic unavailable: ${err.message}`;
+    rememberGrant(false); // it was refused or revoked — ask again next time
     showListenButton(true);
   } finally {
     tunerStarting = false;
@@ -335,10 +366,11 @@ micBtn.addEventListener('click', async () => {
   micBtn.disabled = true;
   try {
     await ensureMic();
-    micGranted = true;
+    rememberGrant(true);
     micBtn.hidden = true;
     statusEl.textContent = 'microphone ready';
   } catch (err) {
+    rememberGrant(false);
     statusEl.textContent = `mic unavailable: ${err.message}`;
   } finally {
     micBtn.disabled = false;
