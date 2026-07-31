@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Practice Partner — marks</title>
+<link rel="preload" href="/fonts/fredoka-latin.woff2" as="font" type="font/woff2" crossorigin />
+<style>
+  @font-face {
+    font-family: "Fredoka";
+    font-weight: 400 600;
+    font-display: swap;
+    src: url("/fonts/fredoka-latin.woff2") format("woff2");
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg: #eeebfa;
+    --ink: #2a2149;
+    --muted: #6b6389;
+    --grape: #6d4ef6;
+    --sky: #4cb8ff;
+    --violet: #7c5cff;
+    --good: #17b578;
+    --card: rgba(255,255,255,0.62);
+    --line: rgba(42,33,73,0.10);
+    --display: "Fredoka", ui-rounded, "SF Pro Rounded", "Avenir Next", sans-serif;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--display);
+    font-weight: 400;
+    -webkit-font-smoothing: antialiased;
+    padding: 4rem 1.5rem 6rem;
+  }
+  .page { max-width: 60rem; margin: 0 auto; }
+
+  header { margin-bottom: 3.5rem; }
+  .eyebrow {
+    font-size: 0.78rem; letter-spacing: 0.18em; text-transform: uppercase;
+    color: var(--muted); margin-bottom: 0.8rem;
+  }
+  h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); font-weight: 600; letter-spacing: -0.03em; line-height: 1.05; }
+  .lede { margin-top: 1rem; max-width: 34rem; font-size: 1.05rem; line-height: 1.6; color: var(--muted); }
+
+  .concept {
+    background: var(--card);
+    border-radius: 1.6rem;
+    padding: 1.9rem;
+    margin-bottom: 1.5rem;
+    display: grid;
+    grid-template-columns: 9.5rem 1fr;
+    gap: 2rem;
+    align-items: start;
+  }
+  .tile {
+    width: 9.5rem; height: 9.5rem;
+    border-radius: 2.1rem;
+    background: linear-gradient(135deg, var(--violet), var(--sky));
+    display: grid; place-items: center;
+    box-shadow: 0 10px 24px rgba(42,33,73,0.14);
+  }
+  .tile svg { width: 74%; height: 74%; color: #fff; }
+
+  .about h2 { font-size: 1.35rem; font-weight: 600; letter-spacing: -0.01em; }
+  .about .idea { margin-top: 0.5rem; color: var(--muted); font-size: 0.95rem; line-height: 1.55; max-width: 34rem; }
+
+  /* The size ramp is the point: an app icon lives at 32px far more often than
+     at 512, and most marks quietly die somewhere on the way down. */
+  .ramp {
+    margin-top: 1.4rem; padding-top: 1.2rem;
+    border-top: 1px solid var(--line);
+    display: flex; align-items: flex-end; gap: 1.4rem; flex-wrap: wrap;
+  }
+  .step { text-align: center; }
+  .step .box {
+    border-radius: 22%;
+    background: linear-gradient(135deg, var(--violet), var(--sky));
+    display: grid; place-items: center;
+    margin: 0 auto;
+  }
+  .step .box svg { width: 74%; height: 74%; color: #fff; }
+  .step span { display: block; margin-top: 0.5rem; font-size: 0.68rem; color: var(--muted); letter-spacing: 0.04em; }
+  .s64 .box { width: 64px; height: 64px; }
+  .s44 .box { width: 44px; height: 44px; }
+  .s32 .box { width: 32px; height: 32px; }
+  .s20 .box { width: 20px; height: 20px; border-radius: 26%; }
+
+  .lockups { margin-top: 1.3rem; display: flex; flex-wrap: wrap; gap: 0.9rem; }
+  .lockup {
+    display: inline-flex; align-items: center; gap: 0.6rem;
+    padding: 0.7rem 1.1rem 0.7rem 0.8rem; border-radius: 999px;
+    font-size: 1.05rem; font-weight: 600; letter-spacing: -0.015em;
+  }
+  .lockup svg { width: 1.7rem; height: 1.7rem; flex-shrink: 0; }
+  .lockup.on-light { background: rgba(255,255,255,0.8); color: var(--ink); }
+  .lockup.on-light svg { color: var(--grape); }
+  .lockup.on-dark { background: #191527; color: #efedfb; }
+  .lockup.on-dark svg { color: #b9a6ff; }
+
+  footer { margin-top: 3rem; color: var(--muted); font-size: 0.9rem; line-height: 1.6; max-width: 34rem; }
+
+  @media (max-width: 640px) {
+    body { padding: 2.5rem 1rem 4rem; }
+    .concept { grid-template-columns: 1fr; gap: 1.3rem; }
+    .tile { width: 7.5rem; height: 7.5rem; }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14131f; --ink: #ecebf7; --muted: #9a93bb;
+      --card: rgba(255,255,255,0.06); --line: rgba(255,255,255,0.10);
+    }
+    .lockup.on-light { background: #f4f2fd; color: #201a38; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <p class="eyebrow">Identity study</p>
+    <h1>Practice Partner</h1>
+    <p class="lede">
+      Every tuner app draws a tuning fork. This one is not a tuner — it is a
+      second presence in the room, listening while you play. So each mark below
+      tries to draw <em>two things in relation</em> rather than one instrument.
+      Judge them small: an app icon spends its life at 32&nbsp;px.
+    </p>
+  </header>
+
+  <!-- ============ the marks ============ -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+
+    <!-- 1. Duet: two arcs turned toward each other, meeting in the middle -->
+    <g id="m-duet">
+      <path d="M38 16 A 38 38 0 0 0 38 84" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+      <path d="M62 16 A 38 38 0 0 1 62 84" fill="none" stroke="currentColor" stroke-opacity="0.5" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="50" cy="50" r="7.5" fill="#17b578"/>
+    </g>
+
+    <!-- 2. Needle: the gauge the app already draws -->
+    <g id="m-needle">
+      <path d="M16 70 A 34 34 0 0 1 84 70" fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="9" stroke-linecap="round"/>
+      <path d="M42 37 A 34 34 0 0 1 58 37" fill="none" stroke="#17b578" stroke-width="9" stroke-linecap="round"/>
+      <line x1="50" y1="70" x2="50" y2="40" stroke="currentColor" stroke-width="6.5" stroke-linecap="round"/>
+      <circle cx="50" cy="70" r="10" fill="currentColor"/>
+    </g>
+
+    <!-- 3. Beats: two rings closing on each other, the way two pitches do -->
+    <g id="m-beats">
+      <circle cx="38" cy="50" r="26" fill="none" stroke="currentColor" stroke-width="8"/>
+      <circle cx="62" cy="50" r="26" fill="none" stroke="currentColor" stroke-opacity="0.48" stroke-width="8"/>
+    </g>
+
+    <!-- 4. Fork-P: a tuning fork whose stem closes into the bowl of a P -->
+    <g id="m-forkp">
+      <path d="M34 16 L34 44 A 16 16 0 0 0 66 44 L66 16" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+      <path d="M50 60 L50 86" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="50" cy="60" r="6" fill="#17b578"/>
+    </g>
+
+    <!-- 5. Echo: a phrase and the answer to it -->
+    <g id="m-echo">
+      <g stroke="currentColor" stroke-width="8.5" stroke-linecap="round">
+        <line x1="24" y1="34" x2="24" y2="66"/>
+        <line x1="41" y1="22" x2="41" y2="78"/>
+      </g>
+      <g stroke="currentColor" stroke-opacity="0.5" stroke-width="8.5" stroke-linecap="round">
+        <line x1="59" y1="30" x2="59" y2="70"/>
+        <line x1="76" y1="40" x2="76" y2="60"/>
+      </g>
+    </g>
+
+    <!-- 6. Trace: the pitch line the app actually draws, finding the centre -->
+    <g id="m-trace">
+      <line x1="16" y1="50" x2="84" y2="50" stroke="currentColor" stroke-opacity="0.4" stroke-width="5" stroke-linecap="round" stroke-dasharray="1 11"/>
+      <path d="M16 74 C 33 74, 34 30, 50 30 S 68 50, 84 50" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/>
+      <circle cx="84" cy="50" r="9" fill="#17b578"/>
+    </g>
+
+  </defs></svg>
+
+  <div id="grid"></div>
+
+  <footer>
+    Marks are drawn, not stored — this page is the source. Pick one and it
+    becomes <code>tools/icon.html</code>, which renders the home-screen icons,
+    the maskable variant and the share image in one pass.
+  </footer>
+
+</div>
+
+<script>
+  const CONCEPTS = [
+    { id: 'duet', name: 'Duet',
+      idea: 'Two arcs turned toward each other, meeting on a green centre. One is you and one is the thing listening; the dot is the moment you agree. Closest to what the app is actually for, and the only mark here that would not fit a tuner.' },
+    { id: 'beats', name: 'Beats',
+      idea: 'Two rings overlapping, the way two pitches beat against each other until they lock. Abstract enough to survive at 20 px, and it means something specific to anyone who has tuned an instrument by ear.' },
+    { id: 'trace', name: 'Trace',
+      idea: 'The pitch line the app already draws, arriving at centre. Honest — this is literally what you see on the report screen — but it is the busiest mark here and the one most likely to smudge when small.' },
+    { id: 'needle', name: 'Needle',
+      idea: 'The gauge the app draws today, restyled. Instantly legible as "tuner", which is the problem: it says the one thing about the app that is least distinctive.' },
+    { id: 'forkp', name: 'Fork P',
+      idea: 'A tuning fork whose stem closes into the bowl of a P. Carries the name, but a fork is where every music app starts and the P only reads once someone has been told it is there.' },
+    { id: 'echo', name: 'Call and response',
+      idea: 'A phrase and the answer to it — four bars, the second pair quieter. Reads as sound and as a conversation at once. Risks looking like a generic audio waveform at small sizes.' },
+  ];
+
+  const use = (id, cls = '') =>
+    `<svg viewBox="0 0 100 100" class="${cls}" aria-hidden="true"><use href="#m-${id}"/></svg>`;
+
+  document.querySelector('#grid').innerHTML = CONCEPTS.map((c) => `
+    <section class="concept">
+      <div class="tile">${use(c.id)}</div>
+      <div class="about">
+        <h2>${c.name}</h2>
+        <p class="idea">${c.idea}</p>
+
+        <div class="ramp">
+          ${[['s64', '64'], ['s44', 'home screen'], ['s32', 'tab'], ['s20', '20']]
+            .map(([cls, label]) => `
+              <div class="step ${cls}"><div class="box">${use(c.id)}</div><span>${label}</span></div>
+            `).join('')}
+        </div>
+
+        <div class="lockups">
+          <span class="lockup on-light">${use(c.id)} Practice Partner</span>
+          <span class="lockup on-dark">${use(c.id)} Practice Partner</span>
+        </div>
+      </div>
+    </section>
+  `).join('');
+</script>
+</body>
+</html>

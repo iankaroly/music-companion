@@ -10,6 +10,11 @@
 import { landingStats } from '../analysis/landing.js';
 import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/codec.js';
 
+// The app is called Practice Partner now. This is NOT — and the backup format
+// string below is not either. Both are keys, not names: renaming the database
+// points the app at an empty one and every take anybody has ever recorded is
+// still sitting in the old one, unreachable. Renaming the format string makes
+// every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
 const VERSION = 4;
 const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders'];
@@ -215,7 +220,7 @@ export async function exportLibrary() {
 // the one thing about a recording that is already unique.
 export async function importLibrary(backup) {
   if (backup?.format !== 'music-companion-backup') {
-    throw new Error('that file is not a Music Companion backup');
+    throw new Error('that file is not a Practice Partner backup');
   }
   const db = await openDB();
   const existing = await listRecordings();

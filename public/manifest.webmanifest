@@ -1,6 +1,6 @@
 {
-  "name": "Music Companion",
-  "short_name": "Companion",
+  "name": "Practice Partner",
+  "short_name": "Practice",
   "description": "A tuner, recorder and practice coach for anyone who plays a pitch — strings, winds, brass or voice. Everything stays on your device.",
   "start_url": "/",
   "display": "standalone",
