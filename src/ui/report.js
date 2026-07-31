@@ -1,4 +1,4 @@
-import { audioContext, masterOut, holdAudio, releaseAudio } from '../audio/context.js';
+import { audioContext, masterOut, holdAudio, releaseAudio, warmAudio } from '../audio/context.js';
 import { findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
@@ -440,6 +440,9 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   } : null;
   root.querySelector('#clip-head').hidden = !recording;
   updateFullButton(root);
+  // The press is long enough to wake the context in; the click then has
+  // nothing left to wait for. See warmAudio.
+  root.querySelector('#clip-play').onpointerdown = warmAudio;
   root.querySelector('#clip-play').onclick = () => {
     if (!full) return;
     if (full.playing) pauseFull(root);
@@ -656,6 +659,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
       playInfo: null,
     };
     updateZoomButton(root);
+    root.querySelector('#zoom-play').onpointerdown = warmAudio;
     root.querySelector('#zoom-play').onclick = () => {
       if (zoom.playing) pauseZoom(root);
       else playZoomFrom(root, zoom.pos);

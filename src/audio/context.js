@@ -24,7 +24,14 @@
 // the session handed back to the system. Nothing is claimed at rest — which is
 // most of the time, since a tuner and a chart make no sound at all.
 
-const IDLE_MS = 1200;   // grace period, so gaps between notes don't churn it
+// Grace period before the context is suspended and the session handed back.
+//
+// It was 1200 ms, which is shorter than the gap between pausing a take and
+// pressing play again — so every one of those cycles paid for a resume and an
+// audio-session re-activation, and the sound came in late. Long enough now to
+// sit through ordinary stop-start listening. Backgrounding does not wait for
+// it: the visibilitychange handler at the bottom sleeps immediately.
+const IDLE_MS = 5000;
 const IDLE_TYPE = 'auto'; // "no opinion" — the system stops calling us a player
 
 let sessionType = null;
@@ -56,6 +63,20 @@ export function audioContext() {
     audioContext.ctx = ctx;
   }
   return audioContext.ctx;
+}
+
+// Wake the context WITHOUT taking a hold, so it is already running by the time
+// something asks it to make a sound.
+//
+// This is what a play button costs when nobody has played anything for a
+// second: resuming a suspended context and re-activating the audio session are
+// both slow on iOS, both happen inside the tap, and neither is awaited — so
+// start() is called on a context whose clock has not begun moving yet and the
+// sound arrives late. Doing it on pointerdown spends the length of the press on
+// it instead, which is the part of a tap nobody is listening during.
+export function warmAudio() {
+  wakeAudio();
+  scheduleSleep(); // still let go if the press turns out not to be a play
 }
 
 // Called the moment anything audible is wired up. Claims the session, wakes
