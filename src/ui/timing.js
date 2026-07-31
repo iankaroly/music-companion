@@ -295,13 +295,19 @@ export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
     until: Math.max(...report.notes.map((n) => n.start)) + report.tactus,
   } : null);
 
+  // The list opens short — two dozen chips is already a wall — and says how
+  // many it is holding back. It used to only SAY it: "+29 more" was a plain
+  // span, so the notes it was counting could not be reached at all.
+  let expanded = false;
+
   function renderChips() {
     chipBox.replaceChildren();
     const source = filter === 'worst' ? report.worst
       : filter === 'late' ? report.flagged.filter((p) => p.verdict === 'late')
         : filter === 'early' ? report.flagged.filter((p) => p.verdict === 'early')
           : report.flagged;
-    const shown = source.slice(0, filter === 'worst' ? 5 : 24);
+    const cap = filter === 'worst' ? 5 : 24;
+    const shown = expanded ? source : source.slice(0, cap);
     for (const w of shown) {
       const chip = document.createElement('button');
       chip.type = 'button';
@@ -321,10 +327,19 @@ export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
       chipBox.append(none);
     }
     if (source.length > shown.length) {
-      const more = document.createElement('span');
-      more.className = 'tm-none';
+      const more = document.createElement('button');
+      more.type = 'button';
+      more.className = 'tm-chip tm-more';
       more.textContent = `+${source.length - shown.length} more`;
+      more.addEventListener('click', () => { expanded = true; renderChips(); });
       chipBox.append(more);
+    } else if (expanded && source.length > cap) {
+      const less = document.createElement('button');
+      less.type = 'button';
+      less.className = 'tm-chip tm-more';
+      less.textContent = 'show fewer';
+      less.addEventListener('click', () => { expanded = false; renderChips(); });
+      chipBox.append(less);
     }
   }
 
@@ -446,7 +461,7 @@ export function renderTiming(root, notes, { onPickNote, onClickTrack } = {}) {
     b.onclick = () => { pulse.subdivision = Number(b.dataset.div); commit(); };
   }
   for (const b of root.querySelectorAll('#timing-filter button')) {
-    b.onclick = () => { filter = b.dataset.filter; paintFilters(); renderChips(); };
+    b.onclick = () => { filter = b.dataset.filter; expanded = false; paintFilters(); renderChips(); };
   }
   paintFilters();
 

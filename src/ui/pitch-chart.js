@@ -50,6 +50,45 @@ function toMidiFloat(r, a4) {
   return 69 + 12 * Math.log2(r.frequency / a4);
 }
 
+// How far into the take you are, along the top of the overview.
+//
+// The step adapts rather than being pinned to ten seconds: the chart's default
+// is 120 px per second, where ten seconds is 1200 px and a phone showing three
+// of them would display no label at all. Aiming for one about every 100 px
+// gives seconds when you are zoomed in and lands on 10, 30, 60 as you pull
+// out, which is what "every ten seconds" means once the whole take is in view.
+const RULER_STEPS = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+const RULER_FONT = '10px -apple-system, "Segoe UI", Roboto, sans-serif';
+
+function rulerStep(scale) {
+  const wanted = 100 / scale;
+  return RULER_STEPS.find((s) => s >= wanted) ?? RULER_STEPS.at(-1);
+}
+
+function clockLabel(sec) {
+  const whole = Math.round(sec);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
+}
+
+function drawTimeRuler(ctx, { tVis0, tVis1, scale, x, cssW }) {
+  const step = rulerStep(scale);
+  ctx.font = RULER_FONT;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = C().muted;
+  ctx.strokeStyle = C().grid;
+  ctx.lineWidth = 1;
+  for (let t = Math.ceil(Math.max(0, tVis0) / step) * step; t <= tVis1; t += step) {
+    const px = x(t);
+    if (px < PAD.left + 8 || px > cssW - PAD.right - 8) continue;
+    ctx.beginPath();
+    ctx.moveTo(px, PAD.top);
+    ctx.lineTo(px, PAD.top + 4);
+    ctx.stroke();
+    ctx.fillText(clockLabel(t), px, PAD.top - 4);
+  }
+}
+
 // Map a mouse event to css-pixel x INSIDE the canvas coordinate space the
 // chart was drawn in. Uses the live bounding rect, so the cursor and the
 // hover dot stay aligned even when the canvas CSS size has changed since
@@ -419,6 +458,9 @@ export function renderOverviewChart(canvas, {
       const to = Math.min(pts.length, lowerBound(pts, tVis1) + 1);
       drawTrace(ctx, pts, from, to, x, y);
     }
+
+    // above the plot, under the playhead: where you are in the recording
+    drawTimeRuler(ctx, { tVis0, tVis1, scale, x, cssW });
 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
       const px = x(playhead);
