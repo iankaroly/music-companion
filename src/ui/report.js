@@ -165,7 +165,13 @@ function stopPlayback(root) {
   releaseAudio('playback');
   if (currentSource) {
     currentSource.onended = null;
-    currentSource.stop();
+    try { currentSource.stop(); } catch { /* already finished on its own */ }
+    // Disconnect and drop the buffer rather than leaving a stopped node hanging
+    // off the master chain. The buffer is the whole take — around 115 MB for
+    // ten minutes — and holding it until the graph happens to be collected is
+    // how playing a long take a few times runs a phone out of memory.
+    currentSource.disconnect();
+    currentSource.buffer = null;
     currentSource = null;
   }
   cancelAnimationFrame(animationFrame);

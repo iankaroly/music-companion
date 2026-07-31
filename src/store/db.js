@@ -81,6 +81,16 @@ function openDB() {
   return connection;
 }
 
+// Every write below settles on all three of complete, error and ABORT.
+//
+// The abort is the one that mattered and the one that was missing. A
+// transaction that aborts — the quota running out mid-save, or the connection
+// being closed because another tab started an upgrade, which openDB above does
+// deliberately — does not necessarily fire an error event, so a promise
+// awaiting only complete-or-error simply never settles. For saveRecording that
+// is the worst shape a bug can take: the take is gone, the button waits
+// forever, and nothing anywhere says so.
+
 // Lightweight per-note stats live in the META record so the coach can
 // aggregate habits across every take without ever loading audio.
 function statsOf(notes) {
@@ -107,6 +117,7 @@ export async function saveRecording({ date, duration, sampleRate, audio, notes, 
     };
     tx.oncomplete = () => resolve(metaReq.result);
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -119,13 +130,24 @@ export async function listRecordings() {
   });
 }
 
-export async function loadRecording(id) {
+// The payload row without decoding the audio in it.
+//
+// The notes and readings a take was saved with are plain fields on this row;
+// only the audio needs the codec. Anything that wants the analysis and not the
+// sound — the coach's backfill below, most obviously — should stop here, or it
+// pays a full decode and a hundred megabytes of Float32 per take to read a list
+// of numbers that were sitting right there.
+async function loadRecordingRow(id) {
   const db = await openDB();
-  const row = await new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     const req = db.transaction('recording-data', 'readonly').objectStore('recording-data').get(id);
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
   });
+}
+
+export async function loadRecording(id) {
+  const row = await loadRecordingRow(id);
   if (!row) return row;
   // Recordings written before compression existed hold a bare Float32 buffer;
   // decodeStoredAudio reads both, so nothing in the library goes stale.
@@ -218,6 +240,7 @@ export async function importLibrary(backup) {
       tx.objectStore('recordings').add(mapped ? { ...meta, folderId: mapped } : meta);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
     });
     added++;
   }
@@ -239,7 +262,8 @@ export async function listRecordingsWithStats() {
   const db = await openDB();
   const recordings = await listRecordings();
   for (const r of recordings.filter(needsBackfill)) {
-    const data = await loadRecording(r.id);
+    // the row, not the decoded take: this loop runs over every old recording
+    const data = await loadRecordingRow(r.id);
     r.noteStats ??= statsOf(data?.notes);
     r.landingStats ??= landingStats(data?.notes, data?.readings, data?.a4 ?? 440) ?? [];
     await new Promise((resolve, reject) => {
@@ -247,6 +271,7 @@ export async function listRecordingsWithStats() {
       tx.objectStore('recordings').put(r);
       tx.oncomplete = resolve;
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
     });
   }
   return recordings;
@@ -267,6 +292,7 @@ export async function renameRecording(id, name) {
     };
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -282,6 +308,7 @@ export async function deleteRecording(id) {
     for (const p of passages.filter((p) => p.recordingId === id)) store.delete(p.id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -298,6 +325,7 @@ export async function createFolder(name) {
     const req = tx.objectStore('folders').add({ name, date: Date.now() });
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -322,6 +350,7 @@ export async function renameFolder(id, name) {
     };
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -341,6 +370,7 @@ export async function deleteFolder(id) {
     }
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -359,6 +389,7 @@ export async function setRecordingFolder(id, folderId) {
     };
     tx.oncomplete = resolve;
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -373,6 +404,7 @@ export async function savePassage({ name, recordingId, startSec, endSec, stats, 
     });
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
 
@@ -392,5 +424,6 @@ export async function deletePassage(id) {
     tx.objectStore('passages').delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
 }
