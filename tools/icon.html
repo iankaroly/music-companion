@@ -27,11 +27,10 @@
     display: grid;
     place-items: center;
   }
-  /* Android crops to a circle inscribed in the square; keep the gauge inside
-     the inner 80% or the needle loses its tip on a Pixel. */
-     The gauge is only ~59% of its own viewBox wide to begin with, so it clears
-     the safe circle almost unscaled; 0.85 keeps a margin without shrinking the
-     art to a dot inside the mask. */
+  /* Android crops to a circle inscribed in the square, so the mark has to sit
+     inside the inner 80% or its edges are cut on a Pixel. The mark is only
+     about 59% of its own viewBox wide to begin with and clears that circle
+     almost unscaled; 0.85 keeps a margin without shrinking it to a dot. */
   body[data-v="maskable"] .gauge { transform: scale(0.85); }
 
   body[data-v="og"] { background: #eeebfa; }
@@ -51,20 +50,20 @@
 </head>
 <body>
   <div class="tile">
+    <!-- Duet: two arcs turned toward each other, meeting on the note they
+         agree about. One of them is you and one is the thing listening — the
+         only mark of the six that would not have suited a plain tuner, which
+         is the whole reason the app has a different name now. -->
     <svg class="gauge" viewBox="0 0 300 300" width="512" height="512" aria-hidden="true">
-      <!-- dial -->
-      <path d="M 62 208 A 88 88 0 0 1 238 208" fill="none"
-            stroke="rgba(255,255,255,0.42)" stroke-width="17" stroke-linecap="round" />
-      <!-- the in-tune band, where the needle is pointing -->
-      <path d="M 132 120 A 88 88 0 0 1 168 120" fill="none"
-            stroke="#17b578" stroke-width="17" stroke-linecap="round" />
-      <!-- needle, pivoting from the hub -->
-      <line x1="150" y1="208" x2="150" y2="124" stroke="#fff" stroke-width="11" stroke-linecap="round" />
-      <circle cx="150" cy="208" r="21" fill="#fff" />
+      <path d="M114 48 A 114 114 0 0 0 114 252" fill="none"
+            stroke="#fff" stroke-width="27" stroke-linecap="round" />
+      <path d="M186 48 A 114 114 0 0 1 186 252" fill="none"
+            stroke="rgba(255,255,255,0.5)" stroke-width="27" stroke-linecap="round" />
+      <circle cx="150" cy="150" r="23" fill="#17b578" />
     </svg>
     <div class="words" hidden>
       <h1>Practice Partner</h1>
-      <p>A tuner that remembers what you played.</p>
+      <p>It listens while you play.</p>
     </div>
   </div>
 <script>
