@@ -195,6 +195,11 @@
     }
     /* pan, don't zoom: also removes the double-tap-to-zoom delay on buttons */
     html, body { touch-action: pan-x pan-y; }
+    /* No rubber-band. On a phone the bounce let every tab be dragged up and
+       down a little even when its content fitted exactly, which reads as the
+       screen being loose rather than as a scroll. Tabs with more content than
+       screen still scroll; they just stop at their ends. */
+    html, body { overscroll-behavior: none; }
     /* viewport-fit=cover hands the webview the notch and the home indicator,
        so these two are what paint them — without it iOS insets the webview and
        those strips show the native background instead, which is a fixed colour
@@ -208,7 +213,7 @@
       background: var(--bg);
       color: var(--ink);
       font-family: var(--ui);
-      min-height: 100vh;
+      min-height: 100dvh;
       overflow-x: clip;
     }
     button, select, input { font-family: var(--ui); color: var(--ink); }
@@ -240,7 +245,10 @@
     #settings-btn {
       position: absolute;
       right: 1rem;
-      top: 50%;
+      /* half of (height + inset) is the middle of the part below the status
+         bar; a plain 50% is the middle of the padding box and sits under the
+         clock and the battery. */
+      top: calc((100% + env(safe-area-inset-top, 0px)) / 2);
       transform: translateY(-50%);
       display: grid;
       place-items: center;
@@ -436,8 +444,13 @@
       position: relative;
       overflow-x: clip;
       touch-action: pan-y;
-      /* every tab is swipeable across the whole screen, even short ones */
-      min-height: calc(100vh - 5.5rem);
+      /* Every tab is swipeable across the whole screen, even short ones — but
+         this has to be what is LEFT after the header, or a short tab like the
+         tuner scrolls for no reason. The header grew by the status-bar inset
+         when the webview took over the full screen, and that inset has to come
+         off here too. dvh rather than vh so the shrinking address bar (and the
+         home indicator) do not add a phantom screenful either. */
+      min-height: calc(100dvh - 5.5rem - env(safe-area-inset-top, 0px));
       /* apps don't text-select; this also keeps mouse-swipes clean */
       -webkit-user-select: none;
       user-select: none;
@@ -716,8 +729,6 @@
     /* the explanation belongs with the button and goes when it does */
     #tuner-listen[hidden] + #tuner-listen-note { display: none; }
     #tuner-listen-note { max-width: 20rem; margin: 0.7rem auto 0; text-align: center; }
-    #mic-enable[hidden] + #mic-enable-note { display: none; }
-    #mic-enable-note { max-width: 22rem; margin: 0.6rem auto 0.2rem; text-align: center; }
     #cents { color: var(--muted); margin-top: 0.4rem; font-size: 1rem; min-height: 1.3em; font-family: var(--num); font-variant-numeric: tabular-nums; }
     #freq { color: var(--muted); font-size: 0.8rem; min-height: 1.2em; margin-top: 0.15rem; font-family: var(--num); font-variant-numeric: tabular-nums; }
     #second { color: var(--off); font-size: 0.85rem; min-height: 1.3em; margin-top: 0.25rem; font-family: var(--num); font-variant-numeric: tabular-nums; }
@@ -1863,13 +1874,6 @@
     <!-- ================= record & analyze ================= -->
     <section id="tab-analyze" class="tab-panel" role="tabpanel">
       <div class="column">
-        <button id="mic-enable" class="ctl primary big" type="button" hidden>
-          Turn on the microphone
-        </button>
-        <p id="mic-enable-note" class="set-hint">
-          Grant it here, before you record — answering the prompt in the middle
-          of a count-in makes the take start late, or start silent.
-        </p>
         <div class="row">
           <button id="start" class="ctl primary big">Record</button>
           <button id="pause-rec" class="ctl" type="button" hidden>Pause</button>

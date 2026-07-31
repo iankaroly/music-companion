@@ -61,7 +61,6 @@ const tabs = initLiquidTabs({
     // initializing, and beginCapture reads consts declared further down
     if (name === 'tuner') queueMicrotask(autoStartTuner); // the tuner just runs here
     else autoStopTuner();
-    if (name === 'analyze') queueMicrotask(refreshMicButton);
   },
 });
 const showTab = (name) => tabs.show(name);
@@ -299,7 +298,10 @@ async function permissionGranted() {
     // Not in every browser, and 'microphone' is not in every implementation
     // that does have it — an unknown name rejects, which reads as "ask first".
     const status = await navigator.permissions.query({ name: 'microphone' });
-    micGranted = status.state === 'granted';
+    // 'prompt' from a webview does not mean the system has not granted it —
+    // the page-level answer and the app-level one are different things, and
+    // only the app's survives a relaunch. What we watched work counts.
+    micGranted = status.state === 'granted' || grantedBefore();
     status.onchange = () => rememberGrant(status.state === 'granted');
   } catch {
     // No usable answer from the browser; fall back to what we saw ourselves.
@@ -347,35 +349,6 @@ function autoStopTuner() {
 
 // prepareCapture must run in the tap itself, before startTuner's first await
 listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });
-
-// --- the microphone, granted on its own terms --------------------------------
-//
-// Asking for it inside the Record flow put the permission sheet between the tap
-// and the capture: the count-in ran without it, and on iOS the audio context
-// built afterwards was no longer allowed to start, so the take recorded
-// silence. Granting it here is a tap of its own, with nothing waiting on it.
-
-const micBtn = document.querySelector('#mic-enable');
-
-async function refreshMicButton() {
-  micBtn.hidden = micIsHeld() || await permissionGranted();
-}
-
-micBtn.addEventListener('click', async () => {
-  prepareCapture();
-  micBtn.disabled = true;
-  try {
-    await ensureMic();
-    rememberGrant(true);
-    micBtn.hidden = true;
-    statusEl.textContent = 'microphone ready';
-  } catch (err) {
-    rememberGrant(false);
-    statusEl.textContent = `mic unavailable: ${err.message}`;
-  } finally {
-    micBtn.disabled = false;
-  }
-});
 
 // --- record → review → save or discard -------------------------------------
 
@@ -481,6 +454,14 @@ startBtn.addEventListener('click', async () => {
   clearTake();
   startBtn.disabled = true;
   try {
+    // Settle the microphone BEFORE the count-in rather than behind a button of
+    // its own. Pressing record is the moment you have said you want it, and the
+    // prompt only ever appears once — after that iOS answers it silently and
+    // this costs nothing. It must not happen mid-count-in, though: the take
+    // would start late, and a permission sheet is exactly the kind of pause
+    // that used to leave capture running on a context iOS had stopped allowing.
+    await ensureMic();
+    rememberGrant(true);
     await countIn(Number(countInSel.value) || 0);
     // A count-in is seconds long and the app is still usable during it; walking
     // away must not leave a recording running on a tab you can't see.
@@ -496,6 +477,7 @@ startBtn.addEventListener('click', async () => {
     statusEl.textContent = 'recording';
     startClock(capture.recorder);
   } catch (err) {
+    rememberGrant(false);
     statusEl.textContent = `mic unavailable: ${err.message}`;
   } finally {
     startBtn.disabled = false;
