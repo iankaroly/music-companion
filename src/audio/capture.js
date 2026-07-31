@@ -3,13 +3,12 @@ import { setAudioSessionType, releaseCaptureSession } from './context.js';
 // Mic capture: getUserMedia → AudioWorklet → onChunk(Float32Array).
 // Returns { sampleRate, stop }.
 //
-// Every getUserMedia call is a fresh permission decision for the browser, and
-// the app asks for the mic constantly — the tuner starts itself on every visit
-// to its tab, and Record asks again. Handing the same stream back instead of
-// tearing it down is what stops the prompt (and the "recording" chrome)
-// reappearing on each of those. The trade-off is that iOS keeps a
-// record-capable route open while a track is live, which historically cost
-// output volume, so it's a preference: see MIC_KEY below and the settings sheet.
+// The stream is handed back as soon as nothing is listening. A held stream is
+// quicker to restart and stops a browser re-prompting, but it also keeps iOS's
+// orange microphone indicator lit for as long as the app is open — which tells
+// the person holding the phone that it is listening when it is not. Installed
+// on a phone the system remembers the grant, so there is nothing to save by
+// holding on; it stays available as a preference and defaults to off.
 
 const KEY = 'micRetain';
 
@@ -17,11 +16,16 @@ let held = null;      // { stream, ctx, worklet, source } parked between uses
 let inUse = false;
 let primed = null;    // context built during a user gesture, waiting for open()
 
+// Off unless asked for. Holding the stream between uses keeps iOS's orange
+// microphone indicator lit the whole time the app is open — on the tuner, on
+// the metronome, sitting on the home screen — which says the app is listening
+// when it is not. The prompt this was avoiding is a web problem; installed on a
+// phone the system remembers the grant, so letting go costs nothing.
 export function micRetains() {
   try {
-    return globalThis.localStorage?.getItem(KEY) !== 'off';
+    return globalThis.localStorage?.getItem(KEY) === 'on';
   } catch {
-    return true;
+    return false;
   }
 }
 
@@ -201,4 +205,11 @@ export async function startCapture(onChunk, { onInterrupted } = {}) {
 globalThis.addEventListener?.('pagehide', () => {
   inUse = false;
   releaseMic();
+});
+
+// Swiped away or sent to the home screen. releaseMic bows out while a take is
+// actually recording, so this hands back a parked stream without cutting one
+// short — and the indicator goes out, because by then nothing is listening.
+globalThis.addEventListener?.('visibilitychange', () => {
+  if (globalThis.document?.visibilityState === 'hidden') releaseMic();
 });

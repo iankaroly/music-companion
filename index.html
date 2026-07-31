@@ -444,13 +444,12 @@
       position: relative;
       overflow-x: clip;
       touch-action: pan-y;
-      /* Every tab is swipeable across the whole screen, even short ones — but
-         this has to be what is LEFT after the header, or a short tab like the
-         tuner scrolls for no reason. The header grew by the status-bar inset
-         when the webview took over the full screen, and that inset has to come
-         off here too. dvh rather than vh so the shrinking address bar (and the
-         home indicator) do not add a phantom screenful either. */
-      min-height: calc(100dvh - 5.5rem - env(safe-area-inset-top, 0px));
+      /* No min-height. It existed so short tabs stayed swipeable across the
+         whole screen, and the swipe gestures were removed — what it did after
+         that was pad every short tab out past the bottom of the screen by
+         whatever the guessed header height was wrong by, which is a few pixels
+         of scroll on a tab that should not scroll at all. A short tab is now
+         exactly as tall as it is, and the body's background fills the rest. */
       /* apps don't text-select; this also keeps mouse-swipes clean */
       -webkit-user-select: none;
       user-select: none;
@@ -2199,9 +2198,10 @@
           <button type="button" role="radio" data-mic="on" aria-checked="true">Stay ready</button>
           <button type="button" role="radio" data-mic="off" aria-checked="false">Ask each time</button>
         </div>
-        <p class="set-hint">Staying ready asks for the microphone once and keeps it,
-        instead of prompting every time the tuner opens. On iPhone the mic light stays
-        on — switch to “Ask each time” if playback ever sounds quieter.</p>
+        <p class="set-hint">Off by default: the microphone is handed back the moment
+        nothing is listening, so the orange light is on only while the tuner is running
+        or a take is recording. Staying ready holds it open instead — slightly quicker
+        to start, at the cost of that light staying lit the whole time.</p>
       </div>
       <div class="set-group">
         <span class="set-label" id="awake-label">Screen</span>
