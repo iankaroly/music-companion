@@ -163,6 +163,15 @@ export function saveInstrument(id, storage = globalThis.localStorage) {
   return setInstrument(id);
 }
 
+// Forget the choice, which is what brings the first-run screen back. Kept here
+// beside the reader rather than in the settings sheet, so the one key the
+// welcome screen depends on is written and cleared in the same place.
+export function forgetInstrument(storage = globalThis.localStorage) {
+  try {
+    storage?.removeItem(KEY);
+  } catch { /* survivable */ }
+}
+
 // Has the player ever said what they play? A fresh install hasn't, which is
 // what the first-run screen keys off.
 export function instrumentChosen(storage = globalThis.localStorage) {

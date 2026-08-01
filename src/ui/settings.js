@@ -13,7 +13,7 @@ import { setIntonationTolerance } from './chart-utils.js';
 import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
 import { storageReport, requestPersistence, exportLibrary, importLibrary } from '../store/db.js';
-import { INSTRUMENTS, instrument, saveInstrument, loadInstrument } from '../analysis/instruments.js';
+import { INSTRUMENTS, instrument, saveInstrument, loadInstrument, forgetInstrument } from '../analysis/instruments.js';
 
 const MOTION_KEY = 'mc-motion';
 const TOLERANCE_KEY = 'tolerance';
@@ -251,6 +251,13 @@ export function initSettings(doc = document) {
     } catch (err) {
       storageLine.textContent = `Restore failed: ${err.message}`;
     }
+  });
+
+  // The introduction is shown once and then removed from the page, so the only
+  // way back is to forget the answer it asked for and start again.
+  doc.querySelector('#set-intro')?.addEventListener('click', () => {
+    forgetInstrument();
+    location.reload();
   });
 
   const reset = doc.querySelector('#set-reset');
