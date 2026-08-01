@@ -283,7 +283,7 @@ function nearestPoint(pts, time, key) {
 //
 // It used to be one canvas as wide as the whole take. That is fine for the
 // ten-second scales this was built against and falls apart at the length people
-// actually practise: a ten-minute take at 120 px/s wants 72,000 px, which
+// actually practice: a ten-minute take at 120 px/s wants 72,000 px, which
 // blew past the 24,000 px cap (silently compressing the time axis threefold),
 // exceeded the maximum canvas area Safari will allocate at all, and cost ~100 MB
 // of texture. Worse, every playhead move repainted the entire thing — measured

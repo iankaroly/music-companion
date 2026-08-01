@@ -7,7 +7,7 @@
 // two octaves apart, or that a clarinet reads a written C and sounds a B flat.
 //
 // A profile is that knowledge in one place: the vocabulary for how you get from
-// one note to the next, which drone sounds like the room you practise in, and
+// one note to the next, which drone sounds like the room you practice in, and
 // what to try when a kind of reach keeps landing badly. Everything user-facing
 // asks the profile rather than assuming a fingerboard.
 //
