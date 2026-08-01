@@ -32,7 +32,11 @@
      inside the inner 80% or its edges are cut on a Pixel. The mark is only
      about 59% of its own viewBox wide to begin with and clears that circle
      almost unscaled; 0.85 keeps a margin without shrinking it to a dot. */
-  body[data-v="maskable"] .gauge { transform: scale(0.85); }
+  /* The fork runs nearly the full height of its own viewBox, which is too much
+     of an icon tile — it reads as a sticker rather than an app icon. Art at
+     roughly half the square is what the tiles around it on a home screen do. */
+  body[data-v="icon"] .gauge { transform: scale(0.72); }
+  body[data-v="maskable"] .gauge { transform: scale(0.62); }
 
   /* The launch screen is not a billboard — it is the app's first frame drawn a
      moment early, so it wears the app's own background and shows the mark at
