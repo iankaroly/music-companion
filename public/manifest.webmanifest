@@ -8,8 +8,8 @@
   "theme_color": "#eeebfa",
   "categories": ["music", "education", "utilities"],
   "icons": [
-    { "src": "/icon-180.png", "sizes": "180x180", "type": "image/png" },
-    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png" },
-    { "src": "/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/icon-180.png?v=3", "sizes": "180x180", "type": "image/png" },
+    { "src": "/icon-512.png?v=3", "sizes": "512x512", "type": "image/png" },
+    { "src": "/icon-maskable-512.png?v=3", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }
