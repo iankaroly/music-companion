@@ -28,15 +28,16 @@
     place-items: center;
     color: #fff;   /* the mark paints in currentColor; splash overrides it */
   }
+  /* Duet spans about 77% of its own viewBox once the stroke is counted, which
+     is a shade large for a tile — art at roughly two thirds of the square is
+     what the icons beside it on a home screen do. */
+  body[data-v="icon"] .gauge { transform: scale(0.86); }
   /* Android crops to a circle inscribed in the square, so the mark has to sit
-     inside the inner 80% or its edges are cut on a Pixel. The mark is only
-     about 59% of its own viewBox wide to begin with and clears that circle
-     almost unscaled; 0.85 keeps a margin without shrinking it to a dot. */
-  /* The fork runs nearly the full height of its own viewBox, which is too much
-     of an icon tile — it reads as a sticker rather than an app icon. Art at
-     roughly half the square is what the tiles around it on a home screen do. */
-  body[data-v="icon"] .gauge { transform: scale(0.72); }
-  body[data-v="maskable"] .gauge { transform: scale(0.62); }
+     inside the inner 80% — a radius of 120 — or its edges are cut on a Pixel.
+     The arcs' endpoints are the far corners of the shape and land at 105 once
+     the tile scale above is applied, so the icon already clears it; the further
+     15% here is margin against the phones that crop harder than a circle. */
+  body[data-v="maskable"] .gauge { transform: scale(0.73); }
 
   /* The launch screen is not a billboard — it is the app's first frame drawn a
      moment early, so it wears the app's own background and shows the mark at
@@ -69,15 +70,16 @@
 </head>
 <body>
   <div class="tile">
-    <!-- Fork P: a tuning fork whose prongs close into the bowl of a P, with the
-         green centre the rest of the app uses for "in tune" sitting where the
-         stem begins. -->
+    <!-- Duet: two arcs turned toward each other, meeting on the note they
+         agree about. One of them is you and one is the thing listening — the
+         only mark of the six that would not have suited a plain tuner, which
+         is the whole reason the app has a different name now. -->
     <svg class="gauge" viewBox="0 0 300 300" width="512" height="512" aria-hidden="true">
-      <path d="M102 48 L102 132 A 48 48 0 0 0 198 132 L198 48" fill="none"
+      <path d="M114 48 A 114 114 0 0 0 114 252" fill="none"
             stroke="currentColor" stroke-width="27" stroke-linecap="round" />
-      <path d="M150 180 L150 258" fill="none"
-            stroke="currentColor" stroke-width="27" stroke-linecap="round" />
-      <circle cx="150" cy="180" r="18" fill="#17b578" />
+      <path d="M186 48 A 114 114 0 0 1 186 252" fill="none"
+            stroke="currentColor" stroke-opacity="0.5" stroke-width="27" stroke-linecap="round" />
+      <circle cx="150" cy="150" r="23" fill="#17b578" />
     </svg>
     <div class="words" hidden>
       <h1>Practice Partner</h1>

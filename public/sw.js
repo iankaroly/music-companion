@@ -4,7 +4,7 @@
 // Bump this on a release. It has to actually change for the activate handler
 // to delete anything — pinned at one value it swept nothing, and every dead
 // asset from every past deploy stayed in the box forever.
-const CACHE = 'music-companion-v2';
+const CACHE = 'music-companion-v3';
 
 self.addEventListener('install', () => self.skipWaiting());
 

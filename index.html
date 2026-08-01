@@ -1576,13 +1576,16 @@
       background-clip: text;
       color: transparent;
     }
-    /* The mark stands in for a letter between the two words, so it is sized
-       from the type around it and sits on the same optical line. It paints in
-       the ink colour, not the gradient the words wear. */
+    /* The mark leads the wordmark, so it is sized from the type beside it and
+       sits on the same optical line. Its own viewBox carries about 0.12em of
+       air on each side, so the gap to the "p" is that plus the margin below —
+       a little wider than a word space, which is what keeps it reading as a
+       mark rather than a letter. It paints in the ink colour, not the gradient
+       the words wear. */
     h1 .mark, #welcome-title .mark {
       width: 1em; height: 1em;
       vertical-align: -0.14em;
-      margin: 0 0.08em;
+      margin-right: 0.3em;
       color: var(--wordmark-mark);
     }
     .welcome-lead { color: var(--muted); font-size: 0.9rem; line-height: 1.55; margin: 0.6rem 0 1.2rem; }
@@ -1703,7 +1706,7 @@
        instrument has ever been chosen, so it never flashes on a return visit. -->
   <div id="welcome" hidden>
     <div id="welcome-card" role="dialog" aria-labelledby="welcome-title" aria-modal="true">
-      <h2 id="welcome-title">practice <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M34 16 L34 44 A 16 16 0 0 0 66 44 L66 16" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M50 60 L50 86" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="60" r="6" fill="var(--good)"/></svg> partner</h2>
+      <h2 id="welcome-title"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M38 16 A 38 38 0 0 0 38 84" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M62 16 A 38 38 0 0 1 62 84" fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="50" r="7.5" fill="var(--good)"/></svg>practice partner</h2>
       <p class="welcome-lead">It listens while you practice and tells you what actually
       happened — which notes ran sharp or flat, where the tempo moved, and how cleanly
       you land after a leap.</p>
@@ -1727,7 +1730,7 @@
     </div>
   </div>
   <header>
-    <h1>practice <svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M34 16 L34 44 A 16 16 0 0 0 66 44 L66 16" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M50 60 L50 86" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="60" r="6" fill="var(--good)"/></svg> partner</h1>
+    <h1><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M38 16 A 38 38 0 0 0 38 84" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><path d="M62 16 A 38 38 0 0 1 62 84" fill="none" stroke="currentColor" stroke-opacity="0.45" stroke-width="9" stroke-linecap="round"/><circle cx="50" cy="50" r="7.5" fill="var(--good)"/></svg>practice partner</h1>
     <button id="settings-btn" type="button" aria-label="Settings">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
         <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
