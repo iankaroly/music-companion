@@ -54,6 +54,29 @@ function vibratoNote({ midi = 69, cents = 60, hz = 6, seconds = 2, hop = 1 / 86 
   return frames;
 }
 
+// Two notes a semitone apart, both with vibrato and NO silence between them,
+// so the only thing that can tell them apart is the split threshold itself.
+function steppedPhrase({ from = 69, to = 70, cents = 60, hz = 5, each = 0.5, hop = 1 / 86 }) {
+  const frames = [];
+  let clock = 0;
+  for (const midi of [from, to]) {
+    for (let t = 0; t < each; t += hop) {
+      const deviation = (cents / 100) * Math.sin(2 * Math.PI * hz * t);
+      frames.push({
+        time: clock + t,
+        frequency: 440 * 2 ** ((midi + deviation - 69) / 12),
+        confidence: 0.9,
+        rms: 0.05,
+      });
+    }
+    clock += each;
+  }
+  for (let k = 0; k < 8; k++) {
+    frames.push({ time: clock + k * hop, frequency: null, confidence: 0, rms: 0 });
+  }
+  return frames;
+}
+
 function notesHeard(profileId, frames) {
   setInstrument(profileId);
   const seg = new NoteSegmenter({ ...segmentation() });
@@ -114,6 +137,20 @@ describe('the edges of the voice profile', () => {
   // A note that begins halfway up a swing has a median that leans until a full
   // vibrato period has passed, and at 4-5 Hz the opposite swing arrives first.
   // The numbers in the comments are what these returned before the fix.
+  // The upper guard on swingTolerance, and it has to be this exact shape.
+  // Wider tolerance stops a vibrato fragmenting, so the temptation is always to
+  // raise it — but the tolerance is subtracted from the app's ability to hear a
+  // real step, and a semitone is the smallest step there is. At 0.6 these two
+  // notes merge into one and the app reports a phrase that was never sung.
+  // Verified to fail at 0.6 rather than assumed to: the coarser cases are
+  // insensitive to it, which is why this one is pinned at 5 Hz on the profile
+  // whose holdFrames makes it hardest.
+  test('the tolerance is not wide enough to swallow a sung semitone step', () => {
+    const phrase = steppedPhrase({ hz: 5, cents: 60 });
+    expect(notesHeard('voice', phrase).length).toBe(2);
+    expect(notesHeard('voice', steppedPhrase({ hz: 5, cents: 70 })).length).toBe(2);
+  });
+
   test('a slower vibrato of the same width is still one note', () => {
     expect(heard(60, 5)).toBe(1); // was 19
     expect(heard(60, 4)).toBe(1); // was 16
