@@ -147,9 +147,28 @@ describe('a singer, whose vibrato is wider than a semitone split', () => {
     return frames;
   }
 
-  test('splits one held note into dozens on the defaults', () => {
+  // This used to assert the opposite — that the defaults split a held note
+  // into dozens — and it was true, which is what made the voice profile look
+  // like the whole answer. It was not: the same ±60 cents fragments on any
+  // profile, and a cellist's ordinary ±50 came back as twenty-four notes. The
+  // defaults carry a swing tolerance now, so this is the floor rather than the
+  // exception, and the voice profile is left doing what only it needs.
+  test('hears one held note as one note on the defaults', () => {
     const notes = run(new NoteSegmenter(), sung(60, 1.5));
-    expect(notes.length).toBeGreaterThan(10);
+    expect(notes.map((n) => n.name)).toEqual(['C4']);
+    expect(Math.abs(notes[0].cents)).toBeLessThan(15);
+  });
+
+  test('a cellist-width vibrato is one note on the defaults too', () => {
+    const notes = run(new NoteSegmenter(), sung(60, 1.5, { cents: 50 }));
+    expect(notes.map((n) => n.name)).toEqual(['C4']);
+  });
+
+  test('the tolerance never grows far enough to swallow a real step', () => {
+    // a semitone apart, both sung with a wide vibrato: still two notes
+    const frames = [...sung(60, 0.8, { cents: 60 }), ...sung(61, 0.8, { from: 0.8, cents: 60 })];
+    const notes = run(new NoteSegmenter(), frames);
+    expect(notes.map((n) => n.name)).toEqual(['C4', 'C#4']);
   });
 
   test('holding the deviation longer hears it as the one note it is', () => {

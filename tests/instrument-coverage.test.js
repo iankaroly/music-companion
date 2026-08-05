@@ -65,14 +65,20 @@ function notesHeard(profileId, frames) {
 describe('the profile reaches the segmenter, not just the settings sheet', () => {
   const frames = vibratoNote();
 
-  test('a voice hears one note where the default settings hear several', () => {
-    // The assertion that matters is the difference: same audio, same code,
-    // different profile. If profile ever stops reaching the segmenter this
-    // is what notices.
-    const asVoice = notesHeard('voice', frames);
-    const asStrings = notesHeard('strings', frames);
-    expect(asVoice.length).toBe(1);
-    expect(asStrings.length).toBeGreaterThan(asVoice.length);
+  test('an ordinary vibrato is one note whichever profile is chosen', () => {
+    // Both profiles get this right now that the defaults carry a swing
+    // tolerance. It is the floor, not the differentiator.
+    expect(notesHeard('voice', frames).length).toBe(1);
+    expect(notesHeard('strings', frames).length).toBe(1);
+  });
+
+  test('a voice still hears a very wide vibrato the defaults cannot', () => {
+    // Same audio, same code, different profile — this is what notices if the
+    // profile ever stops reaching the segmenter. ±90 cents is past what the
+    // tolerance alone can absorb, so holdFrames is doing the work here.
+    const wide = vibratoNote({ cents: 90 });
+    expect(notesHeard('voice', wide).length).toBe(1);
+    expect(notesHeard('strings', wide).length).toBeGreaterThan(1);
   });
 
   test('a voice reads the note it was actually given', () => {
@@ -103,19 +109,16 @@ describe('the edges of the voice profile', () => {
     expect(heard(60, 6)).toBe(1);
   });
 
-  // KNOWN DEFECT — not the behaviour anyone wants, recorded so that fixing it
-  // has a test to turn green rather than a bug report to rediscover.
-  //
-  // holdFrames is a count of frames, so it is a duration: 6 frames is about
-  // 70 ms. A slower vibrato spends LONGER past the split threshold on each
-  // swing, so the same width that survives at 6 Hz splits at 5 Hz — and once
-  // one swing has split, the new note's median sits on that peak and the
-  // opposite peak is a whole tone away, which is the cascade the segmenter
-  // comment already describes. 4-5 Hz is an ordinary singer's vibrato.
-  test.skip('a slower vibrato of the same width should still be one note', () => {
-    expect(heard(60, 5)).toBe(1); // currently 19
-    expect(heard(60, 4)).toBe(1); // currently 16
-    expect(heard(70, 6)).toBe(1); // currently 8 — width past the tuned point
+  // This was filed as a known defect and skipped, then fixed. The cause was
+  // not the one the name suggests: it was the split reference, not the hold.
+  // A note that begins halfway up a swing has a median that leans until a full
+  // vibrato period has passed, and at 4-5 Hz the opposite swing arrives first.
+  // The numbers in the comments are what these returned before the fix.
+  test('a slower vibrato of the same width is still one note', () => {
+    expect(heard(60, 5)).toBe(1); // was 19
+    expect(heard(60, 4)).toBe(1); // was 16
+    expect(heard(70, 6)).toBe(1); // was 8
+    expect(heard(70, 4)).toBe(1); // was 16
   });
 });
 

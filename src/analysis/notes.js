@@ -32,10 +32,12 @@ export class NoteSegmenter {
       rmsFloor = 0.005,
       silenceFrames = 2,
       holdFrames = 2,           // how long that deviation must last to count
+      swingTolerance = 0.4,     // how much of a note's own wobble widens its threshold
       a4 = 440,               // reference pitch for note naming and cents
     } = options;
     Object.assign(this, {
-      minDuration, splitSemitones, confidenceFloor, rmsFloor, silenceFrames, holdFrames, a4,
+      minDuration, splitSemitones, confidenceFloor, rmsFloor, silenceFrames,
+      holdFrames, swingTolerance, a4,
     });
     this.current = null;   // { frames: [{time, midiFloat}] }
     this.pending = null;   // frames of a possible pitch change, not yet committed
@@ -68,8 +70,9 @@ export class NoteSegmenter {
       return out;
     }
 
-    const center = median(this.current.frames.map((f) => f.midiFloat));
-    if (Math.abs(midiFloat - center) > this.splitSemitones) {
+    const values = this.current.frames.map((f) => f.midiFloat);
+    const center = median(values);
+    if (Math.abs(midiFloat - center) > this.splitThreshold(values)) {
       // agreeing with the candidate, not merely with being far from the centre:
       // a wobble that wanders is not a note, it is a wobble
       if (this.pending && Math.abs(midiFloat - this.pending[0].midiFloat) <= this.splitSemitones) {
@@ -97,6 +100,43 @@ export class NoteSegmenter {
       this.current.frames.push(frame);
     }
     return out;
+  }
+
+  // How far a frame must sit from the note's centre before it is even a
+  // candidate for a new note.
+  //
+  // A fixed distance is wrong for a note that is visibly wobbling, and the way
+  // it was wrong was not the obvious one. The centre is the median of the note
+  // SO FAR, and a note that began halfway up a vibrato swing has not yet seen
+  // both sides of it — so its median sits off true centre, by as much as a
+  // third of a semitone, until a full period has gone by. At 6 Hz a period is
+  // 14 frames and the median settles before it can do any harm. At 4 Hz it is
+  // 21, and the opposite swing arrives while the centre is still leaning: the
+  // note splits on a wobble that never actually crossed the threshold from
+  // where the note really was. One sung note came back as nineteen.
+  //
+  // So a note's own swing widens its threshold. Measured from the note, so it
+  // costs nothing on a steady tone and grows only for a player who vibrates.
+  // Capped, because the tolerance must never reach a semitone — a singer with
+  // a wide vibrato still sings semitone steps, and a threshold that swallowed
+  // one would trade this bug for a worse one.
+  //
+  // This is a DEFAULT and not a voice-only profile because a voice was never
+  // the only instrument affected, only the loudest about it. Measured on the
+  // defaults as they stood: a held note with ±50 cent vibrato — ordinary on a
+  // cello, and this app was written by a cellist — came back as twenty-four
+  // notes, and a two-note semitone step under the same vibrato as ten. Every
+  // intonation number the app has ever shown for a vibrated note was computed
+  // over fragments of it.
+  //
+  // 0.4 was chosen by sweep, not by taste. Below 0.35 a semitone step sung
+  // with a wide vibrato still fragments; at 0.6 the tolerance grows far enough
+  // to swallow that step and report one note where there were two. The whole
+  // safe band is 0.35 to 0.5 and this sits in the middle of it.
+  splitThreshold(values) {
+    if (!this.swingTolerance) return this.splitSemitones;
+    const swing = (Math.max(...values) - Math.min(...values)) / 2;
+    return this.splitSemitones + Math.min(swing, this.swingTolerance);
   }
 
   flush() {
