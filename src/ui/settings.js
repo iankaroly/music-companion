@@ -8,7 +8,11 @@
 // the metronome or any chart exists — main.js listens and applies.
 
 import { readPreference, writePreference, applyTheme, initTheme } from './theme.js';
-import { getVolume, setVolume } from '../audio/context.js';
+import {
+  getVolume, setVolume, holdAudio, releaseAudio,
+  CLICK_PITCH_MIN, CLICK_PITCH_MAX,
+} from '../audio/context.js';
+import { scheduleClick } from '../audio/metronome.js';
 import { setIntonationTolerance } from './chart-utils.js';
 import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
@@ -23,7 +27,7 @@ const AWAKE_KEY = 'keepAwake';
 // stay put. "Restore defaults" that quietly deleted takes would be a trap.
 const PREFERENCE_KEYS = [
   'mc-theme', MOTION_KEY, TOLERANCE_KEY, AWAKE_KEY, 'micRetain',
-  'volume', 'droneLevel', 'clickLevel',
+  'volume', 'droneLevel', 'clickLevel', 'clickPitch',
   'a4', 'tunerSettings', 'timbre', 'vizMode',
   'bpm', 'beatsPerBar', 'subdivision', 'trainer',
   'chartPxPerSec', 'chartMode', 'anyDrone', 'timingPulse', 'tab',
@@ -198,6 +202,31 @@ export function initSettings(doc = document) {
     set: (v) => write('clickLevel', String(v)),
     format: (v) => `${Math.round(v * 100)}%`,
   }));
+  // How far the click may move is stated once, in context.js. The markup does
+  // not get a second copy of those numbers to drift out of step with.
+  const pitchInput = doc.querySelector('#set-click-pitch');
+  if (pitchInput) {
+    pitchInput.min = String(CLICK_PITCH_MIN);
+    pitchInput.max = String(CLICK_PITCH_MAX);
+  }
+  levels.push(wireLevel(doc, '#set-click-pitch', {
+    get: () => Number(read('clickPitch', '0')),
+    set: (v) => write('clickPitch', String(v)),
+    // Semitones, signed, with the default called what it is rather than "0" —
+    // a player sliding this wants to know which way is home.
+    format: (v) => (v === 0 ? 'Default' : `${v > 0 ? '+' : '−'}${Math.abs(v)}`),
+  }));
+
+  // A pitch you cannot hear while choosing it is a pitch you have to close this
+  // sheet to judge. One click on release — not on input, which would machine-gun
+  // while dragging — and the session is handed straight back.
+  doc.querySelector('#set-click-pitch')?.addEventListener('change', () => {
+    try {
+      const ctx = holdAudio('click-preview');
+      scheduleClick(ctx, ctx.currentTime + 0.03, 'beat');
+      setTimeout(() => releaseAudio('click-preview'), 300);
+    } catch { /* no audio available; the slider still sets the value */ }
+  });
 
   // --- practice history: how big it is, and getting it off the device -------
 

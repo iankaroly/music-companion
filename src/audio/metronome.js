@@ -1,4 +1,4 @@
-import { audioContext, masterOut, clickLevel, holdAudio, releaseAudio } from './context.js';
+import { audioContext, masterOut, clickLevel, clickPitch, holdAudio, releaseAudio } from './context.js';
 
 // Lookahead-scheduled metronome: clicks are placed on the AudioContext
 // clock ahead of time (the setInterval only tops up the schedule), so
@@ -20,15 +20,30 @@ let noiseBuffer = null;
 // panel plays a take back against the pulse it measured, and that click has to
 // be the same click — a second, slightly different one would read as an
 // artefact rather than as the metronome.
-export function scheduleClick(ctx, time, kind = 'beat') {
-  // An octave below where this started: a mechanical metronome is a wooden
-  // tock, not a beep, and the old pitches (A6 over a D6 beat) were shrill
-  // over a cello. Still comfortably above the instrument's range, so the
-  // pulse stays audible while you play.
+// Which pitch a click of each kind sounds at, and how loud it sits before the
+// level trim. Pure, and the shift is an argument rather than a read, so the
+// arithmetic can be tested without a browser — but it defaults to the stored
+// preference, which is what keeps the timing panel's click identical to the
+// metronome's without either of them having to know the setting exists.
+//
+// A downbeat is a fifth over the beat and the beat a fifth over the sub. That
+// spacing is doing the work of telling them apart, so a shift moves all three
+// together and never rearranges them.
+export function clickVoice(kind, semitones = clickPitch()) {
   const [freq, base] =
     kind === 'accent' ? [880, 2.5] :
     kind === 'beat' ? [587.33, 1.9] :
     [440, 0.95];
+  return { freq: freq * 2 ** (semitones / 12), base };
+}
+
+export function scheduleClick(ctx, time, kind = 'beat') {
+  // An octave below where this started: a mechanical metronome is a wooden
+  // tock, not a beep, and the old pitches (A6 over a D6 beat) were shrill
+  // over a cello. Still comfortably above the instrument's range, so the
+  // pulse stays audible while you play. Where those pitches sit is now a
+  // preference — see CLICK_PITCH_MIN in context.js for how far it may move.
+  const { freq, base } = clickVoice(kind);
   const level = base * clickLevel();
   // Body: square wave — dense harmonics read far louder than a sine blip
   // on small speakers; the master limiter keeps the peaks clean. A lowpass

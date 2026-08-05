@@ -13,7 +13,9 @@ const RAMP = 0.12;
 // Sixteen partials rather than nine: the default drone octave puts the
 // fundamental near 110 Hz, and on a phone speaker a tone that low is carried
 // almost entirely by its upper harmonics — the ones that used to run out.
-const TIMBRES = {
+// Exported so the instrument profiles can be checked against the voices that
+// actually exist here, rather than against a second list of their names.
+export const TIMBRES = {
   strings: Array.from({ length: 17 }, (_, h) => (h === 0 ? 0 : 1 / h ** 1.5)),
   reed: Array.from({ length: 18 }, (_, h) => (h % 2 === 1 ? 1 / h : 0)), // odd harmonics, clarinet-like
   organ: [0, 1, 0.6, 0.9, 0.5, 0, 0.4, 0, 0.3, 0, 0.22, 0, 0.16, 0, 0.12, 0, 0.09],

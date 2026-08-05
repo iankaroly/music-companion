@@ -223,3 +223,28 @@ function trim(key, fallback) {
 
 export const droneLevel = () => trim('droneLevel', 1);
 export const clickLevel = () => trim('clickLevel', 1);
+
+// How far the click is moved from the pitch it sits at by default, in
+// semitones. Signed and legitimately zero, so it cannot go through trim().
+//
+// The floor is not the mirror of the ceiling, on purpose. The note above
+// scheduleClick explains why these pitches came down an octave: a click up at
+// A6 was shrill enough to be tiring. The failure at the other end is quieter
+// and worse — the sub-click sits at 440 Hz, and an octave down would put it on
+// a cello's open A, where a pulse stops being a pulse and becomes another note
+// in the texture. A fourth is as far down as it goes, which leaves the lowest
+// voice at 330 Hz. Upward it runs a full octave, which lands the click back on
+// the brighter pitches this replaced — a room with other people playing in it
+// is the case that wants them.
+export const CLICK_PITCH_MIN = -5;
+export const CLICK_PITCH_MAX = 12;
+
+export function clickPitch() {
+  try {
+    const v = Number(globalThis.localStorage?.getItem('clickPitch'));
+    if (!Number.isFinite(v)) return 0;
+    return Math.min(CLICK_PITCH_MAX, Math.max(CLICK_PITCH_MIN, v));
+  } catch {
+    return 0; // private mode, or no storage at all
+  }
+}

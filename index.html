@@ -2182,8 +2182,15 @@
           <input id="set-click" type="range" min="0.3" max="2" step="0.05" aria-label="Metronome click level" />
           <span id="set-click-out" class="set-out"></span>
         </div>
+        <div class="set-slider">
+          <span class="set-sub">Click pitch</span>
+          <input id="set-click-pitch" type="range" min="-5" max="12" step="1" aria-label="Metronome click pitch, in semitones" />
+          <span id="set-click-pitch-out" class="set-out"></span>
+        </div>
         <p class="set-hint">The top slider is everything; the two below trim the drone
-        and the metronome against it.</p>
+        and the metronome against it. Click pitch moves the whole click in
+        semitones — down to sit under the room, up to cut through it. It sounds
+        once as you let go.</p>
       </div>
       <div class="set-group">
         <span class="set-label" id="instrument-label">You play</span>
