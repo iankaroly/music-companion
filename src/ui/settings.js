@@ -8,7 +8,9 @@
 // the metronome or any chart exists — main.js listens and applies.
 
 import { readPreference, writePreference, applyTheme, initTheme } from './theme.js';
-import { getVolume, setVolume } from '../audio/context.js';
+import {
+  getVolume, setVolume, CLICK_PITCH_MIN, CLICK_PITCH_MAX,
+} from '../audio/context.js';
 import { setIntonationTolerance } from './chart-utils.js';
 import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
@@ -198,6 +200,25 @@ export function initSettings(doc = document) {
     set: (v) => write('clickLevel', String(v)),
     format: (v) => `${Math.round(v * 100)}%`,
   }));
+
+  // How far the click may move is stated once, in context.js. The markup does
+  // not get a second copy of those numbers to drift out of step with.
+  const pitchInput = doc.querySelector('#set-click-pitch');
+  if (pitchInput) {
+    pitchInput.min = String(CLICK_PITCH_MIN);
+    pitchInput.max = String(CLICK_PITCH_MAX);
+  }
+  levels.push(wireLevel(doc, '#set-click-pitch', {
+    get: () => Number(read('clickPitch', '0')),
+    set: (v) => write('clickPitch', String(v)),
+    // Semitones, signed, so which way is home is readable at a glance. The
+    // minus is U+2212 rather than a hyphen: it is the width of the plus, so
+    // the readout does not jump as the slider crosses zero.
+    format: (v) => (v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0'),
+  }));
+  // The preview that lets you hear what you picked lives in main.js, which is
+  // where the metronome instance is — a preview on top of a running click is
+  // just a click out of time, and only that side knows whether one is running.
 
   // --- practice history: how big it is, and getting it off the device -------
 

@@ -29,13 +29,9 @@ function mirror(sel, wrap, render) {
   sel.after(wrap);
 }
 
-// wrapClass: the settings sheet is narrower than a tab row and its groups take
-// 'seg seg-wrap', which lets the buttons flow onto a second line instead of
-// running past the edge of the group. A control living in there has to say so —
-// five labels overflowed a settings group by 22 px at phone width.
-export function segmented(sel, { format, wrapClass = 'seg' } = {}) {
+export function segmented(sel, { format } = {}) {
   const wrap = document.createElement('div');
-  wrap.className = wrapClass;
+  wrap.className = 'seg';
   wrap.setAttribute('role', 'group');
   const label = sel.getAttribute('aria-label');
   if (label) wrap.setAttribute('aria-label', label);
@@ -285,7 +281,6 @@ export function initControls(root) {
   seg('#count-in', { format: (o) => o.value === '0' ? 'none' : `${o.value} bar${o.value === '1' ? '' : 's'}` });
   seg('#beats-per-bar', { format: (o) => o.value });
   seg('#subdivision', { format: stacked((o) => o.textContent.split(' ')[0]) });
-  seg('#click-pitch', { wrapClass: 'seg seg-wrap' });
   pick('#timer-mins');
   seg('#trainer-step');
   seg('#trainer-bars');

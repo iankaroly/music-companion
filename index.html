@@ -2187,16 +2187,13 @@
       </div>
       <div class="set-group">
         <span class="set-label" id="click-pitch-label">Metronome pitch</span>
-        <select id="click-pitch" aria-labelledby="click-pitch-label">
-          <option value="-5">Low</option>
-          <option value="-2">Warm</option>
-          <option value="0" selected>Normal</option>
-          <option value="5">Bright</option>
-          <option value="12">Bell</option>
-        </select>
-        <p class="set-hint">Where the click sits. Low to keep it under what you are
-        playing, bright to hear it over a room. Each one sounds once as you choose
-        it, unless the metronome is already running.</p>
+        <div class="set-slider">
+          <input id="set-click-pitch" type="range" min="-5" max="12" step="1" aria-labelledby="click-pitch-label" />
+          <span id="set-click-pitch-out" class="set-out"></span>
+        </div>
+        <p class="set-hint">Semitones from where the click normally sits — down to
+        keep it under what you are playing, up to hear it over a room. It sounds
+        once as you let go, unless the metronome is already running.</p>
       </div>
       <div class="set-group">
         <span class="set-label" id="instrument-label">You play</span>

@@ -898,18 +898,16 @@ subdivisionSel.addEventListener('change', () => {
 subdivisionSel.value = localStorage.getItem('subdivision') ?? 'quarter';
 metronome.subdivision = subdivisionSel.value;
 
-// Click pitch. The control is in the settings sheet, under "Metronome pitch";
-// the wiring is here because the preview needs to know whether the metronome is
-// already running, and this is where that instance lives. settings.js owns
-// preferences it can decide alone, and this is not one of them.
+// Hearing the click pitch you just chose. The slider itself is in the settings
+// sheet and settings.js owns its value; only the preview is here, because it has
+// to know whether the metronome is already running and this is where that
+// instance lives. A preview over a running click is just a click out of time,
+// and the next beat already carries the new pitch anyway.
 //
-// The value is semitones and goes straight to localStorage; scheduleClick
-// re-reads it on every click, so a change is audible on the next beat with the
-// metronome already running.
-const clickPitchSel = document.querySelector('#click-pitch');
-clickPitchSel.addEventListener('change', () => {
-  localStorage.setItem('clickPitch', clickPitchSel.value);
-  // Nothing to preview while it is running — the next beat already carries it.
+// On 'change' rather than 'input': dragging fires input continuously and would
+// machine-gun a click per semitone. scheduleClick re-reads the stored value, so
+// by the time this runs the slider has already saved it.
+document.querySelector('#set-click-pitch')?.addEventListener('change', () => {
   if (metronome.running) return;
   try {
     const ctx = holdAudio('click-preview');
@@ -917,14 +915,6 @@ clickPitchSel.addEventListener('change', () => {
     setTimeout(() => releaseAudio('click-preview'), 300);
   } catch { /* no audio yet; the choice is still saved */ }
 });
-// A stored value that is not one of the offered steps leaves a select with no
-// selection and the segmented buttons with nothing lit. That is reachable: the
-// setting briefly lived on a slider with every semitone on it, so anyone who
-// used it may have a 7 saved. Anything unrecognised falls back to normal.
-const savedPitch = localStorage.getItem('clickPitch') ?? '0';
-clickPitchSel.value = [...clickPitchSel.options].some((o) => o.value === savedPitch)
-  ? savedPitch
-  : '0';
 
 const accentBtn = document.querySelector('#accent-toggle');
 accentBtn.addEventListener('click', () => {
