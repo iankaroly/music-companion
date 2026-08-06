@@ -898,10 +898,10 @@ subdivisionSel.addEventListener('change', () => {
 subdivisionSel.value = localStorage.getItem('subdivision') ?? 'quarter';
 metronome.subdivision = subdivisionSel.value;
 
-// Click pitch. It sits here rather than in the settings sheet because it is a
-// property of the click, like the subdivision above it, and because a pitch is
-// not a thing you can choose without hearing it — the preview below is the
-// point, and it only makes sense next to the metronome it belongs to.
+// Click pitch. The control is in the settings sheet, under "Metronome pitch";
+// the wiring is here because the preview needs to know whether the metronome is
+// already running, and this is where that instance lives. settings.js owns
+// preferences it can decide alone, and this is not one of them.
 //
 // The value is semitones and goes straight to localStorage; scheduleClick
 // re-reads it on every click, so a change is audible on the next beat with the

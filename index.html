@@ -2126,16 +2126,6 @@
             </select>
           </div>
           <div class="row">
-            <label for="click-pitch">click</label>
-            <select id="click-pitch" aria-label="Click pitch">
-              <option value="-5">Low</option>
-              <option value="-2">Warm</option>
-              <option value="0" selected>Normal</option>
-              <option value="5">Bright</option>
-              <option value="12">Bell</option>
-            </select>
-          </div>
-          <div class="row">
             <button id="accent-toggle" class="ctl active">Accent beat 1</button>
             <select id="timer-mins" aria-label="Practice timer">
               <option value="0" selected>no timer</option>
@@ -2194,6 +2184,19 @@
         </div>
         <p class="set-hint">The top slider is everything; the two below trim the drone
         and the metronome against it.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="click-pitch-label">Metronome pitch</span>
+        <select id="click-pitch" aria-labelledby="click-pitch-label">
+          <option value="-5">Low</option>
+          <option value="-2">Warm</option>
+          <option value="0" selected>Normal</option>
+          <option value="5">Bright</option>
+          <option value="12">Bell</option>
+        </select>
+        <p class="set-hint">Where the click sits. Low to keep it under what you are
+        playing, bright to hear it over a room. Each one sounds once as you choose
+        it, unless the metronome is already running.</p>
       </div>
       <div class="set-group">
         <span class="set-label" id="instrument-label">You play</span>
