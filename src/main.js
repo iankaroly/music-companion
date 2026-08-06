@@ -10,7 +10,9 @@ import {
 } from './store/db.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
-import { getVolume, setVolume, audioContext, wakeAudio } from './audio/context.js';
+import {
+  getVolume, setVolume, audioContext, wakeAudio, holdAudio, releaseAudio,
+} from './audio/context.js';
 import { fftMagnitudes } from './audio/fft.js';
 import { RingBuffer } from './audio/ring-buffer.js';
 import { Metronome, tempoName, scheduleClick } from './audio/metronome.js';
@@ -895,6 +897,34 @@ subdivisionSel.addEventListener('change', () => {
 });
 subdivisionSel.value = localStorage.getItem('subdivision') ?? 'quarter';
 metronome.subdivision = subdivisionSel.value;
+
+// Click pitch. It sits here rather than in the settings sheet because it is a
+// property of the click, like the subdivision above it, and because a pitch is
+// not a thing you can choose without hearing it — the preview below is the
+// point, and it only makes sense next to the metronome it belongs to.
+//
+// The value is semitones and goes straight to localStorage; scheduleClick
+// re-reads it on every click, so a change is audible on the next beat with the
+// metronome already running.
+const clickPitchSel = document.querySelector('#click-pitch');
+clickPitchSel.addEventListener('change', () => {
+  localStorage.setItem('clickPitch', clickPitchSel.value);
+  // Nothing to preview while it is running — the next beat already carries it.
+  if (metronome.running) return;
+  try {
+    const ctx = holdAudio('click-preview');
+    scheduleClick(ctx, ctx.currentTime + 0.03, 'beat');
+    setTimeout(() => releaseAudio('click-preview'), 300);
+  } catch { /* no audio yet; the choice is still saved */ }
+});
+// A stored value that is not one of the offered steps leaves a select with no
+// selection and the segmented buttons with nothing lit. That is reachable: the
+// setting briefly lived on a slider with every semitone on it, so anyone who
+// used it may have a 7 saved. Anything unrecognised falls back to normal.
+const savedPitch = localStorage.getItem('clickPitch') ?? '0';
+clickPitchSel.value = [...clickPitchSel.options].some((o) => o.value === savedPitch)
+  ? savedPitch
+  : '0';
 
 const accentBtn = document.querySelector('#accent-toggle');
 accentBtn.addEventListener('click', () => {
