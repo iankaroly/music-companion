@@ -16,6 +16,9 @@ import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
 import { intonationBounds } from './chart-utils.js';
 import {
+  initScorePassages, resetScorePassages, offerNotehead,
+} from './score-passages.js';
+import {
   mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
   syncDockVisibility, borrowPanel, scoreTabIsShowing,
 } from './score-tab.js';
@@ -155,6 +158,7 @@ function resetSheet() {
   }
   el('score-summary')?.remove();
   el('score-legend')?.remove();
+  resetScorePassages();
   clearScoreTab();
 }
 
@@ -267,7 +271,11 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
     }
   }
 
-  ready = { aligned, timing, landings, summary: summarise(aligned, timing) };
+  // Stamped once per take, so redrawing after a tempo change or a tab switch
+  // does not read as another go at the passage.
+  ready = {
+    aligned, timing, landings, summary: summarise(aligned, timing), takeDate: Date.now(),
+  };
 
   const summary = document.createElement('p');
   summary.id = 'score-summary';
@@ -330,18 +338,35 @@ export async function renderScoreTab() {
     return view;
   }
 
-  paint(view, {
+  const repaint = (comparison = null) => paint(view, {
     aligned: ready.aligned,
     timing: ready.timing,
     landings: ready.landings,
+    comparison,
     // Just the one path. onPick is already selectPlayedNote, and calling it
     // twice ran the whole selection — teardown, zoom inset, playback, drones —
     // over the top of itself, which looks identical once it settles and is not.
-    onPickNote: (attempt) => onPick?.(attempt.played),
+    // A tap is offered to passage marking first, which consumes it when the
+    // player is picking bars rather than picking a note to hear.
+    onPickNote: (attempt) => {
+      if (offerNotehead(attempt)) return;
+      onPick?.(attempt.played);
+    },
   });
+  repaint();
   legend(stage);
   follow(view.noteheadFor);
   syncDockVisibility();
+
+  await initScorePassages({
+    scoreId: current.id,
+    aligned: ready.aligned,
+    timing: ready.timing,
+    recordingId: pending?.recordingId ?? null,
+    takeDate: ready.takeDate,
+    onHighlight: (from, to) => view.highlightBars?.(from, to),
+    onCompare: (comparison) => repaint(comparison),
+  });
   return view;
 }
 

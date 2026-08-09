@@ -156,6 +156,21 @@ export async function showScore(container, {
     unmatched,
     ok,
     last: null,
+    // Ring the bars of a passage so tapping its name in the list shows you
+    // where on the page it actually is.
+    highlightBars(from, to) {
+      for (const el of page.querySelectorAll('.bar-marked')) el.classList.remove('bar-marked');
+      let first = null;
+      for (const [, engraved] of map) {
+        const bar = engraved.measure;
+        if (bar < from || bar > to) continue;
+        const el = engraved.gnote.getSVGGElement?.();
+        if (!el) continue;
+        el.classList.add('bar-marked');
+        first ??= el;
+      }
+      first?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    },
     // Every mark is placed from a measured notehead box, so a reflow that moves
     // the noteheads has to redraw the marks in the same breath — otherwise they
     // stay behind, pointing at whatever note has moved under them.
@@ -184,10 +199,12 @@ export async function showScore(container, {
 
 // Colour every notehead by what happened on it, and hang the marks that OSMD
 // has no concept of over the top.
-export function paint(view, { aligned, timing = null, landings = null, onPickNote = null } = {}) {
+export function paint(view, {
+  aligned, timing = null, landings = null, onPickNote = null, comparison = null,
+} = {}) {
   const colours = palette();
   const { map, overlay, page } = view;
-  view.last = { aligned, timing, landings, onPickNote };
+  view.last = { aligned, timing, landings, onPickNote, comparison };
   overlay.replaceChildren();
 
   const timingByNote = new Map();
@@ -214,7 +231,17 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
     // A repeated notehead is drawn once and played more than once. It wears
     // the LATEST pass that actually sounded, and says how many there were.
     const attempt = aligned.latest.get(scoreNoteId) ?? attempts.at(-1) ?? null;
-    const colour = verdictColour(attempt, colours);
+    // In comparison mode the page answers a different question — not "how in
+    // tune is this note" but "is it better than last time" — so the whole
+    // colour scale is replaced rather than mixed with. Notes with no history
+    // go grey: no comparison exists, and colouring them by intonation would
+    // put two meanings on the page at once.
+    const change = comparison?.get(scoreNoteId) ?? null;
+    const colour = comparison
+      ? (change
+        ? { better: colours.good, worse: colours.bad, same: colours.muted }[change.verdict]
+        : colours.muted)
+      : verdictColour(attempt, colours);
     const gnote = engravedNote.gnote;
 
     if (colour) {
@@ -233,7 +260,11 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
     // repeated bar lights it both times round.
     for (const a of attempts) if (a.played) noteheads.set(a.played, element);
 
-    const label = describe(attempt, timingByNote.get(scoreNoteId));
+    const label = comparison
+      ? (change
+        ? `bar ${attempt?.score?.measure ?? '?'}: ${Math.abs(change.delta).toFixed(0)} cents ${change.verdict === 'better' ? 'closer' : change.verdict === 'worse' ? 'further' : 'the same'} than last time`
+        : null)
+      : describe(attempt, timingByNote.get(scoreNoteId));
     if (label) {
       element.setAttribute('role', 'img');
       element.setAttribute('aria-label', label);
@@ -296,8 +327,11 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
       if (played > 1) marks.push({ className: 'score-mark passes', text: `×${played}`, title: `played ${played} times` });
     }
 
+    // One question at a time: while the page is showing what changed, the
+    // timing and landing marks from this take would be answering a different
+    // one over the top of it.
     let offset = 0;
-    for (const mark of marks) {
+    for (const mark of comparison ? [] : marks) {
       const el = document.createElement('span');
       el.className = mark.className;
       el.textContent = mark.text;
