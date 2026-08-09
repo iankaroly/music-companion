@@ -141,5 +141,20 @@ log(`late note's notehead box: ${sampleBox ? `x ${Math.round(sampleBox.left - pa
 for (const mark of document.querySelectorAll('.score-mark')) {
   log(`mark "${mark.textContent}" placed at left ${mark.style.left} top ${mark.style.top}`);
 }
+// The fallback, forced: break one note's bar number so reconciliation cannot
+// be complete, and confirm the page comes back with NO colour on it. A page
+// that keeps the colours of the notes that did match, under a line saying it
+// is unmarked, is the wrong-notehead failure wearing a disclaimer.
+const broken = scoreNotes.map((n, i) => (i === 3 ? { ...n, measure: 99 } : n));
+const holder = document.createElement('div');
+document.body.append(holder);
+const failing = await showScore(holder, { xml: XML, scoreNotes: broken });
+const tintedAfterFailure = [...holder.querySelectorAll('svg [fill]')]
+  .map((e) => e.getAttribute('fill').toLowerCase())
+  .filter((f) => f !== '#000000' && f !== 'none' && f !== 'black');
+log(`forced mismatch: ok=${failing.ok}, unmatched=${failing.unmatched.length}, coloured noteheads=${tintedAfterFailure.length}`,
+  !failing.ok && tintedAfterFailure.length === 0 ? 'ok' : 'bad');
+holder.remove();
+
 window.__benchOk = view.ok;
 </script>

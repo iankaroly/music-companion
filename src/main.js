@@ -8,7 +8,9 @@ import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
 } from './store/db.js';
-import { initScoreCard, annotateTake, clearSheet, currentScoreId } from './ui/score.js';
+import {
+  initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore,
+} from './ui/score.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import {
@@ -609,10 +611,16 @@ async function openRecording(r) {
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });
-  // Alignment is offline, so a take reopened from the library is marked up
-  // against whatever score is selected now — including one attached after the
-  // fact, by someone who recorded ten minutes before picking the piece.
-  annotateTake(data.notes, { readings: data.readings, a4: data.a4 }).catch(() => {});
+  // A take is marked up against the score IT was played from, not whatever is
+  // selected right now: reopening last week's Elgar while the Bach is chosen
+  // would otherwise produce a page of confident nonsense — every note wrong,
+  // and nothing anywhere saying why. A take with no score attached simply
+  // shows no page, and picking one now attaches it.
+  selectScore(r.scoreId ?? null)
+    .then(() => annotateTake(data.notes, {
+      readings: data.readings, a4: data.a4, recordingId: r.id,
+    }))
+    .catch(() => {});
 }
 
 // --- folders ---------------------------------------------------------------

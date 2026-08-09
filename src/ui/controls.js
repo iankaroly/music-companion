@@ -278,6 +278,9 @@ export function initControls(root) {
   pick('#preset-list');
   pick('#ref-interval');
   pick('#ref-octave');
+  // Its options arrive from IndexedDB after this runs, and change again on
+  // every upload — the observer inside menu() is what keeps the list honest.
+  pick('#score-pick');
   seg('#count-in', { format: (o) => o.value === '0' ? 'none' : `${o.value} bar${o.value === '1' ? '' : 's'}` });
   seg('#beats-per-bar', { format: (o) => o.value });
   seg('#subdivision', { format: stacked((o) => o.textContent.split(' ')[0]) });

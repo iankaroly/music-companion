@@ -14,11 +14,22 @@ import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
-import { saveScore, listScores, loadScore, deleteScore } from '../store/db.js';
+import {
+  saveScore, listScores, loadScore, deleteScore, setRecordingScore,
+} from '../store/db.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
 let view = null;      // the rendered page, if one is up
 let onPick = null;    // hand a chosen note back to the report
+// The take on screen, so choosing a score AFTER recording still marks it up.
+// Recording first and picking the piece second is the order this actually gets
+// used in.
+let pending = null;   // { notes, readings, a4 }
+
+// Not the empty string: controls.js reads an empty value as a placeholder and
+// leaves that row out of the pop-over, which would make "no score" the one
+// choice a player could never get back to.
+const NO_SCORE = 'none';
 
 function el(id) { return document.querySelector(`#${id}`); }
 
@@ -39,7 +50,7 @@ async function refreshPicker(selectedId = null) {
   const scores = await listScores();
   pick.replaceChildren();
   const none = document.createElement('option');
-  none.value = '';
+  none.value = NO_SCORE;
   none.textContent = 'no score';
   pick.append(none);
   for (const score of scores) {
@@ -48,7 +59,7 @@ async function refreshPicker(selectedId = null) {
     option.textContent = score.name;
     pick.append(option);
   }
-  pick.value = selectedId === null ? '' : String(selectedId);
+  pick.value = selectedId === null ? NO_SCORE : String(selectedId);
   // The custom pop-over menus mirror the native select; this is how the rest
   // of the app tells them their options changed without firing 'change'.
   pick.dispatchEvent(new CustomEvent('refresh-label'));
@@ -68,7 +79,7 @@ async function adopt(row) {
 }
 
 async function chooseScore(id) {
-  clearSheet();
+  resetSheet();
   if (!id) {
     current = null;
     el('score-remove').hidden = true;
@@ -81,6 +92,16 @@ async function chooseScore(id) {
     await adopt(row);
     el('score-remove').hidden = false;
     status(`${current.name} — ${current.notes.length} notes. Record, and it will be marked up when you stop.`);
+    // A take already on screen gets marked up straight away, so recording
+    // first and choosing the piece afterwards works the same as the other way
+    // round.
+    if (pending) {
+      const take = pending;
+      await annotateTake(take.notes, take);
+      // Picking a score for a take that is already in the library attaches it,
+      // so reopening that take tomorrow finds the same piece.
+      if (take.recordingId != null) await setRecordingScore(take.recordingId, id);
+    }
   } catch (err) {
     current = null;
     status(err.message, 'bad');
@@ -93,14 +114,23 @@ async function addFromFile(file) {
   const parsed = parseScore(xml);
   // Multi-part files are common (a duet, a piano reduction). Take the first
   // single-staff part, which for a part-book is the only one there is.
-  const partIndex = Math.max(0, parsed.parts.findIndex((p) => p.staves === 1));
+  const partIndex = parsed.parts.findIndex((p) => p.staves === 1);
+  // Refuse BEFORE saving. Storing it first and discovering the problem in
+  // adopt() would leave a row in the picker that can never be opened.
+  if (partIndex === -1) {
+    const staves = parsed.parts.map((p) => `${p.name} (${p.staves} staves)`).join(', ');
+    throw new Error(`this reads one line at a time, and that file has none — ${staves || 'no parts'}`);
+  }
   const name = parsed.title || file.name.replace(/\.(musicxml|xml|mxl)$/i, '');
   const id = await saveScore({ name, xml, partIndex, parts: parsed.parts });
   await refreshPicker(id);
   await chooseScore(id);
 }
 
-export function clearSheet() {
+// The page and everything hung around it. The summary and the legend are
+// SIBLINGS of the sheet, so showScore's replaceChildren does not touch them —
+// annotating twice without this leaves two of each.
+function resetSheet() {
   view?.destroy?.();
   view = null;
   const sheet = el('score-sheet');
@@ -110,6 +140,23 @@ export function clearSheet() {
   }
   el('score-summary')?.remove();
   el('score-legend')?.remove();
+}
+
+// Used when the take itself goes away, not merely its page.
+export function clearSheet() {
+  pending = null;
+  resetSheet();
+}
+
+// Choose a score without anyone touching the picker — how a take reopened from
+// the library gets the score it was actually played from.
+export async function selectScore(id) {
+  const pick = el('score-pick');
+  if (pick) {
+    pick.value = id === null || id === undefined ? NO_SCORE : String(id);
+    pick.dispatchEvent(new CustomEvent('refresh-label'));
+  }
+  await chooseScore(id ?? null);
 }
 
 // One plain sentence before the page, because a wall of coloured noteheads is
@@ -150,11 +197,13 @@ function legend(sheet) {
 }
 
 // Called on Stop, and when a saved take is reopened.
-export async function annotateTake(notes, { readings = null, a4 = 440 } = {}) {
+export async function annotateTake(notes, { readings = null, a4 = 440, recordingId = null } = {}) {
+  pending = { notes, readings, a4, recordingId };
   if (!current) return null;
   const sheet = el('score-sheet');
   if (!sheet) return null;
 
+  resetSheet();
   sheet.hidden = false;
   status(`lining ${current.name} up with what you played…`);
 
@@ -172,30 +221,35 @@ export async function annotateTake(notes, { readings = null, a4 = 440 } = {}) {
     }
   }
 
+  // Engrave FIRST and paint only once the reconciliation is known to be
+  // complete. Painting on the way in and undoing it afterwards does not undo:
+  // a notehead that has been given a colour keeps it, so a partial match would
+  // leave a half-marked page under a line of text claiming it was unmarked —
+  // exactly the wrong-notehead failure this design exists to avoid.
   try {
     view = await showScore(sheet, {
       xml: current.xml,
       scoreNotes: current.notes,
       partIndex: current.partIndex ?? 0,
-      aligned,
-      timing,
-      landings,
-      onPickNote: (attempt) => onPick?.(attempt.played),
     });
   } catch (err) {
-    clearSheet();
+    resetSheet();
+    sheet.hidden = false;
     status(`could not engrave that score: ${err.message}`, 'bad');
     return null;
   }
 
-  // An annotation on the wrong notehead is worse than no annotation, so if the
-  // two readings of the file do not line up completely, the page is shown
-  // plain and says so rather than quietly marking the wrong notes.
   if (!view.ok) {
-    paint(view, { aligned: { byNote: new Map(), latest: new Map() } });
     status(`${view.unmatched.length} notes on the page could not be matched to the analysis, so this score is shown unmarked. The charts below still have the take in full.`, 'bad');
     return { aligned, timing, annotated: false };
   }
+
+  paint(view, {
+    aligned,
+    timing,
+    landings,
+    onPickNote: (attempt) => onPick?.(attempt.played),
+  });
 
   const summary = document.createElement('p');
   summary.id = 'score-summary';
@@ -216,7 +270,7 @@ export function initScoreCard({ onPickNote } = {}) {
   if (!pick || !add || !file) return;
 
   pick.addEventListener('change', () => {
-    const id = pick.value ? Number(pick.value) : null;
+    const id = pick.value && pick.value !== NO_SCORE ? Number(pick.value) : null;
     chooseScore(id).catch((err) => status(err.message, 'bad'));
   });
 
