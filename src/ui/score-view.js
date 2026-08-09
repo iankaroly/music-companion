@@ -13,7 +13,7 @@
 // feature they don't open.
 
 import { palette } from './theme.js';
-import { intonationStatus } from './chart-utils.js';
+import { intonationTone } from './chart-utils.js';
 import { reconcile } from '../analysis/score-map.js';
 
 let osmdModulePromise = null;
@@ -59,12 +59,19 @@ function engravedNotes(osmd, instrument) {
   return out;
 }
 
+// Warm for sharp, cool for flat, green for in tune. Size still decides the
+// tier; direction decides which family it comes from, so a page leaning one
+// way is visible before a single number is read.
 function verdictColour(attempt, colours) {
   if (!attempt) return null;
   if (attempt.verdict === 'missed') return colours.muted;
   if (attempt.verdict === 'not-taken') return null; // never played, nothing to say
   if (attempt.verdict === 'wrong' || attempt.verdict === 'octave') return colours.bad;
-  return colours[intonationStatus(attempt.played.cents)];
+
+  const { tier, direction } = intonationTone(attempt.played.cents);
+  if (tier === 'good') return colours.good;
+  if (direction === 'flat') return tier === 'off' ? colours.flatOff : colours.flatBad;
+  return tier === 'off' ? colours.off : colours.bad;
 }
 
 // Spoken form, because a coloured notehead says nothing to a screen reader.
@@ -77,8 +84,9 @@ function describe(attempt, timing) {
   if (attempt.verdict === 'wrong') return `${bar}: a different note was played`;
 
   const cents = Math.round(attempt.played.cents);
-  const tuning = Math.abs(cents) < 1 ? 'in tune'
-    : `${Math.abs(cents)} cents ${cents > 0 ? 'sharp' : 'flat'}`;
+  const { direction } = intonationTone(attempt.played.cents);
+  const tuning = direction === 'centred' ? 'in tune'
+    : `${Math.abs(cents)} cents ${direction}`;
   const ms = timing?.deviationMs;
   if (ms === null || ms === undefined || timing.verdict === 'on') return `${bar}: ${tuning}`;
   return `${bar}: ${tuning}, ${Math.abs(Math.round(ms))} milliseconds ${timing.verdict}`;
@@ -180,6 +188,12 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
     if (entry.scoreNoteId) timingByNote.set(entry.scoreNoteId, entry);
   }
 
+  // Played note → the notehead drawn for it, so the playhead can light the
+  // right one. Keyed on the note OBJECT: two notes can share a pitch and a bar
+  // and still be different notes, and the object is what playback hands back.
+  const noteheads = new Map();
+  view.noteheadFor = (note) => noteheads.get(note) ?? null;
+
   const pageBox = page.getBoundingClientRect();
 
   for (const [scoreNoteId, engravedNote] of map) {
@@ -201,6 +215,10 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
 
     const element = gnote.getSVGGElement?.();
     if (!element) continue;
+
+    // Every pass that sounded points at this one notehead, so playing a
+    // repeated bar lights it both times round.
+    for (const a of attempts) if (a.played) noteheads.set(a.played, element);
 
     const label = describe(attempt, timingByNote.get(scoreNoteId));
     if (label) {

@@ -15,6 +15,10 @@ import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
 import {
+  mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible, pickNote,
+  syncDockVisibility,
+} from './score-tab.js';
+import {
   saveScore, listScores, loadScore, deleteScore, setRecordingScore,
 } from '../store/db.js';
 
@@ -25,6 +29,12 @@ let onPick = null;    // hand a chosen note back to the report
 // Recording first and picking the piece second is the order this actually gets
 // used in.
 let pending = null;   // { notes, readings, a4 }
+// The finished analysis, waiting for the Score tab to be looked at. The page
+// is NOT engraved here: an inactive tab panel is display:none, so a container
+// inside one measures zero and the engraver would lay the music out to a width
+// that does not exist. It is drawn the first time the tab is shown.
+let ready = null;     // { aligned, timing, landings, summary }
+let openTab = null;   // ask main.js to switch tabs
 
 // Not the empty string: controls.js reads an empty value as a placeholder and
 // leaves that row out of the pop-over, which would make "no score" the one
@@ -131,8 +141,10 @@ async function addFromFile(file) {
 // SIBLINGS of the sheet, so showScore's replaceChildren does not touch them —
 // annotating twice without this leaves two of each.
 function resetSheet() {
+  stopFollowing();
   view?.destroy?.();
   view = null;
+  ready = null;
   const sheet = el('score-sheet');
   if (sheet) {
     sheet.replaceChildren();
@@ -140,6 +152,7 @@ function resetSheet() {
   }
   el('score-summary')?.remove();
   el('score-legend')?.remove();
+  clearScoreTab();
 }
 
 // Used when the take itself goes away, not merely its page.
@@ -167,8 +180,19 @@ function summarise(aligned, timing) {
 
   const parts = [];
   const inTune = played.filter((a) => a.verdict === 'match').length;
+  const octaves = played.filter((a) => a.verdict === 'octave').length;
+  const wrong = played.filter((a) => a.verdict === 'wrong').length;
   parts.push(`${inTune} of ${aligned.attempts.length - aligned.notTaken} notes landed on the written pitch`);
-  if (aligned.wrong) parts.push(`${aligned.wrong} came out as a different note`);
+  if (wrong) parts.push(`${wrong} came out as a different note`);
+  // Worth its own words rather than being folded into "a different note": a
+  // take that is entirely an octave out is a whole take read in the wrong
+  // register, and being told 29 wrong notes sends you looking for 29 problems
+  // instead of one.
+  if (octaves) {
+    parts.push(octaves === played.length
+      ? 'every note was an octave out — check the register'
+      : `${octaves} ${octaves === 1 ? 'was' : 'were'} an octave out`);
+  }
   if (aligned.missed) parts.push(`${aligned.missed} never sounded`);
   if (aligned.notTaken) parts.push('the repeat was not taken');
 
@@ -184,10 +208,14 @@ function summarise(aligned, timing) {
 function legend(sheet) {
   const row = document.createElement('div');
   row.id = 'score-legend';
+  // Warm is sharp, cool is flat, and the pairs are ordered light-to-dark so the
+  // legend reads as two scales away from centre rather than seven loose colours.
   row.innerHTML = [
     '<span><b style="color:var(--good)">■</b> in tune</span>',
-    '<span><b style="color:var(--off)">■</b> slightly off</span>',
-    '<span><b style="color:var(--bad)">■</b> badly off, or the wrong note</span>',
+    '<span><b style="color:var(--off)">■</b> a little sharp</span>',
+    '<span><b style="color:var(--bad)">■</b> well sharp, or the wrong note</span>',
+    '<span><b style="color:var(--flat-off)">■</b> a little flat</span>',
+    '<span><b style="color:var(--flat-bad)">■</b> well flat</span>',
     '<span><b style="color:var(--muted)">■</b> never sounded</span>',
     '<span><b style="color:var(--bad)">›</b> came in late</span>',
     '<span><b style="color:var(--off)">‹</b> came in early</span>',
@@ -221,48 +249,79 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
     }
   }
 
+  ready = { aligned, timing, landings, summary: summarise(aligned, timing) };
+
+  const summary = document.createElement('p');
+  summary.id = 'score-summary';
+  summary.textContent = ready.summary;
+  sheet.before(summary);
+
+  const open = document.createElement('button');
+  open.id = 'score-open';
+  open.className = 'ctl primary';
+  open.type = 'button';
+  open.textContent = 'Open the score →';
+  open.addEventListener('click', () => openTab?.());
+  sheet.replaceChildren(open);
+  setScoreTabVisible(true);
+  status(`${current.name} — marked up. Open the score to read it.`);
+
+  // If the player is already looking at the Score tab, draw it now rather than
+  // leaving them on a stale page waiting for a tab switch that will not come.
+  if (document.querySelector('#tab-score')?.classList.contains('active')) {
+    await renderScoreTab();
+  }
+  return { aligned, timing, annotated: true };
+}
+
+// Engrave and mark up the page. Called the first time the Score tab is shown,
+// because only then does its panel have a width to lay the music out to.
+export async function renderScoreTab() {
+  if (!current || !ready) return null;
+  if (view) return view; // already drawn for this take
+
+  const page = document.createElement('div');
+  const stage = mountScore(page, ready.summary);
+  if (!stage) return null;
+
   // Engrave FIRST and paint only once the reconciliation is known to be
   // complete. Painting on the way in and undoing it afterwards does not undo:
   // a notehead that has been given a colour keeps it, so a partial match would
   // leave a half-marked page under a line of text claiming it was unmarked —
   // exactly the wrong-notehead failure this design exists to avoid.
   try {
-    view = await showScore(sheet, {
+    view = await showScore(page, {
       xml: current.xml,
       scoreNotes: current.notes,
       partIndex: current.partIndex ?? 0,
     });
   } catch (err) {
-    resetSheet();
-    sheet.hidden = false;
+    view = null;
+    stage.replaceChildren();
     status(`could not engrave that score: ${err.message}`, 'bad');
     return null;
   }
 
   if (!view.ok) {
-    status(`${view.unmatched.length} notes on the page could not be matched to the analysis, so this score is shown unmarked. The charts below still have the take in full.`, 'bad');
-    return { aligned, timing, annotated: false };
+    status(`${view.unmatched.length} notes on the page could not be matched to the analysis, so this score is shown unmarked. The charts on the Record tab still have the take in full.`, 'bad');
+    return view;
   }
 
   paint(view, {
-    aligned,
-    timing,
-    landings,
-    onPickNote: (attempt) => onPick?.(attempt.played),
+    aligned: ready.aligned,
+    timing: ready.timing,
+    landings: ready.landings,
+    onPickNote: (attempt) => { onPick?.(attempt.played); pickNote(attempt.played); },
   });
-
-  const summary = document.createElement('p');
-  summary.id = 'score-summary';
-  summary.textContent = summarise(aligned, timing);
-  sheet.before(summary);
-  legend(sheet);
-  status(`${current.name} — tap a notehead to hear it back.`);
-
-  return { aligned, timing, annotated: true };
+  legend(stage);
+  follow(view.noteheadFor);
+  syncDockVisibility();
+  return view;
 }
 
-export function initScoreCard({ onPickNote } = {}) {
+export function initScoreCard({ onPickNote, onOpenScoreTab } = {}) {
   onPick = onPickNote ?? null;
+  openTab = onOpenScoreTab ?? null;
   const pick = el('score-pick');
   const add = el('score-add');
   const file = el('score-file');

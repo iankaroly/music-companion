@@ -30,6 +30,26 @@ let zoomChart = null;       // the per-note inset below it
 // growing a second, poorer copy of all of it.
 let selectFromOutside = null;
 
+// Views outside this module that want to follow the playhead — the score page,
+// which lights the notehead being sounded and scrolls to keep it in view.
+//
+// A span carries one tile, and widening it to carry two would mean every
+// producer of spans knowing about every view. A subscription costs nothing and
+// keeps the arrangement one-way: the score knows about playback, playback knows
+// nothing about the score.
+const followers = new Set();
+
+export function followPlayback(fn) {
+  followers.add(fn);
+  return () => followers.delete(fn);
+}
+
+function tellFollowers(note, time) {
+  for (const fn of followers) {
+    try { fn(note, time); } catch { /* a broken view must not stop the audio */ }
+  }
+}
+
 // Set by whichever note is open, read by the playback tick: what to write in
 // the note box for a given moment of the recording.
 let cursorReadout = null;
@@ -184,6 +204,7 @@ function stopPlayback(root) {
   if (zoom) zoomChart?.setPlayhead(zoom.pos);
   if (full) currentChart?.setPlayhead(full.pos);
   stopNoteDrone();
+  tellFollowers(null, null);
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
   if (zoom) zoom.playing = false;
   if (full) full.playing = false;
@@ -255,6 +276,7 @@ function playClip(clip, root, timeMap, spans, onDone) {
       if (active) sounding = s.note ?? null;
     }
     currentChart?.setHighlight?.(sounding);
+    tellFollowers(sounding, recTime);
     animationFrame = requestAnimationFrame(tick);
   };
   source.onended = () => { stopPlayback(root); onDone?.(); };
@@ -453,6 +475,22 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
     if (full.playing) pauseFull(root);
     else playFullFrom(root, full.pos);
   };
+
+  // Back to the top from anywhere in the take, without dragging a cursor the
+  // length of a ten-minute recording to get there. It always PLAYS: pressing
+  // it while paused and being returned to a stopped playhead would just be a
+  // second way to lose your place.
+  const restart = root.querySelector('#clip-restart');
+  if (restart) {
+    restart.hidden = !recording;
+    restart.onpointerdown = warmAudio;
+    restart.onclick = () => {
+      if (!full) return;
+      stopPlayback(root);
+      full.pos = 0;
+      playFullFrom(root, 0);
+    };
+  }
 
   // Dragging the overview cursor (or tapping the chart) steers everything:
   // the whole-take play position, which note the zoom inset shows, and the

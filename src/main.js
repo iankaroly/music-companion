@@ -9,8 +9,9 @@ import {
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
 } from './store/db.js';
 import {
-  initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore,
+  initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
 } from './ui/score.js';
+import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import {
@@ -57,10 +58,21 @@ let tunerStarting = false; // declared before tabs init — onShown fires during
 const tabs = initLiquidTabs({
   nav: document.querySelector('nav[role="tablist"]'),
   panes: document.querySelector('#panes'),
-  order: ['tuner', 'analyze', 'library', 'coach', 'metronome'],
-  initial: localStorage.getItem('tab') ?? 'tuner',
-  onShown: (name) => {
+  order: ['tuner', 'analyze', 'score', 'library', 'coach', 'metronome'],
+  // Never restore into the Score tab: it is hidden until a take has been
+  // marked up, and nothing has been recorded yet at startup, so restoring it
+  // would open the app on an empty panel with no dock button to leave by.
+  initial: (localStorage.getItem('tab') === 'score' ? 'analyze' : localStorage.getItem('tab')) ?? 'tuner',
+  onShown: (name, previous) => {
     localStorage.setItem('tab', name);
+    // The playback panel is one node shared by both views of the review, so
+    // whichever tab is leaving hands it back before the arriving one takes it.
+    if (previous === 'score') onScoreTabHidden();
+    if (name === 'score') {
+      onScoreTabShown();
+      // Only now does the panel have a width to engrave into.
+      renderScoreTab().catch(() => {});
+    }
     if (name === 'coach') renderCoach(document); // fresh habits every visit
     // deferred a tick: the initial onShown fires while this module is still
     // initializing, and beginCapture reads consts declared further down
@@ -1212,7 +1224,10 @@ initWelcome(document, {
 
 // --- the score you played from -------------------------------------------------
 
-initScoreCard({ onPickNote: (note) => selectPlayedNote(note) });
+initScoreCard({
+  onPickNote: (note) => selectPlayedNote(note),
+  onOpenScoreTab: () => showTab('score'),
+});
 
 // --- custom pickers replace every native select --------------------------------
 

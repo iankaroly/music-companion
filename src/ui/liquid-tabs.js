@@ -44,12 +44,15 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
   // --- switching ------------------------------------------------------------
 
   function setActive(name) {
+    // The tab being left, so a pane can hand back anything it borrowed while
+    // it was showing.
+    const previous = current;
     current = name;
     for (const [tab, b] of buttons) b.setAttribute('aria-selected', String(tab === name));
     for (const p of panes.querySelectorAll('.tab-panel')) {
       p.classList.toggle('active', p.id === `tab-${name}`);
     }
-    onShown?.(name);
+    onShown?.(name, previous);
   }
 
   function cleanupPanels(...els) {
@@ -144,7 +147,12 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
   nav.addEventListener('keydown', (e) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;
-    const next = order[idx(current) + step];
+    // Step over any tab that is not currently in the dock — the Score tab is
+    // hidden until there is a score, and arrowing onto a button nobody can see
+    // strands the focus ring somewhere invisible.
+    let at = idx(current) + step;
+    while (order[at] && buttons.get(order[at])?.hidden) at += step;
+    const next = order[at];
     if (next) {
       show(next);
       buttons.get(next).focus();

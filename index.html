@@ -117,6 +117,12 @@
       --good: #17b578;
       --off: #f29b38;
       --bad: #ef5c73;
+      /* Sharp reads warm and flat reads cool, so a page of noteheads shows
+         which way a habit leans without reading a single number. --off and
+         --bad ARE the sharp pair; these are their opposites. Score only —
+         the graph and the tiles still colour by size alone. */
+      --flat-off: #3aa6e0;
+      --flat-bad: #6a5ae0;
       --good-soft: #d9f4e8;
       --off-soft: #fdeeda;
       --bad-soft: #fde3e8;
@@ -172,6 +178,8 @@
       --good: #35d295;
       --off: #ffb257;
       --bad: #ff7d90;
+      --flat-off: #62c4f5;
+      --flat-bad: #9c8dff;
       --good-soft: #16362b;
       --off-soft: #3a2d18;
       --bad-soft: #3d1f27;
@@ -830,6 +838,37 @@
     .score-mark.timing.early { color: var(--off); }
     .score-mark.landing { color: var(--primary); font-size: 0.8rem; }
     .score-mark.passes { color: var(--muted); font-size: 0.62rem; }
+    /* --- the Score tab ------------------------------------------------- */
+    #score-stage {
+      position: relative;
+      max-height: 62vh;
+      overflow-y: auto;
+      overflow-x: auto;
+      border-radius: 14px;
+      scroll-behavior: smooth;
+    }
+    #score-tab-summary {
+      text-align: center;
+      margin: 0 0 0.9rem;
+      font-size: 0.92rem;
+      color: var(--ink);
+    }
+    /* The note sounding right now: a glow around whatever colour the notehead
+       already wears, so the verdict is not painted over to show the playhead.
+       A fill change would have to be undone note by note and would fight the
+       engraver for the same attribute. */
+    #score-stage .sounding {
+      filter: drop-shadow(0 0 3px var(--primary)) drop-shadow(0 0 7px var(--primary));
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #score-stage { scroll-behavior: auto; }
+    }
+    #score-dock { margin-top: 1rem; }
+    #score-dock #playback { padding: 0; }
+    #clip-restart {
+      font-size: 1.1rem;
+      line-height: 1;
+    }
     #score-legend {
       display: flex;
       flex-wrap: wrap;
@@ -1827,6 +1866,18 @@
       </svg>
       <span>Library</span>
     </button>
+    <!-- Hidden until a score is loaded: six tabs is a squeeze on a phone, and
+         an empty one would cost the others width for nothing. -->
+    <button class="tab-btn" role="tab" data-tab="score" aria-selected="false" hidden>
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3.5" y1="7" x2="20.5" y2="7" />
+        <line x1="3.5" y1="10.5" x2="20.5" y2="10.5" />
+        <line x1="3.5" y1="14" x2="20.5" y2="14" />
+        <circle cx="9" cy="15.6" r="2.1" fill="currentColor" stroke="none" />
+        <path d="M11.1 15.6 V6.2 l4.6 1.3" />
+      </svg>
+      <span>Score</span>
+    </button>
     <button class="tab-btn" role="tab" data-tab="coach" aria-selected="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
         <circle cx="12" cy="12" r="8.5" />
@@ -1977,6 +2028,7 @@
         <div id="playback" hidden>
           <div id="clip-head">
             <button id="clip-play" aria-label="Play or pause the whole take">▶</button>
+            <button id="clip-restart" aria-label="Play the take from the beginning" title="back to the start">↺</button>
             <span id="clip-label">play the whole take</span>
             <div id="chart-mode" role="group" aria-label="Graph style">
               <button data-mode="pitch" class="active">pitch</button>
@@ -2108,6 +2160,18 @@
     </section>
 
     <!-- ================= coach ================= -->
+    <!-- ================= score ================= -->
+    <!-- The same review as the Record tab, read off the page instead of off a
+         graph. #score-dock is where the ONE playback panel lives while this
+         tab is showing; see ui/score-tab.js. -->
+    <section id="tab-score" class="tab-panel" role="tabpanel">
+      <div class="card" id="score-review">
+        <p id="score-tab-summary"></p>
+        <div id="score-stage"></div>
+        <div id="score-dock"></div>
+      </div>
+    </section>
+
     <section id="tab-coach" class="tab-panel" role="tabpanel">
       <div class="column">
         <div id="coach-empty" class="cluster" hidden>

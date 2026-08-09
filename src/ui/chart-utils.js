@@ -42,3 +42,20 @@ export function intonationStatus(cents) {
   if (c < 25) return 'off';
   return 'bad';
 }
+
+// The same tiers, plus which WAY the note missed.
+//
+// How far off answers "how bad"; which way is the thing a player can act on —
+// you fix a flat note and a sharp note with opposite hands. The graph and the
+// note tiles deliberately do not use this: they colour by size alone and have
+// meant that everywhere in the app for months. The score is where direction
+// earns its keep, because a whole page of noteheads can show a habit leaning
+// one way at a glance.
+//
+// A note inside the band has no direction worth naming — calling a note 2¢
+// sharp invites chasing a number that is closer than the ear can hear.
+export function intonationTone(cents) {
+  if (!Number.isFinite(cents)) return { tier: 'none', direction: 'none' };
+  const tier = intonationStatus(cents);
+  return { tier, direction: tier === 'good' ? 'centred' : cents > 0 ? 'sharp' : 'flat' };
+}

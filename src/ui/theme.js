@@ -44,6 +44,8 @@ const PALETTE_VARS = {
   good: '--good',
   off: '--off',
   bad: '--bad',
+  flatOff: '--flat-off',
+  flatBad: '--flat-bad',
   goodFill: '--chart-good-fill',
   offFill: '--chart-off-fill',
   badFill: '--chart-bad-fill',
