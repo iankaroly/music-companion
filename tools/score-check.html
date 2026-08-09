@@ -1,0 +1,145 @@
+<!doctype html>
+<!--
+  A bench for the one thing unit tests cannot reach: whether OUR reading of a
+  MusicXML file and the ENGRAVER's reading of the same file line up, notehead
+  for notehead. Both parse the file independently, and if they disagree about
+  what bar a note is in, what beat of it, or what pitch it is, then every
+  annotation lands on the wrong note.
+
+  Run the dev server and open /tools/score-check.html.
+-->
+<meta charset="utf-8">
+<title>score reconciliation bench</title>
+<style>
+  /* The bench is a bare page; the palette normally comes from the app's own
+     stylesheet, and without these every colour reads as an empty string. */
+  :root {
+    --ink: #2a2149; --muted: #6b6785; --primary: #6d4ef6;
+    --good: #17b578; --off: #f29b38; --bad: #ef5c73;
+    --chart-good-fill: #17b57833; --chart-off-fill: #f29b3833; --chart-bad-fill: #ef5c7333;
+  }
+  body { font: 14px/1.5 ui-monospace, monospace; margin: 2rem; background: #fff; }
+  .score-overlay { position: absolute; inset: 0; pointer-events: none; }
+  .score-mark {
+    position: absolute; transform: translate(-50%, -125%);
+    font-size: 0.72rem; font-weight: 700; line-height: 1;
+  }
+  .score-mark.timing.late { color: var(--bad); }
+  .score-mark.timing.early { color: var(--off); }
+  .score-mark.landing { color: var(--primary); font-size: 0.8rem; }
+  #out { white-space: pre-wrap; }
+  .ok { color: #17805a; } .bad { color: #c8384a; }
+  #sheet { position: relative; margin-top: 1rem; }
+</style>
+<h1>score reconciliation bench</h1>
+<div id="out">running…</div>
+<div id="sheet"></div>
+
+<script type="module">
+import { parseScore } from '/src/analysis/musicxml.js';
+import { alignScore } from '/src/analysis/align-score.js';
+import { scoreTiming } from '/src/analysis/score-timing.js';
+import { showScore } from '/src/ui/score-view.js';
+
+const out = document.querySelector('#out');
+const log = (message, cls = '') => {
+  const line = document.createElement('div');
+  if (cls) line.className = cls;
+  line.textContent = message;
+  out.append(line);
+};
+
+// D major, one octave, two bars of 4/4 — the same fixture the pipeline test
+// plays as audio.
+const SCALE = [['A',0,3],['B',0,3],['C',1,4],['D',0,4],['E',0,4],['F',1,4],['G',1,4],['A',0,4]];
+const note = ([step, alter, octave]) =>
+  `<note><pitch><step>${step}</step>${alter ? `<alter>${alter}</alter>` : ''}<octave>${octave}</octave></pitch><duration>1</duration><type>quarter</type></note>`;
+
+const XML = `<?xml version="1.0" encoding="UTF-8"?>
+<score-partwise version="4.0">
+  <part-list><score-part id="P1"><part-name>Cello</part-name></score-part></part-list>
+  <part id="P1">
+    <measure number="1">
+      <attributes><divisions>1</divisions><key><fifths>2</fifths></key>
+        <time><beats>4</beats><beat-type>4</beat-type></time>
+        <clef><sign>F</sign><line>4</line></clef></attributes>
+      ${SCALE.slice(0, 4).map(note).join('')}
+    </measure>
+    <measure number="2">${SCALE.slice(4).map(note).join('')}</measure>
+  </part>
+</score-partwise>`;
+
+out.replaceChildren();
+
+const { notes: scoreNotes } = parseScore(XML);
+log(`parsed ${scoreNotes.length} notes: ${scoreNotes.map((n) => n.midi).join(' ')}`);
+
+// A take: the 5th note 30 cents sharp, the 7th entered 180 ms late.
+const played = scoreNotes.map((n, i) => ({
+  midi: n.midi,
+  cents: i === 4 ? 30 : (i % 3) - 1,
+  start: i * 0.5 + (i >= 6 ? 0.18 : 0),
+  end: i * 0.5 + 0.42 + (i >= 6 ? 0.18 : 0),
+}));
+
+const aligned = alignScore(played, scoreNotes);
+const timing = scoreTiming(aligned.attempts);
+log(`aligned: matched ${aligned.matched}, missed ${aligned.missed}, extra ${aligned.extra}`);
+log(`timing: ${Math.round(timing.bpm)} bpm; late/early = ${timing.perNote.filter((n) => n.verdict !== 'on' && n.deviationMs !== null).map((n) => `${n.index}:${n.verdict}`).join(' ') || 'none'}`);
+
+// Readings for note 2 that scoop up: it speaks 30 cents flat and is pulled to
+// centre over the first 150 ms, which is the shift a string player makes and
+// the mark this whole feature exists to draw.
+const { noteLanding } = await import('/src/analysis/landing.js');
+const scooped = played[1];
+const readings = [];
+for (let t = scooped.start; t < scooped.end; t += 0.0116) {
+  const into = t - scooped.start;
+  const cents = into < 0.15 ? -30 * (1 - into / 0.15) : 0;
+  readings.push({
+    time: t,
+    frequency: 440 * Math.pow(2, (scooped.midi + cents / 100 - 69) / 12),
+    confidence: 0.9,
+    rms: 0.2,
+  });
+}
+const landings = new Map();
+const landing = noteLanding(scooped, readings, 440);
+if (landing) landings.set(aligned.attempts[1].scoreNoteId, landing);
+log(`landing on note 2: ${landing ? `${landing.approach}, onset ${Math.round(landing.onsetCents)}¢, travel ${Math.round(landing.travelCents)}¢, settled ${landing.settleMs}ms` : 'NOT DETECTED'}`,
+  landing?.approach === 'flat' ? 'ok' : 'bad');
+
+const view = await showScore(document.querySelector('#sheet'), {
+  xml: XML,
+  scoreNotes,
+  aligned,
+  timing,
+  landings,
+  onPickNote: (a) => log(`tapped bar ${a.score.measure}, midi ${a.score.midi}`),
+});
+
+// The whole point of the bench.
+log(`engraver reconciliation: ${view.ok ? 'EVERY note matched' : `FAILED — ${view.unmatched.length} unmatched: ${view.unmatched.join(', ')}`}`,
+  view.ok ? 'ok' : 'bad');
+
+// What the engraver thinks, so a mismatch can be read rather than guessed at.
+const first = view.osmd.graphic.MeasureList[0][0];
+const entry = first.staffEntries[0];
+const gnote = entry.graphicalVoiceEntries[0].notes[0];
+log(`engraver sample — measure ${first.MeasureNumber}, beat ${(entry.relInMeasureTimestamp?.RealValue ?? 0) * 4}, halfTone ${gnote.sourceNote.halfTone} (midi should be ${scoreNotes[0].midi})`);
+const tinted = [...document.querySelectorAll('#sheet svg [fill]')]
+  .map((el) => el.getAttribute('fill').toLowerCase())
+  .filter((f) => f !== '#000000' && f !== 'none' && f !== 'black');
+log(`notehead fills that are not black: ${[...new Set(tinted)].join(' ') || 'NONE'}`,
+  tinted.length ? 'ok' : 'bad');
+
+// Where the marks actually landed, relative to the note they belong to.
+const pageBox = document.querySelector('.score-page').getBoundingClientRect();
+const sample = view.map.get(scoreNotes[6].id)?.gnote?.getSVGGElement?.();
+const sampleBox = sample?.getBoundingClientRect();
+log(`late note's notehead box: ${sampleBox ? `x ${Math.round(sampleBox.left - pageBox.left)} y ${Math.round(sampleBox.top - pageBox.top)} w ${Math.round(sampleBox.width)} h ${Math.round(sampleBox.height)}` : 'NO ELEMENT'}`);
+for (const mark of document.querySelectorAll('.score-mark')) {
+  log(`mark "${mark.textContent}" placed at left ${mark.style.left} top ${mark.style.top}`);
+}
+window.__benchOk = view.ok;
+</script>

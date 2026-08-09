@@ -24,6 +24,11 @@ let currentSource = null;
 let playbackSpeed = 1;
 let currentChart = null;    // the overview chart
 let zoomChart = null;       // the per-note inset below it
+// The open report's own selectNote, so views outside this module — the score
+// page, most obviously — can hand a note back and get the zoom inset, the
+// drones and the playback that tapping a tile already gives, rather than
+// growing a second, poorer copy of all of it.
+let selectFromOutside = null;
 
 // Set by whichever note is open, read by the playback tick: what to write in
 // the note box for a given moment of the recording.
@@ -811,6 +816,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     currentChart?.setHighlight?.(note);
     showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote, atTime);
   };
+  selectFromOutside = selectNote;
 
   // Spoken form of a tile, for anyone who isn't looking at the colour.
   const spoken = (d) => {
@@ -898,7 +904,14 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   }
 }
 
+// Select one of the take's notes from another view. A no-op when no report is
+// open, or when the note came from a take that is no longer on screen.
+export function selectPlayedNote(note) {
+  if (note) selectFromOutside?.(note);
+}
+
 export function hideReport(root) {
+  selectFromOutside = null;
   stopPlayback(root);
   stopRefDrone();
   stopCompareDrones();

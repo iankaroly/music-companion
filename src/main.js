@@ -3,11 +3,12 @@ import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder, MAX_SECONDS } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
-import { renderFreeReview, hideReport } from './ui/report.js';
+import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
 } from './store/db.js';
+import { initScoreCard, annotateTake, clearSheet, currentScoreId } from './ui/score.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import {
@@ -358,6 +359,7 @@ function clearTake() {
   lastTake = null;
   saveBar.hidden = true;
   hideReport(document);
+  clearSheet();
   notesRow.replaceChildren();
 }
 
@@ -381,6 +383,10 @@ function finishRecording(note = null) {
   renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
   saveBar.hidden = false;
   if (note) statusEl.textContent = note;
+  // The charts are up already; the score arrives a moment later because the
+  // engraver is fetched on first use. Nothing below waits on it.
+  annotateTake(collected, { readings, a4: lastTake.a4 })
+    .catch(() => { /* score.js has already said so on the card */ });
 }
 
 // --- the recording clock, count-in and pause --------------------------------
@@ -498,6 +504,7 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
       notes,
       readings,
       a4,
+      scoreId: currentScoreId(),
     });
     saveBar.hidden = true;
     lastTake = null;
@@ -602,6 +609,10 @@ async function openRecording(r) {
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });
+  // Alignment is offline, so a take reopened from the library is marked up
+  // against whatever score is selected now — including one attached after the
+  // fact, by someone who recorded ten minutes before picking the piece.
+  annotateTake(data.notes, { readings: data.readings, a4: data.a4 }).catch(() => {});
 }
 
 // --- folders ---------------------------------------------------------------
@@ -1186,6 +1197,10 @@ initWelcome(document, {
     timbreSel.dispatchEvent(new Event('refresh-label'));
   },
 });
+
+// --- the score you played from -------------------------------------------------
+
+initScoreCard({ onPickNote: (note) => selectPlayedNote(note) });
 
 // --- custom pickers replace every native select --------------------------------
 

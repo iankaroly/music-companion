@@ -789,6 +789,63 @@
       margin: 1.2rem auto;
       max-width: 60rem;
     }
+
+    /* --- the score you played from ------------------------------------- */
+    .score-row { align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    #score-card .hint {
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin: 0.55rem 0 0;
+      text-align: center;
+    }
+    #score-sheet {
+      position: relative;
+      margin-top: 1rem;
+      overflow-x: auto;   /* a wide system scrolls itself; the page never does */
+      overflow-y: hidden;
+    }
+    /* The engraver draws in black on white. On a lavender glass card that
+       reads as a photocopy, so the page gets its own paper. */
+    .score-page {
+      background: #fff;
+      border-radius: 14px;
+      padding: 0.4rem 0.2rem;
+      min-width: min(100%, 34rem);
+    }
+    .score-overlay {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;   /* the noteheads underneath take the taps */
+    }
+    .score-mark {
+      position: absolute;
+      transform: translate(-50%, -125%);
+      font-family: var(--num, inherit);
+      font-size: 0.72rem;
+      font-weight: 700;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .score-mark.timing.late { color: var(--bad); }
+    .score-mark.timing.early { color: var(--off); }
+    .score-mark.landing { color: var(--primary); font-size: 0.8rem; }
+    .score-mark.passes { color: var(--muted); font-size: 0.62rem; }
+    #score-legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem 1rem;
+      justify-content: center;
+      margin-top: 0.8rem;
+      font-size: 0.76rem;
+      color: var(--muted);
+    }
+    #score-legend b { font-weight: 700; }
+    #score-summary {
+      text-align: center;
+      margin: 0.8rem 0 0;
+      font-size: 0.9rem;
+      color: var(--ink);
+    }
     .note-chip {
       background: rgb(var(--sf) / 0.7);
       border: 1px solid transparent;
@@ -1896,6 +1953,19 @@
         </div>
       </div>
       <div id="notes-row"></div>
+      <div id="score-card" class="card">
+        <div class="row score-row">
+          <span class="mini-label">playing from</span>
+          <select id="score-pick" aria-label="Score to play from">
+            <option value="" selected>no score</option>
+          </select>
+          <button id="score-add" class="ctl" type="button">Load score…</button>
+          <button id="score-remove" class="ctl" type="button" hidden>Remove</button>
+          <input id="score-file" type="file" accept=".musicxml,.xml,.mxl" hidden>
+        </div>
+        <p id="score-hint" class="hint">MusicXML or .mxl — export one from MuseScore, or download it from IMSLP. Your playing is marked onto it when you stop.</p>
+        <div id="score-sheet" hidden></div>
+      </div>
       <div id="report" class="card">
         <details id="notes-details">
           <summary id="notes-summary">notes</summary>

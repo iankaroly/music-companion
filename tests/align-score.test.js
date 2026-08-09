@@ -126,6 +126,33 @@ describe('alignScore — repeats', () => {
   });
 });
 
+describe('alignScore — at practice length', () => {
+  // This project has been caught once already by testing at demo length: every
+  // take was 8-16 s until someone recorded ten minutes and the report opened at
+  // 10 fps. A movement with the repeats expanded, played through, is thousands
+  // of notes against thousands of notes, and this runs on a phone the moment
+  // Stop is pressed.
+  test('a movement-length take aligns correctly and quickly', () => {
+    const N = 3000;
+    const score = Array.from({ length: N }, (_, i) => ({
+      id: `n${i}`, midi: 55 + (i % 24), onsetBeats: i, durBeats: 1, measure: (i >> 2) + 1, pass: 0,
+    }));
+    const played = score.map((n) => ({ midi: n.midi, cents: 0, start: n.onsetBeats * 0.4, end: n.onsetBeats * 0.4 + 0.3 }));
+    played[1500] = { ...played[1500], midi: played[1500].midi + 1 }; // one wrong note, deep in
+    played.splice(2000, 1); // and one skipped
+
+    const started = performance.now();
+    const result = alignScore(played, score);
+    const elapsed = performance.now() - started;
+
+    expect(result.attempts[1500].verdict).toBe('wrong');
+    expect(result.attempts[2000].verdict).toBe('missed');
+    expect(result.matched).toBe(N - 1);
+    expect(result.extra).toBe(0);
+    expect(elapsed).toBeLessThan(2000);
+  });
+});
+
 describe('alignScore — attempts on the page', () => {
   test('both passes of a repeated notehead are grouped under one id', () => {
     const score = [

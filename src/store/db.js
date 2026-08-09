@@ -16,8 +16,8 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
-const VERSION = 4;
-const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders'];
+const VERSION = 5;
+const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -36,6 +36,9 @@ function createStores(db) {
   }
   if (!db.objectStoreNames.contains('folders')) {
     db.createObjectStore('folders', { keyPath: 'id', autoIncrement: true });
+  }
+  if (!db.objectStoreNames.contains('scores')) {
+    db.createObjectStore('scores', { keyPath: 'id', autoIncrement: true });
   }
 }
 
@@ -102,7 +105,77 @@ function statsOf(notes) {
   return (notes ?? []).map((n) => ({ midi: n.midi, name: n.name, cents: n.cents }));
 }
 
-export async function saveRecording({ date, duration, sampleRate, audio, notes, readings, a4 }) {
+// --- scores -----------------------------------------------------------------
+// The MusicXML a take was played from. Uploaded once and reused for every
+// attempt at that piece, which is also what lets the coach line attempts up
+// by real bar numbers instead of a name somebody typed.
+
+export async function saveScore({ name, xml, partIndex = 0, parts = [] }) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const req = tx.objectStore('scores').add({ name, xml, partIndex, parts, date: Date.now() });
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+// Without the XML, so a picker can list twenty pieces without holding twenty
+// scores in memory.
+export async function listScores() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('scores', 'readonly').objectStore('scores').getAll();
+    req.onsuccess = () => resolve(req.result
+      .map(({ xml, ...rest }) => rest)
+      .sort((a, b) => b.date - a.date));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function loadScore(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('scores', 'readonly').objectStore('scores').get(id);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function deleteScore(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    tx.objectStore('scores').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+// Alignment happens after the fact, so a score can be attached to a take that
+// was recorded before anyone thought to pick the piece.
+export async function setRecordingScore(id, scoreId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('recordings', 'readwrite');
+    const store = tx.objectStore('recordings');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      if (scoreId === null) delete row.scoreId;
+      else row.scoreId = scoreId;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+export async function saveRecording({ date, duration, sampleRate, audio, notes, readings, a4, scoreId = null }) {
   const db = await openDB();
   // Compressed before it ever reaches the store — see audio/codec.js for why
   // raw Float32 was not an option for a library you keep forever.
@@ -116,6 +189,7 @@ export async function saveRecording({ date, duration, sampleRate, audio, notes, 
       noteCount: notes.length,
       noteStats: statsOf(notes),
       landingStats: landingStats(notes, readings, a4) ?? [],
+      ...(scoreId === null ? {} : { scoreId }),
     });
     metaReq.onsuccess = () => {
       tx.objectStore('recording-data').add({ id: metaReq.result, audio: stored, notes, readings, a4 });
@@ -200,18 +274,32 @@ export async function requestPersistence() {
 // A year of practice history fits in a file small enough to email; a year of
 // audio does not. Individual takes can be shared as WAV from the library.
 
+// Scores come along WITH their XML. It is text — a movement is tens of
+// kilobytes against a take's megabytes — and a restored history whose takes
+// point at pieces that are no longer there loses the annotation the moment it
+// is reopened.
+async function allScores() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('scores', 'readonly').objectStore('scores').getAll();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 export async function exportLibrary() {
-  const [recordings, passages, folders] = await Promise.all([
-    listRecordings(), listPassages(), listFolders(),
+  const [recordings, passages, folders, scores] = await Promise.all([
+    listRecordings(), listPassages(), listFolders(), allScores(),
   ]);
   return {
     format: 'music-companion-backup',
     version: 1,
     exported: Date.now(),
-    note: 'Practice history: notes, timing, landings, passages and folders. Audio is not included.',
+    note: 'Practice history: notes, timing, landings, passages, folders and scores. Audio is not included.',
     recordings,
     passages,
     folders,
+    scores,
   };
 }
 
@@ -235,9 +323,26 @@ export async function importLibrary(backup) {
   }
   const oldFolderName = new Map((backup.folders ?? []).map((f) => [f.id, f.name]));
 
+  // Same additive rule for scores, keyed on name and date together — two
+  // people's arrangements of the same sonata are two different scores.
+  const scores = await allScores();
+  const scoreByKey = new Map(scores.map((s) => [`${s.name}|${s.date}`, s.id]));
+  const scoreIdMap = new Map();
+  for (const score of backup.scores ?? []) {
+    const key = `${score.name}|${score.date}`;
+    if (!scoreByKey.has(key)) {
+      const { id, ...rest } = score;
+      // eslint-disable-next-line no-await-in-loop
+      scoreByKey.set(key, await saveScore(rest));
+    }
+    scoreIdMap.set(score.id, scoreByKey.get(key));
+  }
+
   for (const rec of backup.recordings ?? []) {
     if (seen.has(rec.date)) continue;
-    const { id, folderId, ...meta } = rec;
+    const { id, folderId, scoreId, ...rest } = rec;
+    const mappedScore = scoreId != null ? scoreIdMap.get(scoreId) : undefined;
+    const meta = mappedScore === undefined ? rest : { ...rest, scoreId: mappedScore };
     const mapped = folderId != null ? folderByName.get(oldFolderName.get(folderId)) : undefined;
     // eslint-disable-next-line no-await-in-loop
     await new Promise((resolve, reject) => {

@@ -26,11 +26,21 @@ const DIAGONAL = 0;
 const UP = 1; // consume a score note, nothing played
 const LEFT = 2; // consume a played note, nothing written
 
-function substitution(scoreNote, playedNote) {
+// Kept numeric and object-free: this is called once per cell, and a movement
+// against a ten-minute take is millions of cells. The verdict is worked out
+// only along the traceback, which visits each score note once.
+function substitutionCost(scoreNote, playedNote) {
   const distance = playedNote.midi - scoreNote.midi;
-  if (distance === 0) return { cost: COST.match, verdict: 'match' };
-  if (distance % 12 === 0) return { cost: COST.octave, verdict: 'octave' };
-  return { cost: COST.wrong, verdict: 'wrong' };
+  if (distance === 0) return COST.match;
+  if (distance % 12 === 0) return COST.octave;
+  return COST.wrong;
+}
+
+function verdictFor(scoreNote, playedNote) {
+  const distance = playedNote.midi - scoreNote.midi;
+  if (distance === 0) return 'match';
+  if (distance % 12 === 0) return 'octave';
+  return 'wrong';
 }
 
 // Contiguous runs of the same pass above zero. A run nobody played is a repeat
@@ -58,28 +68,29 @@ export function alignScore(playedNotes, scoreNotes) {
   const P = played.length;
   const width = P + 1;
 
-  // A 10-minute take against a long movement is a few thousand by a few
-  // thousand: tens of MB as doubles, a quarter of that as Float32.
-  const dist = new Float32Array((S + 1) * width);
+  // The traceback needs every cell's decision, so `from` is the full grid — one
+  // byte each. The distances are only ever read one row back, so they roll in
+  // two rows instead of a second full grid: at 5000 x 5000 that is 40 KB rather
+  // than 100 MB, and this runs on a phone the instant Stop is pressed.
   const from = new Uint8Array((S + 1) * width);
+  let above = new Float32Array(width);
+  let row = new Float32Array(width);
 
-  for (let i = 1; i <= S; i++) {
-    dist[i * width] = i * COST.delete;
-    from[i * width] = UP;
-  }
   for (let j = 1; j <= P; j++) {
-    dist[j] = j * COST.insert;
+    above[j] = j * COST.insert;
     from[j] = LEFT;
   }
 
   for (let i = 1; i <= S; i++) {
     const scoreNote = score[i - 1];
-    const row = i * width;
-    const above = (i - 1) * width;
+    const base = i * width;
+    row[0] = i * COST.delete;
+    from[base] = UP;
+
     for (let j = 1; j <= P; j++) {
-      const diagonal = dist[above + j - 1] + substitution(scoreNote, played[j - 1]).cost;
-      const up = dist[above + j] + COST.delete;
-      const left = dist[row + j - 1] + COST.insert;
+      const diagonal = above[j - 1] + substitutionCost(scoreNote, played[j - 1]);
+      const up = above[j] + COST.delete;
+      const left = row[j - 1] + COST.insert;
 
       // Ties go UP — to leaving the LATER score note unplayed. The tie that
       // actually happens is a repeat: play a repeated bar once and matching it
@@ -91,9 +102,13 @@ export function alignScore(playedNotes, scoreNotes) {
       let step = UP;
       if (diagonal < best) { best = diagonal; step = DIAGONAL; }
       if (left < best) { best = left; step = LEFT; }
-      dist[row + j] = best;
-      from[row + j] = step;
+      row[j] = best;
+      from[base + j] = step;
     }
+
+    const spent = above;
+    above = row;
+    row = spent;
   }
 
   const attempts = new Array(S);
@@ -105,7 +120,7 @@ export function alignScore(playedNotes, scoreNotes) {
     if (step === DIAGONAL) {
       const scoreNote = score[i - 1];
       const playedNote = played[j - 1];
-      const { verdict } = substitution(scoreNote, playedNote);
+      const verdict = verdictFor(scoreNote, playedNote);
       attempts[i - 1] = {
         scoreNoteId: scoreNote.id,
         pass: scoreNote.pass ?? 0,
