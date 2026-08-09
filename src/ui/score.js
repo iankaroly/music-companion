@@ -14,6 +14,7 @@ import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
+import { intonationBounds } from './chart-utils.js';
 import {
   mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
   syncDockVisibility, borrowPanel, scoreTabIsShowing,
@@ -35,6 +36,8 @@ let pending = null;   // { notes, readings, a4 }
 // that does not exist. It is drawn the first time the tab is shown.
 let ready = null;     // { aligned, timing, landings, summary }
 let openTab = null;   // ask main.js to switch tabs
+// The tempo you are TRYING to hold, or null for "read the one I played".
+let targetBpm = Number(localStorage.getItem('scoreTargetBpm')) || null;
 
 // Not the empty string: controls.js reads an empty value as a placeholder and
 // leaves that row out of the pop-over, which would make "no score" the one
@@ -200,6 +203,16 @@ function summarise(aligned, timing) {
   if (timing?.bpm) {
     const off = timing.perNote.filter((n) => n.verdict === 'late' || n.verdict === 'early').length;
     sentence += ` You played at about ${Math.round(timing.bpm)} bpm`;
+    if (timing.targetBpm) {
+      sentence += ` against ${timing.targetBpm}`;
+      const drift = Math.abs(Math.round(timing.driftFromTargetMs));
+      if (drift >= 100) {
+        // Seconds gained or lost over the whole passage is the figure that
+        // means something out loud — "half a second ahead by the end" is a
+        // thing you can hear, a percentage is not.
+        sentence += `, ending about ${(drift / 1000).toFixed(1)}s ${timing.aheadOfTarget ? 'ahead of' : 'behind'} it`;
+      }
+    }
     sentence += off === 0 ? ', and every entry was on the beat.' : `, with ${off} ${off === 1 ? 'entry' : 'entries'} off the beat.`;
   }
   return sentence;
@@ -208,18 +221,23 @@ function summarise(aligned, timing) {
 function legend(sheet) {
   const row = document.createElement('div');
   row.id = 'score-legend';
-  // Warm is sharp, cool is flat, and the pairs are ordered light-to-dark so the
-  // legend reads as two scales away from centre rather than seven loose colours.
+  // The colours ARE the cents, so the legend says cents. "A little sharp" is a
+  // word for a number the app already knows, and the number is the thing you
+  // can check against the tuner. The boundaries come from the live setting, so
+  // changing the in-tune tolerance changes what the legend claims.
+  const { good, badly } = intonationBounds();
+  const swatch = (token, label) => `<span><b style="color:var(${token})">■</b> ${label}</span>`;
   row.innerHTML = [
-    '<span><b style="color:var(--good)">■</b> in tune</span>',
-    '<span><b style="color:var(--off)">■</b> a little sharp</span>',
-    '<span><b style="color:var(--bad)">■</b> well sharp, or the wrong note</span>',
-    '<span><b style="color:var(--flat-off)">■</b> a little flat</span>',
-    '<span><b style="color:var(--flat-bad)">■</b> well flat</span>',
-    '<span><b style="color:var(--muted)">■</b> never sounded</span>',
-    '<span><b style="color:var(--bad)">›</b> came in late</span>',
-    '<span><b style="color:var(--off)">‹</b> came in early</span>',
-    '<span><b style="color:var(--primary)">↗</b> arrived flat and corrected</span>',
+    swatch('--good', `within ${good}¢`),
+    swatch('--off', `${good}–${badly}¢ sharp`),
+    swatch('--bad', `over ${badly}¢ sharp`),
+    swatch('--flat-off', `${good}–${badly}¢ flat`),
+    swatch('--flat-bad', `over ${badly}¢ flat`),
+    swatch('--muted', 'never sounded'),
+    '<span><b style="color:var(--bad)">✕</b> a different note</span>',
+    '<span><b style="color:var(--bad)">›</b> late in</span>',
+    '<span><b style="color:var(--off)">‹</b> early in</span>',
+    '<span><b style="color:var(--primary)">↗</b> arrived flat, corrected</span>',
   ].join('');
   sheet.after(row);
 }
@@ -236,7 +254,7 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   status(`lining ${current.name} up with what you played…`);
 
   const aligned = alignScore(notes, current.notes);
-  const timing = scoreTiming(aligned.attempts);
+  const timing = scoreTiming(aligned.attempts, { targetBpm });
 
   // How each note SPOKE, not just where it ended up. Needs the raw readings,
   // which only the live take and the stored payload have.
@@ -327,7 +345,35 @@ export async function renderScoreTab() {
   return view;
 }
 
+// The traditional metronome marks, because those are the numbers on the dial a
+// player already thinks in — a plain 40-to-208 list is forty rows of noise to
+// scroll past to reach 120.
+const TEMPO_MARKS = [40, 50, 60, 66, 72, 80, 88, 96, 104, 112, 120, 132, 144, 160, 176, 192, 208];
+
+function initTempoPicker() {
+  const pick = el('score-target');
+  if (!pick) return;
+  for (const bpm of TEMPO_MARKS) {
+    const option = document.createElement('option');
+    option.value = String(bpm);
+    option.textContent = `${bpm} bpm`;
+    pick.append(option);
+  }
+  pick.value = targetBpm ? String(targetBpm) : 'none';
+  pick.dispatchEvent(new CustomEvent('refresh-label'));
+
+  pick.addEventListener('change', async () => {
+    targetBpm = pick.value === 'none' ? null : Number(pick.value);
+    if (targetBpm) localStorage.setItem('scoreTargetBpm', String(targetBpm));
+    else localStorage.removeItem('scoreTargetBpm');
+    // Re-read the take against the new grid. Nothing is re-recorded and nothing
+    // is re-engraved — only the timing marks and the sentence change.
+    if (pending) await annotateTake(pending.notes, pending);
+  });
+}
+
 export function initScoreCard({ onPickNote, onOpenScoreTab } = {}) {
+  initTempoPicker();
   onPick = onPickNote ?? null;
   openTab = onOpenScoreTab ?? null;
   const pick = el('score-pick');

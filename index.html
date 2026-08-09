@@ -837,6 +837,7 @@
     .score-mark.timing.late { color: var(--bad); }
     .score-mark.timing.early { color: var(--off); }
     .score-mark.landing { color: var(--primary); font-size: 0.8rem; }
+    .score-mark.wrong { color: var(--bad); font-size: 0.7rem; }
     .score-mark.passes { color: var(--muted); font-size: 0.62rem; }
     /* --- the Score tab ------------------------------------------------- */
     #score-stage {
@@ -2166,6 +2167,13 @@
          tab is showing; see ui/score-tab.js. -->
     <section id="tab-score" class="tab-panel" role="tabpanel">
       <div class="card" id="score-review">
+        <div class="row score-row" id="score-tempo-row">
+          <span class="mini-label">tempo</span>
+          <select id="score-target" aria-label="Tempo to play against">
+            <option value="none" selected>your own</option>
+          </select>
+          <span id="score-tempo-read"></span>
+        </div>
         <p id="score-tab-summary"></p>
         <div id="score-stage"></div>
         <div id="score-dock"></div>

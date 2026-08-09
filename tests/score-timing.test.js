@@ -93,6 +93,39 @@ describe('scoreTiming', () => {
     expect(scoreTiming(nudged, { toleranceMs: 100 }).perNote[8].verdict).toBe('on');
   });
 
+  test('a target tempo is measured against, not inferred', () => {
+    // Played at 120 while aiming for 100: every beat arrives early against the
+    // target, and the report says so rather than congratulating a steady 120.
+    const result = scoreTiming(attempts(16, steady(0.5)), { targetBpm: 100 });
+    expect(result.targetBpm).toBe(100);
+    expect(result.bpm).toBeCloseTo(120, 4);
+    expect(result.aheadOfTarget).toBe(true);
+    expect(result.driftFromTargetMs).toBeGreaterThan(0);
+  });
+
+  test('playing exactly at the target drifts from it not at all', () => {
+    const result = scoreTiming(attempts(16, steady(0.6)), { targetBpm: 100 });
+    expect(result.bpm).toBeCloseTo(100, 4);
+    expect(Math.abs(result.driftFromTargetMs)).toBeLessThan(1);
+    expect(result.perNote.every((n) => n.verdict === 'on')).toBe(true);
+  });
+
+  test('against a target, a note is late or early by where the beat actually was', () => {
+    // Dead on 100 bpm except one note that arrives 200 ms late and stays late.
+    const result = scoreTiming(attempts(16, (i) => i * 0.6 + (i >= 8 ? 0.2 : 0)), { targetBpm: 100 });
+    expect(result.perNote[8].verdict).toBe('late');
+    expect(result.perNote[8].deviationMs).toBeCloseTo(200, 0);
+    // Everything after it is late against the FIXED grid — that is the point of
+    // setting a target: the beat does not move to follow you.
+    expect(result.perNote.slice(9).every((n) => n.verdict === 'late')).toBe(true);
+  });
+
+  test('with no target the grid still follows the player', () => {
+    const result = scoreTiming(attempts(16, (i) => i * 0.6 + (i >= 8 ? 0.2 : 0)));
+    expect(result.targetBpm).toBeNull();
+    expect(result.perNote.filter((n) => n.verdict === 'late')).toHaveLength(1);
+  });
+
   test('too little to read a tempo from says so rather than inventing one', () => {
     expect(scoreTiming(attempts(1, steady(0.5))).bpm).toBeNull();
     expect(scoreTiming([]).bpm).toBeNull();

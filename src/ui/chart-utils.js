@@ -36,10 +36,18 @@ export function intonationTolerance() {
   return goodWithin;
 }
 
+// Where the tiers actually change, so a legend can name the cents instead of
+// inventing words for them. BADLY is the same 25¢ intonationStatus uses.
+const BADLY = 25;
+
+export function intonationBounds() {
+  return { good: goodWithin, badly: BADLY };
+}
+
 export function intonationStatus(cents) {
   const c = Math.abs(cents);
   if (c < goodWithin) return 'good';
-  if (c < 25) return 'off';
+  if (c < BADLY) return 'off';
   return 'bad';
 }
 

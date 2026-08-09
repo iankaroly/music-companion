@@ -14,6 +14,7 @@
 
 import { palette } from './theme.js';
 import { intonationTone } from './chart-utils.js';
+import { midiToName } from '../analysis/note-utils.js';
 import { reconcile } from '../analysis/score-map.js';
 
 let osmdModulePromise = null;
@@ -59,14 +60,20 @@ function engravedNotes(osmd, instrument) {
   return out;
 }
 
-// Warm for sharp, cool for flat, green for in tune. Size still decides the
-// tier; direction decides which family it comes from, so a page leaning one
-// way is visible before a single number is read.
+// Warm for sharp, cool for flat, green for in tune. Size decides the tier,
+// direction decides the family, so a page leaning one way is visible before a
+// single number is read.
+//
+// A WRONG note gets no colour from this scale at all. Colouring it the same red
+// as a badly sharp note says the two are the same kind of problem, and they are
+// not: one is a note you need to hear better, the other is a note you did not
+// play. It keeps its printed black and carries a mark instead, which leaves the
+// whole colour scale meaning one thing — cents.
 function verdictColour(attempt, colours) {
   if (!attempt) return null;
   if (attempt.verdict === 'missed') return colours.muted;
   if (attempt.verdict === 'not-taken') return null; // never played, nothing to say
-  if (attempt.verdict === 'wrong' || attempt.verdict === 'octave') return colours.bad;
+  if (attempt.verdict === 'wrong' || attempt.verdict === 'octave') return null;
 
   const { tier, direction } = intonationTone(attempt.played.cents);
   if (tier === 'good') return colours.good;
@@ -188,6 +195,12 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
     if (entry.scoreNoteId) timingByNote.set(entry.scoreNoteId, entry);
   }
 
+  // Only the worst few get an arrow. Against a target tempo almost every note
+  // is off the fixed grid — play a steady 120 against 104 and all twenty-nine
+  // are late, which is true and unreadable. The report already ranks them, so
+  // the page marks that ranking and the sentence above it carries the count.
+  const flagged = new Set((timing?.worst ?? []).map((n) => n.scoreNoteId).filter(Boolean));
+
   // Played note → the notehead drawn for it, so the playhead can light the
   // right one. Keyed on the note OBJECT: two notes can share a pitch and a bar
   // and still be different notes, and the object is what playback hands back.
@@ -237,6 +250,22 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
 
     const marks = [];
 
+    // A note that was not the written one says so in words, since no amount of
+    // cents describes it.
+    if (attempt?.verdict === 'wrong') {
+      marks.push({
+        className: 'score-mark wrong',
+        text: '✕',
+        title: `written ${midiToName(attempt.score.midi)}, played ${midiToName(attempt.played.midi)}`,
+      });
+    } else if (attempt?.verdict === 'octave') {
+      marks.push({
+        className: 'score-mark wrong',
+        text: '8ve',
+        title: `played an octave ${attempt.played.midi > attempt.score.midi ? 'up' : 'down'}`,
+      });
+    }
+
     // The mark no other app can draw. The pitch engine already knows whether a
     // note SPOKE in tune or arrived under it and was corrected — the shift
     // scoop on a string, the embouchure settling on a wind. Averaged over the
@@ -254,7 +283,7 @@ export function paint(view, { aligned, timing = null, landings = null, onPickNot
     }
 
     const when = timingByNote.get(scoreNoteId);
-    if (when && when.verdict !== 'on' && when.deviationMs !== null) {
+    if (when && flagged.has(scoreNoteId) && when.deviationMs !== null) {
       marks.push({
         className: `score-mark timing ${when.verdict}`,
         text: when.verdict === 'late' ? '›' : '‹',

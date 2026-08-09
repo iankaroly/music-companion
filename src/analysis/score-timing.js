@@ -41,7 +41,7 @@ function slopesBetween(points, from, to) {
 
 const EMPTY = { bpm: null, secondsPerBeat: null, curve: [], driftBpm: null, worst: [] };
 
-export function scoreTiming(attempts, { toleranceMs = 50, window = 4 } = {}) {
+export function scoreTiming(attempts, { toleranceMs = 50, window = 4, targetBpm = null } = {}) {
   const list = attempts ?? [];
 
   const points = [];
@@ -64,7 +64,65 @@ export function scoreTiming(attempts, { toleranceMs = 50, window = 4 } = {}) {
 
   const overall = median(slopesBetween(points, 1, points.length - 1));
   if (points.length < 2 || !overall || overall <= 0) {
-    return { ...EMPTY, perNote: list.length ? blank() : [] };
+    return { ...EMPTY, targetBpm: targetBpm ?? null, perNote: list.length ? blank() : [] };
+  }
+
+  // A tempo you set is a grid that does NOT move to follow you. That is the
+  // whole difference: without a target the report finds the pulse you actually
+  // played and reads each entry against its neighbours, so a phrase that shifts
+  // and stays shifted is one late entry. Against a target, the beat stays where
+  // the metronome would have put it, so a phrase that shifts is late from there
+  // on — which is exactly what you want to see when you are trying to hold a
+  // tempo rather than play evenly.
+  //
+  // The grid starts where you started: the phase is taken from the opening few
+  // notes rather than from the whole take, so playing steadily faster than the
+  // target reads as running away from it, not as being early at the start and
+  // late at the end of some average.
+  if (targetBpm) {
+    const targetSpb = 60 / targetBpm;
+    const opening = points.slice(0, Math.min(4, points.length))
+      .map((p) => p.start - targetSpb * p.beats);
+    const phase = median(opening) ?? 0;
+
+    const perNoteTargeted = blank();
+    const curveTargeted = [];
+    for (let k = 0; k < points.length; k++) {
+      const lo = Math.max(0, k - window);
+      const hi = Math.min(points.length - 1, k + window);
+      const localSlope = median(slopesBetween(points, lo + 1, hi)) ?? overall;
+      const expected = phase + targetSpb * points[k].beats;
+      const deviationMs = (points[k].start - expected) * 1000;
+      const entry = perNoteTargeted[points[k].index];
+      entry.expectedSec = expected;
+      entry.deviationMs = deviationMs;
+      entry.verdict = Math.abs(deviationMs) <= toleranceMs
+        ? 'on' : deviationMs > 0 ? 'late' : 'early';
+      curveTargeted.push({ beats: points[k].beats, sec: points[k].start, bpm: 60 / localSlope });
+    }
+
+    const beatsSpanned = points.at(-1).beats - points[0].beats;
+    const timedT = perNoteTargeted.filter((n) => n.deviationMs !== null);
+    return {
+      bpm: 60 / overall,
+      secondsPerBeat: overall,
+      targetBpm,
+      // Positive = you got there before the metronome would have.
+      driftFromTargetMs: (targetSpb - overall) * beatsSpanned * 1000,
+      aheadOfTarget: overall < targetSpb,
+      perNote: perNoteTargeted,
+      curve: curveTargeted,
+      driftBpm: curveTargeted.length > 1
+        ? curveTargeted.at(-1).bpm - curveTargeted[0].bpm : 0,
+      worst: perNoteTargeted
+        .filter((n) => n.deviationMs !== null && n.verdict !== 'on')
+        .sort((a, b) => Math.abs(b.deviationMs) - Math.abs(a.deviationMs))
+        .slice(0, 10),
+      onBeat: perNoteTargeted.filter((n) => n.verdict === 'on').length,
+      counted: timedT.length,
+      meanAbsMs: timedT.length
+        ? timedT.reduce((s, n) => s + Math.abs(n.deviationMs), 0) / timedT.length : null,
+    };
   }
 
   const perNote = blank();
@@ -121,6 +179,9 @@ export function scoreTiming(attempts, { toleranceMs = 50, window = 4 } = {}) {
   return {
     bpm: 60 / overall,
     secondsPerBeat: overall,
+    targetBpm: null,
+    driftFromTargetMs: null,
+    aheadOfTarget: null,
     perNote,
     curve,
     driftBpm: curve.length > 1 ? curve[curve.length - 1].bpm - curve[0].bpm : 0,
