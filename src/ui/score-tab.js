@@ -12,7 +12,7 @@
 // exactly one place anyway, so moving it is both the simplest thing and the
 // only thing that keeps the element ids unique that report.js queries by.
 
-import { followPlayback, selectPlayedNote } from './report.js';
+import { followPlayback } from './report.js';
 
 let stage = null;      // #score-stage — where the engraved page is mounted
 let unfollow = null;
@@ -145,9 +145,6 @@ export function onScoreTabHidden() {
   returnPanel();
 }
 
-// A notehead was tapped: hand the played note to the one selection path there
-// is, so the zoom inset, the drones and the comparison all behave exactly as
-// they do when a tile is tapped on the Record tab.
-export function pickNote(note) {
-  selectPlayedNote(note);
+export function scoreTabIsShowing() {
+  return !!document.querySelector('#tab-score')?.classList.contains('active');
 }

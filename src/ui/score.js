@@ -15,8 +15,8 @@ import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
 import {
-  mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible, pickNote,
-  syncDockVisibility,
+  mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
+  syncDockVisibility, borrowPanel, scoreTabIsShowing,
 } from './score-tab.js';
 import {
   saveScore, listScores, loadScore, deleteScore, setRecordingScore,
@@ -268,7 +268,12 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
 
   // If the player is already looking at the Score tab, draw it now rather than
   // leaving them on a stale page waiting for a tab switch that will not come.
-  if (document.querySelector('#tab-score')?.classList.contains('active')) {
+  // The reset above handed the controls back and hid the dock button, which is
+  // right when the take is going away and wrong when a new one is arriving on
+  // the tab you are standing on — so take them again here. onScoreTabShown
+  // does this on a real tab switch; a same-tab redraw never fires it.
+  if (scoreTabIsShowing()) {
+    borrowPanel();
     await renderScoreTab();
   }
   return { aligned, timing, annotated: true };
@@ -311,7 +316,10 @@ export async function renderScoreTab() {
     aligned: ready.aligned,
     timing: ready.timing,
     landings: ready.landings,
-    onPickNote: (attempt) => { onPick?.(attempt.played); pickNote(attempt.played); },
+    // Just the one path. onPick is already selectPlayedNote, and calling it
+    // twice ran the whole selection — teardown, zoom inset, playback, drones —
+    // over the top of itself, which looks identical once it settles and is not.
+    onPickNote: (attempt) => onPick?.(attempt.played),
   });
   legend(stage);
   follow(view.noteheadFor);
