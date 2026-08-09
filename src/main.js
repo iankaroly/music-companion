@@ -863,6 +863,16 @@ function scoreRow(score, takes) {
   const open = document.createElement('button');
   open.type = 'button';
   open.className = 'lib-open';
+  // Folders in the list above carry an icon and the same "N takes" subtitle;
+  // without one of its own a score row reads as another folder.
+  const icon = document.createElement('span');
+  icon.className = 'lib-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><line x1="3.5" y1="7" x2="20.5" y2="7"/>'
+    + '<line x1="3.5" y1="10.5" x2="20.5" y2="10.5"/><line x1="3.5" y1="14" x2="20.5" y2="14"/>'
+    + '<circle cx="9" cy="15.6" r="2.1" fill="currentColor" stroke="none"/>'
+    + '<path d="M11.1 15.6 V6.2 l4.6 1.3"/></svg>';
   const text = document.createElement('span');
   text.className = 'lib-text';
   const name = document.createElement('span');
@@ -879,7 +889,7 @@ function scoreRow(score, takes) {
   chev.setAttribute('aria-hidden', 'true');
   chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
     + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
-  open.append(text, chev);
+  open.append(icon, text, chev);
   open.addEventListener('click', () => openScoreFromLibrary(score.id));
   li.append(open);
   return li;
