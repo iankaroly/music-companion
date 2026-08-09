@@ -372,12 +372,30 @@ listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });
 // --- record → review → save or discard -------------------------------------
 
 const saveBtn = document.querySelector('#save-rec');
+const attachBtn = document.querySelector('#attach-score');
+
+// Saving a take and adding it to a piece's history are two decisions, and only
+// the first one is implied by pressing Save. A score being open is not the same
+// as wanting every run-through counted against it.
+const attachingToScore = () => attachBtn.getAttribute('aria-pressed') === 'true';
 
 function refreshSaveLabel() {
   const piece = scoreName();
-  saveBtn.textContent = piece ? `Save to ${piece}` : 'Save to library';
+  saveBtn.textContent = 'Save to library';
+  attachBtn.hidden = !piece;
+  // Reset on every change of piece: a choice made about the Bach should not
+  // quietly carry over to the Elgar. It stays put between takes of the SAME
+  // piece, which is the run of takes it was turned on for.
+  attachBtn.setAttribute('aria-pressed', 'false');
+  attachBtn.textContent = piece ? `＋ add to ${piece}` : '';
+  attachBtn.classList.toggle('active', attachingToScore());
 }
 refreshSaveLabel();
+
+attachBtn.addEventListener('click', () => {
+  attachBtn.setAttribute('aria-pressed', String(!attachingToScore()));
+  attachBtn.classList.toggle('active', attachingToScore());
+});
 
 function clearTake() {
   lastTake = null;
@@ -528,14 +546,16 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
       notes,
       readings,
       a4,
-      scoreId: currentScoreId(),
+      scoreId: attachingToScore() ? currentScoreId() : null,
       // Note-by-note against the written pitch, so the next take of this piece
       // can be compared with this one without re-aligning anything.
-      scoreStats: currentScoreStats(),
+      scoreStats: attachingToScore() ? currentScoreStats() : null,
     });
     saveBar.hidden = true;
     lastTake = null;
-    statusEl.textContent = scoreName() ? `saved to ${scoreName()}` : 'saved to library';
+    statusEl.textContent = attachingToScore()
+      ? `saved to library, and added to ${scoreName()}`
+      : 'saved to library';
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -543,7 +563,8 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     // and the attachment would be lost until it was reopened.
     renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
     annotateTake(notes, { readings, a4, recordingId: id })
-      .then(() => takeSaved(id))
+      // Only a take that was added to the piece belongs in its history.
+      .then(() => (attachingToScore() ? takeSaved(id) : null))
       .catch(() => {});
     refreshLibrary();
   } catch (err) {

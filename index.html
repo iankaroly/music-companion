@@ -2183,6 +2183,9 @@
       </div>
       <div class="row" id="save-bar" hidden>
         <button id="save-rec" class="ctl primary">Save to library</button>
+        <!-- Off unless asked for: a take joins a piece's history because you
+             said so, not because a score happened to be open. -->
+        <button id="attach-score" class="ctl" type="button" aria-pressed="false" hidden></button>
         <button id="discard-rec" class="ctl">Discard</button>
       </div>
     </section>
