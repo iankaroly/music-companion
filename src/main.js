@@ -512,8 +512,12 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     lastTake = null;
     statusEl.textContent = 'saved to library';
     // Re-render the same review now that the take has an id, so passages can
-    // be marked without reopening it from the library.
+    // be marked without reopening it from the library. The score card needs
+    // the id for the same reason: without it, choosing a score for the take
+    // just saved would mark the page but never attach the score to the take,
+    // and the attachment would be lost until it was reopened.
     renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
+    annotateTake(notes, { readings, a4, recordingId: id }).catch(() => {});
     refreshLibrary();
   } catch (err) {
     statusEl.textContent = `could not save: ${err.message}`;
