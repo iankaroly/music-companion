@@ -23,9 +23,14 @@ const el = (id) => document.querySelector(`#${id}`);
 
 // --- the tab button appears with the score ---------------------------------
 
-export function setScoreTabVisible(visible) {
-  const btn = document.querySelector('.tab-btn[data-tab="score"]');
-  if (btn) btn.hidden = !visible;
+// The tab is always in the dock, so the panel must always have something to
+// say. With no score open it shows how to open one; with a score open it shows
+// the review.
+export function showReviewCard(hasReview) {
+  const review = el('score-review');
+  const empty = el('score-empty');
+  if (review) review.hidden = !hasReview;
+  if (empty) empty.hidden = hasReview;
 }
 
 // --- borrowing the playback panel ------------------------------------------
@@ -130,7 +135,7 @@ export function mountScore(page, summary) {
 export function clearScoreTab() {
   stopFollowing();
   returnPanel();
-  setScoreTabVisible(false);
+  showReviewCard(false);
   el('score-stage')?.replaceChildren();
   const line = el('score-tab-summary');
   if (line) line.textContent = '';

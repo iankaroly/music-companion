@@ -18,7 +18,7 @@ import { intonationBounds } from './chart-utils.js';
 import { initScoreTakes, resetScoreTakes } from './score-takes.js';
 import { takeStats } from '../analysis/score-history.js';
 import {
-  mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
+  mountScore, follow, stopFollowing, clearScoreTab, showReviewCard,
   syncDockVisibility, borrowPanel, scoreTabIsShowing,
 } from './score-tab.js';
 import {
@@ -40,6 +40,7 @@ let ready = null;     // { aligned, timing, landings, summary }
 let openTab = null;   // ask main.js to switch tabs
 let openTake = null;  // ask main.js to load a take from the library
 let repaintScore = null; // redraw the page, optionally in comparison colours
+let scoreChanged = null; // tell the app the chosen piece changed
 // The tempo you are TRYING to hold, or null for "read the one I played".
 let targetBpm = Number(localStorage.getItem('scoreTargetBpm')) || null;
 
@@ -59,6 +60,11 @@ function status(message, tone = '') {
 
 export function currentScoreId() {
   return current?.id ?? null;
+}
+
+// The piece currently chosen, for anything that wants to say its name.
+export function scoreName() {
+  return current?.name ?? null;
 }
 
 async function refreshPicker(selectedId = null) {
@@ -100,6 +106,8 @@ async function chooseScore(id) {
   if (!id) {
     current = null;
     el('score-remove').hidden = true;
+    showReviewCard(false);
+    scoreChanged?.();
     status('MusicXML or .mxl — export one from MuseScore, or download it from IMSLP. Your playing is marked onto it when you stop.');
     return;
   }
@@ -108,6 +116,9 @@ async function chooseScore(id) {
   try {
     await adopt(row);
     el('score-remove').hidden = false;
+    showReviewCard(true);
+    scoreChanged?.();
+    await refreshTakes(null); // its history, before a note has been played
     status(`${current.name} — ${current.notes.length} notes. Record, and it will be marked up when you stop.`);
     // A take already on screen gets marked up straight away, so recording
     // first and choosing the piece afterwards works the same as the other way
@@ -304,7 +315,7 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   open.textContent = 'Open the score →';
   open.addEventListener('click', () => openTab?.());
   sheet.replaceChildren(open);
-  setScoreTabVisible(true);
+  showReviewCard(true);
   status(`${current.name} — marked up. Open the score to read it.`);
 
   // If the player is already looking at the Score tab, draw it now rather than
@@ -376,10 +387,10 @@ export async function renderScoreTab() {
 // Redraw the history of this piece. Called when the page is drawn and again
 // when a take is saved, which is the moment it joins that history.
 async function refreshTakes(recordingId) {
-  if (!current || !ready) return;
+  if (!current) return;
   await initScoreTakes({
     scoreId: current.id,
-    stats: currentScoreStats(),
+    stats: currentScoreStats(), // null until a take has been analysed
     recordingId,
     onCompare: (comparison) => repaintScore?.(comparison),
     onOpenTake: (take) => openTake?.(take),
@@ -413,8 +424,20 @@ function initTempoPicker() {
   });
 }
 
-export function initScoreCard({ onPickNote, onOpenScoreTab, onOpenTake } = {}) {
+// Opened from the Library: choose the score and show it, in one step.
+export async function openScoreFromLibrary(id) {
+  await selectScore(id);
+  openTab?.();
+}
+
+export function initScoreCard({
+  onPickNote, onOpenScoreTab, onOpenTake, onOpenLibrary, onScoreChanged,
+} = {}) {
+  scoreChanged = onScoreChanged ?? null;
   initTempoPicker();
+  // The empty state's two ways out: load a file, or pick one already saved.
+  el('score-empty-load')?.addEventListener('click', () => el('score-file')?.click());
+  el('score-empty-library')?.addEventListener('click', () => onOpenLibrary?.());
   onPick = onPickNote ?? null;
   openTab = onOpenScoreTab ?? null;
   openTake = onOpenTake ?? null;

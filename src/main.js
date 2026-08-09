@@ -7,10 +7,11 @@ import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
+  listScores,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
-  takeSaved, currentScoreStats,
+  takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -370,6 +371,14 @@ listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });
 
 // --- record → review → save or discard -------------------------------------
 
+const saveBtn = document.querySelector('#save-rec');
+
+function refreshSaveLabel() {
+  const piece = scoreName();
+  saveBtn.textContent = piece ? `Save to ${piece}` : 'Save to library';
+}
+refreshSaveLabel();
+
 function clearTake() {
   lastTake = null;
   saveBar.hidden = true;
@@ -526,7 +535,7 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     });
     saveBar.hidden = true;
     lastTake = null;
-    statusEl.textContent = 'saved to library';
+    statusEl.textContent = scoreName() ? `saved to ${scoreName()}` : 'saved to library';
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -774,9 +783,13 @@ function libraryRow(r) {
   name.textContent = r.name || formatWhen(r.date);
   const sub = document.createElement('span');
   sub.className = 'lib-sub';
-  sub.textContent = r.name
-    ? `${formatWhen(r.date)} · ${formatDuration(r.duration)} · ${r.noteCount} notes`
-    : `${formatDuration(r.duration)} · ${r.noteCount} notes`;
+  const piece = r.scoreId != null ? scoreNames.get(r.scoreId) : null;
+  sub.textContent = [
+    r.name ? formatWhen(r.date) : null,
+    formatDuration(r.duration),
+    `${r.noteCount} notes`,
+    piece ? `from ${piece}` : null,
+  ].filter(Boolean).join(' · ');
   text.append(name, sub);
   const chev = document.createElement('span');
   chev.className = 'lib-chev';
@@ -840,9 +853,59 @@ const libraryTitle = document.querySelector('#library-title');
 libraryBack.addEventListener('click', () => { openFolder = null; refreshLibrary(); });
 document.querySelector('#new-folder').addEventListener('click', () => askFolderName('create'));
 
+// Score name by id, so a take can say which piece it was played from without
+// each row going to the database for it.
+const scoreNames = new Map();
+
+function scoreRow(score, takes) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = score.name;
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = takes === 0
+    ? 'no takes yet'
+    : `${takes} ${takes === 1 ? 'take' : 'takes'}`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(text, chev);
+  open.addEventListener('click', () => openScoreFromLibrary(score.id));
+  li.append(open);
+  return li;
+}
+
+async function refreshScoreLibrary(recordings) {
+  const list = document.querySelector('#score-library-list');
+  const wrap = document.querySelector('#library-scores');
+  if (!list || !wrap) return;
+  const scores = await listScores();
+  scoreNames.clear();
+  for (const s of scores) scoreNames.set(s.id, s.name);
+  const counts = new Map();
+  for (const r of recordings) {
+    if (r.scoreId != null) counts.set(r.scoreId, (counts.get(r.scoreId) ?? 0) + 1);
+  }
+  list.replaceChildren();
+  for (const score of scores) list.append(scoreRow(score, counts.get(score.id) ?? 0));
+  wrap.hidden = scores.length === 0;
+}
+
 async function refreshLibrary() {
   try {
     const [recordings, allFolders] = await Promise.all([listRecordings(), listFolders()]);
+    // Names first: the take rows below read from this map.
+    await refreshScoreLibrary(recordings);
     folders = allFolders;
     // A folder deleted in another tab shouldn't leave this one inside it.
     if (openFolder !== null && !folders.some((f) => f.id === openFolder)) openFolder = null;
@@ -1234,6 +1297,8 @@ initScoreCard({
   onPickNote: (note) => selectPlayedNote(note),
   onOpenScoreTab: () => showTab('score'),
   onOpenTake: (take) => openRecording(take),
+  onOpenLibrary: () => showTab('library'),
+  onScoreChanged: () => { refreshSaveLabel(); refreshLibrary(); },
 });
 
 // --- custom pickers replace every native select --------------------------------

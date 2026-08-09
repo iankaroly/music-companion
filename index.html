@@ -872,6 +872,15 @@
     }
     /* --- takes of this piece -------------------------------------------- */
     #score-takes { margin-top: 1.1rem; }
+    #score-empty { text-align: center; }
+    #score-empty p { margin: 0 0 0.5rem; }
+    #score-empty .row { justify-content: center; margin-top: 0.9rem; }
+    #library-scores { margin-top: 1.6rem; }
+    #library-scores-head {
+      font-family: var(--display); font-weight: 600; font-size: 0.95rem;
+      color: var(--muted); padding: 0 0.2rem 0.5rem;
+    }
+    #score-library-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
     #bars-status { font-size: 0.82rem; color: var(--muted); }
     .passage-row {
       display: flex;
@@ -1899,9 +1908,7 @@
       </svg>
       <span>Library</span>
     </button>
-    <!-- Hidden until a score is loaded: six tabs is a squeeze on a phone, and
-         an empty one would cost the others width for nothing. -->
-    <button class="tab-btn" role="tab" data-tab="score" aria-selected="false" hidden>
+    <button class="tab-btn" role="tab" data-tab="score" aria-selected="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
         <line x1="3.5" y1="7" x2="20.5" y2="7" />
         <line x1="3.5" y1="10.5" x2="20.5" y2="10.5" />
@@ -2189,6 +2196,10 @@
         </div>
         <ul id="library-list"></ul>
         <div id="library-empty">Nothing here yet — record a take and save it 🎶</div>
+        <div id="library-scores">
+          <div id="library-scores-head">Scores</div>
+          <ul id="score-library-list"></ul>
+        </div>
       </div>
     </section>
 
@@ -2198,7 +2209,15 @@
          graph. #score-dock is where the ONE playback panel lives while this
          tab is showing; see ui/score-tab.js. -->
     <section id="tab-score" class="tab-panel" role="tabpanel">
-      <div class="card" id="score-review">
+      <div class="card" id="score-empty">
+        <p>No score open.</p>
+        <p class="hint">Load a MusicXML or .mxl part — export one from MuseScore, or download it from IMSLP — then record, and your playing is marked onto it.</p>
+        <div class="row score-row">
+          <button id="score-empty-load" class="ctl primary" type="button">Load a score…</button>
+          <button id="score-empty-library" class="ctl" type="button">Open one from the library</button>
+        </div>
+      </div>
+      <div class="card" id="score-review" hidden>
         <div class="row score-row" id="score-tempo-row">
           <span class="mini-label">tempo</span>
           <select id="score-target" aria-label="Tempo to play against">
