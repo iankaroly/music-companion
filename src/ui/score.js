@@ -15,9 +15,8 @@ import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
 import { intonationBounds } from './chart-utils.js';
-import {
-  initScorePassages, resetScorePassages, offerNotehead, recordAttempts,
-} from './score-passages.js';
+import { initScoreTakes, resetScoreTakes } from './score-takes.js';
+import { takeStats } from '../analysis/score-history.js';
 import {
   mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
   syncDockVisibility, borrowPanel, scoreTabIsShowing,
@@ -39,6 +38,8 @@ let pending = null;   // { notes, readings, a4 }
 // that does not exist. It is drawn the first time the tab is shown.
 let ready = null;     // { aligned, timing, landings, summary }
 let openTab = null;   // ask main.js to switch tabs
+let openTake = null;  // ask main.js to load a take from the library
+let repaintScore = null; // redraw the page, optionally in comparison colours
 // The tempo you are TRYING to hold, or null for "read the one I played".
 let targetBpm = Number(localStorage.getItem('scoreTargetBpm')) || null;
 
@@ -151,6 +152,7 @@ function resetSheet() {
   view?.destroy?.();
   view = null;
   ready = null;
+  repaintScore = null;
   const sheet = el('score-sheet');
   if (sheet) {
     sheet.replaceChildren();
@@ -158,7 +160,7 @@ function resetSheet() {
   }
   el('score-summary')?.remove();
   el('score-legend')?.remove();
-  resetScorePassages();
+  resetScoreTakes();
   clearScoreTab();
 }
 
@@ -168,12 +170,17 @@ export function clearSheet() {
   resetSheet();
 }
 
-// The take was kept. Only now does it join the history of the bars being
-// followed — a run-through that was listened to and discarded should not move
-// the trend line it was rejected against.
+// What this take did, note by note — saved alongside the recording so the next
+// take can be compared with it without re-aligning anything.
+export function currentScoreStats() {
+  if (!ready?.aligned) return null;
+  return takeStats(ready.aligned.attempts, ready.timing, { targetBpm });
+}
+
+// The take was kept, so it is now part of this piece's history.
 export async function takeSaved(recordingId) {
   if (pending) pending.recordingId = recordingId;
-  await recordAttempts(recordingId);
+  await refreshTakes(recordingId);
 }
 
 // Choose a score without anyone touching the picker — how a take reopened from
@@ -354,28 +361,29 @@ export async function renderScoreTab() {
     // Just the one path. onPick is already selectPlayedNote, and calling it
     // twice ran the whole selection — teardown, zoom inset, playback, drones —
     // over the top of itself, which looks identical once it settles and is not.
-    // A tap is offered to passage marking first, which consumes it when the
-    // player is picking bars rather than picking a note to hear.
-    onPickNote: (attempt) => {
-      if (offerNotehead(attempt)) return;
-      onPick?.(attempt.played);
-    },
+    onPickNote: (attempt) => onPick?.(attempt.played),
   });
   repaint();
   legend(stage);
   follow(view.noteheadFor);
   syncDockVisibility();
+  repaintScore = repaint;
 
-  await initScorePassages({
-    scoreId: current.id,
-    aligned: ready.aligned,
-    timing: ready.timing,
-    recordingId: pending?.recordingId ?? null,
-    takeDate: ready.takeDate,
-    onHighlight: (from, to) => view.highlightBars?.(from, to),
-    onCompare: (comparison) => repaint(comparison),
-  });
+  await refreshTakes(pending?.recordingId ?? null);
   return view;
+}
+
+// Redraw the history of this piece. Called when the page is drawn and again
+// when a take is saved, which is the moment it joins that history.
+async function refreshTakes(recordingId) {
+  if (!current || !ready) return;
+  await initScoreTakes({
+    scoreId: current.id,
+    stats: currentScoreStats(),
+    recordingId,
+    onCompare: (comparison) => repaintScore?.(comparison),
+    onOpenTake: (take) => openTake?.(take),
+  });
 }
 
 // The traditional metronome marks, because those are the numbers on the dial a
@@ -405,10 +413,11 @@ function initTempoPicker() {
   });
 }
 
-export function initScoreCard({ onPickNote, onOpenScoreTab } = {}) {
+export function initScoreCard({ onPickNote, onOpenScoreTab, onOpenTake } = {}) {
   initTempoPicker();
   onPick = onPickNote ?? null;
   openTab = onOpenScoreTab ?? null;
+  openTake = onOpenTake ?? null;
   const pick = el('score-pick');
   const add = el('score-add');
   const file = el('score-file');

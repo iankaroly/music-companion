@@ -870,8 +870,8 @@
       font-size: 1.1rem;
       line-height: 1;
     }
-    /* --- bars you are following ---------------------------------------- */
-    #score-passages { margin-top: 1.1rem; }
+    /* --- takes of this piece -------------------------------------------- */
+    #score-takes { margin-top: 1.1rem; }
     #bars-status { font-size: 0.82rem; color: var(--muted); }
     .passage-row {
       display: flex;
@@ -886,6 +886,10 @@
       font-family: var(--ui); font-size: 0.92rem; font-weight: 600;
       color: var(--primary); cursor: pointer;
     }
+    .takes-head {
+      display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+      padding: 0.3rem 0.2rem 0.6rem; font-size: 0.9rem;
+    }
     .passage-count, .passage-now { font-size: 0.8rem; color: var(--muted); }
     .passage-now { font-family: var(--num, inherit); color: var(--ink); }
     .passage-drop {
@@ -898,8 +902,6 @@
     .delta.better { color: var(--good); }
     .delta.worse { color: var(--bad); }
     .delta.none { color: var(--muted); font-weight: 500; }
-    /* the bars of the passage you tapped */
-    .score-page .bar-marked { filter: drop-shadow(0 0 3px var(--primary)); }
     #score-legend {
       display: flex;
       flex-wrap: wrap;
@@ -2207,16 +2209,12 @@
         <p id="score-tab-summary"></p>
         <div id="score-stage"></div>
         <div id="score-dock"></div>
-        <div id="score-passages">
+        <div id="score-takes">
           <div class="row score-row">
-            <button id="mark-bars" class="ctl" type="button">Mark bars to follow</button>
             <button id="compare-last" class="ctl" type="button" hidden>Compare with last time</button>
             <span id="bars-status"></span>
           </div>
-          <!-- NOT #passage-list: that id already belongs to the chart's
-               passage list on the Record tab, and a duplicate id means
-               querySelector hands both features the same element. -->
-          <div id="score-passage-list"></div>
+          <div id="score-take-list"></div>
         </div>
       </div>
     </section>

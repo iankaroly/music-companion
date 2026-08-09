@@ -10,7 +10,7 @@ import {
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
-  takeSaved,
+  takeSaved, currentScoreStats,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -520,6 +520,9 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
       readings,
       a4,
       scoreId: currentScoreId(),
+      // Note-by-note against the written pitch, so the next take of this piece
+      // can be compared with this one without re-aligning anything.
+      scoreStats: currentScoreStats(),
     });
     saveBar.hidden = true;
     lastTake = null;
@@ -1230,6 +1233,7 @@ initWelcome(document, {
 initScoreCard({
   onPickNote: (note) => selectPlayedNote(note),
   onOpenScoreTab: () => showTab('score'),
+  onOpenTake: (take) => openRecording(take),
 });
 
 // --- custom pickers replace every native select --------------------------------

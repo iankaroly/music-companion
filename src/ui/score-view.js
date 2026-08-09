@@ -63,18 +63,15 @@ function engravedNotes(osmd, instrument) {
 // Warm for sharp, cool for flat, green for in tune. Size decides the tier,
 // direction decides the family, so a page leaning one way is visible before a
 // single number is read.
-//
-// A WRONG note gets no colour from this scale at all. Colouring it the same red
-// as a badly sharp note says the two are the same kind of problem, and they are
-// not: one is a note you need to hear better, the other is a note you did not
-// play. It keeps its printed black and carries a mark instead, which leaves the
-// whole colour scale meaning one thing — cents.
 function verdictColour(attempt, colours) {
   if (!attempt) return null;
   if (attempt.verdict === 'missed') return colours.muted;
   if (attempt.verdict === 'not-taken') return null; // never played, nothing to say
-  if (attempt.verdict === 'wrong' || attempt.verdict === 'octave') return null;
 
+  // A wrong note is coloured too. The two facts are independent and both worth
+  // having: the colour says how close to a pitch centre you were, the ✕ says it
+  // was not the written pitch. A wrong note played dead in tune comes out green
+  // with a cross, which is exactly what happened.
   const { tier, direction } = intonationTone(attempt.played.cents);
   if (tier === 'good') return colours.good;
   if (direction === 'flat') return tier === 'off' ? colours.flatOff : colours.flatBad;
@@ -156,21 +153,6 @@ export async function showScore(container, {
     unmatched,
     ok,
     last: null,
-    // Ring the bars of a passage so tapping its name in the list shows you
-    // where on the page it actually is.
-    highlightBars(from, to) {
-      for (const el of page.querySelectorAll('.bar-marked')) el.classList.remove('bar-marked');
-      let first = null;
-      for (const [, engraved] of map) {
-        const bar = engraved.measure;
-        if (bar < from || bar > to) continue;
-        const el = engraved.gnote.getSVGGElement?.();
-        if (!el) continue;
-        el.classList.add('bar-marked');
-        first ??= el;
-      }
-      first?.scrollIntoView({ block: 'center', behavior: 'smooth' });
-    },
     // Every mark is placed from a measured notehead box, so a reflow that moves
     // the noteheads has to redraw the marks in the same breath — otherwise they
     // stay behind, pointing at whatever note has moved under them.
@@ -212,11 +194,16 @@ export function paint(view, {
     if (entry.scoreNoteId) timingByNote.set(entry.scoreNoteId, entry);
   }
 
-  // Only the worst few get an arrow. Against a target tempo almost every note
-  // is off the fixed grid — play a steady 120 against 104 and all twenty-nine
-  // are late, which is true and unreadable. The report already ranks them, so
-  // the page marks that ranking and the sentence above it carries the count.
-  const flagged = new Set((timing?.worst ?? []).map((n) => n.scoreNoteId).filter(Boolean));
+  // Every note that missed the beat gets an arrow — including all of them.
+  // Against a set tempo the grid does not move, so playing faster than it puts
+  // note after note further ahead, and seeing that run of arrows build IS the
+  // reading: it is drift, drawn. Hiding all but the worst ten would flatten the
+  // one thing a fixed tempo is there to show.
+  const flagged = new Set(
+    (timing?.perNote ?? [])
+      .filter((n) => n.scoreNoteId && n.deviationMs !== null && n.verdict !== 'on')
+      .map((n) => n.scoreNoteId),
+  );
 
   // Played note → the notehead drawn for it, so the playhead can light the
   // right one. Keyed on the note OBJECT: two notes can share a pitch and a bar

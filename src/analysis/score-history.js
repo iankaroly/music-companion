@@ -1,13 +1,12 @@
-// A few bars of a piece, followed across every session you play them.
+// One take of a piece, and what has happened to it since the last one.
 //
-// passages.js already does this for a span of a RECORDING, keyed on a name you
-// type. With a score there is something better to key on: the bars themselves.
-// Bars 9–16 of this piece are the same bars tomorrow without anyone naming
-// anything, so an attempt at them is recorded every time the piece is played
-// and the history builds itself.
+// The score gives every note a stable identity — the same notehead on the same
+// page — so two takes of the same piece can be compared note for note without
+// anyone naming anything. That is what makes "am I actually getting better at
+// this" answerable rather than a feeling.
 //
-// Everything here is pure: attempts and timing in, plain numbers out. What is
-// stored, when it is stored, and how it is drawn all live elsewhere.
+// Pure: attempts and timing in, plain numbers out. What is stored, when, and
+// how it is drawn all live elsewhere.
 
 const NOISE_CENTS = 3; // below this a change is measurement, not playing
 
@@ -16,20 +15,11 @@ function mean(values) {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-// The aligned attempts whose written note falls in these bars, ends included.
-export function passageRange(attempts, fromMeasure, toMeasure) {
-  const lo = Math.min(fromMeasure, toMeasure);
-  const hi = Math.max(fromMeasure, toMeasure);
-  return (attempts ?? []).filter((a) => {
-    const bar = a?.score?.measure;
-    return Number.isFinite(bar) && bar >= lo && bar <= hi;
-  });
-}
-
-// One session's attempt at those bars.
-export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targetBpm = null } = {}) {
-  const inside = passageRange(attempts, fromMeasure, toMeasure);
-  if (inside.length === 0) return null;
+// What one take did, note by note — small enough to keep forever alongside the
+// recording, and all the comparison below needs.
+export function takeStats(attempts, timing, { targetBpm = null } = {}) {
+  const list = attempts ?? [];
+  if (list.length === 0) return null;
 
   const timingById = new Map(
     (timing?.perNote ?? []).filter((n) => n.scoreNoteId).map((n) => [n.scoreNoteId, n]),
@@ -37,11 +27,11 @@ export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targe
 
   const perNote = [];
   let missed = 0;
-  for (const a of inside) {
+  for (const a of list) {
     if (!a.played) { missed++; continue; }
     perNote.push({
       scoreNoteId: a.scoreNoteId,
-      measure: a.score.measure,
+      measure: a.score?.measure ?? null,
       cents: a.played.cents,
       deviationMs: timingById.get(a.scoreNoteId)?.deviationMs ?? null,
       verdict: a.verdict,
@@ -51,9 +41,7 @@ export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targe
 
   const deviations = perNote.map((n) => n.deviationMs).filter(Number.isFinite);
   return {
-    fromMeasure: Math.min(fromMeasure, toMeasure),
-    toMeasure: Math.max(fromMeasure, toMeasure),
-    noteCount: inside.length,
+    noteCount: list.length,
     played: perNote.length,
     missed,
     // A missed note has no cents; counting it as zero would make giving up on a
@@ -62,7 +50,7 @@ export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targe
     meanAbsMs: deviations.length ? mean(deviations.map(Math.abs)) : null,
     // Stored because it changes what meanAbsMs MEANS: against a target the
     // deviation is from a fixed grid, without one it is from your own pulse.
-    // Two attempts recorded under different settings are not the same
+    // Two takes recorded under different settings are not the same
     // measurement, and comparing them would invent a change that never
     // happened. Cents are unaffected either way.
     targetBpm: targetBpm ?? null,
@@ -70,9 +58,9 @@ export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targe
   };
 }
 
-// This attempt against an earlier one. Negative deltas are improvements —
-// every number here is a distance from correct, so smaller is better.
-export function comparePassages(now, before) {
+// This take against an earlier one. Negative deltas are improvements — every
+// number here is a distance from correct, so smaller is better.
+export function compareTakes(now, before) {
   if (!now || !before) return null;
 
   const previous = new Map((before.perNote ?? []).map((n) => [n.scoreNoteId, n]));
@@ -105,20 +93,20 @@ export function comparePassages(now, before) {
   };
 }
 
-// Every attempt at these bars, oldest first, and what the journey looks like.
-export function passageHistory(records) {
-  const attempts = [...(records ?? [])]
-    .filter((r) => Number.isFinite(r?.stats?.absMeanCents))
+// Every take of this piece, oldest first, and what the journey looks like.
+export function takeHistory(records) {
+  const takes = [...(records ?? [])]
+    .filter((r) => Number.isFinite(r?.scoreStats?.absMeanCents))
     .sort((a, b) => a.date - b.date);
 
-  if (attempts.length === 0) {
-    return { attempts: [], series: [], first: null, latest: null, best: null, sinceFirst: null, sinceLast: null };
+  if (takes.length === 0) {
+    return { takes: [], series: [], first: null, latest: null, best: null, sinceFirst: null, sinceLast: null };
   }
 
-  const series = attempts.map((a) => a.stats.absMeanCents);
+  const series = takes.map((t) => t.scoreStats.absMeanCents);
   const latest = series.at(-1);
   return {
-    attempts,
+    takes,
     series,
     first: series[0],
     latest,

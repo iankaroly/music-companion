@@ -17,10 +17,7 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
 const VERSION = 6;
-const STORES = [
-  'sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores',
-  'score-passages', 'score-attempts',
-];
+const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -42,18 +39,6 @@ function createStores(db) {
   }
   if (!db.objectStoreNames.contains('scores')) {
     db.createObjectStore('scores', { keyPath: 'id', autoIncrement: true });
-  }
-  // A few bars of a score, and one row per session you play them. Attempts are
-  // their own store because the point is a long history: a year of them for a
-  // passage is a few hundred small rows, and listing the passages must not drag
-  // all of that in.
-  if (!db.objectStoreNames.contains('score-passages')) {
-    const passages = db.createObjectStore('score-passages', { keyPath: 'id', autoIncrement: true });
-    passages.createIndex('scoreId', 'scoreId');
-  }
-  if (!db.objectStoreNames.contains('score-attempts')) {
-    const attempts = db.createObjectStore('score-attempts', { keyPath: 'id', autoIncrement: true });
-    attempts.createIndex('passageId', 'passageId');
   }
 }
 
@@ -190,73 +175,17 @@ export async function setRecordingScore(id, scoreId) {
   });
 }
 
-// --- passages of a score ----------------------------------------------------
-
-export async function saveScorePassage({ scoreId, name, fromMeasure, toMeasure }) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('score-passages', 'readwrite');
-    const req = tx.objectStore('score-passages').add({
-      scoreId, name, fromMeasure, toMeasure, date: Date.now(),
-    });
-    tx.oncomplete = () => resolve(req.result);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
-  });
+// Every saved take of one score, oldest first — the history of practising that
+// piece. The stats ride along in the listing metadata, so drawing the history
+// never loads a single second of audio.
+export async function listRecordingsForScore(scoreId) {
+  const all = await listRecordings();
+  return all.filter((r) => r.scoreId === scoreId).sort((a, b) => a.date - b.date);
 }
 
-export async function listScorePassages(scoreId) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const req = db.transaction('score-passages', 'readonly')
-      .objectStore('score-passages').index('scoreId').getAll(scoreId);
-    req.onsuccess = () => resolve(req.result.sort((a, b) => a.fromMeasure - b.fromMeasure));
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function deleteScorePassage(id) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction(['score-passages', 'score-attempts'], 'readwrite');
-    tx.objectStore('score-passages').delete(id);
-    // The attempts go with it: an attempt at bars nobody is following any more
-    // is a row that can never be read again.
-    const cursorReq = tx.objectStore('score-attempts').index('passageId').openCursor(id);
-    cursorReq.onsuccess = () => {
-      const cursor = cursorReq.result;
-      if (!cursor) return;
-      cursor.delete();
-      cursor.continue();
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
-  });
-}
-
-export async function saveScoreAttempt({ passageId, recordingId = null, stats, date = Date.now() }) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction('score-attempts', 'readwrite');
-    const req = tx.objectStore('score-attempts').add({ passageId, recordingId, stats, date });
-    tx.oncomplete = () => resolve(req.result);
-    tx.onerror = () => reject(tx.error);
-    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
-  });
-}
-
-export async function listScoreAttempts(passageId) {
-  const db = await openDB();
-  return new Promise((resolve, reject) => {
-    const req = db.transaction('score-attempts', 'readonly')
-      .objectStore('score-attempts').index('passageId').getAll(passageId);
-    req.onsuccess = () => resolve(req.result.sort((a, b) => a.date - b.date));
-    req.onerror = () => reject(req.error);
-  });
-}
-
-export async function saveRecording({ date, duration, sampleRate, audio, notes, readings, a4, scoreId = null }) {
+export async function saveRecording({
+  date, duration, sampleRate, audio, notes, readings, a4, scoreId = null, scoreStats = null,
+}) {
   const db = await openDB();
   // Compressed before it ever reaches the store — see audio/codec.js for why
   // raw Float32 was not an option for a library you keep forever.
@@ -271,6 +200,10 @@ export async function saveRecording({ date, duration, sampleRate, audio, notes, 
       noteStats: statsOf(notes),
       landingStats: landingStats(notes, readings, a4) ?? [],
       ...(scoreId === null ? {} : { scoreId }),
+      // Per-note cents against the written pitch. Kept in the META record, not
+      // the payload, so comparing this take with the last one never decodes
+      // audio or re-runs the alignment.
+      ...(scoreStats === null ? {} : { scoreStats }),
     });
     metaReq.onsuccess = () => {
       tx.objectStore('recording-data').add({ id: metaReq.result, audio: stored, notes, readings, a4 });
@@ -378,9 +311,8 @@ async function allOf(store) {
 }
 
 export async function exportLibrary() {
-  const [recordings, passages, folders, scores, scorePassages, scoreAttempts] = await Promise.all([
+  const [recordings, passages, folders, scores] = await Promise.all([
     listRecordings(), listPassages(), listFolders(), allScores(),
-    allOf('score-passages'), allOf('score-attempts'),
   ]);
   return {
     format: 'music-companion-backup',
@@ -391,8 +323,6 @@ export async function exportLibrary() {
     passages,
     folders,
     scores,
-    scorePassages,
-    scoreAttempts,
   };
 }
 
@@ -429,31 +359,6 @@ export async function importLibrary(backup) {
       scoreByKey.set(key, await saveScore(rest));
     }
     scoreIdMap.set(score.id, scoreByKey.get(key));
-  }
-
-  // Passages follow their score, and their attempts follow them. Matched on the
-  // bars rather than on an id, since ids are re-issued on this device.
-  const passageIdMap = new Map();
-  for (const p of backup.scorePassages ?? []) {
-    const mappedScore = scoreIdMap.get(p.scoreId);
-    if (mappedScore === undefined) continue;
-    // eslint-disable-next-line no-await-in-loop
-    const existing = await listScorePassages(mappedScore);
-    const match = existing.find((e) => e.fromMeasure === p.fromMeasure && e.toMeasure === p.toMeasure);
-    const { id, scoreId, ...rest } = p;
-    passageIdMap.set(p.id, match
-      ? match.id
-      // eslint-disable-next-line no-await-in-loop
-      : await saveScorePassage({ ...rest, scoreId: mappedScore }));
-  }
-  for (const a of backup.scoreAttempts ?? []) {
-    const mapped = passageIdMap.get(a.passageId);
-    if (mapped === undefined) continue;
-    // eslint-disable-next-line no-await-in-loop
-    const already = await listScoreAttempts(mapped);
-    if (already.some((e) => e.date === a.date)) continue;
-    // eslint-disable-next-line no-await-in-loop
-    await saveScoreAttempt({ passageId: mapped, stats: a.stats, date: a.date });
   }
 
   for (const rec of backup.recordings ?? []) {
