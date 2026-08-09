@@ -63,35 +63,47 @@ async function save(from, to) {
     fromMeasure: from,
     toMeasure: to,
   });
-  // Record the take that is already on screen as the first attempt, so the
-  // history starts with the playing that made you mark the bars.
-  await recordAttempts();
+  // If the take on screen has already been saved, it counts straight away —
+  // marking bars after saving a good run should not throw that run away.
+  await recordAttempts(context.recordingId);
   await render();
 }
 
-// Every marked passage gets an attempt from the current take. Called after each
-// annotation, so practising is all it takes to build the history.
-export async function recordAttempts() {
-  if (!context?.aligned) return;
+// This take's stats for one passage, computed rather than read back — the take
+// on screen has not necessarily been saved.
+function statsFor(passage) {
+  if (!context?.aligned) return null;
+  return passageAttempt(
+    context.aligned.attempts, context.timing, passage.fromMeasure, passage.toMeasure,
+    { targetBpm: context.timing?.targetBpm ?? null },
+  );
+}
+
+// An attempt is written when a take is SAVED, never when it is merely recorded.
+//
+// Annotating happens on every take, including the ones you listen back to and
+// throw away — and a run-through you discarded is exactly the one that should
+// not drag the trend line around. Saving is where a take becomes something you
+// meant to keep, so saving is where it joins the history. It also means the
+// recordingId is real, which makes the guard below the only one needed:
+// re-opening the take or changing the tempo target must not count as another go
+// at the passage.
+export async function recordAttempts(recordingId) {
+  if (!context?.aligned || recordingId == null) return;
   const passages = await listScorePassages(context.scoreId);
   for (const passage of passages) {
-    const stats = passageAttempt(
-      context.aligned.attempts, context.timing, passage.fromMeasure, passage.toMeasure,
-    );
+    const stats = statsFor(passage);
     if (!stats) continue; // the take did not reach these bars
     const already = await listScoreAttempts(passage.id);
-    // One attempt per take, not one per redraw: changing the tempo target or
-    // reopening the tab re-runs the annotation, and each of those is not
-    // another go at the passage.
-    if (context.recordingId != null && already.some((a) => a.recordingId === context.recordingId)) continue;
-    if (context.recordingId == null && already.some((a) => a.date === context.takeDate)) continue;
+    if (already.some((a) => a.recordingId === recordingId)) continue;
     await saveScoreAttempt({
       passageId: passage.id,
-      recordingId: context.recordingId,
+      recordingId,
       stats,
       date: context.takeDate,
     });
   }
+  await render();
 }
 
 function sparkline(series) {
@@ -154,22 +166,32 @@ export async function render() {
     list.append(row);
   }
 
-  // Comparing needs something to compare with.
+  // Comparing needs an earlier saved take to compare THIS one with.
   const anyHistory = await Promise.all(passages.map((p) => listScoreAttempts(p.id)));
-  el('compare-last').hidden = !anyHistory.some((a) => a.length > 1);
+  el('compare-last').hidden = !anyHistory
+    .some((list) => list.some((a) => a.recordingId !== context.recordingId));
 }
 
-// The whole score recoloured by what has CHANGED since the previous take of it,
-// rather than by how in tune it is now. Same page, different question.
+// The whole score recoloured by what has CHANGED since the last time, rather
+// than by how in tune it is now. Same page, different question.
+//
+// "Last time" means the newest SAVED attempt that is not this take, and "now"
+// is the take on screen — computed, not read back, because the take you are
+// looking at may never have been saved. Comparing the two newest stored rows
+// instead would answer a question nobody asked: how the last two saved takes
+// differed, while a third one sits unexamined on the screen.
 export async function compareWithLast() {
   if (!context) return null;
   const passages = await listScorePassages(context.scoreId);
   const perNote = new Map();
   let better = 0; let worse = 0;
   for (const passage of passages) {
+    const now = statsFor(passage);
+    if (!now) continue;
     const attempts = await listScoreAttempts(passage.id);
-    if (attempts.length < 2) continue;
-    const diff = comparePassages(attempts.at(-1).stats, attempts.at(-2).stats);
+    const previous = attempts.filter((a) => a.recordingId !== context.recordingId).at(-1);
+    if (!previous) continue;
+    const diff = comparePassages(now, previous.stats);
     if (!diff) continue;
     for (const note of diff.perNote) {
       perNote.set(note.scoreNoteId, note);
@@ -220,10 +242,7 @@ export function initScorePassages(ctx) {
     });
   }
   setStatus('');
-  // The attempt goes in BEFORE the list is drawn, or the list shows the history
-  // as it stood before this take and the newest playing is missing from it
-  // until something else happens to redraw.
-  return recordAttempts().then(render);
+  return render();
 }
 
 export function resetScorePassages() {

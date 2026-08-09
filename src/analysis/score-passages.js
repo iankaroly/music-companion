@@ -27,7 +27,7 @@ export function passageRange(attempts, fromMeasure, toMeasure) {
 }
 
 // One session's attempt at those bars.
-export function passageAttempt(attempts, timing, fromMeasure, toMeasure) {
+export function passageAttempt(attempts, timing, fromMeasure, toMeasure, { targetBpm = null } = {}) {
   const inside = passageRange(attempts, fromMeasure, toMeasure);
   if (inside.length === 0) return null;
 
@@ -60,6 +60,12 @@ export function passageAttempt(attempts, timing, fromMeasure, toMeasure) {
     // note look like playing it perfectly.
     absMeanCents: mean(perNote.map((n) => Math.abs(n.cents))),
     meanAbsMs: deviations.length ? mean(deviations.map(Math.abs)) : null,
+    // Stored because it changes what meanAbsMs MEANS: against a target the
+    // deviation is from a fixed grid, without one it is from your own pulse.
+    // Two attempts recorded under different settings are not the same
+    // measurement, and comparing them would invent a change that never
+    // happened. Cents are unaffected either way.
+    targetBpm: targetBpm ?? null,
     perNote,
   };
 }
@@ -88,7 +94,9 @@ export function comparePassages(now, before) {
   const centsDelta = (now.absMeanCents ?? 0) - (before.absMeanCents ?? 0);
   return {
     centsDelta,
-    msDelta: Number.isFinite(now.meanAbsMs) && Number.isFinite(before.meanAbsMs)
+    // Only when both were measured the same way — see targetBpm above.
+    msDelta: (now.targetBpm ?? null) === (before.targetBpm ?? null)
+      && Number.isFinite(now.meanAbsMs) && Number.isFinite(before.meanAbsMs)
       ? now.meanAbsMs - before.meanAbsMs : null,
     improved: centsDelta < 0,
     perNote,

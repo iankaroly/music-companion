@@ -10,6 +10,7 @@ import {
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
+  takeSaved,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -529,7 +530,9 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     // just saved would mark the page but never attach the score to the take,
     // and the attachment would be lost until it was reopened.
     renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
-    annotateTake(notes, { readings, a4, recordingId: id }).catch(() => {});
+    annotateTake(notes, { readings, a4, recordingId: id })
+      .then(() => takeSaved(id))
+      .catch(() => {});
     refreshLibrary();
   } catch (err) {
     statusEl.textContent = `could not save: ${err.message}`;

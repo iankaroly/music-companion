@@ -16,7 +16,7 @@ import { noteLanding } from '../analysis/landing.js';
 import { showScore, paint } from './score-view.js';
 import { intonationBounds } from './chart-utils.js';
 import {
-  initScorePassages, resetScorePassages, offerNotehead,
+  initScorePassages, resetScorePassages, offerNotehead, recordAttempts,
 } from './score-passages.js';
 import {
   mountScore, follow, stopFollowing, clearScoreTab, setScoreTabVisible,
@@ -166,6 +166,14 @@ function resetSheet() {
 export function clearSheet() {
   pending = null;
   resetSheet();
+}
+
+// The take was kept. Only now does it join the history of the bars being
+// followed — a run-through that was listened to and discarded should not move
+// the trend line it was rejected against.
+export async function takeSaved(recordingId) {
+  if (pending) pending.recordingId = recordingId;
+  await recordAttempts(recordingId);
 }
 
 // Choose a score without anyone touching the picker — how a take reopened from

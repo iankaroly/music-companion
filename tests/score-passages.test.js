@@ -101,6 +101,17 @@ describe('comparePassages', () => {
     expect(diff.perNote.map((n) => n.scoreNoteId)).toEqual(['c']);
   });
 
+  test('timing is only compared when both were measured the same way', () => {
+    // Against a target the deviation is from a fixed grid; without one it is
+    // from the player's own pulse. Subtracting one from the other invents a
+    // change that never happened.
+    const own = { absMeanCents: 10, meanAbsMs: 20, targetBpm: null, perNote: [] };
+    const against = { absMeanCents: 10, meanAbsMs: 90, targetBpm: 100, perNote: [] };
+    expect(comparePassages(against, own).msDelta).toBeNull();
+    expect(comparePassages(own, own).msDelta).toBeCloseTo(0, 6);
+    expect(comparePassages(against, { ...against, meanAbsMs: 60 }).msDelta).toBeCloseTo(30, 6);
+  });
+
   test('nothing to compare against is not a comparison', () => {
     expect(comparePassages({ absMeanCents: 5, perNote: [] }, null)).toBeNull();
   });
