@@ -87,27 +87,41 @@ export function renderLanding(root, notes, readings, a4, { onPickNote } = {}) {
     bars.append(row);
   }
 
+  // Every note that never found the centre, behind a summary you have to open.
+  // All of them, because a shortlist of six in a take with forty is a shortlist
+  // of the wrong thing — but folded away, because forty chips unrolled under
+  // the bars is a wall nobody reads.
   const worst = root.querySelector('#landing-worst');
   worst.replaceChildren();
-  for (const row of report.worst) {
-    const chip = document.createElement('button');
-    chip.type = 'button';
-    chip.className = `ld-chip ${row.approach}`;
-    const onset = Math.round(row.onsetCents);
-    // The same note is usually flubbed the same way more than once in a take,
-    // so the clock time is what tells two otherwise identical chips apart.
-    chip.textContent = row.settled
-      ? `${row.name} ${clock(row.start)} · in ${onset >= 0 ? '+' : ''}${onset}¢, settled in ${row.settleMs}ms`
-      : `${row.name} ${clock(row.start)} · in ${onset >= 0 ? '+' : ''}${onset}¢, never settled`;
-    chip.addEventListener('click', () => onPickNote?.(row.note));
-    worst.append(chip);
+  const unsettled = report.unsettled ?? [];
+  if (unsettled.length) {
+    const box = document.createElement('details');
+    box.className = 'ld-list';
+    const summary = document.createElement('summary');
+    summary.textContent = `${unsettled.length} ${unsettled.length === 1 ? 'note' : 'notes'} never settled — tap one to hear it`;
+    box.append(summary);
+    const chips = document.createElement('div');
+    chips.className = 'ld-chips';
+    for (const row of unsettled) {
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = `ld-chip ${row.approach}`;
+      const onset = Math.round(row.onsetCents);
+      // The same note is usually flubbed the same way more than once in a take,
+      // so the clock time is what tells two otherwise identical chips apart.
+      chip.textContent = `${row.name} ${clock(row.start)} · in ${onset >= 0 ? '+' : ''}${onset}¢`;
+      chip.addEventListener('click', () => onPickNote?.(row.note));
+      chips.append(chip);
+    }
+    box.append(chips);
+    worst.append(box);
   }
 
   const hint = root.querySelector('#landing-hint');
   if (hint) {
     hint.textContent = 'How each note arrived, before you corrected it — the part a'
       + ' sustained reading can\'t show. Timing is measured to about a twentieth of a'
-      + ' second, so read these as bands rather than stopwatch figures. Tap one to hear it.';
+      + ' second, so read these as bands rather than stopwatch figures.';
   }
   return report;
 }

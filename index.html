@@ -1104,7 +1104,7 @@
     }
     #note-chart { touch-action: pan-y; }
     #zoom-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.4rem; }
-    #zoom-play, #clip-play {
+    #zoom-play, #clip-play, #clip-restart {
       width: 2.4rem; height: 2.4rem;
       flex-shrink: 0;
       border-radius: 50%;
@@ -1118,8 +1118,10 @@
       box-shadow: 0 6px 16px rgba(109, 78, 246, 0.4);
       transition: transform 100ms, filter 120ms;
     }
-    #zoom-play:hover, #clip-play:hover { filter: brightness(1.07); transform: scale(1.05); }
-    #clip-play:active { transform: scale(0.92); }
+    #zoom-play:hover, #clip-play:hover, #clip-restart:hover { filter: brightness(1.07); transform: scale(1.05); }
+    #clip-play:active, #clip-restart:active { transform: scale(0.92); }
+    /* Same button, quieter: restarting is the second thing you reach for. */
+    #clip-restart { font-size: 1.1rem; box-shadow: 0 4px 12px rgba(109, 78, 246, 0.28); }
     #zoom-label { color: var(--ink); font-weight: 500; font-size: 0.85rem; }
     #zoom-hint { color: var(--muted); font-size: 0.75rem; }
     #note-chart { width: 100%; height: 170px; display: block; }
@@ -1214,7 +1216,19 @@
       font-size: 0.84rem;
       font-variant-numeric: tabular-nums;
     }
-    #landing-worst { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 0.85rem; }
+    #landing-worst { margin-top: 0.85rem; }
+    .ld-list > summary {
+      cursor: pointer; text-align: center; font-size: 0.85rem;
+      color: var(--primary); font-weight: 600; padding: 0.3rem;
+      list-style: none;
+    }
+    .ld-list > summary::-webkit-details-marker { display: none; }
+    .ld-list > summary::after { content: ' ▾'; }
+    .ld-list[open] > summary::after { content: ' ▴'; }
+    .ld-chips {
+      display: flex; flex-wrap: wrap; gap: 0.5rem;
+      justify-content: center; margin-top: 0.6rem;
+    }
     /* Sized to the playback controls above them (see #playback-controls >
        button): these are the same kind of thing — a tap target on a phone,
        under a finger, next to a graph — and they were being drawn at chip size
@@ -2069,7 +2083,7 @@
         <div id="playback" hidden>
           <div id="clip-head">
             <button id="clip-play" aria-label="Play or pause the whole take">▶</button>
-            <button id="clip-restart" aria-label="Play the take from the beginning" title="back to the start">↺</button>
+            <button id="clip-restart" aria-label="Play from the beginning" title="back to the start">↺</button>
             <span id="clip-label">play the whole take</span>
             <div id="chart-mode" role="group" aria-label="Graph style">
               <button data-mode="pitch" class="active">pitch</button>
@@ -2093,6 +2107,7 @@
               <button data-speed="0.5">½×</button>
               <button data-speed="0.25">¼×</button>
             </span>
+            <button id="clip-click" type="button" hidden>Play with click</button>
             <button id="note-drone" hidden>Hold cursor note as drone</button>
             <button id="ref-drone" hidden></button>
             <select id="ref-interval" hidden aria-label="Reference drone interval">
@@ -2134,50 +2149,6 @@
               How each note arrived, before you corrected it — the part a
               sustained reading can't show. Tap one to hear it.
             </p>
-          </div>
-          <div id="timing" hidden>
-            <div id="timing-head">
-              <span class="timing-title">timing</span>
-              <span id="timing-verdict"></span>
-            </div>
-            <div id="timing-controls">
-              <button id="timing-lock" type="button">Pulse: auto</button>
-              <span id="timing-bpm-box" hidden>
-                <button id="timing-bpm-down" type="button" aria-label="Slower">−</button>
-                <input id="timing-bpm" type="number" min="20" max="300" step="1"
-                       aria-label="Reference tempo" />
-                <small>bpm</small>
-                <button id="timing-bpm-up" type="button" aria-label="Faster">+</button>
-              </span>
-              <span id="timing-div" role="group" aria-label="Grid steps per beat" hidden>
-                <button data-div="1" type="button" class="active">beat</button>
-                <button data-div="2" type="button">÷2</button>
-                <button data-div="3" type="button">÷3</button>
-                <button data-div="4" type="button">÷4</button>
-              </span>
-              <button id="timing-click" type="button">Play with click</button>
-            </div>
-            <p id="timing-summary"></p>
-            <div id="timing-tiles">
-              <button class="wk-tile" type="button" data-explain="bpm"><b id="tm-bpm">–</b><span>your tempo</span></button>
-              <button class="wk-tile" type="button" data-explain="error"><b id="tm-error">–</b><span>typical miss</span></button>
-              <button class="wk-tile" type="button" data-explain="on"><b id="tm-on">–</b><span>on time</span></button>
-              <button class="wk-tile" type="button" data-explain="even"><b id="tm-even">–</b><span>steadiness</span></button>
-              <button class="wk-tile" type="button" data-explain="drift"><b id="tm-drift">–</b><span>drift</span></button>
-            </div>
-            <canvas id="timing-chart" aria-hidden="true"></canvas>
-            <p id="timing-legend">
-              Top line: the tempo through the take. Below: one bar per note —
-              above the middle is late, below is early.
-            </p>
-            <div id="timing-filter" role="group" aria-label="Which notes to list">
-              <button data-filter="worst" type="button" class="active">worst</button>
-              <button data-filter="late" type="button">late</button>
-              <button data-filter="early" type="button">early</button>
-              <button data-filter="all" type="button">all flagged</button>
-            </div>
-            <div id="timing-worst"></div>
-            <div id="timing-hint"></div>
           </div>
         </div>
       </div>
