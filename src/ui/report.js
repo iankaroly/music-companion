@@ -5,10 +5,10 @@ import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
 import { intonationStatus, findNoteAt } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
-import { renderTiming, hideTiming } from './timing.js';
 import { renderLanding, hideLanding } from './landing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
 import { scheduleClick } from '../audio/metronome.js';
+import { rhythmReport } from '../analysis/rhythm.js';
 
 // The one status line the app has, shared with the recorder above.
 function say(root, message) {
@@ -449,6 +449,56 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
     else playFullFrom(root, full.pos);
   };
 
+  // Back to the top from anywhere in the take, without dragging a cursor the
+  // length of a ten-minute recording to get there. It always PLAYS: pressing it
+  // while paused and being left at a stopped playhead would just be a second
+  // way to lose your place.
+  const restart = root.querySelector('#clip-restart');
+  if (restart) {
+    restart.hidden = !recording;
+    restart.onpointerdown = warmAudio;
+    restart.onclick = () => {
+      if (!full) return;
+      stopPlayback(root);
+      full.pos = 0;
+      playFullFrom(root, 0);
+    };
+  }
+
+  // Hearing a take you already played laid over a click is the thing a
+  // recording can do that a metronome cannot. The pulse is read from the take
+  // itself, so it needs nothing set up first.
+  const clickBtn = root.querySelector('#clip-click');
+  if (clickBtn) {
+    clickBtn.hidden = !recording;
+    clickBtn.classList.remove('active');
+    clickBtn.onclick = () => {
+      if (clickGrid) {
+        clickGrid = null;
+        clickBtn.classList.remove('active');
+        stopClicks();
+        return;
+      }
+      const beat = rhythmReport(allNotes);
+      if (!beat?.tactus) {
+        say(root, 'not enough of a pulse in that take to lay a click over');
+        return;
+      }
+      clickGrid = {
+        phase: beat.phase ?? 0,
+        step: beat.tactus,
+        until: Math.max(...allNotes.map((n) => n.start)) + beat.tactus,
+      };
+      clickBtn.classList.add('active');
+      // Toggled mid-playback it takes effect at once rather than at the next
+      // press — the point is to A/B the click against what you played.
+      if (full?.playing) {
+        pauseFull(root);
+        playFullFrom(root, full.pos);
+      }
+    };
+  }
+
   // Dragging the overview cursor (or tapping the chart) steers everything:
   // the whole-take play position, which note the zoom inset shows, and the
   // pitch any held drone follows.
@@ -872,20 +922,6 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     renderLanding(root, allNotes, extras.readings, extras.a4 ?? 440, {
       onPickNote: (note) => selectNote(note),
     });
-    renderTiming(root, allNotes, {
-      onPickNote: (note) => selectNote(note),
-      onClickTrack: recording ? (grid) => {
-        clickGrid = grid;
-        // Toggled mid-playback, it takes effect at once rather than at the
-        // next press — the point is to A/B the click against what you played.
-        if (full?.playing) {
-          pauseFull(root); // updates full.pos to where the audio actually is
-          playFullFrom(root, full.pos);
-        } else {
-          stopClicks();
-        }
-      } : null,
-    });
     initPassages(root, allNotes, {
       recordingId: extras.recordingId ?? null,
       onPlaySpan: (from, to) => playSpan(root, from, to),
@@ -893,7 +929,6 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   } else {
     root.querySelector('#playback').hidden = true;
     hideLanding(root);
-    hideTiming(root);
     hidePassages(root);
   }
 }
@@ -906,7 +941,6 @@ export function hideReport(root) {
   root.querySelector('#report').classList.remove('visible');
   root.querySelector('#playback').hidden = true;
   hideLanding(root);
-  hideTiming(root);
   hidePassages(root);
   root.querySelector('#note-zoom').hidden = true;
   currentChart = null;

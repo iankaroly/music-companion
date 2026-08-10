@@ -199,6 +199,11 @@ export function landingReport(notes, readings, a4 = 440, { tolerance = 8, motion
       .filter((r) => !isClean(r))
       .sort((a, b) => (b.settleMs ?? 9999) - (a.settleMs ?? 9999))
       .slice(0, 6),
+    // EVERY note that never found the centre, in the order they were played.
+    // `worst` is a shortlist for a glance; this is the list you work through,
+    // so it is not truncated — a take with forty of them has forty problems
+    // and hiding thirty-four of them does not make that less true.
+    unsettled: rows.filter((r) => !r.settled),
   };
 }
 
