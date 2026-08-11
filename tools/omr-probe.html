@@ -1,0 +1,325 @@
+<!doctype html>
+<!--
+  A bench for one question: can a photograph of a printed part be read well
+  enough to put a take's intonation on the right notehead?
+
+  Nothing here is the app. It is the reader, written where it can be watched:
+  the page is drawn with everything it found laid over it, so the answer is
+  something you can look at rather than something I claim.
+
+  The first attempt straightened the whole page and looked for staff lines in a
+  single horizontal projection. That fails on a real photograph for a reason
+  worth writing down: a book on a table is not flat. The page curves into the
+  gutter, the phone is never quite square to it, and a line that runs across
+  900 pixels drifts several pixels down as it goes. Projected onto one profile,
+  five sharp lines become one grey smear.
+
+  So the lines are tracked in vertical STRIPS instead — found separately in each
+  narrow column, where the drift is a fraction of a pixel, then linked across
+  the page into curves. Everything downstream measures against those curves, so
+  the page never has to be flattened at all.
+-->
+<meta charset="utf-8">
+<title>reading a photographed part</title>
+<style>
+  body { font: 13px/1.5 ui-monospace, monospace; margin: 1rem; background: #f6f5fb; color: #221c3a; }
+  #out { white-space: pre-wrap; margin-bottom: 0.8rem; }
+  canvas { max-width: 100%; border: 1px solid #ccc; background: #fff; }
+</style>
+<p><input id="pick" type="file" accept="image/*"> — drop a photograph of a part in here.</p>
+<div id="out">waiting for a page…</div>
+<canvas id="view"></canvas>
+<script type="module">
+const out = document.querySelector('#out');
+const log = (m) => { out.textContent += `\n${m}`; };
+
+const image = new Image();
+const pick = document.querySelector('#pick');
+await new Promise((resolve) => {
+  pick.addEventListener('change', () => {
+    const file = pick.files?.[0];
+    if (!file) return;
+    image.src = URL.createObjectURL(file);
+    image.onload = resolve;
+  });
+});
+out.textContent = 'reading…';
+
+// --- 1. grayscale ------------------------------------------------------------
+const W = 1400;
+const H = Math.round(image.naturalHeight * (W / image.naturalWidth));
+const work = document.createElement('canvas');
+work.width = W; work.height = H;
+const wctx = work.getContext('2d', { willReadFrequently: true });
+wctx.drawImage(image, 0, 0, W, H);
+const rgba = wctx.getImageData(0, 0, W, H).data;
+const gray = new Float32Array(W * H);
+for (let i = 0; i < W * H; i++) {
+  gray[i] = rgba[i * 4] * 0.299 + rgba[i * 4 + 1] * 0.587 + rgba[i * 4 + 2] * 0.114;
+}
+
+// --- 2. flatten the lighting --------------------------------------------------
+// A photograph of a book has a shadow across it and a gradient from the lamp; a
+// single threshold cannot survive either. Dividing the page by a blurred copy of
+// itself leaves ink against flat white whatever the light did.
+function boxBlur(src, w, h, radius) {
+  const tmp = new Float32Array(w * h);
+  const dst = new Float32Array(w * h);
+  const span = radius * 2 + 1;
+  for (let y = 0; y < h; y++) {
+    let sum = 0;
+    for (let x = -radius; x <= radius; x++) sum += src[y * w + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[y * w + x] = sum / span;
+      sum += src[y * w + Math.min(w - 1, x + radius + 1)] - src[y * w + Math.max(0, x - radius)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let y = -radius; y <= radius; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      dst[y * w + x] = sum / span;
+      sum += tmp[Math.min(h - 1, y + radius + 1) * w + x] - tmp[Math.max(0, y - radius) * w + x];
+    }
+  }
+  return dst;
+}
+
+const background = boxBlur(gray, W, H, Math.round(W / 36));
+const ink = new Uint8Array(W * H);
+for (let i = 0; i < W * H; i++) ink[i] = gray[i] < background[i] - 16 ? 1 : 0;
+
+// --- 3. how big is this page? --------------------------------------------------
+// The most common vertical run of ink is the thickness of a staff line; the most
+// common run of white between them is the staff space. No thresholds, no guess
+// about how far away the camera was.
+const blackRuns = new Array(40).fill(0);
+const whiteRuns = new Array(80).fill(0);
+for (let x = 0; x < W; x += 2) {
+  let run = 0;
+  let colour = 0;
+  for (let y = 0; y < H; y++) {
+    const v = ink[y * W + x];
+    if (v === colour) { run++; continue; }
+    const table = colour ? blackRuns : whiteRuns;
+    if (run > 0 && run < table.length) table[run]++;
+    colour = v;
+    run = 1;
+  }
+}
+const commonest = (table, from) => {
+  let best = from;
+  for (let i = from; i < table.length; i++) if (table[i] > table[best]) best = i;
+  return best;
+};
+const thickness = commonest(blackRuns, 1);
+const space = commonest(whiteRuns, thickness + 1);
+const pitch = space + thickness;          // line centre to line centre
+
+// --- 4. staff lines, strip by strip ---------------------------------------------
+const STRIPS = 40;
+const stripW = Math.floor(W / STRIPS);
+
+function peaksIn(strip) {
+  const x0 = strip * stripW;
+  const x1 = Math.min(W, x0 + stripW);
+  const profile = new Float32Array(H);
+  for (let y = 0; y < H; y++) {
+    let n = 0;
+    for (let x = x0; x < x1; x++) n += ink[y * W + x];
+    profile[y] = n;
+  }
+  const peaks = [];
+  const floor = (x1 - x0) * 0.55;         // more than half the strip is inked
+  for (let y = 1; y < H - 1; y++) {
+    if (profile[y] < floor) continue;
+    if (profile[y] < profile[y - 1] || profile[y] < profile[y + 1]) continue;
+    if (peaks.length && y - peaks.at(-1) <= thickness) continue;
+    peaks.push(y);
+  }
+  return peaks;
+}
+
+const stripPeaks = [];
+for (let s = 0; s < STRIPS; s++) stripPeaks.push(peaksIn(s));
+
+// Link peaks across strips into curves: each curve is one staff line, and it is
+// allowed to wander by a fraction of a staff space from strip to strip.
+const drift = Math.max(2, pitch * 0.45);
+const curves = [];
+for (let s = 0; s < STRIPS; s++) {
+  const taken = new Set();
+  for (const curve of curves) {
+    if (curve.lastStrip < s - 2) continue;         // it has gone cold
+    let best = null;
+    let bestGap = drift;
+    for (const y of stripPeaks[s]) {
+      if (taken.has(y)) continue;
+      const gap = Math.abs(y - curve.y);
+      if (gap < bestGap) { bestGap = gap; best = y; }
+    }
+    if (best === null) continue;
+    taken.add(best);
+    curve.points.push([s, best]);
+    curve.y = best;
+    curve.lastStrip = s;
+  }
+  for (const y of stripPeaks[s]) {
+    if (taken.has(y)) continue;
+    curves.push({ points: [[s, y]], y, lastStrip: s });
+  }
+}
+
+// A staff line crosses most of the page; a beam, a slur or a pencil mark does not.
+const lines = curves
+  .filter((c) => c.points.length >= STRIPS * 0.45)
+  .map((c) => {
+    const at = new Float32Array(STRIPS);
+    // fill the gaps by carrying the nearest measurement sideways
+    let k = 0;
+    for (let s = 0; s < STRIPS; s++) {
+      while (k + 1 < c.points.length && c.points[k + 1][0] <= s) k++;
+      const [sa, ya] = c.points[k];
+      const next = c.points[k + 1];
+      at[s] = next ? ya + (next[1] - ya) * ((s - sa) / (next[0] - sa)) : ya;
+    }
+    return { at, mid: at[Math.floor(STRIPS / 2)] };
+  })
+  .sort((a, b) => a.mid - b.mid);
+
+// --- 5. five lines make a stave ---------------------------------------------------
+const staves = [];
+for (let i = 0; i + 4 < lines.length; i++) {
+  const five = lines.slice(i, i + 5);
+  const gaps = five.slice(1).map((l, k) => l.mid - five[k].mid);
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  if (Math.abs(mean - pitch) > pitch * 0.35) continue;
+  if (!gaps.every((g) => Math.abs(g - mean) < mean * 0.3)) continue;
+  staves.push({ lines: five, space: mean });
+  i += 4;
+}
+
+// Where line n of this staff sits at a given x — the whole point of the strips.
+function lineY(staff, index, x) {
+  const s = Math.min(STRIPS - 1, Math.max(0, Math.floor(x / stripW)));
+  return staff.lines[index].at[s];
+}
+
+// --- 6. noteheads -------------------------------------------------------------
+// The staff lines are wiped first: a vertical run of ink about as thick as a
+// line, with white above and below, is a line and not something written on one.
+const body = new Uint8Array(ink);
+for (const staff of staves) {
+  for (let index = 0; index < 5; index++) {
+    for (let x = 0; x < W; x++) {
+      const centre = Math.round(lineY(staff, index, x));
+      const from = centre - thickness;
+      const to = centre + thickness;
+      let run = 0;
+      for (let y = from; y <= to; y++) if (y >= 0 && y < H && ink[y * W + x]) run++;
+      if (!run || run > thickness * 2 + 1) continue;
+      const above = from - 2 >= 0 ? ink[(from - 2) * W + x] : 0;
+      const below = to + 2 < H ? ink[(to + 2) * W + x] : 0;
+      if (above && below) continue;            // ink continues past it: not a bare line
+      for (let y = from; y <= to; y++) if (y >= 0 && y < H) body[y * W + x] = 0;
+    }
+  }
+}
+
+// Connected components are no use here and it is worth saying why: this page is
+// beamed almost throughout, so every group of quavers is ONE blob — heads,
+// stems and beam fused into a single shape. What comes out cleanly instead are
+// the pencilled fingerings, which are exactly the wrong thing to find.
+//
+// So noteheads are found by their SHAPE. A notehead is a solid ellipse about a
+// staff space tall and half again as wide; a beam is thinner than that, a stem
+// is much narrower, a slur is thinner still. Scoring every position by how full
+// an ellipse-shaped window is finds heads and ignores the rest — and it does not
+// care whether they are joined to anything.
+function findNoteheads(staff) {
+  const space = staff.space;
+  const hw = Math.max(2, Math.round(space * 0.62));   // half width of a head
+  const hh = Math.max(2, Math.round(space * 0.45));   // half height
+  const offsets = [];
+  for (let dy = -hh; dy <= hh; dy++) {
+    for (let dx = -hw; dx <= hw; dx++) {
+      if ((dx / hw) ** 2 + (dy / hh) ** 2 <= 1) offsets.push([dx, dy]);
+    }
+  }
+  // A ring just outside it: a notehead is solid AND surrounded by white on top
+  // and bottom, which is what tells it from the middle of a beam.
+  const ring = [];
+  for (let dx = -hw; dx <= hw; dx += 2) {
+    ring.push([dx, -hh - Math.round(space * 0.5)]);
+    ring.push([dx, hh + Math.round(space * 0.5)]);
+  }
+
+  const reach = space * 4.5;
+  const top = Math.max(hh + 1, Math.round(staff.lines[0].mid - reach));
+  const bottom = Math.min(H - hh - 2, Math.round(staff.lines[4].mid + reach));
+  const scored = [];
+  for (let y = top; y <= bottom; y++) {
+    for (let x = hw + 1; x < W - hw - 1; x++) {
+      if (!ink[y * W + x]) continue;
+      let filled = 0;
+      for (const [dx, dy] of offsets) filled += ink[(y + dy) * W + x + dx];
+      const fill = filled / offsets.length;
+      if (fill < 0.86) continue;
+      let clear = 0;
+      for (const [dx, dy] of ring) {
+        const yy = y + dy;
+        if (yy < 0 || yy >= H) { clear++; continue; }
+        if (!ink[yy * W + x + dx]) clear++;
+      }
+      if (clear / ring.length < 0.45) continue;   // buried inside something thicker
+      scored.push({ x, y, score: fill + clear / ring.length });
+    }
+  }
+  // One detection per notehead: strongest first, and nothing else within a head.
+  scored.sort((a, b) => b.score - a.score);
+  const kept = [];
+  for (const point of scored) {
+    if (kept.some((k) => Math.abs(k.x - point.x) < space * 1.1 && Math.abs(k.y - point.y) < space * 0.9)) continue;
+    kept.push(point);
+  }
+  return kept.sort((a, b) => a.x - b.x);
+}
+
+const view = document.querySelector('#view');
+view.width = W; view.height = H;
+const vctx = view.getContext('2d');
+vctx.drawImage(image, 0, 0, W, H);
+
+let heads = 0;
+const perStaff = [];
+for (const staff of staves) {
+  vctx.strokeStyle = 'rgba(109,78,246,0.6)';
+  vctx.lineWidth = 1;
+  for (let index = 0; index < 5; index++) {
+    vctx.beginPath();
+    for (let s = 0; s < STRIPS; s++) {
+      const x = s * stripW + stripW / 2;
+      const y = staff.lines[index].at[s];
+      if (s === 0) vctx.moveTo(x, y); else vctx.lineTo(x, y);
+    }
+    vctx.stroke();
+  }
+  const found = findNoteheads(staff);
+  perStaff.push(found.length);
+  heads += found.length;
+  vctx.strokeStyle = 'rgba(23,181,120,0.95)';
+  vctx.lineWidth = 1.5;
+  for (const head of found) {
+    vctx.beginPath();
+    vctx.ellipse(head.x, head.y, staff.space * 0.7, staff.space * 0.52, 0, 0, Math.PI * 2);
+    vctx.stroke();
+  }
+}
+
+out.textContent = `image ${image.naturalWidth}×${image.naturalHeight}, working at ${W}×${H}`;
+log(`line thickness ${thickness}px, staff space ${space}px, pitch ${pitch}px`);
+log(`line curves tracked: ${lines.length}`);
+log(`staves: ${staves.length}`);
+log(`noteheads: ${heads} — per stave ${perStaff.join(', ')}`);
+window.__probe = { staves: staves.length, lines: lines.length, heads, perStaff, thickness, space };
+</script>
