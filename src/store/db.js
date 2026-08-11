@@ -160,6 +160,28 @@ export async function savePagesScore({ name, source, pageCount, data = null, pag
 // the other — that is optical music recognition, and it does not run in a
 // browser — but a player who has the file can say "these two are the same
 // piece" and get both halves at once.
+// Where you keep stopping: the start of the development, the passage that needs
+// the metronome, the page you always fumble. Stored on the score row because
+// there are never many and they are always wanted with it.
+export async function saveBookmarks(scoreId, bookmarks) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(scoreId);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      if (bookmarks?.length) row.bookmarks = bookmarks;
+      else delete row.bookmarks;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function pairScoreNotation(paperId, notationId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

@@ -32,6 +32,7 @@ import { openPaper } from './paper.js';
 import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
+  saveBookmarks,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -82,6 +83,20 @@ function setReadingZoom(next) {
 // One staff space, in pixels, at the size being read.
 function staffPx() {
   return baseStaffPx() * readingZoom();
+}
+
+// Only ever offered on a screen wide enough to mean it: two pages on a phone
+// held upright is two columns of postage stamps.
+function spreadFits() {
+  return window.innerWidth > window.innerHeight * 1.15 && window.innerWidth >= 900;
+}
+
+function wantsSpread() {
+  try {
+    return globalThis.localStorage?.getItem(SPREAD_KEY) === 'on' && spreadFits();
+  } catch {
+    return false;
+  }
 }
 
 // The pens. Four presets to reach for without thinking, and behind them a
@@ -150,6 +165,11 @@ let redoable = [];
 const LAYER_NAMES = ['fingerings', 'bowings', 'notes'];
 let layer = 0;
 let hidden = new Set();   // layers being kept out of sight
+// Two pages at once, which is what a tablet on a stand is FOR: half the page
+// turns, and the turn you do make lands you at the top of a fresh spread rather
+// than halfway down the music you were reading.
+const SPREAD_KEY = 'readerSpread';
+let spread = false;
 
 const el = (id) => document.querySelector(`#${id}`);
 
@@ -180,10 +200,38 @@ function scheduleSave() {
 
 let bars = new Map();   // bar number → { page, node, system } on the page as drawn
 
-// The page currently on screen — an engraved one or a photographed one; the
-// pen, the page turns and the ink layer never ask which.
+// The page — or PAGES: on a wide screen two of them sit side by side, the way a
+// tablet on a stand reads, and everything that touches the paper has to cope
+// with either. The pen, the page turns and the ink layer never ask which.
 function currentPage() {
   return pageEls[pageIndex] ?? null;
+}
+
+function visiblePages() {
+  const shown = [pageIndex];
+  if (spread && pageIndex + 1 < pageEls.length) shown.push(pageIndex + 1);
+  return shown;
+}
+
+// The rectangle a page's marks belong to, in SCREEN coordinates. For engraved
+// music that is the page container; for paper it is the drawn page inside it,
+// which is centred with margins either side.
+function boxOfPage(index) {
+  const node = pageEls[index];
+  if (!node) return null;
+  const target = isPaper() ? node.querySelector('canvas') : node;
+  return target?.getBoundingClientRect() ?? null;
+}
+
+// Which of the visible pages a point is over — with two pages up, the left half
+// of the screen and the right half are different pages of music.
+function pageAt(x, y) {
+  const shown = visiblePages();
+  for (const index of shown) {
+    const box = boxOfPage(index);
+    if (box && x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) return index;
+  }
+  return shown[0] ?? 0;
 }
 
 // Is this score notation, or is it paper? Everything that reads bars is off
@@ -192,16 +240,8 @@ function isPaper() {
   return !!paper;
 }
 
-// The rectangle the ink belongs to. For engraved music that is the page
-// container, which IS the screen. For paper it is the drawn page itself, which
-// is centred inside the screen with a margin either side — anchoring to the
-// container would put every mark in the wrong place the moment the phone was
-// turned and the margins changed.
 function pageBox() {
-  const node = currentPage();
-  if (!node) return null;
-  const target = isPaper() ? node.querySelector('canvas') : node;
-  return target?.getBoundingClientRect() ?? null;
+  return boxOfPage(pageIndex);
 }
 
 // Where each bar ended up on the page. Bars are read from the DOM in order —
@@ -234,9 +274,7 @@ function indexBars() {
 // every mark in the bar with it.
 function barFrame(bar) {
   const entry = bars.get(bar);
-  const page = currentPage();
-  if (!entry || !page || entry.page !== pageIndex) return null;
-  const pageBox = page.getBoundingClientRect();
+  if (!entry || !visiblePages().includes(entry.page)) return null;
   const lines = [...entry.node.children]
     .filter((node) => node.tagName === 'path')
     .slice(0, 5)
@@ -246,17 +284,14 @@ function barFrame(bar) {
     // fall back to the bar's outline, which is roughly right and never null.
     const box = entry.node.getBoundingClientRect();
     return {
-      x: box.left - pageBox.left,
-      y: box.top - pageBox.top,
-      width: box.width,
-      height: box.height,
+      x: box.left, y: box.top, width: box.width, height: box.height,
       unit: Math.max(1, box.height / 8),
     };
   }
   const unit = Math.max(1, (lines[4].top - lines[0].top) / 4);
   return {
-    x: lines[0].left - pageBox.left,
-    y: lines[0].top - pageBox.top,
+    x: lines[0].left,
+    y: lines[0].top,
     width: lines[0].width,
     height: unit * 4,
     unit,
@@ -273,8 +308,9 @@ function unitScale() {
     const box = pageBox();
     return Math.max(1, (box?.height ?? 600) / 60);
   }
+  const shown = visiblePages();
   for (const [bar, entry] of bars) {
-    if (entry.page !== pageIndex) continue;
+    if (!shown.includes(entry.page)) continue;
     const frame = barFrame(bar);
     if (frame) return frame.unit;
   }
@@ -287,16 +323,22 @@ function unitScale() {
 // at every size, so a mark two thirds of the way across bar 12 stays exactly
 // there whatever the screen does.
 function anchorOnPaper(px, py) {
-  const box = pageBox();
+  const index = pageAt(px, py);
+  const box = boxOfPage(index);
   if (!box || !box.width || !box.height) return null;
-  return { space: 'page', p: pageIndex, x: px / box.width, y: py / box.height };
+  return {
+    space: 'page',
+    p: index,
+    x: (px - box.left) / box.width,
+    y: (py - box.top) / box.height,
+  };
 }
 
 function placeOnPaper(point) {
-  if (point.p !== pageIndex) return null;
-  const box = pageBox();
+  if (!visiblePages().includes(point.p)) return null;
+  const box = boxOfPage(point.p);
   if (!box) return null;
-  return { x: point.x * box.width, y: point.y * box.height };
+  return { x: box.left + point.x * box.width, y: box.top + point.y * box.height };
 }
 
 // A point on screen → the bar it is over, plus how far into that bar it sits.
@@ -305,10 +347,11 @@ function placeOnPaper(point) {
 // something to hold on to.
 function anchor(px, py) {
   if (isPaper()) return anchorOnPaper(px, py);
+  const shown = visiblePages();
   let best = null;
   let bestDistance = Infinity;
   for (const [number, entry] of bars) {
-    if (entry.page !== pageIndex) continue;
+    if (!shown.includes(entry.page)) continue;
     const frame = barFrame(number);
     if (!frame) continue;
     const dx = px < frame.x ? frame.x - px : px > frame.x + frame.width ? px - (frame.x + frame.width) : 0;
@@ -386,7 +429,12 @@ function drawStroke(ctx, stroke) {
   // Two corners and a shape between them.
   if (stroke.type === 'shape') {
     const [a, b] = points;
-    if (a && b) {
+    // Not across the gutter: with two pages up, a box whose corners ended up on
+    // different pages is not a box round anything.
+    const [pa, pb] = stroke.points.map((point) => (
+      point.p !== undefined ? point.p : bars.get(point.m)?.page
+    ));
+    if (a && b && pa === pb) {
       ctx.beginPath();
       if (stroke.shape === 'line' || stroke.shape === 'arrow') {
         ctx.moveTo(a.x, a.y);
@@ -446,8 +494,7 @@ function drawStroke(ctx, stroke) {
 // memory. One screen-sized canvas with the origin shifted to the page's corner
 // draws the same picture and costs the same however far in you go.
 function redraw() {
-  const box = pageBox();
-  if (!ink || !box) return;
+  if (!ink || !pageBox()) return;
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
   const h = window.innerHeight;
@@ -462,14 +509,11 @@ function redraw() {
   const ctx = ink.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
-  ctx.save();
-  ctx.translate(box.left, box.top);
   for (const stroke of strokes) {
     if (hidden.has(stroke.layer ?? 0)) continue;
     drawStroke(ctx, stroke);
   }
   if (drawing) drawStroke(ctx, drawing);
-  ctx.restore();
 }
 
 // Rubbing out: a stroke goes if the eraser passes within a finger's width of it.
@@ -503,10 +547,10 @@ function remember(op) {
   refreshHistoryButtons();
 }
 
+// Screen coordinates, all the way through: with two pages up there is no one
+// page to be relative to, and every frame is measured live anyway.
 function pointerPosition(e) {
-  const box = pageBox();
-  if (!box) return null;
-  return { x: e.clientX - box.left, y: e.clientY - box.top };
+  return { x: e.clientX, y: e.clientY };
 }
 
 let erasing = false;
@@ -725,19 +769,40 @@ function showPage(index) {
   // A new page is a new page: it arrives whole, not at whatever corner you had
   // magnified on the last one.
   if (moved && zoom !== 1) { zoom = 1; panX = 0; panY = 0; applyZoom(); }
-  for (const [i, node] of pageEls.entries()) node.hidden = i !== pageIndex;
+  const shown = visiblePages();
+  for (const [i, node] of pageEls.entries()) {
+    node.hidden = !shown.includes(i);
+    const side = shown.length > 1 && shown.includes(i) ? (i === shown[0] ? 'left' : 'right') : '';
+    node.dataset.side = side;
+    // Laid out from here rather than from the stylesheet: the engraver puts
+    // `position: relative` inline on every page container it makes, and an
+    // inline style beats any rule you can write about it.
+    if (side) {
+      node.style.position = 'absolute';
+      node.style.top = '0';
+      node.style.left = side === 'left' ? '0' : '100%';
+      node.style.width = '100%';
+    } else {
+      node.style.position = '';
+      node.style.top = '';
+      node.style.left = '';
+      node.style.width = '';
+    }
+  }
   if (isPaper()) {
-    drawPaperPage(pageIndex).catch(() => {});
-    // The next page, quietly, so a turn is instant.
-    if (pageIndex + 1 < pageEls.length) setTimeout(() => drawPaperPage(pageIndex + 1).catch(() => {}), 120);
+    for (const index of shown) drawPaperPage(index).catch(() => {});
+    // The page after, quietly, so a turn is instant.
+    const ahead = shown.at(-1) + 1;
+    if (ahead < pageEls.length) setTimeout(() => drawPaperPage(ahead).catch(() => {}), 120);
   }
   const count = el('reader-count');
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   redraw();
 }
 
-const nextPage = () => showPage(pageIndex + 1);
-const previousPage = () => showPage(pageIndex - 1);
+const step = () => (spread ? 2 : 1);
+const nextPage = () => showPage(pageIndex + step());
+const previousPage = () => showPage(pageIndex - step());
 
 // --- chrome ------------------------------------------------------------------
 //
@@ -843,8 +908,9 @@ function redo() {
 function onThisPage(stroke) {
   const first = stroke.points[0];
   if (!first) return false;
-  if (first.space === 'page' || first.p !== undefined) return first.p === pageIndex;
-  return bars.get(first.m)?.page === pageIndex;
+  const shown = visiblePages();
+  if (first.space === 'page' || first.p !== undefined) return shown.includes(first.p);
+  return shown.includes(bars.get(first.m)?.page);
 }
 
 function clearPage() {
@@ -933,6 +999,59 @@ function usePreset(index) {
   if (tool !== 'highlighter') brush.a = preset.a;
   if (!tool || tool === 'eraser') setTool('pen');
   refreshBrushUI();
+}
+
+// --- bookmarks ---------------------------------------------------------------
+//
+// A bookmark is a place in the MUSIC, not a page number: on notation it is the
+// first bar of the page you were on, so it still finds the right spot after the
+// music has been re-engraved at another size, on another screen, into another
+// number of pages. On a scan there are no bars, so a page number is all there
+// is and all it can be.
+
+function bookmarksOf() {
+  return score?.bookmarks ?? [];
+}
+
+async function addBookmark() {
+  if (!score) return;
+  const here = isPaper()
+    ? { page: pageIndex }
+    : { bar: firstBarOnPage() ?? 1 };
+  const label = isPaper()
+    ? `page ${pageIndex + 1}`
+    : `bar ${here.bar}`;
+  const list = [...bookmarksOf(), { ...here, label }];
+  score.bookmarks = list;
+  await saveBookmarks(score.id, list).catch(() => {});
+}
+
+function goToBookmark(mark) {
+  if (mark.page !== undefined) { showPage(mark.page); return; }
+  const page = bars.get(mark.bar)?.page;
+  if (page !== undefined) showPage(page);
+}
+
+async function dropBookmark(mark) {
+  const list = bookmarksOf().filter((m) => m !== mark);
+  score.bookmarks = list;
+  await saveBookmarks(score.id, list).catch(() => {});
+}
+
+function openBookmarks() {
+  const rows = bookmarksOf().map((mark) => ({
+    label: mark.label,
+    onPick: () => goToBookmark(mark),
+  }));
+  rows.push({ label: '＋ Mark this page', onPick: () => addBookmark() });
+  if (bookmarksOf().length) {
+    rows.push({
+      label: 'Forget the last one',
+      danger: true,
+      onPick: () => dropBookmark(bookmarksOf().at(-1)),
+    });
+  }
+  actionMenu(el('reader-menu-btn'), rows);
 }
 
 // --- the menu ----------------------------------------------------------------
@@ -1030,6 +1149,22 @@ function buildMenu(sheet) {
         ? 'takes of this piece are read against it'
         : 'so takes can be marked up on it',
       onPick: chooseNotation,
+    });
+  }
+  menuGroup(sheet, 'places');
+  menuRow(sheet, {
+    label: 'Bookmarks', glyph: '⚑',
+    detail: bookmarksOf().length
+      ? bookmarksOf().map((m) => m.label).join(' · ').slice(0, 44)
+      : 'mark where you keep stopping',
+    onPick: openBookmarks,
+  });
+  if (!isPaper()) {
+    menuRow(sheet, {
+      label: spread ? 'One page at a time' : 'Two pages side by side',
+      glyph: '▥',
+      detail: spread ? 'the way a phone reads' : 'the way a tablet on a stand reads',
+      onPick: toggleSpread,
     });
   }
   menuGroup(sheet, 'this file');
@@ -1136,6 +1271,15 @@ async function chooseNotation() {
     });
   }
   actionMenu(el('reader-menu-btn'), rows);
+}
+
+async function toggleSpread() {
+  spread = !spread;
+  try { globalThis.localStorage?.setItem(SPREAD_KEY, spread ? 'on' : 'off'); } catch { /* fine */ }
+  root.classList.toggle('spread', spread);
+  const bar = firstBarOnPage();
+  await render();
+  showPage(bars.get(bar)?.page ?? 0);
 }
 
 // --- painting the take over the page -----------------------------------------
@@ -1366,6 +1510,8 @@ function relayout() {
   relayoutTimer = setTimeout(async () => {
     if (root.hidden || !score) return;
     const wasOn = pageIndex;
+    spread = wantsSpread();
+    root.classList.toggle('spread', spread);
     drawn.clear();
     await render();
     showPage(Math.min(wasOn, pageEls.length - 1));
@@ -1378,7 +1524,8 @@ function pageFormat() {
   const space = staffPx();
   // A floor on the width: past a point the page is narrower than a single bar
   // and the engraver has nowhere to put the music.
-  const width = Math.max(24, window.innerWidth / space);
+  const across = spread ? window.innerWidth / 2 : window.innerWidth;
+  const width = Math.max(24, across / space);
   // A whisker under the screen's own proportions — the engraver rounds a page
   // up to whole staff spaces, and a page a few pixels taller than the screen is
   // a page with the bottom line of the last system cut off.
@@ -1428,7 +1575,7 @@ async function drawPaperPage(index) {
   const node = pageEls[index];
   if (!paper || !node || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
-  await paper.draw(index, canvas, window.innerWidth, window.innerHeight);
+  await paper.draw(index, canvas, window.innerWidth / (spread ? 2 : 1), window.innerHeight);
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
 }
@@ -1547,6 +1694,8 @@ export async function openReader(row, { take: analysed = null } = {}) {
   redoable = [];
   layer = 0;
   hidden = new Set();
+  spread = wantsSpread();
+  root.classList.toggle('spread', spread);
   painted = false;
   menuOpen = false;
   pageIndex = 0;

@@ -995,6 +995,14 @@
     html[data-reading] nav[role="tablist"] { display: none; }
     #reader-sheet { position: absolute; inset: 0; }
     #reader-sheet .score-page { width: 100%; }
+    /* Two pages side by side: each engraved to half the screen, laid out as a
+       spread. The gutter is the app's background showing through, which is what
+       the gap between two pages of a book looks like anyway. */
+    /* Positioned, so the two page containers inside it measure their 100%
+       against the half-screen page and not against the whole sheet. */
+    #reader.spread #reader-sheet .score-page { position: relative; width: 50%; }
+    /* The two pages are placed from reader.js — the engraver writes an inline
+       position on its page containers, and inline beats any rule here. */
     /* A photographed or printed page: centred on the screen, at its own shape,
        never stretched to fill one it does not have. */
     .reader-paper {
