@@ -16,9 +16,9 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
-const VERSION = 7;
+const VERSION = 8;
 const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores',
-  'annotations'];
+  'annotations', 'score-pages'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -46,6 +46,13 @@ function createStores(db) {
   // never carries the megabyte of MusicXML with it.
   if (!db.objectStoreNames.contains('annotations')) {
     db.createObjectStore('annotations', { keyPath: 'scoreId' });
+  }
+  // A scanned or downloaded part: the PDF's bytes, or one image per page.
+  // Split off the listing the same way audio is split off a recording — the
+  // shelf reads every score on every refresh and must not drag megabytes of
+  // paper through memory to draw a list of names.
+  if (!db.objectStoreNames.contains('score-pages')) {
+    db.createObjectStore('score-pages', { keyPath: 'scoreId' });
   }
 }
 
@@ -121,10 +128,57 @@ export async function saveScore({ name, xml, partIndex = 0, parts = [] }) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('scores', 'readwrite');
-    const req = tx.objectStore('scores').add({ name, xml, partIndex, parts, date: Date.now() });
+    const req = tx.objectStore('scores')
+      .add({ name, xml, partIndex, parts, kind: 'engraved', date: Date.now() });
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+// A score that is PAPER rather than notation: a PDF, or a page per photograph.
+// It can be read, paged through and written on; it cannot be marked up against
+// a take, because nothing in a picture of a page says which note is which.
+export async function savePagesScore({ name, source, pageCount, data = null, pages = null }) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['scores', 'score-pages'], 'readwrite');
+    const req = tx.objectStore('scores').add({
+      name, kind: 'pages', source, pageCount, date: Date.now(),
+    });
+    req.onsuccess = () => {
+      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages });
+    };
+    tx.oncomplete = () => resolve(req.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+export async function renameScore(id, name) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      row.name = String(name ?? '').trim() || row.name;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+export async function loadScorePages(scoreId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('score-pages', 'readonly').objectStore('score-pages').get(scoreId);
+    req.onsuccess = () => resolve(req.result ?? null);
+    req.onerror = () => reject(req.error);
   });
 }
 
@@ -153,9 +207,10 @@ export async function loadScore(id) {
 export async function deleteScore(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    // The ink goes with the paper it was written on.
-    const tx = db.transaction(['scores', 'annotations'], 'readwrite');
+    // The ink goes with the paper it was written on, and so does the paper.
+    const tx = db.transaction(['scores', 'annotations', 'score-pages'], 'readwrite');
     tx.objectStore('annotations').delete(id);
+    tx.objectStore('score-pages').delete(id);
     tx.objectStore('scores').delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);

@@ -947,9 +947,13 @@ function scoreRow(score, takes) {
   name.textContent = score.name;
   const sub = document.createElement('span');
   sub.className = 'lib-sub';
-  sub.textContent = takes === 0
-    ? 'no takes yet'
-    : `${takes} ${takes === 1 ? 'take' : 'takes'}`;
+  const paper = score.kind === 'pages';
+  sub.textContent = paper
+    ? `${score.pageCount ?? '?'} ${score.pageCount === 1 ? 'page' : 'pages'}`
+      + (score.source === 'photos' ? ' · scanned' : ' · PDF')
+    : takes === 0
+      ? 'no takes yet'
+      : `${takes} ${takes === 1 ? 'take' : 'takes'}`;
   text.append(name, sub);
   const chev = document.createElement('span');
   chev.className = 'lib-chev';
@@ -960,7 +964,11 @@ function scoreRow(score, takes) {
   // Into the piece, not straight onto the page: a piece is a shelf with the
   // score on it and every take of it underneath, and both are things you might
   // have come here for.
-  open.addEventListener('click', () => { openScore = score.id; refreshScoreTab(); });
+  // Paper has no takes to shelve under it, so the row IS the score: it opens.
+  open.addEventListener('click', () => {
+    if (score.kind === 'pages') openScoreFromLibrary(score.id);
+    else { openScore = score.id; refreshScoreTab(); }
+  });
   li.append(open);
   return li;
 }
@@ -1078,14 +1086,32 @@ async function refreshScoreTab() {
   } catch { /* blocked IndexedDB — the shelf stays empty */ }
 }
 
+// Three ways in, because music arrives in three forms: as notation, as a PDF
+// somebody printed or downloaded, and as the photograph of a page you took
+// because that is what was on the stand.
+document.querySelector('#score-load')?.addEventListener('click', (e) => {
+  actionMenu(e.currentTarget, [
+    {
+      label: 'Music file (MusicXML)…',
+      onPick: () => document.querySelector('#score-file')?.click(),
+    },
+    {
+      label: 'PDF…',
+      onPick: () => document.querySelector('#score-pdf')?.click(),
+    },
+    {
+      label: 'Photograph or scan…',
+      onPick: () => document.querySelector('#score-photos')?.click(),
+    },
+  ]);
+});
+
 scoreBrowserBack?.addEventListener('click', () => { openScore = null; refreshScoreTab(); });
 // Stepping out of a review puts the shelf back up, and the shelf has to be
 // redrawn to carry the way back IN — the take being reviewed is not in the
 // database yet, so nothing else in the list leads to it. (score.js owns the
 // button; this is the list's half of the same press.)
 document.querySelector('#score-review-back')?.addEventListener('click', () => refreshScoreTab());
-document.querySelector('#score-load')?.addEventListener('click',
-  () => document.querySelector('#score-file')?.click());
 
 async function refreshLibrary() {
   try {

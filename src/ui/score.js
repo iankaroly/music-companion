@@ -22,8 +22,9 @@ import {
   syncDockVisibility, borrowPanel, scoreTabIsShowing, initScoreFullScreen,
 } from './score-tab.js';
 import {
-  saveScore, listScores, loadScore, deleteScore, setRecordingScore,
+  saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
 } from '../store/db.js';
+import { isPdf, isImage, nameFromFile, pdfPageCount } from './paper.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
 let view = null;      // the rendered page, if one is up
@@ -91,7 +92,9 @@ export function showTakeReview() {
 async function refreshPicker(selectedId = null) {
   const pick = el('score-pick');
   if (!pick) return;
-  const scores = await listScores();
+  // Only notation: a photograph of a page cannot be lined up with a take, so
+  // offering it here would be offering something the app cannot do.
+  const scores = (await listScores()).filter((score) => score.kind !== 'pages');
   pick.replaceChildren();
   const none = document.createElement('option');
   none.value = NO_SCORE;
@@ -156,7 +159,51 @@ async function chooseScore(id) {
   }
 }
 
+// Paper in: a PDF, or one photograph per page. Nothing is parsed and nothing
+// can be — this is a picture of music, and the app is honest about that: it can
+// be read from, paged through and drawn on, and it is never offered as
+// something to record against.
+async function addPaper(files) {
+  const list = [...files];
+  if (list.length === 0) return null;
+  status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
+  let id = null;
+  if (isPdf(list[0])) {
+    const data = await list[0].arrayBuffer();
+    const pageCount = await pdfPageCount(data);
+    id = await savePagesScore({
+      name: nameFromFile(list[0]), source: 'pdf', pageCount, data,
+    });
+  } else {
+    // Photographs come back in whatever order the picker felt like; by name is
+    // the only order that means anything, and phones name them in sequence.
+    const pages = list
+      .filter(isImage)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+    if (pages.length === 0) throw new Error('those were not pages of music');
+    id = await savePagesScore({
+      name: nameFromFile(pages[0]), source: 'photos', pageCount: pages.length, pages,
+    });
+  }
+  scoreChanged?.();
+  const row = await loadScore(id);
+  status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
+  await readPaperScore(row);
+  return id;
+}
+
+// Paper opens straight into the reader: there is no picking a part, no marking
+// up, nothing to choose. It is a score to play from.
+async function readPaperScore(row) {
+  try {
+    await openReader(row);
+  } catch (err) {
+    status(`could not open that score: ${err.message}`, 'bad');
+  }
+}
+
 async function addFromFile(file) {
+  if (isPdf(file) || isImage(file)) return addPaper([file]);
   status(`reading ${file.name}…`);
   const xml = await readScoreFile(await file.arrayBuffer(), file.name);
   const parsed = parseScore(xml);
@@ -490,6 +537,14 @@ function initTempoPicker() {
 // becomes the chosen one (the next take is marked against it) and the reader
 // opens on it straight away.
 export async function openScoreFromLibrary(id) {
+  const row = await loadScore(id);
+  if (!row) return;
+  // Paper is not notation and must not go through the parser: it has no XML to
+  // parse, no part to choose and no review to open. Straight to the reader.
+  if (row.kind === 'pages') {
+    await readPaperScore(row);
+    return;
+  }
   await selectScore(id);
   await readCurrentScore();
 }
@@ -542,6 +597,19 @@ export function initScoreCard({
       status(`could not read that file: ${err.message}`, 'bad');
     }
   });
+
+  for (const id of ['score-pdf', 'score-photos']) {
+    el(id)?.addEventListener('change', async (e) => {
+      const chosen = [...(e.target.files ?? [])];
+      e.target.value = '';
+      if (chosen.length === 0) return;
+      try {
+        await addPaper(chosen);
+      } catch (err) {
+        status(`could not read that: ${err.message}`, 'bad');
+      }
+    });
+  }
 
   remove.addEventListener('click', async () => {
     if (!current) return;

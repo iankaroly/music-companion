@@ -974,6 +974,15 @@
     html[data-reading] nav[role="tablist"] { display: none; }
     #reader-sheet { position: absolute; inset: 0; }
     #reader-sheet .score-page { width: 100%; }
+    /* A photographed or printed page: centred on the screen, at its own shape,
+       never stretched to fill one it does not have. */
+    .reader-paper {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+    }
+    .reader-paper canvas { display: block; border-radius: 2px; }
     #reader-ink {
       position: fixed;
       pointer-events: none;   /* the page underneath takes the taps */
@@ -2258,6 +2267,23 @@
        is sniffed by its bytes in mxl.js and refused with a reason if it is not
        a score, which is better than a filter that hides the right file. -->
   <input id="score-file" type="file" hidden>
+  <!-- Paper. Two inputs rather than one because the phone offers different
+       things for each: a PDF comes from Files (or from the Files app's own
+       document scanner, which is the nearest thing to a scanner this app can
+       reach without a native plugin), while accept="image/*" is what makes iOS
+       offer the camera and the photo library. -->
+  <dialog id="score-name-dialog">
+    <h2>Name this score</h2>
+    <form method="dialog">
+      <input id="score-name-input" type="text" placeholder="Bach — Prelude" aria-label="Score name">
+      <div class="row">
+        <button value="cancel" class="ctl">Cancel</button>
+        <button value="save" class="ctl primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+  <input id="score-pdf" type="file" accept="application/pdf,.pdf" hidden>
+  <input id="score-photos" type="file" accept="image/*" capture="environment" multiple hidden>
 
   <main id="panes">
     <!-- ================= tuner ================= -->

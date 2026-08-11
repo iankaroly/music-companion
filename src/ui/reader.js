@@ -26,9 +26,12 @@
 // chrome. Pinching, panning and rubber-banding a page of music while trying to
 // read it is the failure mode this whole screen exists to avoid.
 
-import { showScore, indexNoteheads } from './score-view.js';
+import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
-import { loadAnnotations, saveAnnotations } from '../store/db.js';
+import { openPaper } from './paper.js';
+import {
+  loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
+} from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
 //
@@ -118,7 +121,9 @@ function currentBrush() {
 let root = null;      // the whole reader
 let sheet = null;     // where the engraving is mounted
 let ink = null;       // the canvas the marks are drawn on
-let view = null;      // the engraved score
+let view = null;      // the engraved score, when the score IS notation
+let paper = null;     // the pages, when the score is paper
+let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
 let take = null;      // the analysed take on screen, if there is one
 let unfollow = null;  // stop listening to the playhead
@@ -163,9 +168,28 @@ function scheduleSave() {
 
 let bars = new Map();   // bar number → { page, node, system } on the page as drawn
 
-// The page currently on screen.
+// The page currently on screen — an engraved one or a photographed one; the
+// pen, the page turns and the ink layer never ask which.
 function currentPage() {
-  return view?.pages?.[pageIndex] ?? null;
+  return pageEls[pageIndex] ?? null;
+}
+
+// Is this score notation, or is it paper? Everything that reads bars is off
+// limits for paper: a picture of a page knows nothing about where bar 12 is.
+function isPaper() {
+  return !!paper;
+}
+
+// The rectangle the ink belongs to. For engraved music that is the page
+// container, which IS the screen. For paper it is the drawn page itself, which
+// is centred inside the screen with a margin either side — anchoring to the
+// container would put every mark in the wrong place the moment the phone was
+// turned and the margins changed.
+function pageBox() {
+  const node = currentPage();
+  if (!node) return null;
+  const target = isPaper() ? node.querySelector('canvas') : node;
+  return target?.getBoundingClientRect() ?? null;
 }
 
 // Where each bar ended up on the page. Bars are read from the DOM in order —
@@ -227,8 +251,16 @@ function barFrame(bar) {
   };
 }
 
+// The length a stroke width is measured in. On engraved music that is a staff
+// space, which is the same size as the notes it is drawn among. A photograph of
+// a page has no staff space this code can find, so it uses a sixtieth of the
+// page — about a staff space on a printed part, and in any case a constant
+// fraction of the paper, so a pen looks the same on a phone and an iPad.
 function unitScale() {
-  // A representative staff space, for line widths and eraser reach.
+  if (isPaper()) {
+    const box = pageBox();
+    return Math.max(1, (box?.height ?? 600) / 60);
+  }
   for (const [bar, entry] of bars) {
     if (entry.page !== pageIndex) continue;
     const frame = barFrame(bar);
@@ -237,11 +269,30 @@ function unitScale() {
   return 10;
 }
 
+// On paper, a mark is held against the PAGE, as a fraction of its width and
+// height. There is nothing else to hold it against — and nothing needs
+// anything else, because a scanned page never re-flows: it is the same picture
+// at every size, so a mark two thirds of the way across bar 12 stays exactly
+// there whatever the screen does.
+function anchorOnPaper(px, py) {
+  const box = pageBox();
+  if (!box || !box.width || !box.height) return null;
+  return { space: 'page', p: pageIndex, x: px / box.width, y: py / box.height };
+}
+
+function placeOnPaper(point) {
+  if (point.p !== pageIndex) return null;
+  const box = pageBox();
+  if (!box) return null;
+  return { x: point.x * box.width, y: point.y * box.height };
+}
+
 // A point on screen → the bar it is over, plus how far into that bar it sits.
 // Points that land between bars — in the margin, above the first system — take
 // the nearest bar on the page, so a bracket drawn round a system still has
 // something to hold on to.
 function anchor(px, py) {
+  if (isPaper()) return anchorOnPaper(px, py);
   let best = null;
   let bestDistance = Infinity;
   for (const [number, entry] of bars) {
@@ -268,6 +319,7 @@ function anchor(px, py) {
 // …and back again, for drawing. Null when the bar this point belongs to is not
 // on the page being looked at.
 function place(point) {
+  if (point.space === 'page' || point.p !== undefined) return placeOnPaper(point);
   const frame = barFrame(point.m);
   if (!frame) return null;
   return { x: frame.x + point.u * frame.unit, y: frame.y + point.v * frame.unit };
@@ -312,9 +364,8 @@ function drawStroke(ctx, stroke) {
 }
 
 function redraw() {
-  const page = currentPage();
-  if (!ink || !page) return;
-  const box = page.getBoundingClientRect();
+  const box = pageBox();
+  if (!ink || !box) return;
   const dpr = window.devicePixelRatio || 1;
   if (ink.width !== Math.round(box.width * dpr) || ink.height !== Math.round(box.height * dpr)) {
     ink.width = Math.round(box.width * dpr);
@@ -362,7 +413,7 @@ function remember(op) {
 }
 
 function pointerPosition(e) {
-  const box = currentPage()?.getBoundingClientRect();
+  const box = pageBox();
   if (!box) return null;
   return { x: e.clientX - box.left, y: e.clientY - box.top };
 }
@@ -409,11 +460,16 @@ function endStroke() {
 // --- pages -------------------------------------------------------------------
 
 function showPage(index) {
-  if (!view?.pages?.length) return;
-  pageIndex = Math.max(0, Math.min(view.pages.length - 1, index));
-  for (const [i, node] of view.pages.entries()) node.hidden = i !== pageIndex;
+  if (!pageEls.length) return;
+  pageIndex = Math.max(0, Math.min(pageEls.length - 1, index));
+  for (const [i, node] of pageEls.entries()) node.hidden = i !== pageIndex;
+  if (isPaper()) {
+    drawPaperPage(pageIndex).catch(() => {});
+    // The next page, quietly, so a turn is instant.
+    if (pageIndex + 1 < pageEls.length) setTimeout(() => drawPaperPage(pageIndex + 1).catch(() => {}), 120);
+  }
   const count = el('reader-count');
-  if (count) count.textContent = `p. ${pageIndex + 1} of ${view.pages.length}`;
+  if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   redraw();
 }
 
@@ -484,11 +540,15 @@ function redo() {
   scheduleSave();
 }
 
+function onThisPage(stroke) {
+  const first = stroke.points[0];
+  if (!first) return false;
+  if (first.space === 'page' || first.p !== undefined) return first.p === pageIndex;
+  return bars.get(first.m)?.page === pageIndex;
+}
+
 function clearPage() {
-  const gone = strokes.filter((stroke) => {
-    const entry = bars.get(stroke.points[0]?.m);
-    return entry && entry.page === pageIndex;
-  });
+  const gone = strokes.filter(onThisPage);
   if (!gone.length) return;
   strokes = strokes.filter((stroke) => !gone.includes(stroke));
   remember({ type: 'erase', strokes: gone });
@@ -630,7 +690,7 @@ function buildMenu(sheet) {
     label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
     onPick: clearPage,
   });
-  if (take?.aligned) {
+  if (take?.aligned && !isPaper()) {
     menuGroup(sheet, 'this take');
     menuRow(sheet, {
       label: painted ? 'Hide what you played' : 'Show what you played',
@@ -644,16 +704,75 @@ function buildMenu(sheet) {
       onPick: togglePlayback,
     });
   }
-  menuGroup(sheet, 'reading');
+  if (!isPaper()) {
+    menuGroup(sheet, 'reading');
+    menuRow(sheet, {
+      label: 'Bigger', glyph: '+', detail: 'larger notes, more pages',
+      onPick: () => resize(ZOOM_STEP),
+    });
+    menuRow(sheet, {
+      label: 'Smaller', glyph: '−', detail: 'more music to a page',
+      onPick: () => resize(1 / ZOOM_STEP),
+    });
+  }
+  menuGroup(sheet, 'this file');
   menuRow(sheet, {
-    label: 'Bigger', glyph: '+', detail: 'larger notes, more pages',
-    onPick: () => resize(ZOOM_STEP),
+    label: 'Rename…', glyph: 'Aa', detail: score?.name ?? '',
+    onPick: renameThisScore,
   });
   menuRow(sheet, {
-    label: 'Smaller', glyph: '−', detail: 'more music to a page',
-    onPick: () => resize(1 / ZOOM_STEP),
+    label: 'Delete this score', glyph: '␡', danger: true,
+    detail: 'the pages and everything written on them',
+    onPick: deleteThisScore,
   });
   menuRow(sheet, { label: 'Close the score', glyph: '✕', onPick: close });
+}
+
+// Naming and unnaming. A scan arrives called whatever the camera called it, so
+// renaming is not a nicety here — it is how a shelf of photographs becomes a
+// shelf of pieces.
+function renameThisScore() {
+  const dialog = document.querySelector('#score-name-dialog');
+  const input = document.querySelector('#score-name-input');
+  if (!dialog || !input || !score) return;
+  input.value = score.name ?? '';
+  const done = async () => {
+    dialog.removeEventListener('close', done);
+    if (dialog.returnValue !== 'save') return;
+    const name = input.value.trim();
+    if (!name) return;
+    await renameScore(score.id, name).catch(() => {});
+    score.name = name;
+    const title = el('reader-title');
+    if (title) title.textContent = name;
+    announceLibraryChanged();
+  };
+  dialog.addEventListener('close', done);
+  dialog.showModal();
+}
+
+// Two taps, no dialog: the first turns the row into the warning. Same shape the
+// settings sheet uses for restoring defaults.
+let armedDelete = false;
+async function deleteThisScore() {
+  if (!score) return;
+  if (!armedDelete) {
+    armedDelete = true;
+    setTimeout(() => { armedDelete = false; }, 5000);
+    toggleMenu();                 // reopen, so the row can say it out loud
+    const sheet = el('reader-menu');
+    const row = [...sheet.querySelectorAll('.reader-menu-row')].find((r) => r.classList.contains('danger'));
+    if (row) row.querySelector('b').textContent = 'Tap again to delete it';
+    return;
+  }
+  const id = score.id;
+  close();
+  await deleteScore(id).catch(() => {});
+  announceLibraryChanged();
+}
+
+function announceLibraryChanged() {
+  document.dispatchEvent(new CustomEvent('settings-change', { detail: { key: 'library' } }));
 }
 
 // --- painting the take over the page -----------------------------------------
@@ -664,7 +783,6 @@ async function togglePainted() {
   if (!take?.aligned || !view) return;
   painted = !painted;
   if (painted) {
-    const { paint } = await import('./score-view.js');
     paint(view, { aligned: take.aligned, timing: take.timing, landings: take.landings });
   } else {
     await engrave();     // the only way back to un-coloured noteheads
@@ -853,7 +971,7 @@ function build() {
 // coming back to "page 3 of a different pagination" is coming back to the wrong
 // music.
 async function resize(factor) {
-  if (!score) return;
+  if (!score || isPaper()) return; // paper is one size: the size of the page
   const anchorBar = firstBarOnPage();
   setReadingZoom(readingZoom() * factor);
   await engrave();
@@ -879,8 +997,9 @@ function relayout() {
   relayoutTimer = setTimeout(async () => {
     if (root.hidden || !score) return;
     const wasOn = pageIndex;
-    await engrave();
-    showPage(Math.min(wasOn, (view?.pages?.length ?? 1) - 1));
+    drawn.clear();
+    await render();
+    showPage(Math.min(wasOn, pageEls.length - 1));
   }, 200);
 }
 
@@ -896,6 +1015,53 @@ function pageFormat() {
   // a page with the bottom line of the last system cut off.
   const height = (window.innerHeight / space) * 0.985;
   return { width, height, zoom: space / PHONE_STAFF_PX };
+}
+
+// One door, two kinds of score behind it.
+async function render() {
+  if (score.kind === 'pages') return layOutPaper();
+  return engrave();
+}
+
+// Paper: a container per page with a canvas in it, drawn to fit the screen the
+// first time it is looked at and again whenever the screen changes shape.
+// Nothing is scaled by CSS — every page is rendered at the device's own pixels,
+// because a photograph of a page stretched by a browser is exactly the blurry
+// mess this app tells people it isn't.
+async function layOutPaper() {
+  const payload = await loadScorePages(score.id);
+  paper?.destroy?.();
+  paper = await openPaper(payload);
+  view = null;
+  bars = new Map();
+  sheet.replaceChildren();
+  pageEls = [];
+  for (let i = 0; i < paper.count; i++) {
+    const node = document.createElement('div');
+    node.className = 'osmd-page reader-paper';
+    node.dataset.page = String(i);
+    const canvas = document.createElement('canvas');
+    node.append(canvas);
+    const layer = document.createElement('div');
+    layer.className = 'score-overlay';
+    layer.setAttribute('aria-hidden', 'true');
+    node.append(layer);
+    sheet.append(node);
+    pageEls.push(node);
+  }
+  await drawPaperPage(pageIndex);
+  return null;
+}
+
+const drawn = new Set();
+
+async function drawPaperPage(index) {
+  const node = pageEls[index];
+  if (!paper || !node || drawn.has(index)) return;
+  const canvas = node.querySelector('canvas');
+  await paper.draw(index, canvas, window.innerWidth, window.innerHeight);
+  drawn.add(index);
+  redraw(); // the ink layer measures the page it has just been given a size for
 }
 
 async function engrave() {
@@ -914,6 +1080,7 @@ async function engrave() {
     autoRelayout: false,
   });
   bars = indexBars();
+  pageEls = view.pages;
   // NOT painted. You open a score to play from it, and a page of red and green
   // noteheads is a report on last Tuesday — it belongs in the review, which is
   // where it stays. What the take is for here is the light that follows the
@@ -925,7 +1092,6 @@ async function engrave() {
     // asked for, they are asked for again. Rotating the iPad is not a request
     // to stop showing what you played.
     if (painted) {
-      const { paint } = await import('./score-view.js');
       paint(view, { aligned: take.aligned, timing: take.timing, landings: take.landings });
     }
   }
@@ -1001,7 +1167,9 @@ function refreshPlayButton() {
 // row: the score, with its parsed notes. take: the analysed take on screen, if
 // there is one — used to light the notes as they play, not to colour the page.
 export async function openReader(row, { take: analysed = null } = {}) {
-  if (!row?.xml) return null;
+  // Notation needs its XML; paper needs nothing but the row, because its pages
+  // live in a store of their own.
+  if (!row || (row.kind !== 'pages' && !row.xml)) return null;
   build();
   score = row;
   take = analysed;
@@ -1018,7 +1186,8 @@ export async function openReader(row, { take: analysed = null } = {}) {
   document.documentElement.dataset.reading = 'yes';
   el('reader-title').textContent = row.name ?? '';
   try {
-    await engrave();
+    drawn.clear();
+    await render();
   } catch (err) {
     close();
     throw err;
@@ -1044,6 +1213,11 @@ export function close() {
   clearSounding();
   view?.destroy?.();
   view = null;
+  paper?.destroy?.();
+  paper = null;
+  pageEls = [];
+  drawn.clear();
+  sheet.replaceChildren();
   score = null;
   take = null;
   strokes = [];

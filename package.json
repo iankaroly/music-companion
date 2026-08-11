@@ -23,6 +23,7 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "opensheetmusicdisplay": "^2.1.2"
+    "opensheetmusicdisplay": "^2.1.2",
+    "pdfjs-dist": "^6.2.108"
   }
 }
