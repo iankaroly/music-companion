@@ -954,11 +954,9 @@
        already wears, so the verdict is not painted over to show the playhead.
        A fill change would have to be undone note by note and would fight the
        engraver for the same attribute. */
-    #score-stage .sounding {
+    /* Both places the music is drawn: the panel and the reader. */
+    #score-stage .sounding, #reader .sounding {
       filter: drop-shadow(0 0 3px var(--primary)) drop-shadow(0 0 7px var(--primary));
-    }
-    @media (prefers-reduced-motion: reduce) {
-      #score-stage { scroll-behavior: auto; }
     }
     /* --- the reader: the part, full screen, to play from ------------------ */
     /* Everything here is fixed to the screen and nothing scrolls. A page turn
@@ -1062,15 +1060,17 @@
       line-height: 1;
     }
     #score-save-bar { margin-top: 1.1rem; }
-    #score-empty { text-align: center; }
-    #score-empty p { margin: 0 0 0.5rem; }
-    #score-empty .row { justify-content: center; margin-top: 0.9rem; }
-    #library-scores { margin-top: 1.6rem; }
-    #library-scores-head {
-      font-family: var(--display); font-weight: 600; font-size: 0.95rem;
-      color: var(--muted); padding: 0 0.2rem 0.5rem;
+    #score-list-empty { display: none; }
+    #score-review-head { justify-content: flex-start; margin-bottom: 0.8rem; }
+    #score-review-title {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.95rem;
+      color: var(--ink);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
-    #score-library-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
     .passage-row {
       display: flex;
       align-items: center;
@@ -1577,14 +1577,14 @@
 
     /* ---- library ---- */
     #library { margin: 0 auto; text-align: center; width: min(34rem, 100%); }
-    #library-head {
+    #library-head, #score-browser-head {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       margin-bottom: 0.7rem;
       text-align: left;
     }
-    #library-title {
+    #library-title, #score-browser-title {
       flex: 1;
       min-width: 0;
       font-family: var(--display);
@@ -1594,7 +1594,7 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    #library-head button {
+    #library-head button, #score-browser-head button {
       font-family: var(--display);
       font-size: 0.8rem;
       font-weight: 500;
@@ -1607,18 +1607,18 @@
       white-space: nowrap;
       transition: transform 260ms var(--spring), background 150ms;
     }
-    #library-head button:hover { background: var(--fill-2); color: var(--primary); }
-    #library-head button:active { transform: scale(0.93); }
+    #library-head button:hover, #score-browser-head button:hover { background: var(--fill-2); color: var(--primary); }
+    #library-head button:active, #score-browser-head button:active { transform: scale(0.93); }
     .lib-folder { color: var(--primary); flex: none; display: grid; place-items: center; }
     .lib-folder svg { width: 1.35rem; height: 1.35rem; display: block; }
-    #library-empty {
+    #library-empty, #score-list-empty {
       color: var(--muted);
       font-family: var(--display);
       font-weight: 500;
       font-size: 0.9rem;
       padding: 2.4rem 1rem;
     }
-    #library-list { list-style: none; padding: 0; display: grid; gap: 0.55rem; }
+    #library-list, #score-list { list-style: none; padding: 0; display: grid; gap: 0.55rem; }
     /* The name is what you scan a library by, so it gets the whole row and a
        real type size; the row itself is the Open button and everything else
        lives behind ⋯. */
@@ -2352,10 +2352,6 @@
         </div>
         <ul id="library-list"></ul>
         <div id="library-empty">Nothing here yet — record a take and save it 🎶</div>
-        <div id="library-scores">
-          <div id="library-scores-head">Scores</div>
-          <ul id="score-library-list"></ul>
-        </div>
       </div>
     </section>
 
@@ -2370,15 +2366,25 @@
            from HERE used to be explained to an element on a screen the player
            was not looking at. -->
       <p id="score-tab-hint" class="hint"></p>
-      <div class="card" id="score-empty">
-        <p>No score open.</p>
-        <p class="hint">Load a MusicXML or .mxl part — export one from MuseScore, or download it from IMSLP — then record, and your playing is marked onto it.</p>
-        <div class="row score-row">
-          <button id="score-empty-load" class="ctl primary" type="button">Load a score…</button>
-          <button id="score-empty-library" class="ctl" type="button">Open one from the library</button>
+      <!-- The shelf. Pieces at the top level; inside a piece, the score itself
+           and every take of it. This is where music lives in the app now — the
+           library keeps takes and folders, and stopped keeping a second, worse
+           list of pieces underneath them. -->
+      <div id="score-browser">
+        <div id="score-browser-head">
+          <button id="score-browser-back" type="button" hidden>← Scores</button>
+          <span id="score-browser-title">Scores</span>
+          <button id="score-load" class="ctl" type="button">＋ Score</button>
         </div>
+        <ul id="score-list"></ul>
+        <div id="score-list-empty">No scores yet. Load a MusicXML or .mxl part — export
+        one from MuseScore, or download it from IMSLP — and it will open here to play from.</div>
       </div>
       <div class="card" id="score-review" hidden>
+        <div class="row score-row" id="score-review-head">
+          <button id="score-review-back" class="ctl" type="button">← Scores</button>
+          <span id="score-review-title"></span>
+        </div>
         <div class="row score-row" id="score-tempo-row">
           <span class="mini-label">tempo</span>
           <!-- Two rows only: no tempo, and the one you typed. A list of

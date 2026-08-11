@@ -23,14 +23,18 @@ const el = (id) => document.querySelector(`#${id}`);
 
 // --- the tab button appears with the score ---------------------------------
 
-// The tab is always in the dock, so the panel must always have something to
-// say. With no score open it shows how to open one; with a score open it shows
-// the review.
+// The tab holds two things and shows one of them: the shelf of pieces, or the
+// review of a take read against the music. A review arriving takes the screen;
+// leaving it (the ← on the review, or closing the piece) gives the shelf back.
 export function showReviewCard(hasReview) {
   const review = el('score-review');
-  const empty = el('score-empty');
+  const browser = el('score-browser');
   if (review) review.hidden = !hasReview;
-  if (empty) empty.hidden = hasReview;
+  if (browser) browser.hidden = hasReview;
+}
+
+export function showBrowser() {
+  showReviewCard(false);
 }
 
 // --- borrowing the playback panel ------------------------------------------

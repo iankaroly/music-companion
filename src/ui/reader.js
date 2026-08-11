@@ -26,35 +26,58 @@
 // chrome. Pinching, panning and rubber-banding a page of music while trying to
 // read it is the failure mode this whole screen exists to avoid.
 
-import { showScore, paint } from './score-view.js';
+import { showScore, indexNoteheads } from './score-view.js';
+import { followPlayback } from './report.js';
 import { loadAnnotations, saveAnnotations } from '../store/db.js';
 
-// px per engraver unit — the one number that decides how big the music looks.
-// It is a reading size, not a fitting size: the page is as many units across as
-// the screen has room for at this scale, so raising it puts fewer bars on a
-// line and makes every one of them bigger.
+// How big the music is drawn, as the height of one staff space in pixels.
 //
-// It is a preference, because how big music needs to be is a fact about the
-// player and the stand, not about the phone: on the stand at arm's length you
-// want it large and turn more pages, at a desk you want the whole passage.
-// This is the app's one deliberate zoom, and it re-engraves rather than
-// magnifying — the notes get bigger, they do not get blurrier, and the page
-// still fits the screen exactly.
-const SIZE_KEY = 'readerScale';
-const SIZE_MIN = 3.6;
-const SIZE_MAX = 9;
-const SIZE_STEP = 0.9;
+// That is the number a player actually cares about — it is the size of a
+// notehead and the gap between two lines — and it is the one the engraver
+// thinks in too: OpenSheetMusicDisplay lays out at ten pixels to a staff space
+// and scales the lot by osmd.zoom, so a staff space of 15px is simply zoom 1.5.
+// The page is then asked for in staff spaces as well, which is what makes a
+// page exactly fill the screen at any size: as many spaces across as the screen
+// has room for.
+//
+// The starting size is a fact about the SCREEN, not a constant. Ten pixels is
+// right on a phone; the same ten on an iPad would be phone-sized music with
+// thirteen bars to a line, which is the opposite of what a big screen is for.
+// It grows with the screen's short edge — by its square root, because an iPad's
+// short edge is two and a half times a phone's and music two and a half times
+// the size would be four bars to a page. Bigger, and more of it.
+//
+// What is remembered is a multiplier on top of that, so a phone and an iPad
+// each start out right and the ± moves them from there. This is the app's one
+// deliberate zoom, and it re-engraves rather than magnifying: the notes get
+// bigger, they do not get blurrier, and the page still fits the screen exactly.
+const SIZE_KEY = 'readerZoom';
+const PHONE_EDGE = 414;      // the short edge this was drawn against
+const PHONE_STAFF_PX = 10;   // what the engraver draws at zoom 1
+const ZOOM_MIN = 0.6;
+const ZOOM_MAX = 2.4;
+const ZOOM_STEP = 1.18;
 
-function readingSize() {
-  const stored = Number(globalThis.localStorage?.getItem(SIZE_KEY));
-  if (!Number.isFinite(stored) || stored <= 0) return 5;
-  return Math.min(SIZE_MAX, Math.max(SIZE_MIN, stored));
+function baseStaffPx() {
+  const short = Math.min(window.innerWidth, window.innerHeight) || PHONE_EDGE;
+  return PHONE_STAFF_PX * Math.sqrt(short / PHONE_EDGE);
 }
 
-function setReadingSize(next) {
-  const size = Math.min(SIZE_MAX, Math.max(SIZE_MIN, next));
-  try { globalThis.localStorage?.setItem(SIZE_KEY, String(size)); } catch { /* survivable */ }
-  return size;
+function readingZoom() {
+  const stored = Number(globalThis.localStorage?.getItem(SIZE_KEY));
+  if (!Number.isFinite(stored) || stored <= 0) return 1;
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, stored));
+}
+
+function setReadingZoom(next) {
+  const zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
+  try { globalThis.localStorage?.setItem(SIZE_KEY, String(zoom)); } catch { /* survivable */ }
+  return zoom;
+}
+
+// One staff space, in pixels, at the size being read.
+function staffPx() {
+  return baseStaffPx() * readingZoom();
 }
 
 const PEN_COLOURS = [
@@ -73,7 +96,9 @@ let sheet = null;     // where the engraving is mounted
 let ink = null;       // the canvas the marks are drawn on
 let view = null;      // the engraved score
 let score = null;     // { id, name, xml, partIndex }
-let marks = null;     // an analysed take to paint over the page, if there is one
+let take = null;      // the analysed take on screen, if there is one
+let unfollow = null;  // stop listening to the playhead
+let sounding = null;  // the notehead lit right now
 let strokes = [];     // every mark on this piece
 let pageIndex = 0;
 let tool = null;      // null = reading; 'pen' | 'highlighter' | 'eraser'
@@ -443,12 +468,15 @@ function build() {
     ...PEN_COLOURS.map(swatch),
     actionButton('reader-undo', '↺', 'Undo the last mark', undo),
     actionButton('reader-clear', '⌧', 'Clear this page', clearPage),
-    actionButton('reader-smaller', '−', 'Smaller music, fewer pages', () => resize(-SIZE_STEP)),
-    actionButton('reader-bigger', '+', 'Bigger music, more pages', () => resize(SIZE_STEP)),
+    actionButton('reader-smaller', '−', 'Smaller music, fewer pages', () => resize(1 / ZOOM_STEP)),
+    actionButton('reader-bigger', '+', 'Bigger music, more pages', () => resize(ZOOM_STEP)),
   );
+  const play = actionButton('reader-play', '▶', 'Play the take', togglePlayback);
+  play.id = 'reader-play';
   bar.append(
     actionButton('reader-close', '✕', 'Close the score', close),
     title,
+    play,
     tools,
     count,
   );
@@ -497,10 +525,10 @@ function build() {
 // number: a re-engraving at another size puts it on a different page, and
 // coming back to "page 3 of a different pagination" is coming back to the wrong
 // music.
-async function resize(step) {
+async function resize(factor) {
   if (!score) return;
   const anchorBar = firstBarOnPage();
-  setReadingSize(readingSize() + step);
+  setReadingZoom(readingZoom() * factor);
   await engrave();
   showPage(bars.get(anchorBar)?.page ?? 0);
 }
@@ -529,44 +557,115 @@ function relayout() {
   }, 200);
 }
 
+// The page, in staff spaces, and the engraver zoom that turns those back into
+// exactly one screenful of pixels.
 function pageFormat() {
-  const width = window.innerWidth;
-  const height = window.innerHeight;
-  // A floor on the units across: past a point the page is narrower than one bar
+  const space = staffPx();
+  // A floor on the width: past a point the page is narrower than a single bar
   // and the engraver has nowhere to put the music.
-  const units = Math.max(48, width / readingSize());
-  // A whisker under the screen's own proportions. The engraver rounds a page up
-  // to whole staff spaces, and a page a few pixels taller than the screen is a
-  // page with the bottom line of the last system cut off.
-  return { width: units, height: units * (height / width) * 0.985 };
+  const width = Math.max(24, window.innerWidth / space);
+  // A whisker under the screen's own proportions — the engraver rounds a page
+  // up to whole staff spaces, and a page a few pixels taller than the screen is
+  // a page with the bottom line of the last system cut off.
+  const height = (window.innerHeight / space) * 0.985;
+  return { width, height, zoom: space / PHONE_STAFF_PX };
 }
 
 async function engrave() {
+  const page = pageFormat();
   view = await showScore(sheet, {
+    // The notes are always handed over, even with no take loaded: they are how
+    // a notehead is found again when something needs to be lit, and finding it
+    // is not the same as colouring it.
     xml: score.xml,
-    scoreNotes: marks?.scoreNotes ?? [],
+    scoreNotes: score.notes ?? [],
     partIndex: score.partIndex ?? 0,
-    pageFormat: pageFormat(),
+    pageFormat: page,
+    zoom: page.zoom,
     // The reader re-engraves on rotation itself, at the new page shape; the
     // view's own resize handler would re-render at the old one underneath it.
     autoRelayout: false,
   });
   bars = indexBars();
-  // A take read against this score comes with it, so the marked-up page can be
-  // read full screen too rather than only in the panel.
-  if (marks?.aligned) {
-    paint(view, { aligned: marks.aligned, timing: marks.timing, landings: marks.landings });
+  // NOT painted. You open a score to play from it, and a page of red and green
+  // noteheads is a report on last Tuesday — it belongs in the review, which is
+  // where it stays. What the take is for here is the light that follows the
+  // playback from note to note.
+  if (take?.aligned) {
+    indexNoteheads(view, take.aligned);
+    followTake();
   }
   return view;
 }
 
+// --- the light that follows the playback -------------------------------------
+//
+// The one thing the score can do that a graph cannot: while a take plays, the
+// note being heard is lit on the page. Pages turn themselves to keep up, so a
+// four-page piece plays through without a finger on the screen.
+
+function clearSounding() {
+  sounding?.classList.remove('sounding');
+  sounding = null;
+}
+
+function followTake() {
+  unfollow?.();
+  clearSounding();
+  unfollow = followPlayback((note) => {
+    refreshPlayButton();
+    const next = note && view?.noteheadFor ? view.noteheadFor(note) : null;
+    if (next === sounding) return;
+    clearSounding();
+    if (!next) return;
+    sounding = next;
+    next.classList.add('sounding');
+    const page = Number(next.closest('.osmd-page')?.dataset.page ?? -1);
+    if (page >= 0 && page !== pageIndex) showPage(page);
+  });
+}
+
+// --- playing the take from here ---------------------------------------------
+//
+// There is exactly one playback engine in the app (report.js) and one set of
+// transport controls, which live on the review. Rather than build a second
+// engine that would fight it for the same audio, the reader presses the same
+// button: the take plays, the review's own controls move in step, and the light
+// on the page follows.
+
+function transportButton() {
+  return document.querySelector('#clip-play');
+}
+
+function togglePlayback() {
+  const button = transportButton();
+  if (!button) return;
+  button.click();
+  // The engine flips the label; borrow it a moment later so this button agrees.
+  setTimeout(refreshPlayButton, 60);
+}
+
+function refreshPlayButton() {
+  const mine = el('reader-play');
+  if (!mine) return;
+  const theirs = transportButton();
+  const playable = !!take && !!theirs && !document.querySelector('#playback')?.hidden;
+  mine.hidden = !playable;
+  if (!playable) return;
+  const playing = (theirs.textContent ?? '').trim() !== '▶';
+  mine.textContent = playing ? '❚❚' : '▶';
+  mine.setAttribute('aria-label', playing ? 'Pause the take' : 'Play the take');
+}
+
 // --- the door ----------------------------------------------------------------
 
-export async function openReader(row, { marks: takeMarks = null } = {}) {
+// row: the score, with its parsed notes. take: the analysed take on screen, if
+// there is one — used to light the notes as they play, not to colour the page.
+export async function openReader(row, { take: analysed = null } = {}) {
   if (!row?.xml) return null;
   build();
   score = row;
-  marks = takeMarks;
+  take = analysed;
   strokes = await loadAnnotations(row.id).catch(() => []);
   pageIndex = 0;
   tool = null;
@@ -584,6 +683,7 @@ export async function openReader(row, { marks: takeMarks = null } = {}) {
   setColour(colour, { pickUpPen: false });
   setTool(null);
   showPage(0);
+  refreshPlayButton();
   return view;
 }
 
@@ -593,10 +693,13 @@ export function close() {
   if (score) saveAnnotations(score.id, strokes).catch(() => {});
   root.hidden = true;
   delete document.documentElement.dataset.reading;
+  unfollow?.();
+  unfollow = null;
+  clearSounding();
   view?.destroy?.();
   view = null;
   score = null;
-  marks = null;
+  take = null;
   strokes = [];
   bars = new Map();
 }

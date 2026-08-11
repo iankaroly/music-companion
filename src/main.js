@@ -687,7 +687,10 @@ function formatDuration(seconds) {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-async function openRecording(r) {
+// from: which tab asked. A take opened from a piece's shelf belongs on the
+// Score tab — you went looking for it under the music, and the music is what
+// you want it read against.
+async function openRecording(r, { from = 'library' } = {}) {
   const data = await loadRecording(r.id);
   if (!data) return;
   clearTake();
@@ -696,7 +699,7 @@ async function openRecording(r) {
   // note and reading times still line up.
   const rec = new Recorder(data.sampleRate ?? r.sampleRate);
   rec.push(data.samples ?? new Float32Array(data.audio));
-  showTab('analyze');
+  showTab(from === 'score' ? 'score' : 'analyze');
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });
@@ -828,7 +831,7 @@ function folderRow(folder, count) {
 
 // One library row: the row itself opens the take, so the name gets the width
 // it deserves and the rarer actions sit behind ⋯.
-function libraryRow(r) {
+function libraryRow(r, { from = 'library' } = {}) {
   const li = document.createElement('li');
   li.className = 'lib-item';
 
@@ -856,7 +859,7 @@ function libraryRow(r) {
   chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
     + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
   open.append(text, chev);
-  open.addEventListener('click', () => openRecording(r));
+  open.addEventListener('click', () => openRecording(r, { from }));
 
   const more = document.createElement('button');
   more.type = 'button';
@@ -953,13 +956,26 @@ function scoreRow(score, takes) {
   chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
     + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
   open.append(icon, text, chev);
-  // Into the piece, not straight onto the page: a piece in the library is a
-  // shelf with the score on it and every take of it underneath, and both are
-  // things you might have come here for.
-  open.addEventListener('click', () => { openScore = score.id; refreshLibrary(); });
+  // Into the piece, not straight onto the page: a piece is a shelf with the
+  // score on it and every take of it underneath, and both are things you might
+  // have come here for.
+  open.addEventListener('click', () => { openScore = score.id; refreshScoreTab(); });
   li.append(open);
   return li;
 }
+
+// --- the score shelf, on the Score tab ---------------------------------------
+//
+// Pieces at the top; open one and you get the score itself and every take of
+// it. This replaces the Scores section that used to sit at the bottom of the
+// library: a piece and its attempts belong on the screen you read music on, not
+// underneath a list of every take you have ever kept.
+
+const scoreBrowser = document.querySelector('#score-browser');
+const scoreList = document.querySelector('#score-list');
+const scoreListEmpty = document.querySelector('#score-list-empty');
+const scoreBrowserBack = document.querySelector('#score-browser-back');
+const scoreBrowserTitle = document.querySelector('#score-browser-title');
 
 // The row at the top of a piece's shelf: the music itself, apart from the takes
 // of it. Reading the part is a different errand from listening back to Tuesday.
@@ -996,56 +1012,68 @@ function openScoreRow(score) {
   return li;
 }
 
-async function refreshScoreLibrary(recordings) {
-  const list = document.querySelector('#score-library-list');
-  const wrap = document.querySelector('#library-scores');
-  if (!list || !wrap) return;
-  const scores = await listScores();
-  scoreNames.clear();
-  for (const s of scores) scoreNames.set(s.id, s.name);
-  const counts = new Map();
-  for (const r of recordings) {
-    if (r.scoreId != null) counts.set(r.scoreId, (counts.get(r.scoreId) ?? 0) + 1);
-  }
-  list.replaceChildren();
-  for (const score of scores) list.append(scoreRow(score, counts.get(score.id) ?? 0));
-  wrap.hidden = scores.length === 0;
+async function refreshScoreTab() {
+  if (!scoreList) return;
+  try {
+    const [scores, recordings] = await Promise.all([listScores(), listRecordings()]);
+    scoreNames.clear();
+    for (const score of scores) scoreNames.set(score.id, score.name);
+    if (openScore !== null && !scoreNames.has(openScore)) openScore = null;
+
+    const counts = new Map();
+    for (const r of recordings) {
+      if (r.scoreId != null) counts.set(r.scoreId, (counts.get(r.scoreId) ?? 0) + 1);
+    }
+
+    const inScore = openScore !== null;
+    scoreBrowserBack.hidden = !inScore;
+    scoreBrowserTitle.textContent = inScore ? scoreNames.get(openScore) : 'Scores';
+
+    scoreList.replaceChildren();
+    if (inScore) {
+      scoreList.append(openScoreRow({ id: openScore, name: scoreNames.get(openScore) }));
+      for (const r of recordings.filter((t) => t.scoreId === openScore)) {
+        scoreList.append(libraryRow(r, { from: 'score' }));
+      }
+    } else {
+      for (const score of scores) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
+    }
+    scoreListEmpty.style.display = scoreList.children.length ? 'none' : 'block';
+    scoreListEmpty.textContent = inScore
+      ? 'No takes of this one yet — record, and keep it from the bottom of this tab.'
+      : 'No scores yet. Load a MusicXML or .mxl part — export one from MuseScore, or'
+        + ' download it from IMSLP — and it will open here to play from.';
+  } catch { /* blocked IndexedDB — the shelf stays empty */ }
 }
+
+scoreBrowserBack?.addEventListener('click', () => { openScore = null; refreshScoreTab(); });
+document.querySelector('#score-load')?.addEventListener('click',
+  () => document.querySelector('#score-file')?.click());
 
 async function refreshLibrary() {
   try {
-    const [recordings, allFolders] = await Promise.all([listRecordings(), listFolders()]);
-    // Names first: the take rows below read from this map.
-    await refreshScoreLibrary(recordings);
+    const [recordings, allFolders, scores] = await Promise.all([
+      listRecordings(), listFolders(), listScores(),
+    ]);
+    // Names first: the take rows below say which piece they came from.
+    scoreNames.clear();
+    for (const score of scores) scoreNames.set(score.id, score.name);
     folders = allFolders;
     // A folder deleted in another tab shouldn't leave this one inside it.
     if (openFolder !== null && !folders.some((f) => f.id === openFolder)) openFolder = null;
-    if (openScore !== null && !scoreNames.has(openScore)) openScore = null;
 
     const inFolder = openFolder !== null;
-    const inScore = openScore !== null;
-    libraryBack.hidden = !(inFolder || inScore);
-    libraryTitle.textContent = inScore
-      ? scoreNames.get(openScore) ?? 'Piece'
-      : inFolder
-        ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
-        : 'Library';
-    // The shelf for one piece is the whole list while you are on it; the pieces
-    // section below would otherwise offer you the shelf you are standing on.
-    const scoresWrap = document.querySelector('#library-scores');
-    if (scoresWrap) scoresWrap.hidden = inScore || scoreNames.size === 0;
+    libraryBack.hidden = !inFolder;
+    libraryTitle.textContent = inFolder
+      ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
+      : 'Library';
 
-    const shown = inScore
-      ? recordings.filter((r) => r.scoreId === openScore)
-      : inFolder
-        ? recordings.filter((r) => r.folderId === openFolder)
-        : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
+    const shown = inFolder
+      ? recordings.filter((r) => r.folderId === openFolder)
+      : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
 
     libraryList.replaceChildren();
-    if (inScore) {
-      libraryList.append(openScoreRow({ id: openScore, name: scoreNames.get(openScore) }));
-    }
-    if (!inFolder && !inScore) {
+    if (!inFolder) {
       const counts = new Map();
       for (const r of recordings) {
         if (r.folderId != null) counts.set(r.folderId, (counts.get(r.folderId) ?? 0) + 1);
@@ -1058,6 +1086,7 @@ async function refreshLibrary() {
     libraryEmpty.textContent = inFolder
       ? 'Nothing in this folder yet — move a take in from ⋯'
       : 'Nothing here yet — record a take and save it 🎶';
+    await refreshScoreTab(); // the same takes, shelved by piece
   } catch { /* blocked IndexedDB — library stays empty */ }
 }
 refreshLibrary();
@@ -1420,7 +1449,6 @@ initWelcome(document, {
 initScoreCard({
   onPickNote: (note) => selectPlayedNote(note),
   onOpenScoreTab: () => showTab('score'),
-  onOpenLibrary: () => showTab('library'),
   onScoreChanged: () => { refreshSaveLabel(); refreshLibrary(); },
 });
 

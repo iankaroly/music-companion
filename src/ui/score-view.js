@@ -139,8 +139,7 @@ export async function showScore(container, {
   // to print, and A4 leaves most of a blank page hanging under a two-bar
   // exercise. The margins go with it for the same reason. The reader asks for
   // real pages instead, shaped like the screen it is about to fill.
-  if (pageFormat) osmd.setCustomPageFormat(pageFormat.width, pageFormat.height);
-  else osmd.setPageFormat('Endless');
+
   // The title is a label, not a banner. OSMD sizes a sheet title for the top of
   // a printed page — 4 units of staff height, with 5 more above it — which on a
   // phone gave a two-bar exercise a headline taller than its music and pushed
@@ -157,8 +156,16 @@ export async function showScore(container, {
   osmd.EngravingRules.PageBottomMargin = 1;
   osmd.EngravingRules.PageLeftMargin = 1;
   osmd.EngravingRules.PageRightMargin = 1;
-  osmd.zoom = zoom;
   await osmd.load(xml);
+
+  // AFTER the load, both of them, and that is not a style choice: load() resets
+  // the zoom to 1, so setting it first is setting it for nothing. This cost an
+  // afternoon — the music came out the same size on a phone and an iPad however
+  // the numbers were juggled, because the number being juggled was thrown away.
+  // The page format is set here too, so the two always agree.
+  if (pageFormat) osmd.setCustomPageFormat(pageFormat.width, pageFormat.height);
+  else osmd.setPageFormat('Endless');
+  osmd.zoom = zoom;
 
   // Show only the line that was played. A cellist reading their own part
   // should not be handed the whole quartet.
@@ -225,6 +232,30 @@ export async function showScore(container, {
   return view;
 }
 
+// Played note → the notehead drawn for it, so the playhead can light the right
+// one while a take plays back. Keyed on the note OBJECT: two notes can share a
+// pitch and a bar and still be different notes, and the object is what playback
+// hands back.
+//
+// Separate from paint() because lighting the note you are hearing and colouring
+// the page by how in tune it was are two different things, and the reader wants
+// the first without the second: you open a score to play from it, not to be
+// told what last Tuesday sounded like.
+export function indexNoteheads(view, aligned) {
+  const noteheads = new Map();
+  for (const [scoreNoteId, engravedNote] of view.map) {
+    const element = engravedNote.gnote?.getSVGGElement?.();
+    if (!element) continue;
+    // Every pass that sounded points at this one notehead, so playing a
+    // repeated bar lights it both times round.
+    for (const attempt of aligned?.byNote?.get(scoreNoteId) ?? []) {
+      if (attempt.played) noteheads.set(attempt.played, element);
+    }
+  }
+  view.noteheadFor = (note) => noteheads.get(note) ?? null;
+  return view.noteheadFor;
+}
+
 // Colour every notehead by what happened on it, and hang the marks that OSMD
 // has no concept of over the top.
 export function paint(view, {
@@ -253,11 +284,7 @@ export function paint(view, {
       .map((n) => n.scoreNoteId),
   );
 
-  // Played note → the notehead drawn for it, so the playhead can light the
-  // right one. Keyed on the note OBJECT: two notes can share a pitch and a bar
-  // and still be different notes, and the object is what playback hands back.
-  const noteheads = new Map();
-  view.noteheadFor = (note) => noteheads.get(note) ?? null;
+  indexNoteheads(view, aligned);
 
   for (const [scoreNoteId, engravedNote] of map) {
     const attempts = aligned.byNote.get(scoreNoteId) ?? [];
@@ -288,10 +315,6 @@ export function paint(view, {
 
     const element = gnote.getSVGGElement?.();
     if (!element) continue;
-
-    // Every pass that sounded points at this one notehead, so playing a
-    // repeated bar lights it both times round.
-    for (const a of attempts) if (a.played) noteheads.set(a.played, element);
 
     const label = comparison
       ? (change

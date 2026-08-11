@@ -18,7 +18,7 @@ import { openReader } from './reader.js';
 import { intonationBounds } from './chart-utils.js';
 import { takeStats } from '../analysis/score-history.js';
 import {
-  mountScore, follow, stopFollowing, clearScoreTab, showReviewCard,
+  mountScore, follow, stopFollowing, clearScoreTab, showReviewCard, showBrowser,
   syncDockVisibility, borrowPanel, scoreTabIsShowing, initScoreFullScreen,
 } from './score-tab.js';
 import {
@@ -309,6 +309,9 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
     aligned, timing, landings, summary: summarise(aligned, timing), takeDate: Date.now(),
   };
 
+  const title = el('score-review-title');
+  if (title) title.textContent = current.name ?? '';
+
   const summary = document.createElement('p');
   summary.id = 'score-summary';
   summary.textContent = ready.summary;
@@ -485,12 +488,7 @@ export async function readCurrentScore() {
   if (!current) return;
   try {
     await openReader(current, {
-      marks: ready ? {
-        scoreNotes: current.notes,
-        aligned: ready.aligned,
-        timing: ready.timing,
-        landings: ready.landings,
-      } : null,
+      take: ready ? { aligned: ready.aligned, timing: ready.timing } : null,
     });
   } catch (err) {
     status(`could not open that score: ${err.message}`, 'bad');
@@ -498,14 +496,15 @@ export async function readCurrentScore() {
 }
 
 export function initScoreCard({
-  onPickNote, onOpenScoreTab, onOpenLibrary, onScoreChanged,
+  onPickNote, onOpenScoreTab, onScoreChanged,
 } = {}) {
   scoreChanged = onScoreChanged ?? null;
   initTempoPicker();
   initScoreFullScreen(() => { readCurrentScore(); });
-  // The empty state's two ways out: load a file, or pick one already saved.
-  el('score-empty-load')?.addEventListener('click', () => el('score-file')?.click());
-  el('score-empty-library')?.addEventListener('click', () => onOpenLibrary?.());
+  // Out of the review and back to the shelf. The take is not thrown away — it
+  // is still the one on screen, and opening it again from the piece brings it
+  // straight back.
+  el('score-review-back')?.addEventListener('click', () => showBrowser());
   onPick = onPickNote ?? null;
   openTab = onOpenScoreTab ?? null;
   const pick = el('score-pick');
