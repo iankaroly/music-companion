@@ -281,6 +281,67 @@ export async function readPages(payload, onProgress = null) {
   return layout;
 }
 
+// --- composing a screenful ------------------------------------------------------
+//
+// A page of music and a screen are different shapes, and nothing makes them the
+// same shape: fit the page and there is a band of nothing above and below; fill
+// the screen and the sides of the music are cut off. So the page is not fitted
+// at all. It is taken apart into systems and rebuilt to the shape of the glass:
+// every system drawn the full width, stacked down the screen, the leftover
+// space shared out between them as air. The music fills the screen because the
+// screen was composed out of music.
+//
+// It is the same idea as justified text, and it is why a scan can look like the
+// app rather than like a photograph of a book sitting inside the app.
+export function composedPage(pages) {
+  const rendered = new Map();     // page index -> { canvas, width }
+
+  async function pageCanvas(index, width) {
+    const held = rendered.get(index);
+    if (held && Math.abs(held.width - width) < 2) return held.canvas;
+    const canvas = scratch(8, 8);
+    await pages.draw(index, canvas, width, 100000);   // the whole page, this wide
+    rendered.set(index, { canvas, width });
+    return canvas;
+  }
+
+  return {
+    forget() { rendered.clear(); },
+    // rows: [{ page, top, bottom, x0, x1, destY, destH }] — a piece of the page
+    // in its own 0-1 terms, and where it goes on the screen in pixels. A piece
+    // may be part of a system's width as well as part of its height: on a
+    // narrow screen a line of music is cut at a barline and stacked, which is
+    // how it stays big instead of merely fitting.
+    async draw(canvas, rows, width, height) {
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.round(width * dpr);
+      canvas.height = Math.round(height * dpr);
+      canvas.style.width = `${Math.round(width)}px`;
+      canvas.style.height = `${Math.round(height)}px`;
+      const ctx = canvas.getContext('2d');
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      for (const row of rows) {
+        const x0 = row.x0 ?? 0;
+        const x1 = row.x1 ?? 1;
+        const source = await pageCanvas(row.page, (width * dpr) / Math.max(0.05, x1 - x0));
+        const sx = x0 * source.width;
+        const sw = Math.max(1, (x1 - x0) * source.width);
+        const sy = row.top * source.height;
+        const sh = Math.max(1, (row.bottom - row.top) * source.height);
+        ctx.drawImage(source, sx, sy, sw, sh, 0, row.destY, width, row.destH);
+      }
+    },
+    // How tall a band of this page stands when a slice of its width is drawn
+    // across the whole screen — the narrower the slice, the taller the music.
+    async heightOf(index, top, bottom, width, x0 = 0, x1 = 1) {
+      const dpr = window.devicePixelRatio || 1;
+      const source = await pageCanvas(index, (width * dpr) / Math.max(0.05, x1 - x0));
+      return ((bottom - top) * source.height) / dpr;
+    },
+  };
+}
+
 export function isPdf(file) {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name ?? '');
 }

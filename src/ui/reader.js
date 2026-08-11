@@ -28,7 +28,7 @@
 
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
-import { openPaper } from './paper.js';
+import { openPaper, composedPage } from './paper.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
@@ -147,6 +147,8 @@ let view = null;      // the engraved score, when the score IS notation
 let paper = null;     // the pages, when the score is paper
 let layout = null;    // what was read off those pages: staves, bars, noteheads
 let slices = [];      // what the reader shows as pages: screenfuls of a scan
+let screens = null;   // those screenfuls, as rows of systems
+let composer = null;  // draws a screenful out of a page's systems
 let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
 let take = null;      // the analysed take on screen, if there is one
@@ -326,10 +328,41 @@ function unitScale() {
 // anything else, because a scanned page never re-flows: it is the same picture
 // at every size, so a mark two thirds of the way across bar 12 stays exactly
 // there whatever the screen does.
+// On a reflowed scan a mark is held against the SYSTEM it was drawn over, not
+// against the screen: the screens are composed out of systems and the
+// composition changes with the shape of the screen, so a mark pinned to the
+// glass would be pinned to nothing. Where the page could not be read there are
+// no systems, and it falls back to the page itself.
 function anchorOnPaper(px, py) {
   const index = pageAt(px, py);
+  const slice = slices[index];
   const box = boxOfPage(index);
   if (!box || !box.width || !box.height) return null;
+  if (slice?.rows) {
+    const y = py - box.top;
+    let best = null;
+    let bestGap = Infinity;
+    for (const [row, at] of slice.rows.entries()) {
+      const gap = y < at.destY ? at.destY - y
+        : y > at.destY + at.destH ? y - (at.destY + at.destH) : 0;
+      if (gap < bestGap) { bestGap = gap; best = { row, at }; }
+      if (gap === 0) break;
+    }
+    if (!best) return null;
+    const x0 = best.at.x0 ?? 0;
+    const x1 = best.at.x1 ?? 1;
+    return {
+      space: 'system',
+      p: best.at.page,
+      top: best.at.top,
+      bottom: best.at.bottom,
+      x0,
+      // across the page, not across the piece: the piece a mark sits in can
+      // change when the music is re-cut at another size
+      x: x0 + ((px - box.left) / box.width) * (x1 - x0),
+      v: (y - best.at.destY) / Math.max(1, best.at.destH),
+    };
+  }
   return {
     space: 'page',
     p: index,
@@ -339,10 +372,27 @@ function anchorOnPaper(px, py) {
 }
 
 function placeOnPaper(point) {
-  if (!visiblePages().includes(point.p)) return null;
-  const box = boxOfPage(point.p);
-  if (!box) return null;
-  return { x: box.left + point.x * box.width, y: box.top + point.y * box.height };
+  for (const index of visiblePages()) {
+    const slice = slices[index];
+    const box = boxOfPage(index);
+    if (!box) continue;
+    if (point.space === 'system' && slice?.rows) {
+      const row = slice.rows.find((at) => at.page === point.p
+        && Math.abs(at.top - point.top) < 0.002
+        && point.x >= (at.x0 ?? 0) - 0.01 && point.x <= (at.x1 ?? 1) + 0.01);
+      if (!row) continue;
+      const x0 = row.x0 ?? 0;
+      const x1 = row.x1 ?? 1;
+      return {
+        x: box.left + ((point.x - x0) / (x1 - x0)) * box.width,
+        y: box.top + row.destY + point.v * row.destH,
+      };
+    }
+    if (point.space !== 'system' && slice && !slice.rows && point.p === slice.page) {
+      return { x: box.left + point.x * box.width, y: box.top + point.y * box.height };
+    }
+  }
+  return null;
 }
 
 // A point on screen → the bar it is over, plus how far into that bar it sits.
@@ -378,7 +428,7 @@ function anchor(px, py) {
 // …and back again, for drawing. Null when the bar this point belongs to is not
 // on the page being looked at.
 function place(point) {
-  if (point.space === 'page' || point.p !== undefined) return placeOnPaper(point);
+  if (point.p !== undefined) return placeOnPaper(point);
   const frame = barFrame(point.m);
   if (!frame) return null;
   return { x: frame.x + point.u * frame.unit, y: frame.y + point.v * frame.unit };
@@ -477,7 +527,8 @@ function drawStroke(ctx, stroke) {
   // look like a scrawl. Broken at the system, a highlight over four bars comes
   // back as a highlight over four bars, on however many lines they now occupy.
   const systems = stroke.points.map((point) => (
-    point.space === 'page' || point.p !== undefined ? null : bars.get(point.m)?.system ?? null
+    point.p !== undefined ? (point.space === 'system' ? `${point.p}:${point.top}` : null)
+      : bars.get(point.m)?.system ?? null
   ));
   ctx.beginPath();
   let moved = false;
@@ -1075,7 +1126,7 @@ function onThisPage(stroke) {
   const first = stroke.points[0];
   if (!first) return false;
   const shown = visiblePages();
-  if (first.space === 'page' || first.p !== undefined) return shown.includes(first.p);
+  if (first.p !== undefined) return !!place(first);   // paper: is it on screen at all
   return shown.includes(bars.get(first.m)?.page);
 }
 
@@ -1296,7 +1347,7 @@ function buildMenu(sheet) {
       onPick: togglePlayback,
     });
   }
-  if (!isPaper()) {
+  {
     menuGroup(sheet, 'reading');
     menuRow(sheet, {
       label: 'Bigger', glyph: '+', detail: 'larger notes, more pages',
@@ -1765,9 +1816,19 @@ function build() {
 // coming back to "page 3 of a different pagination" is coming back to the wrong
 // music.
 async function resize(factor) {
-  if (!score || isPaper()) return; // paper is one size: the size of the page
-  const anchorBar = firstBarOnPage();
+  if (!score) return;
   setReadingZoom(readingZoom() * factor);
+  if (isPaper()) {
+    // Bigger music on a scan means fewer bars to a line: the page is cut into
+    // more pieces and each is drawn across the whole screen.
+    const first = pageIndex;
+    drawn.clear();
+    composer?.forget();
+    await render();
+    showPage(Math.min(first, pageEls.length - 1));
+    return;
+  }
+  const anchorBar = firstBarOnPage();
   await engrave();
   showPage(bars.get(anchorBar)?.page ?? 0);
 }
@@ -1794,6 +1855,7 @@ function relayout() {
     spread = wantsSpread();
     root.classList.toggle('spread', spread);
     drawn.clear();
+    composer?.forget();      // the screen changed shape; so does every page
     await render();
     showPage(Math.min(wasOn, pageEls.length - 1));
   }, 200);
@@ -1834,36 +1896,101 @@ async function render() {
 // the width, and it fills the width: the music is as big as the glass allows,
 // and a page turn moves to the next few systems rather than to the next sheet
 // of paper. Where the page could not be read, it falls back to whole pages.
-// NOTE on what this cannot do: a screenful is cut from ONE page, so a page that
-// is wider than the screen's proportions — a squarish scan on an iPad held
-// upright — fills the width and leaves a little slack top and bottom however
-// few systems are shown. Filling that would mean carrying systems over from the
-// next page into the same screenful, which is a different and much larger idea.
-// In landscape, where the mismatch is the other way, it fills.
-function sliceOfPage(page, index, pageAspect) {
-  const staves = page?.staves ?? [];
-  if (!staves.length) return null;
-  const across = spread ? window.innerWidth / 2 : window.innerWidth;
-  const screen = across / window.innerHeight;
-  // How much of the page's height fits on a screen once its width fills one:
-  // a tall thin screen holds a short band of a squarish page, which is exactly
-  // why a whole page on a phone was mostly empty.
-  const fits = (pageAspect || 0.75) / screen;
-  const cut = [];
-  let start = 0;
-  while (start < staves.length) {
-    let end = start;
-    while (end + 1 < staves.length) {
-      const height = staves[end + 1].bottom - staves[start].top;
-      if (height > fits * 0.98) break;             // one more would overflow
-      end++;
+// Screens composed out of systems, and it is allowed to run on from one page to
+// the next: the last two systems of page one and the first three of page two
+// are a perfectly good screenful of music, and refusing to mix them is what
+// left a band of nothing at the bottom of every page.
+//
+// The rule is simple: fill the width with each system, take as many as fit down
+// the screen, then share out whatever is left over as air between them. What
+// you get is a screen with music from edge to edge, whatever shape the paper
+// was and whatever shape the screen is.
+const AIR = 0.3;        // the most of a piece's height to give away as gaps
+
+// How wide a piece of a system should be, so the music comes out the size it
+// ought to be. A line of music drawn across a phone at its full page width is
+// a thin ribbon of tiny notes; cut at a barline and stacked, each half is drawn
+// across the same screen and the notes are twice the size. This works out how
+// many pieces each line wants, using the same reading size the engraved scores
+// use — so ± makes a scan bigger too.
+function piecesFor(staff, pageHeightPx) {
+  const spacePx = staff.space * pageHeightPx;
+  if (!(spacePx > 0.5)) return 1;
+  const wanted = staffPx() / spacePx;
+  return Math.min(4, Math.max(1, Math.round(wanted)));
+}
+
+// Cut a line of music into that many pieces, at barlines wherever there is one
+// near the right place: a piece that ends mid-bar is a piece you cannot read
+// the end of.
+function cutStaff(staff, count) {
+  if (count <= 1) return [{ x0: 0, x1: 1 }];
+  const bars = (staff.bars ?? []).filter((x) => x > 0.08 && x < 0.97);
+  const cuts = [0];
+  for (let i = 1; i < count; i++) {
+    const ideal = i / count;
+    let best = ideal;
+    let bestGap = 0.14;               // no barline near enough: cut where it falls
+    for (const x of bars) {
+      const gap = Math.abs(x - ideal);
+      if (gap < bestGap) { bestGap = gap; best = x; }
     }
-    const top = Math.max(0, staves[start].top - 0.004);
-    const bottom = Math.min(1, staves[end].bottom + 0.004);
-    cut.push({ page: index, top, bottom });
-    start = end + 1;
+    cuts.push(best);
   }
-  return cut;
+  cuts.push(1);
+  const pieces = [];
+  for (let i = 0; i + 1 < cuts.length; i++) {
+    // A whisker of overlap, so a barline is never sliced down the middle.
+    pieces.push({ x0: Math.max(0, cuts[i] - 0.004), x1: Math.min(1, cuts[i + 1] + 0.004) });
+  }
+  return pieces;
+}
+
+async function composeScreens(width, height) {
+  const rows = [];
+  for (const [pageIndex, page] of (layout ?? []).entries()) {
+    if (!page) continue;
+    // How tall this page is when its full width fills the screen: the scale
+    // everything else is measured against.
+    const pageHeightPx = await composer.heightOf(pageIndex, 0, 1, width);
+    for (const staff of page.staves ?? []) {
+      const top = Math.max(0, staff.top);
+      const bottom = Math.min(1, staff.bottom);
+      if (bottom <= top) continue;
+      const count = piecesFor(staff, pageHeightPx);
+      for (const piece of cutStaff(staff, count)) {
+        const tall = await composer.heightOf(pageIndex, top, bottom, width, piece.x0, piece.x1);
+        rows.push({ page: pageIndex, top, bottom, x0: piece.x0, x1: piece.x1, tall });
+      }
+    }
+  }
+  if (!rows.length) return null;
+
+  const screens = [];
+  let taken = [];
+  let used = 0;
+  const flush = () => {
+    if (!taken.length) return;
+    const slack = Math.max(0, height - used);
+    const gaps = taken.length + 1;
+    const air = Math.min(slack / gaps, (used / taken.length) * AIR);
+    let y = (height - (used + air * (taken.length - 1))) / 2;
+    const placed = taken.map((row) => {
+      const at = { ...row, destY: y, destH: row.tall };
+      y += row.tall + air;
+      return at;
+    });
+    screens.push(placed);
+    taken = [];
+    used = 0;
+  };
+  for (const row of rows) {
+    if (taken.length && used + row.tall > height) flush();
+    taken.push(row);
+    used += row.tall;
+  }
+  flush();
+  return screens;
 }
 
 async function layOutPaper() {
@@ -1871,19 +1998,18 @@ async function layOutPaper() {
   layout = payload?.layout ?? null;
   paper?.destroy?.();
   paper = await openPaper(payload);
+  composer = composedPage(paper);
   view = null;
   bars = new Map();
   sheet.replaceChildren();
   pageEls = [];
-  // What the reader shows as one "page": a slice of a scan, or the whole thing
-  // where the music could not be made out.
-  slices = [];
-  for (let i = 0; i < paper.count; i++) {
-    const pageAspect = await paper.cropAspect?.(i).catch(() => null);
-    const cut = layout?.[i] ? sliceOfPage(layout[i], i, pageAspect) : null;
-    if (cut?.length) slices.push(...cut);
-    else slices.push({ page: i, top: 0, bottom: 1 });
-  }
+  const across = window.innerWidth / (spread ? 2 : 1);
+  // Screenfuls of systems where the page could be read; whole pages where it
+  // could not, because a page nobody could make sense of is still a page.
+  screens = layout?.some(Boolean) ? await composeScreens(across, window.innerHeight) : null;
+  slices = screens
+    ? screens.map((rows) => ({ rows }))
+    : Array.from({ length: paper.count }, (_, i) => ({ page: i, top: 0, bottom: 1 }));
   for (let i = 0; i < slices.length; i++) {
     const node = document.createElement('div');
     node.className = 'osmd-page reader-paper';
@@ -1908,8 +2034,9 @@ async function drawPaperPage(index) {
   const slice = slices[index];
   if (!paper || !node || !slice || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
-  await paper.draw(slice.page, canvas, window.innerWidth / (spread ? 2 : 1),
-    window.innerHeight, { top: slice.top, bottom: slice.bottom });
+  const across = window.innerWidth / (spread ? 2 : 1);
+  if (slice.rows) await composer.draw(canvas, slice.rows, across, window.innerHeight);
+  else await paper.draw(slice.page, canvas, across, window.innerHeight);
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
 }
@@ -1999,16 +2126,43 @@ function drawScanMarks(ctx) {
     const slice = slices[index];
     const box = boxOfPage(index);
     if (!slice || !box) continue;
-    const span = Math.max(0.001, slice.bottom - slice.top);
     for (const head of marks) {
-      if (head.page !== slice.page) continue;
-      if (head.y < slice.top || head.y > slice.bottom) continue;
-      drawOneMark(ctx, head, box, slice, span, style, colours);
+      const place = placeOnScreen(head, slice, box);
+      if (place) drawOneMark(ctx, head, place, style, colours);
     }
   }
 }
 
-function drawOneMark(ctx, head, box, slice, span, style, colours) {
+// Where a notehead ends up on a composed screenful: which system row it is in,
+// and how far down that row. On an unreadable page it is simply the page.
+function placeOnScreen(head, slice, box) {
+  if (slice.rows) {
+    for (const row of slice.rows) {
+      if (row.page !== head.page) continue;
+      if (head.y < row.top || head.y > row.bottom) continue;
+      const x0 = row.x0 ?? 0;
+      const x1 = row.x1 ?? 1;
+      if (head.x < x0 || head.x > x1) continue;     // this half of the line
+      const span = Math.max(0.0001, row.bottom - row.top);
+      return {
+        x: box.left + ((head.x - x0) / (x1 - x0)) * box.width,
+        y: box.top + row.destY + ((head.y - row.top) / span) * row.destH,
+        // pixels per unit of page height, which is what a staff space is in
+        unit: row.destH / span,
+      };
+    }
+    return null;
+  }
+  if (head.page !== slice.page) return null;
+  const span = Math.max(0.0001, slice.bottom - slice.top);
+  return {
+    x: box.left + head.x * box.width,
+    y: box.top + ((head.y - slice.top) / span) * box.height,
+    unit: box.height / span,
+  };
+}
+
+function drawOneMark(ctx, head, place, style, colours) {
   {
     const { tier, direction } = intonationTone(head.cents);
     const token = tier === 'good' ? colours.good
@@ -2016,12 +2170,10 @@ function drawOneMark(ctx, head, box, slice, span, style, colours) {
         : (tier === 'off' ? colours.off : colours.bad);
     ctx.save();
     ctx.strokeStyle = style.getPropertyValue(token).trim() || '#888';
-    // Placed within the SLICE on screen, and sized off the staff space the page
-    // reader measured — so a mark is the size of the notehead it rings, at
-    // whatever scale that screenful of systems is being shown.
-    const x = box.left + head.x * box.width;
-    const y = box.top + ((head.y - slice.top) / span) * box.height;
-    const r = Math.max(3, (head.space / span) * box.height * 0.62);
+    // Sized off the staff space the page reader measured, at the scale this
+    // system is being shown — so a mark is the size of the notehead it rings.
+    const { x, y } = place;
+    const r = Math.max(3, head.space * place.unit * 0.62);
     ctx.lineWidth = Math.max(1, r * 0.26);
     ctx.beginPath();
     ctx.ellipse(x, y, r * 1.25, r * 0.95, 0, 0, Math.PI * 2);
@@ -2165,6 +2317,8 @@ export function close() {
   view = null;
   paper?.destroy?.();
   paper = null;
+  composer = null;
+  screens = null;
   pageEls = [];
   drawn.clear();
   sheet.replaceChildren();
