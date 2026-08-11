@@ -219,6 +219,27 @@ export async function renameScore(id, name) {
   });
 }
 
+// What was read off the pages: staves, bars and noteheads, one entry per page.
+// It lives with the pages rather than with the score row because it is big and
+// is only ever wanted when the pages themselves are.
+export async function saveScoreLayout(scoreId, layout) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('score-pages', 'readwrite');
+    const store = tx.objectStore('score-pages');
+    const req = store.get(scoreId);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      row.layout = layout;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function loadScorePages(scoreId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

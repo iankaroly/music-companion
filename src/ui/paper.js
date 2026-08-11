@@ -67,6 +67,19 @@ function contentBox(canvas) {
   return box;
 }
 
+// A band of the page, in the page's own coordinates. The reader asks for one
+// screenful of systems at a time; the crop already trimmed the margins, and the
+// band is measured against the WHOLE page, so the two have to be combined
+// rather than applied one inside the other.
+function sliced(crop, band) {
+  if (!band) return crop;
+  // The band is expressed against the CROPPED page — that is the picture the
+  // page reader measured — so it is a fraction of the crop, not of the paper.
+  const y = crop.y + band.top * crop.h;
+  const h = Math.max(0.02, (band.bottom - band.top)) * crop.h;
+  return { x: crop.x, y, w: crop.w, h: Math.min(h, crop.y + crop.h - y) };
+}
+
 // A small copy of a page, for measuring rather than showing.
 function scratch(width, height) {
   const canvas = document.createElement('canvas');
@@ -111,7 +124,25 @@ async function openPdf(data) {
       const view = page.getViewport({ scale: 1 });
       return view.width / view.height;
     },
-    async draw(index, canvas, width, height) {
+    // The shape of the page AS DRAWN — margins already trimmed. It is what the
+    // reader needs to work out how much music fits on a screen.
+    async cropAspect(index) {
+      const page = await doc.getPage(index + 1);
+      const base = page.getViewport({ scale: 1 });
+      if (!crops.has(index)) {
+        const small = scratch(160, Math.round(160 * (base.height / base.width)));
+        const thumb = page.getViewport({ scale: small.width / base.width });
+        await page.render({
+          canvasContext: small.getContext('2d', { willReadFrequently: true }),
+          viewport: thumb,
+          canvas: small,
+        }).promise;
+        crops.set(index, contentBox(small));
+      }
+      const crop = crops.get(index);
+      return (base.width * crop.w) / (base.height * crop.h);
+    },
+    async draw(index, canvas, width, height, band = null) {
       const page = await doc.getPage(index + 1);
       const base = page.getViewport({ scale: 1 });
       const dpr = window.devicePixelRatio || 1;
@@ -126,7 +157,7 @@ async function openPdf(data) {
         }).promise;
         crops.set(index, contentBox(small));
       }
-      const crop = crops.get(index);
+      const crop = sliced(crops.get(index), band);
       // Fit the CROP to the screen, then render the whole page that much bigger
       // and show only the part that matters.
       const cropW = base.width * crop.w;
@@ -177,7 +208,18 @@ async function openImages(blobs) {
       const image = await load(index);
       return image.naturalWidth / image.naturalHeight;
     },
-    async draw(index, canvas, width, height) {
+    async cropAspect(index) {
+      const image = await load(index);
+      if (!crops.has(index)) {
+        const small = scratch(160, Math.max(1, Math.round(160 * (image.naturalHeight / image.naturalWidth))));
+        small.getContext('2d', { willReadFrequently: true })
+          .drawImage(image, 0, 0, small.width, small.height);
+        crops.set(index, contentBox(small));
+      }
+      const crop = crops.get(index);
+      return (image.naturalWidth * crop.w) / (image.naturalHeight * crop.h);
+    },
+    async draw(index, canvas, width, height, band = null) {
       const image = await load(index);
       const dpr = window.devicePixelRatio || 1;
       if (!crops.has(index)) {
@@ -186,7 +228,7 @@ async function openImages(blobs) {
           .drawImage(image, 0, 0, small.width, small.height);
         crops.set(index, contentBox(small));
       }
-      const crop = crops.get(index);
+      const crop = sliced(crops.get(index), band);
       const sx = crop.x * image.naturalWidth;
       const sy = crop.y * image.naturalHeight;
       const sw = crop.w * image.naturalWidth;
@@ -211,6 +253,33 @@ async function openImages(blobs) {
 }
 
 // --- bringing paper in --------------------------------------------------------
+
+// Reading the shape of every page as it comes in: staves, bars, noteheads. It
+// happens once, at import, because it takes a second a page and because the
+// answer never changes — the photograph is the photograph.
+export async function readPages(payload, onProgress = null) {
+  const pages = await openPaper(payload);
+  const { readPage } = await import('../analysis/scan-read.js');
+  const layout = [];
+  for (let i = 0; i < pages.count; i++) {
+    onProgress?.(i, pages.count);
+    const canvas = scratch(8, 8);
+    // Big enough to read a staff space, and no bigger. draw() works in device
+    // pixels, so the request is divided by them — on a phone at 3× this would
+    // otherwise build a 4200px canvas per page to look at 1400px of it.
+    const dpr = window.devicePixelRatio || 1;
+    await pages.draw(i, canvas, 1400 / dpr, 6000 / dpr);
+    let found = null;
+    try {
+      found = readPage(canvas, canvas.width, canvas.height);
+    } catch {
+      found = null;   // an unreadable page is not a reason to lose the score
+    }
+    layout.push(found);
+  }
+  pages.destroy?.();
+  return layout;
+}
 
 export function isPdf(file) {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name ?? '');

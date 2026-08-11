@@ -23,9 +23,9 @@ import {
 } from './score-tab.js';
 import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
-  pairScoreNotation,
+  pairScoreNotation, loadScorePages, saveScoreLayout,
 } from '../store/db.js';
-import { isPdf, isImage, nameFromFile, pdfPageCount } from './paper.js';
+import { isPdf, isImage, nameFromFile, pdfPageCount, readPages } from './paper.js';
 import { openScanner } from './scanner.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
@@ -153,18 +153,21 @@ async function chooseScore(id) {
       // the notes come from the notation paired with it.
       const notation = row.notationId != null ? await loadScore(row.notationId) : null;
       if (!notation?.xml) {
-        // A scan with nothing behind it. This is the honest dead end in the
-        // app: reading the notes out of a photograph is optical music
-        // recognition, it does not run in a browser, and the services that do
-        // it would mean sending the part to somebody else's computer. What CAN
-        // be done is said here, with the button to do it next to the words.
-        current = null;
+        // A scan with no notation behind it is no longer a dead end. It cannot
+        // be told which note is WRITTEN — that is optical music recognition and
+        // it does not run in a browser — but the page has been read for where
+        // its noteheads are, and how in tune you played comes from the audio.
+        // So the take attaches to the piece and is marked onto the photograph;
+        // only "you played the wrong note" is missing, and the offer to add
+        // notation and get that too stays on the card.
+        current = { ...row, paper: row, notes: [], plain: true };
         unpaired = row;
         showReviewCard(false);
         el('score-pair').hidden = false;
+        el('score-remove').hidden = false;
         scoreChanged?.();
-        status(`${row.name} is a scan — the app cannot read notes out of a photograph.`
-          + ' Add the MusicXML for it and your takes will be marked up on it.', 'bad');
+        status(`${row.name} — record and your playing is marked onto the scan, note by note.`
+          + ' Add its MusicXML too if you want wrong notes caught.');
         return;
       }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
@@ -221,14 +224,38 @@ async function addPaper(files, { name: given = null } = {}) {
   const row = await loadScore(id);
   status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
   await readPaperScore(row);
+  // And then, quietly, read the SHAPE of the pages — where the staves, bars and
+  // noteheads are. It is what lets a take be marked onto a photograph, it takes
+  // about a second a page, and nothing waits for it.
+  measurePages(id).catch(() => { /* an unreadable scan is still a readable score */ });
   return id;
+}
+
+// Reading the geometry of a scan, in the background, and remembering it.
+export async function measurePages(scoreId) {
+  const payload = await loadScorePages(scoreId);
+  if (!payload) return null;
+  const layout = await readPages(payload, (page, total) => {
+    status(`reading the pages… ${page + 1} of ${total}`);
+  });
+  await saveScoreLayout(scoreId, layout);
+  const found = layout.filter(Boolean).length;
+  const heads = layout.filter(Boolean)
+    .reduce((n, page) => n + page.staves.reduce((m, st) => m + st.heads.length, 0), 0);
+  status(found
+    ? `read ${found} of ${layout.length} ${layout.length === 1 ? 'page' : 'pages'}`
+      + ` — ${heads} notes found, so your playing can be marked onto them`
+    : 'the music on those pages could not be made out — they are still yours to read from');
+  return layout;
 }
 
 // Paper opens straight into the reader: there is no picking a part, no marking
 // up, nothing to choose. It is a score to play from.
 async function readPaperScore(row) {
   try {
-    await openReader(row);
+    // The take on screen goes with it: on a scan the reader marks the notes it
+    // can — how in tune each one was — onto the noteheads read off the page.
+    await openReader(row, { take: pending ? { notes: pending.notes } : null });
   } catch (err) {
     status(`could not open that score: ${err.message}`, 'bad');
   }
@@ -436,6 +463,13 @@ function legend(sheet) {
 export async function annotateTake(notes, { readings = null, a4 = 440, recordingId = null } = {}) {
   pending = { notes, readings, a4, recordingId };
   if (!current) return null;
+  // A scan on its own: there is nothing to line the take up AGAINST, so nothing
+  // is aligned. The take is remembered, and the reader draws what the audio
+  // proved onto the noteheads the page reader found.
+  if (current.plain) {
+    status(`${current.name} — open the score to see it marked on the page.`);
+    return null;
+  }
   const sheet = el('score-sheet');
   if (!sheet) return null;
 

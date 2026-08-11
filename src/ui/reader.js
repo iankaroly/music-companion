@@ -29,6 +29,8 @@
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
+import { notesInOrder } from '../analysis/scan-read.js';
+import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
@@ -143,6 +145,8 @@ let sheet = null;     // where the engraving is mounted
 let ink = null;       // the canvas the marks are drawn on
 let view = null;      // the engraved score, when the score IS notation
 let paper = null;     // the pages, when the score is paper
+let layout = null;    // what was read off those pages: staves, bars, noteheads
+let slices = [];      // what the reader shows as pages: screenfuls of a scan
 let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
 let take = null;      // the analysed take on screen, if there is one
@@ -514,6 +518,7 @@ function redraw() {
     drawStroke(ctx, stroke);
   }
   if (drawing) drawStroke(ctx, drawing);
+  if (painted) drawScanMarks(ctx);
   drawLasso(ctx);
 }
 
@@ -666,7 +671,9 @@ let zoom = 1;
 let panX = 0;
 let panY = 0;
 const pointers = new Map();
-let pinch = null;   // { distance, x, y } at the moment the second finger landed
+let pinch = null;         // { distance, x, y } at the moment the second finger landed
+let pinching = false;     // a pinch is in progress, or has only just ended
+let drawingPointer = null;
 
 function applyZoom() {
   if (!sheet) return;
@@ -731,6 +738,8 @@ function trackPointers(root) {
         panX,
         panY,
       };
+      pinching = true;
+      drawingPointer = null;
       cancelStroke();   // the first finger was drawing; it was not, it was pinching
     }
   }, true);
@@ -753,7 +762,11 @@ function trackPointers(root) {
     root.addEventListener(type, (e) => {
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
-      if (pointers.size === 0 && isPaper() && zoom > 1) redrawPaperAtZoom();
+      if (pointers.size === 0) {
+        // Both fingers off: only now may the pen be believed again.
+        pinching = false;
+        if (isPaper() && zoom > 1) redrawPaperAtZoom();
+      }
     }, true);
   }
 }
@@ -991,11 +1004,7 @@ function setTool(next) {
     button.setAttribute('aria-pressed', String(on));
   }
   const shapes = el('reader-shapes');
-  if (shapes) {
-    const on = SHAPES.includes(tool);
-    shapes.classList.toggle('on', on);
-    shapes.textContent = on ? SHAPE_GLYPH[tool] : '◻';
-  }
+  if (shapes) shapes.classList.toggle('on', SHAPES.includes(tool));
   if (tool) {
     setChrome(true);
     closeMenu();
@@ -1003,8 +1012,6 @@ function setTool(next) {
   closeBrush();
   refreshBrushUI();
 }
-
-const SHAPE_GLYPH = { line: '╱', arrow: '↗', rect: '◻', ellipse: '◯' };
 
 function openShapeMenu() {
   const button = el('reader-shapes');
@@ -1274,7 +1281,8 @@ function buildMenu(sheet) {
     label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
     onPick: clearPage,
   });
-  if (take?.aligned && !isPaper()) {
+  const canMark = isPaper() ? (!!take?.notes?.length && !!layout) : !!take?.aligned;
+  if (canMark) {
     menuGroup(sheet, 'this take');
     menuRow(sheet, {
       label: painted ? 'Hide what you played' : 'Show what you played',
@@ -1446,6 +1454,14 @@ async function toggleSpread() {
 let painted = false;
 
 async function togglePainted() {
+  // On paper the marks are drawn on the ink layer, so there is nothing to
+  // re-engrave: it is a redraw either way.
+  if (isPaper()) {
+    if (!take?.notes?.length || !layout) return;
+    painted = !painted;
+    redraw();
+    return;
+  }
   if (!take?.aligned || !view) return;
   painted = !painted;
   if (painted) {
@@ -1458,12 +1474,55 @@ async function togglePainted() {
 
 // --- building it -------------------------------------------------------------
 
+// Drawn, not typed. A bar of ✕ ‹ › ⋯ is a row of characters in whatever face
+// the system feels like; a score reader's bar is a row of thin, even line
+// drawings, and at a stand you recognise the shape long before you read it.
+const ICONS = {
+  close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  back: '<path d="M15 5l-7 7 7 7"/>',
+  forward: '<path d="M9 5l7 7-7 7"/>',
+  play: '<path d="M8 5.5l11 6.5-11 6.5z" fill="currentColor" stroke="none"/>',
+  pause: '<path d="M9 5.5v13M15 5.5v13"/>',
+  pen: '<path d="M4 20l4-1 9.5-9.5a2 2 0 0 0-2.8-2.8L5 16.2z"/><path d="M13.5 6.5l4 4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>'
+    + '<circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>'
+    + '<circle cx="18.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>',
+  shelf: '<rect x="3.5" y="4" width="7" height="7" rx="1.4"/><rect x="13.5" y="4" width="7" height="7" rx="1.4"/>'
+    + '<rect x="3.5" y="13" width="7" height="7" rx="1.4"/><rect x="13.5" y="13" width="7" height="7" rx="1.4"/>',
+  tick: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  highlighter: '<path d="M4 19h6"/><path d="M7 15.5l8-8a2 2 0 0 1 3 3l-8 8H7z"/>',
+  text: '<path d="M5 6h14M12 6v13"/>',
+  shapes: '<rect x="4.5" y="4.5" width="10" height="10" rx="1"/><circle cx="15.5" cy="15.5" r="4.5"/>',
+  lasso: '<ellipse cx="12" cy="10.5" rx="7.5" ry="5.5"/><path d="M8 15.5c0 2 1 3.5 1 4.5"/>',
+  eraser: '<path d="M8 19h11"/><path d="M5.5 15.5l6-6 5.5 5.5-4.5 4.5H9z"/>',
+  undo: '<path d="M9 7H5.5V3.5"/><path d="M5.8 7.2a7 7 0 1 1-1.3 6"/>',
+  redo: '<path d="M15 7h3.5V3.5"/><path d="M18.2 7.2a7 7 0 1 0 1.3 6"/>',
+  clear: '<rect x="4.5" y="5.5" width="15" height="13" rx="2"/><path d="M9 9.5l6 5M15 9.5l-6 5"/>',
+  layers: '<path d="M12 3.5l8.5 4.5L12 12.5 3.5 8z"/><path d="M4.5 12.5L12 16.5l7.5-4"/>',
+  fit: '<path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15"/>',
+  brush: '<path d="M6 20c2.5 0 4-1.5 4-3.5S8.5 13 6.5 13.5C5 14 4 16 4 20z"/><path d="M10.5 15.5l8-8a2 2 0 0 0-3-3l-8 8"/>',
+};
+
+function icon(name) {
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('fill', 'none');
+  svg.setAttribute('stroke', 'currentColor');
+  svg.setAttribute('stroke-width', '1.7');
+  svg.setAttribute('stroke-linecap', 'round');
+  svg.setAttribute('stroke-linejoin', 'round');
+  svg.innerHTML = ICONS[name] ?? '';
+  svg.setAttribute('aria-hidden', 'true');
+  return svg;
+}
+
 function iconButton(id, glyph, label, onClick, { className = 'reader-tool' } = {}) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = className;
   if (id) button.id = id;
-  button.textContent = glyph;
+  if (ICONS[glyph]) button.append(icon(glyph));
+  else button.textContent = glyph;
   button.setAttribute('aria-label', label);
   button.title = label;
   button.addEventListener('click', onClick);
@@ -1511,9 +1570,9 @@ function buildTopBar() {
   const left = document.createElement('div');
   left.className = 'reader-bar-left';
   left.append(
-    iconButton('reader-close', '✕', 'Close the score', close),
-    iconButton('reader-back', '‹', 'The page before', previousPage),
-    iconButton('reader-forward', '›', 'The next page', nextPage),
+    iconButton('reader-close', 'shelf', 'Back to the shelf', close),
+    iconButton('reader-back', 'back', 'The page before', previousPage),
+    iconButton('reader-forward', 'forward', 'The next page', nextPage),
   );
 
   const middle = document.createElement('div');
@@ -1527,9 +1586,9 @@ function buildTopBar() {
   const right = document.createElement('div');
   right.className = 'reader-bar-right';
   right.append(
-    iconButton('reader-play', '▶', 'Play the take', togglePlayback),
-    iconButton('reader-annotate', '✎', 'Annotate this page', () => setTool('pen')),
-    iconButton('reader-menu-btn', '⋯', 'More', toggleMenu),
+    iconButton('reader-play', 'play', 'Play the take', togglePlayback),
+    iconButton('reader-annotate', 'pen', 'Annotate this page', () => setTool('pen')),
+    iconButton('reader-menu-btn', 'more', 'More', toggleMenu),
   );
 
   bar.append(left, middle, right);
@@ -1542,23 +1601,23 @@ function buildInkBar() {
   const nib = document.createElement('span');
   nib.id = 'reader-nib';
   nib.setAttribute('aria-hidden', 'true');
-  const brushBtn = iconButton('reader-brush-btn', '', 'Brush style', toggleBrush);
+  const brushBtn = iconButton('reader-brush-btn', 'brush', 'Brush style', toggleBrush);
   brushBtn.append(nib);
   bar.append(
-    iconButton('reader-done', '✓', 'Finished annotating', () => setTool(null)),
-    toolButton('pen', '✎', 'Pen'),
-    toolButton('highlighter', '▬', 'Highlighter'),
-    toolButton('text', 'A', 'Type on the page'),
-    iconButton('reader-shapes', '◻', 'Lines, boxes and rings', openShapeMenu),
-    toolButton('lasso', '◌', 'Pick up marks'),
-    toolButton('eraser', '⌫', 'Rub out'),
+    iconButton('reader-done', 'tick', 'Finished annotating', () => setTool(null)),
+    toolButton('pen', 'pen', 'Pen'),
+    toolButton('highlighter', 'highlighter', 'Highlighter'),
+    toolButton('text', 'text', 'Type on the page'),
+    iconButton('reader-shapes', 'shapes', 'Lines, boxes and rings', openShapeMenu),
+    toolButton('lasso', 'lasso', 'Pick up marks'),
+    toolButton('eraser', 'eraser', 'Rub out'),
     ...PRESETS.map((_, i) => presetSwatch(i)),
     brushBtn,
-    iconButton('reader-undo', '↺', 'Undo', undo),
-    iconButton('reader-redo', '↻', 'Redo', redo),
-    iconButton('reader-clear', '⌧', 'Clear this page', clearPage),
-    iconButton('reader-layers', '≡', 'Layers', openLayerMenu),
-    iconButton('reader-reset-zoom', '1×', 'Back to the whole page', resetZoom),
+    iconButton('reader-undo', 'undo', 'Undo', undo),
+    iconButton('reader-redo', 'redo', 'Redo', redo),
+    iconButton('reader-clear', 'clear', 'Clear this page', clearPage),
+    iconButton('reader-layers', 'layers', 'Layers', openLayerMenu),
+    iconButton('reader-reset-zoom', 'fit', 'Back to the whole page', resetZoom),
   );
   bar.querySelector('#reader-reset-zoom').hidden = true;
   return bar;
@@ -1644,16 +1703,29 @@ function build() {
     else setChrome(true);
   });
 
+  // Drawing and pinching share the same surface, and the pen must lose every
+  // argument between them. A stroke is only started by a lone finger, is thrown
+  // away the moment a second one lands, and cannot start again until BOTH have
+  // left — otherwise lifting one finger out of a pinch draws a line from
+  // wherever the other one happens to be resting.
   ink.addEventListener('pointerdown', (e) => {
-    if (!tool) return;
+    if (!tool || pointers.size > 1 || pinching) return;
     ink.setPointerCapture(e.pointerId);
+    drawingPointer = e.pointerId;
     beginStroke(e);
   });
   ink.addEventListener('pointermove', (e) => {
-    if (!tool || (e.buttons === 0 && e.pointerType === 'mouse')) return;
+    if (!tool || pinching || e.pointerId !== drawingPointer) return;
+    if (e.buttons === 0 && e.pointerType === 'mouse') return;
     extendStroke(e);
   });
-  for (const type of ['pointerup', 'pointercancel']) ink.addEventListener(type, endStroke);
+  for (const type of ['pointerup', 'pointercancel']) {
+    ink.addEventListener(type, (e) => {
+      if (e.pointerId !== drawingPointer) return;
+      drawingPointer = null;
+      endStroke();
+    });
+  }
 
   document.addEventListener('keydown', (e) => {
     if (root.hidden) return;
@@ -1739,15 +1811,60 @@ async function render() {
 // Nothing is scaled by CSS — every page is rendered at the device's own pixels,
 // because a photograph of a page stretched by a browser is exactly the blurry
 // mess this app tells people it isn't.
+// A page of music is roughly square; a phone is not. Fitting one inside the
+// other leaves a band of nothing above and below, and on a phone that band is a
+// third of the screen — the complaint that started this.
+//
+// So a scanned page is cut into SCREENFULS at its own system boundaries, which
+// the page reader already found. Each screenful is as many systems as will fill
+// the width, and it fills the width: the music is as big as the glass allows,
+// and a page turn moves to the next few systems rather than to the next sheet
+// of paper. Where the page could not be read, it falls back to whole pages.
+function sliceOfPage(page, index, pageAspect) {
+  const staves = page?.staves ?? [];
+  if (!staves.length) return null;
+  const across = spread ? window.innerWidth / 2 : window.innerWidth;
+  const screen = across / window.innerHeight;
+  // How much of the page's height fits on a screen once its width fills one:
+  // a tall thin screen holds a short band of a squarish page, which is exactly
+  // why a whole page on a phone was mostly empty.
+  const fits = (pageAspect || 0.75) / screen;
+  const cut = [];
+  let start = 0;
+  while (start < staves.length) {
+    let end = start;
+    while (end + 1 < staves.length) {
+      const height = staves[end + 1].bottom - staves[start].top;
+      if (height > fits * 0.98) break;             // one more would overflow
+      end++;
+    }
+    const top = Math.max(0, staves[start].top - 0.004);
+    const bottom = Math.min(1, staves[end].bottom + 0.004);
+    cut.push({ page: index, top, bottom });
+    start = end + 1;
+  }
+  return cut;
+}
+
 async function layOutPaper() {
   const payload = await loadScorePages(score.id);
+  layout = payload?.layout ?? null;
   paper?.destroy?.();
   paper = await openPaper(payload);
   view = null;
   bars = new Map();
   sheet.replaceChildren();
   pageEls = [];
+  // What the reader shows as one "page": a slice of a scan, or the whole thing
+  // where the music could not be made out.
+  slices = [];
   for (let i = 0; i < paper.count; i++) {
+    const pageAspect = await paper.cropAspect?.(i).catch(() => null);
+    const cut = layout?.[i] ? sliceOfPage(layout[i], i, pageAspect) : null;
+    if (cut?.length) slices.push(...cut);
+    else slices.push({ page: i, top: 0, bottom: 1 });
+  }
+  for (let i = 0; i < slices.length; i++) {
     const node = document.createElement('div');
     node.className = 'osmd-page reader-paper';
     node.dataset.page = String(i);
@@ -1768,9 +1885,11 @@ const drawn = new Set();
 
 async function drawPaperPage(index) {
   const node = pageEls[index];
-  if (!paper || !node || drawn.has(index)) return;
+  const slice = slices[index];
+  if (!paper || !node || !slice || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
-  await paper.draw(index, canvas, window.innerWidth / (spread ? 2 : 1), window.innerHeight);
+  await paper.draw(slice.page, canvas, window.innerWidth / (spread ? 2 : 1),
+    window.innerHeight, { top: slice.top, bottom: slice.bottom });
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
 }
@@ -1807,6 +1926,88 @@ async function engrave() {
     }
   }
   return view;
+}
+
+// --- what you played, on your own photograph ---------------------------------
+//
+// A scan cannot say which note is WRITTEN — nothing in a picture of a page says
+// that, and the app never pretends otherwise. What it can say is which note you
+// played and how in tune it was, because that comes from the audio, and where
+// each note sits on the page, because that was read off the picture.
+//
+// So the marks here are the ones the recording proved: a ring round each
+// notehead in the colour of how it landed. They are placed in the order they
+// were played — the noteheads of the page in reading order, against the notes
+// of the take in the order they came out — which assumes you played it through.
+// Stop halfway and the tail of the page is simply unmarked; that is honest, and
+// it is why nothing here ever says "wrong note".
+function scanHeads() {
+  if (!layout) return [];
+  const all = [];
+  for (const [pageIndex, page] of layout.entries()) {
+    if (!page) continue;
+    const space = page.space ?? 0.01;
+    for (const note of notesInOrder(page)) all.push({ ...note, page: pageIndex, space });
+  }
+  return all;
+}
+
+// One mark per note PLAYED, in order, and not one more.
+//
+// Stretching a short take across a whole page would decorate music nobody
+// touched, which is the kind of confident nonsense this app is written to
+// avoid. Play half the page and half the page is marked; play it twice through
+// and the second pass marks over the first. It is the order you played in, and
+// nothing cleverer is claimed for it.
+function markedHeads() {
+  const heads = scanHeads();
+  const played = take?.notes ?? [];
+  if (!heads.length || !played.length) return [];
+  const count = Math.min(heads.length, played.length);
+  return heads.slice(0, count).map((head, i) => ({ ...head, cents: played[i]?.cents ?? 0 }));
+}
+
+function drawScanMarks(ctx) {
+  if (!isPaper() || !take?.notes?.length || !layout) return;
+  const colours = {
+    good: '--good', off: '--off', bad: '--bad', flatOff: '--flat-off', flatBad: '--flat-bad',
+  };
+  const style = getComputedStyle(document.documentElement);
+  const shown = visiblePages();
+  const marks = markedHeads();
+  for (const index of shown) {
+    const slice = slices[index];
+    const box = boxOfPage(index);
+    if (!slice || !box) continue;
+    const span = Math.max(0.001, slice.bottom - slice.top);
+    for (const head of marks) {
+      if (head.page !== slice.page) continue;
+      if (head.y < slice.top || head.y > slice.bottom) continue;
+      drawOneMark(ctx, head, box, slice, span, style, colours);
+    }
+  }
+}
+
+function drawOneMark(ctx, head, box, slice, span, style, colours) {
+  {
+    const { tier, direction } = intonationTone(head.cents);
+    const token = tier === 'good' ? colours.good
+      : direction === 'flat' ? (tier === 'off' ? colours.flatOff : colours.flatBad)
+        : (tier === 'off' ? colours.off : colours.bad);
+    ctx.save();
+    ctx.strokeStyle = style.getPropertyValue(token).trim() || '#888';
+    // Placed within the SLICE on screen, and sized off the staff space the page
+    // reader measured — so a mark is the size of the notehead it rings, at
+    // whatever scale that screenful of systems is being shown.
+    const x = box.left + head.x * box.width;
+    const y = box.top + ((head.y - slice.top) / span) * box.height;
+    const r = Math.max(3, (head.space / span) * box.height * 0.62);
+    ctx.lineWidth = Math.max(1, r * 0.26);
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 1.25, r * 0.95, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // --- the light that follows the playback -------------------------------------
@@ -1869,7 +2070,7 @@ function refreshPlayButton() {
   mine.hidden = !playable;
   if (!playable) return;
   const on = playing();
-  mine.textContent = on ? '❚❚' : '▶';
+  mine.replaceChildren(icon(on ? 'pause' : 'play'));
   mine.setAttribute('aria-label', on ? 'Pause the take' : 'Play the take');
 }
 
