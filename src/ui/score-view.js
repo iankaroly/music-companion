@@ -150,12 +150,15 @@ export async function showScore(container, {
   osmd.EngravingRules.SheetSubtitleHeight = 1.4;
   osmd.EngravingRules.SheetComposerHeight = 1.5;
   osmd.EngravingRules.SheetAuthorHeight = 1.5;
-  osmd.EngravingRules.TitleTopDistance = 1;
-  osmd.EngravingRules.TitleBottomDistance = 0.6;
-  osmd.EngravingRules.PageTopMargin = 1;
-  osmd.EngravingRules.PageBottomMargin = 1;
-  osmd.EngravingRules.PageLeftMargin = 1;
-  osmd.EngravingRules.PageRightMargin = 1;
+  osmd.EngravingRules.TitleTopDistance = 0.4;
+  osmd.EngravingRules.TitleBottomDistance = 0.4;
+  // Margins of half a staff space. This is a screen, not a sheet of paper: the
+  // music starts at the top of it and ends at the bottom, and a band of empty
+  // page above the first system is a band of screen not showing music.
+  osmd.EngravingRules.PageTopMargin = 0.5;
+  osmd.EngravingRules.PageBottomMargin = 0.5;
+  osmd.EngravingRules.PageLeftMargin = 0.5;
+  osmd.EngravingRules.PageRightMargin = 0.5;
   await osmd.load(xml);
 
   // AFTER the load, both of them, and that is not a style choice: load() resets

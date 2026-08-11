@@ -1632,11 +1632,16 @@ function build() {
     if (menuOpen) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     if (tool) return;                        // the pen owns the page while it is out
+    // While the bar is down, ANY tap on the music puts it away again — it is
+    // in the way, and reaching for a particular third of the screen to dismiss
+    // something that is covering the music is a rule nobody should have to
+    // learn. Page turns come back the moment it is gone.
+    if (chrome) { setChrome(false); return; }
     if (e.clientY < window.innerHeight * 0.16) { setChrome(true); return; }
     const third = window.innerWidth / 3;
     if (e.clientX < third) previousPage();
     else if (e.clientX > window.innerWidth - third) nextPage();
-    else setChrome(!chrome);
+    else setChrome(true);
   });
 
   ink.addEventListener('pointerdown', (e) => {

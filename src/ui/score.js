@@ -94,12 +94,12 @@ export function showTakeReview() {
 async function refreshPicker(selectedId = null) {
   const pick = el('score-pick');
   if (!pick) return;
-  // Notation, and scans that have notation behind them. A photograph on its own
-  // cannot be lined up with a take — nothing in a picture says which note is
-  // which — but a scan PAIRED with a MusicXML file can: you read the page you
-  // know, and the analysis reads the file.
-  const scores = (await listScores())
-    .filter((score) => score.kind !== 'pages' || score.notationId != null);
+  // Everything, scans included. A scan on its own cannot be lined up with a
+  // take — nothing in a photograph says which note is which — but leaving it
+  // out of the list makes the app look broken to somebody who has just scanned
+  // a part and wants to play it. It is offered, and choosing it says plainly
+  // what is missing and offers to fix it.
+  const scores = await listScores();
   pick.replaceChildren();
   const none = document.createElement('option');
   none.value = NO_SCORE;
@@ -130,8 +130,13 @@ async function adopt(row) {
   return current;
 }
 
+// A scan that was chosen for recording but has no notation behind it yet.
+let unpaired = null;
+
 async function chooseScore(id) {
   resetSheet();
+  unpaired = null;
+  el('score-pair').hidden = true;
   if (!id) {
     current = null;
     el('score-remove').hidden = true;
@@ -148,13 +153,18 @@ async function chooseScore(id) {
       // the notes come from the notation paired with it.
       const notation = row.notationId != null ? await loadScore(row.notationId) : null;
       if (!notation?.xml) {
-        // The notation was unpaired or deleted after a take was recorded
-        // against this piece. Say so, and leave the pages readable rather than
-        // throwing the take out with the pairing.
+        // A scan with nothing behind it. This is the honest dead end in the
+        // app: reading the notes out of a photograph is optical music
+        // recognition, it does not run in a browser, and the services that do
+        // it would mean sending the part to somebody else's computer. What CAN
+        // be done is said here, with the button to do it next to the words.
         current = null;
+        unpaired = row;
         showReviewCard(false);
+        el('score-pair').hidden = false;
         scoreChanged?.();
-        status(`${row.name} is a scan with no notation behind it — takes cannot be marked up on it`, 'bad');
+        status(`${row.name} is a scan — the app cannot read notes out of a photograph.`
+          + ' Add the MusicXML for it and your takes will be marked up on it.', 'bad');
         return;
       }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
@@ -247,15 +257,38 @@ export async function importNotationFor(paperId, file) {
   return id;
 }
 
+// The name dialog, shared by scanning and by renaming. Resolves with null if
+// the player would rather not say.
+export function askScoreName(subtitle = '') {
+  const dialog = document.querySelector('#score-name-dialog');
+  const input = document.querySelector('#score-name-input');
+  const heading = dialog?.querySelector('h2');
+  if (!dialog || !input) return Promise.resolve(null);
+  input.value = '';
+  if (heading) heading.textContent = subtitle ? `Name it — ${subtitle}` : 'Name this score';
+  return new Promise((resolve) => {
+    const done = () => {
+      dialog.removeEventListener('close', done);
+      if (heading) heading.textContent = 'Name this score';
+      resolve(dialog.returnValue === 'save' ? input.value.trim() : null);
+    };
+    dialog.addEventListener('close', done);
+    dialog.showModal();
+    setTimeout(() => input.focus(), 50);
+  });
+}
+
 // The camera, page after page, until you say stop. Everything it takes goes in
 // as one score in the order it was shot.
 export async function scanPages() {
   try {
     const taken = await openScanner();
     if (!taken?.length) return null;
-    // Named for what it is until somebody says otherwise: the camera has no
-    // idea what piece this is, and "page-02" is a worse guess than none.
-    return await addPaper(taken, { name: 'Scanned score' });
+    // Named on the way in. A shelf of "Scanned score", "Scanned score 2" is a
+    // shelf you cannot read, and the moment you have just photographed the
+    // thing is the moment you know what it is called.
+    const name = await askScoreName(`${taken.length} ${taken.length === 1 ? 'page' : 'pages'} scanned`);
+    return await addPaper(taken, { name: name || 'Scanned score' });
   } catch (err) {
     status(err.message, 'bad');
     return null;
@@ -679,6 +712,30 @@ export function initScoreCard({
       }
     });
   }
+
+  // The way out of the dead end, one tap from the words that describe it.
+  el('score-pair')?.addEventListener('click', () => {
+    const paperId = unpaired?.id;
+    if (paperId == null) return;
+    const input = el('score-notation-file');
+    if (!input) return;
+    input.onchange = async () => {
+      const chosen = input.files?.[0];
+      input.value = '';
+      if (!chosen) return;
+      try {
+        status('reading the notation…');
+        const notationId = await importNotationFor(paperId, chosen);
+        if (notationId != null) {
+          el('score-pair').hidden = true;
+          await selectScore(paperId);   // now it can be marked up
+        }
+      } catch (err) {
+        status(`could not read that file: ${err.message}`, 'bad');
+      }
+    };
+    input.click();
+  });
 
   remove.addEventListener('click', async () => {
     if (!current) return;

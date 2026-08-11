@@ -41,13 +41,32 @@ const sample = document.createElement('canvas');
 sample.width = SAMPLE_W;
 sample.height = SAMPLE_H;
 
-const STILL_ENOUGH = 6;      // mean channel difference, 0–255
-const MOVED_ENOUGH = 14;     // what counts as "the page was turned"
-const PAPER_FRACTION = 0.42; // how much of the frame has to be bright
+// Thresholds, and the reason they are this loose.
+//
+// The first version of these was tuned against a synthetic camera and never
+// fired against a real one: a phone's picture is never still. Auto-exposure
+// breathes, the sensor is noisy, a hand holding a phone over a book moves a
+// millimetre a second — the mean frame-to-frame difference sits around 8–12
+// even when nothing is happening, so a threshold of 6 meant "hold steady"
+// forever and a shutter that never went off.
+//
+// So: a much more forgiving idea of still, a much more forgiving idea of paper,
+// and — the part that matters — a fallback. If the picture has been reasonably
+// steady for a couple of seconds and no shot has been taken, it takes one.
+// Somebody holding a phone over a page for two seconds wants a photograph, and
+// a scanner that refuses because the light is grey is a scanner nobody uses.
+const STILL_ENOUGH = 13;     // mean luma difference between frames, 0–255
+const MOVED_ENOUGH = 24;     // what counts as "the page was turned"
+const PAPER_FRACTION = 0.2;  // how much of the frame is brighter than its own mid-point
+const INK_DENSITY = 0.035;   // how much of it has ink-like detail in it
 const STILL_FRAMES = 3;      // ~600ms of holding steady
+const PATIENCE = 11;         // ~2.2s: shoot anyway rather than wait for perfection
+const NEW_PAGE = 5;          // how different from the last shot counts as another page
 
 let previous = null;
+let shotOf = null;    // what the last photograph looked like
 let stillFor = 0;
+let waiting = 0;
 
 const el = (id) => document.querySelector(`#${id}`);
 
@@ -63,47 +82,115 @@ function readFrame() {
   const { data } = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H);
   const count = data.length / 4;
   const next = new Float32Array(count);
-  let bright = 0;
   let motion = 0;
+  let total = 0;
   for (let i = 0; i < count; i++) {
     const at = i * 4;
     const luma = data[at] * 0.299 + data[at + 1] * 0.587 + data[at + 2] * 0.114;
     next[i] = luma;
-    if (luma > 150) bright++;
+    total += luma;
     if (previous) motion += Math.abs(luma - previous[i]);
+  }
+  // Paper is judged against the frame's OWN brightness rather than an absolute:
+  // a page under a desk lamp and a page in a dim practice room are both pages,
+  // and a fixed threshold only ever recognised one of them. What a page looks
+  // like is a lot of the picture being brighter than the picture's average.
+  const mean = total / count;
+  let bright = 0;
+  for (let i = 0; i < count; i++) if (next[i] > mean * 1.02) bright++;
+
+  // …and a page of MUSIC has ink on it. This is what tells a page from a hand,
+  // a sleeve or a table: staff lines and noteheads make hundreds of small
+  // dark-to-light steps, and a hand makes almost none. Brightness alone let the
+  // shutter fire on the hand that had just turned the page — steady, pale
+  // enough, and completely smooth.
+  let edges = 0;
+  for (let y = 1; y < SAMPLE_H; y++) {
+    for (let x = 1; x < SAMPLE_W; x++) {
+      const at = y * SAMPLE_W + x;
+      const dx = Math.abs(next[at] - next[at - 1]);
+      const dy = Math.abs(next[at] - next[at - SAMPLE_W]);
+      if (Math.max(dx, dy) > 16) edges++;
+    }
   }
   const result = {
     motion: previous ? motion / count : Infinity,
     paper: bright / count,
+    ink: edges / count,
+    lit: mean,
+    frame: next,
   };
   previous = next;
   return result;
 }
 
+// Mean difference between two sampled frames. Infinity when there is nothing to
+// compare with, which reads as "yes, different" everywhere it is used.
+function different(a, b) {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  let total = 0;
+  for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
+  return total / a.length;
+}
+
 function watch() {
   clearInterval(watching);
+  waiting = 0;
   watching = setInterval(() => {
     if (!video || video.readyState < 2) return;
-    const { motion, paper } = readFrame();
+    const { motion, paper, ink, lit, frame } = readFrame();
     if (!auto) return;
-    if (motion > MOVED_ENOUGH) {
-      // The picture changed — a page was turned, or the phone was moved to the
-      // next one. Whatever it was, the shutter is allowed again.
+    // Re-arming asks the right question: not "did the picture just move" but
+    // "is this a different page from the one already taken". A hand moving out
+    // of shot is movement; the next page is a different picture. Comparing
+    // against the last photograph rather than against the last frame is what
+    // makes a slow, careful page turn work as well as a brisk one.
+    if (!armed && different(frame, shotOf) > NEW_PAGE) {
       armed = true;
       stillFor = 0;
+      waiting = 0;
+      say('hold it steady…');
+      return;
+    }
+    if (motion > MOVED_ENOUGH) {
+      armed = true;
+      stillFor = 0;
+      waiting = 0;
       say('hold it steady…');
       return;
     }
     if (!armed) return;
-    if (motion > STILL_ENOUGH) { stillFor = 0; return; }
-    if (paper < PAPER_FRACTION) {
-      say('point it at the page');
+    waiting++;
+    if (lit < 25) {                       // the lens is covered, or the lights are off
+      say('too dark to see the page');
       stillFor = 0;
       return;
     }
-    stillFor++;
-    if (stillFor >= STILL_FRAMES) {
+    const steady = motion <= STILL_ENOUGH;
+    const looksLikePaper = paper >= PAPER_FRACTION;
+    if (!steady) {
+      // Anything moving resets the clock — including the hand that just turned
+      // the page. Without this the patience below fires on the hand: it is
+      // briefly still, briefly bright enough, and you get a photograph of a
+      // thumb between every two pages.
       stillFor = 0;
+      waiting = 0;
+      say('hold it steady…');
+      return;
+    }
+    const hasInk = ink >= INK_DENSITY;
+    if (looksLikePaper && hasInk) stillFor++;
+    else {
+      stillFor = 0;
+      say(hasInk ? 'point it at the page' : 'move it over the music');
+    }
+    // Either it looks right and has been still, or it has been still for a
+    // good while: two seconds of a phone held motionless over a book is a
+    // photograph waiting to happen, whatever the light is doing.
+    if (stillFor >= STILL_FRAMES
+      || (waiting >= PATIENCE && paper >= PAPER_FRACTION * 0.6 && ink >= INK_DENSITY * 0.7)) {
+      stillFor = 0;
+      waiting = 0;
       armed = false;
       capture();
     }
@@ -118,10 +205,12 @@ async function capture() {
   canvas.getContext('2d').drawImage(video, 0, 0);
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob) return;
+  shotOf = previous ? Float32Array.from(previous) : null;
   const number = String(pages.length + 1).padStart(2, '0');
   pages.push(new File([blob], `page-${number}.jpg`, { type: 'image/jpeg' }));
   addThumb(pages.at(-1), pages.length - 1);
   refreshCount();
+  waiting = 0;
   say(auto ? 'got it — turn the page' : 'got it');
   root.classList.add('flash');
   setTimeout(() => root.classList.remove('flash'), 180);
@@ -233,7 +322,9 @@ function stopCamera() {
   stream = null;
   if (video) video.srcObject = null;
   previous = null;
+  shotOf = null;
   stillFor = 0;
+  waiting = 0;
 }
 
 function finish(result) {
