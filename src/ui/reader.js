@@ -29,6 +29,7 @@
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
+import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
 } from '../store/db.js';
@@ -363,23 +364,35 @@ function drawStroke(ctx, stroke) {
   ctx.restore();
 }
 
+// The ink layer is the whole screen, and the drawing is moved onto the page.
+//
+// It used to be a canvas the size of the page, moved to sit on top of it. That
+// stops working the moment the page can be zoomed: a page at four times the
+// size is a canvas four times the size, most of it off-screen, all of it in
+// memory. One screen-sized canvas with the origin shifted to the page's corner
+// draws the same picture and costs the same however far in you go.
 function redraw() {
   const box = pageBox();
   if (!ink || !box) return;
   const dpr = window.devicePixelRatio || 1;
-  if (ink.width !== Math.round(box.width * dpr) || ink.height !== Math.round(box.height * dpr)) {
-    ink.width = Math.round(box.width * dpr);
-    ink.height = Math.round(box.height * dpr);
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (ink.width !== Math.round(w * dpr) || ink.height !== Math.round(h * dpr)) {
+    ink.width = Math.round(w * dpr);
+    ink.height = Math.round(h * dpr);
   }
-  ink.style.width = `${box.width}px`;
-  ink.style.height = `${box.height}px`;
-  ink.style.left = `${box.left}px`;
-  ink.style.top = `${box.top}px`;
+  ink.style.width = `${w}px`;
+  ink.style.height = `${h}px`;
+  ink.style.left = '0px';
+  ink.style.top = '0px';
   const ctx = ink.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, box.width, box.height);
+  ctx.clearRect(0, 0, w, h);
+  ctx.save();
+  ctx.translate(box.left, box.top);
   for (const stroke of strokes) drawStroke(ctx, stroke);
   if (drawing) drawStroke(ctx, drawing);
+  ctx.restore();
 }
 
 // Rubbing out: a stroke goes if the eraser passes within a finger's width of it.
@@ -446,6 +459,12 @@ function extendStroke(e) {
   redraw();
 }
 
+// A stroke that turned out to be the start of a pinch is not a stroke.
+function cancelStroke() {
+  drawing = null;
+  redraw();
+}
+
 function endStroke() {
   if (drawing && drawing.points.length > 1) {
     strokes.push(drawing);
@@ -457,11 +476,124 @@ function endStroke() {
   redraw();
 }
 
+// --- zoom and pan ------------------------------------------------------------
+//
+// Pinching in on a page is the one magnification this app allows, and it is
+// here because of the pen: writing a fingering between two ledger lines at
+// arm's length is asking to draw a fingering on the wrong note. It is a
+// transform on the page, so the engraving stays sharp at any size and the ink
+// follows exactly — every mark is placed from the page's box, and the box is
+// measured live, transform and all.
+//
+// Two fingers, always. One finger is the pen while annotating and a page turn
+// while reading, and neither can be shared.
+
+const ZOOM_LIMIT = 5;
+let zoom = 1;
+let panX = 0;
+let panY = 0;
+const pointers = new Map();
+let pinch = null;   // { distance, x, y } at the moment the second finger landed
+
+function applyZoom() {
+  if (!sheet) return;
+  sheet.style.transformOrigin = '50% 50%';
+  sheet.style.transform = zoom === 1 && !panX && !panY
+    ? ''
+    : `translate(${panX}px, ${panY}px) scale(${zoom})`;
+  const reset = el('reader-reset-zoom');
+  if (reset) reset.hidden = zoom === 1;
+  redraw();
+}
+
+// Keep the page overlapping the screen: at any zoom you can push a corner to
+// the middle, and no further. Losing the page off the edge with no way to
+// scroll it back would be a dead end.
+function clampPan() {
+  const box = currentPage()?.getBoundingClientRect();
+  if (!box) return;
+  const slackX = Math.max(0, (box.width - window.innerWidth) / 2 + window.innerWidth * 0.25);
+  const slackY = Math.max(0, (box.height - window.innerHeight) / 2 + window.innerHeight * 0.25);
+  panX = Math.min(slackX, Math.max(-slackX, panX));
+  panY = Math.min(slackY, Math.max(-slackY, panY));
+}
+
+function resetZoom() {
+  zoom = 1;
+  panX = 0;
+  panY = 0;
+  applyZoom();
+  if (isPaper()) redrawPaperAtZoom();
+}
+
+// A photograph drawn for a screen and then blown up four times is four times
+// blurrier. Once the fingers come off, the page is drawn again at the size it
+// is now being shown.
+let sharpenTimer = null;
+function redrawPaperAtZoom() {
+  clearTimeout(sharpenTimer);
+  sharpenTimer = setTimeout(async () => {
+    if (!isPaper() || !paper) return;
+    const node = pageEls[pageIndex];
+    const canvas = node?.querySelector('canvas');
+    if (!canvas) return;
+    await paper.draw(pageIndex, canvas, window.innerWidth * zoom, window.innerHeight * zoom);
+    // Drawn big, shown at the page's own size: the transform does the rest.
+    canvas.style.width = `${Math.round(canvas.width / (window.devicePixelRatio || 1) / zoom)}px`;
+    canvas.style.height = `${Math.round(canvas.height / (window.devicePixelRatio || 1) / zoom)}px`;
+    redraw();
+  }, 220);
+}
+
+function trackPointers(root) {
+  root.addEventListener('pointerdown', (e) => {
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      const [a, b] = [...pointers.values()];
+      pinch = {
+        distance: Math.hypot(a.x - b.x, a.y - b.y),
+        x: (a.x + b.x) / 2,
+        y: (a.y + b.y) / 2,
+        zoom,
+        panX,
+        panY,
+      };
+      cancelStroke();   // the first finger was drawing; it was not, it was pinching
+    }
+  }, true);
+  root.addEventListener('pointermove', (e) => {
+    if (!pointers.has(e.pointerId)) return;
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size !== 2 || !pinch) return;
+    const [a, b] = [...pointers.values()];
+    const distance = Math.hypot(a.x - b.x, a.y - b.y);
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    zoom = Math.min(ZOOM_LIMIT, Math.max(1, pinch.zoom * (distance / (pinch.distance || 1))));
+    panX = pinch.panX + (x - pinch.x);
+    panY = pinch.panY + (y - pinch.y);
+    if (zoom === 1) { panX = 0; panY = 0; }
+    clampPan();
+    applyZoom();
+  }, true);
+  for (const type of ['pointerup', 'pointercancel']) {
+    root.addEventListener(type, (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinch = null;
+      if (pointers.size === 0 && isPaper() && zoom > 1) redrawPaperAtZoom();
+    }, true);
+  }
+}
+
 // --- pages -------------------------------------------------------------------
 
 function showPage(index) {
   if (!pageEls.length) return;
+  const moved = index !== pageIndex;
   pageIndex = Math.max(0, Math.min(pageEls.length - 1, index));
+  // A new page is a new page: it arrives whole, not at whatever corner you had
+  // magnified on the last one.
+  if (moved && zoom !== 1) { zoom = 1; panX = 0; panY = 0; applyZoom(); }
   for (const [i, node] of pageEls.entries()) node.hidden = i !== pageIndex;
   if (isPaper()) {
     drawPaperPage(pageIndex).catch(() => {});
@@ -715,6 +847,17 @@ function buildMenu(sheet) {
       onPick: () => resize(1 / ZOOM_STEP),
     });
   }
+  if (isPaper()) {
+    menuGroup(sheet, 'what is behind it');
+    menuRow(sheet, {
+      label: score?.notationId != null ? 'Change the notation…' : 'Add notation for analysis…',
+      glyph: '♪',
+      detail: score?.notationId != null
+        ? 'takes of this piece are read against it'
+        : 'so takes can be marked up on it',
+      onPick: chooseNotation,
+    });
+  }
   menuGroup(sheet, 'this file');
   menuRow(sheet, {
     label: 'Rename…', glyph: 'Aa', detail: score?.name ?? '',
@@ -773,6 +916,52 @@ async function deleteThisScore() {
 
 function announceLibraryChanged() {
   document.dispatchEvent(new CustomEvent('settings-change', { detail: { key: 'library' } }));
+}
+
+// Behind a scan: the notation that says which note is which.
+//
+// Nothing here recognises music from a photograph — no browser can, and the
+// services that do would mean sending your part to somebody else's computer.
+// What this does instead is let you SAY the two are the same piece: recognise
+// the scan once in MuseScore (or wherever), bring the MusicXML back, and from
+// then on the piece reads from your pages and analyses from the file.
+async function chooseNotation() {
+  if (!score) return;
+  const { notationScores, pairWithNotation, importNotationFor } = await import('./score.js');
+  const scores = await notationScores();
+  const rows = scores.map((row) => ({
+    label: row.id === score.notationId ? `✓ ${row.name}` : row.name,
+    onPick: async () => {
+      await pairWithNotation(score.id, row.id);
+      score.notationId = row.id;
+    },
+  }));
+  rows.push({
+    label: '＋ Import a MusicXML file…',
+    onPick: () => {
+      const input = document.querySelector('#score-notation-file');
+      if (!input) return;
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        input.value = '';
+        if (!file) return;
+        const id = await importNotationFor(score.id, file).catch(() => null);
+        if (id != null) score.notationId = id;
+      };
+      input.click();
+    },
+  });
+  if (score.notationId != null) {
+    rows.push({
+      label: 'Unpair',
+      danger: true,
+      onPick: async () => {
+        await pairWithNotation(score.id, null);
+        delete score.notationId;
+      },
+    });
+  }
+  actionMenu(el('reader-menu-btn'), rows);
 }
 
 // --- painting the take over the page -----------------------------------------
@@ -875,7 +1064,9 @@ function buildInkBar() {
     iconButton('reader-undo', '↺', 'Undo', undo),
     iconButton('reader-redo', '↻', 'Redo', redo),
     iconButton('reader-clear', '⌧', 'Clear this page', clearPage),
+    iconButton('reader-reset-zoom', '1×', 'Back to the whole page', resetZoom),
   );
+  bar.querySelector('#reader-reset-zoom').hidden = true;
   return bar;
 }
 
@@ -920,6 +1111,7 @@ function build() {
 
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(), menu);
   document.body.append(root);
+  trackPointers(root);
 
   // A tap does one of four things, and where it lands decides which. The top
   // strip is tested FIRST: it overlaps the left and right thirds, and a tap up
@@ -1181,8 +1373,17 @@ export async function openReader(row, { take: analysed = null } = {}) {
   pageIndex = 0;
   tool = null;
   root.classList.remove('drawing');
-  setChrome(true);
+  // Out of the way from the first moment. You opened a score to look at music,
+  // and a glass bar over the top system is not music. The top strip brings it
+  // back — and says so once, the first time, because a screen with nothing on
+  // it teaches nobody anything.
+  setChrome(false);
+  zoom = 1;
+  panX = 0;
+  panY = 0;
+  applyZoom();
   root.hidden = false;
+  showFirstRunHint();
   document.documentElement.dataset.reading = 'yes';
   el('reader-title').textContent = row.name ?? '';
   try {
@@ -1222,6 +1423,21 @@ export function close() {
   take = null;
   strokes = [];
   bars = new Map();
+}
+
+const HINT_KEY = 'readerHinted';
+
+function showFirstRunHint() {
+  let seen = false;
+  try { seen = globalThis.localStorage?.getItem(HINT_KEY) === 'yes'; } catch { /* private mode */ }
+  if (seen) return;
+  try { globalThis.localStorage?.setItem(HINT_KEY, 'yes'); } catch { /* survivable */ }
+  setChrome(true);
+  const hint = document.createElement('div');
+  hint.id = 'reader-hint';
+  hint.textContent = 'Tap the top of the screen for the controls · left and right to turn pages';
+  root.append(hint);
+  setTimeout(() => { hint.remove(); setChrome(false); }, 4200);
 }
 
 export function readerIsOpen() {

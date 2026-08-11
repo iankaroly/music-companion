@@ -23,8 +23,10 @@ import {
 } from './score-tab.js';
 import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
+  pairScoreNotation,
 } from '../store/db.js';
 import { isPdf, isImage, nameFromFile, pdfPageCount } from './paper.js';
+import { openScanner } from './scanner.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
 let view = null;      // the rendered page, if one is up
@@ -92,9 +94,12 @@ export function showTakeReview() {
 async function refreshPicker(selectedId = null) {
   const pick = el('score-pick');
   if (!pick) return;
-  // Only notation: a photograph of a page cannot be lined up with a take, so
-  // offering it here would be offering something the app cannot do.
-  const scores = (await listScores()).filter((score) => score.kind !== 'pages');
+  // Notation, and scans that have notation behind them. A photograph on its own
+  // cannot be lined up with a take — nothing in a picture says which note is
+  // which — but a scan PAIRED with a MusicXML file can: you read the page you
+  // know, and the analysis reads the file.
+  const scores = (await listScores())
+    .filter((score) => score.kind !== 'pages' || score.notationId != null);
   pick.replaceChildren();
   const none = document.createElement('option');
   none.value = NO_SCORE;
@@ -138,7 +143,15 @@ async function chooseScore(id) {
   const row = await loadScore(id);
   if (!row) return;
   try {
-    await adopt(row);
+    if (row.kind === 'pages') {
+      // The piece is the scan — it keeps its name, its id and its takes — but
+      // the notes come from the notation paired with it.
+      const notation = row.notationId != null ? await loadScore(row.notationId) : null;
+      if (!notation?.xml) throw new Error('that score has no notation behind it to read');
+      await adopt({ ...notation, id: row.id, name: row.name, paper: row });
+    } else {
+      await adopt(row);
+    }
     el('score-remove').hidden = false;
     showReviewCard(true);
     scoreChanged?.();
@@ -163,7 +176,7 @@ async function chooseScore(id) {
 // can be — this is a picture of music, and the app is honest about that: it can
 // be read from, paged through and drawn on, and it is never offered as
 // something to record against.
-async function addPaper(files) {
+async function addPaper(files, { name: given = null } = {}) {
   const list = [...files];
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
@@ -172,7 +185,7 @@ async function addPaper(files) {
     const data = await list[0].arrayBuffer();
     const pageCount = await pdfPageCount(data);
     id = await savePagesScore({
-      name: nameFromFile(list[0]), source: 'pdf', pageCount, data,
+      name: given ?? nameFromFile(list[0]), source: 'pdf', pageCount, data,
     });
   } else {
     // Photographs come back in whatever order the picker felt like; by name is
@@ -182,7 +195,7 @@ async function addPaper(files) {
       .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
     if (pages.length === 0) throw new Error('those were not pages of music');
     id = await savePagesScore({
-      name: nameFromFile(pages[0]), source: 'photos', pageCount: pages.length, pages,
+      name: given ?? nameFromFile(pages[0]), source: 'photos', pageCount: pages.length, pages,
     });
   }
   scoreChanged?.();
@@ -199,6 +212,41 @@ async function readPaperScore(row) {
     await openReader(row);
   } catch (err) {
     status(`could not open that score: ${err.message}`, 'bad');
+  }
+}
+
+// Everything the app could put behind a scan: the notation it already has.
+export async function notationScores() {
+  return (await listScores()).filter((score) => score.kind !== 'pages');
+}
+
+// Say that this scan and that MusicXML are the same piece.
+export async function pairWithNotation(paperId, notationId) {
+  await pairScoreNotation(paperId, notationId);
+  scoreChanged?.();
+}
+
+// Import a MusicXML file and pair it with a scan in one go — the second half of
+// "scan it, recognise it somewhere that can, bring it back".
+export async function importNotationFor(paperId, file) {
+  const id = await addFromFile(file);
+  if (id == null) return null;
+  await pairWithNotation(paperId, id);
+  return id;
+}
+
+// The camera, page after page, until you say stop. Everything it takes goes in
+// as one score in the order it was shot.
+export async function scanPages() {
+  try {
+    const taken = await openScanner();
+    if (!taken?.length) return null;
+    // Named for what it is until somebody says otherwise: the camera has no
+    // idea what piece this is, and "page-02" is a worse guess than none.
+    return await addPaper(taken, { name: 'Scanned score' });
+  } catch (err) {
+    status(err.message, 'bad');
+    return null;
   }
 }
 
@@ -220,6 +268,8 @@ async function addFromFile(file) {
   const id = await saveScore({ name, xml, partIndex, parts: parsed.parts });
   await refreshPicker(id);
   await chooseScore(id);
+  scoreChanged?.();
+  return id;
 }
 
 // The page and everything hung around it. The summary and the legend are
@@ -553,6 +603,13 @@ export async function openScoreFromLibrary(id) {
 // is one. Called by the ⤢ button and by a tap on the page.
 export async function readCurrentScore() {
   if (!current) return;
+  // A paired piece is read from its own pages, not from an engraving of the
+  // notation behind it: the point of scanning it was that this is the copy with
+  // your fingerings on it.
+  if (current.paper) {
+    await readPaperScore({ ...current.paper, notes: current.notes });
+    return;
+  }
   try {
     await openReader(current, {
       take: ready ? { aligned: ready.aligned, timing: ready.timing } : null,

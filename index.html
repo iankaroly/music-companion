@@ -968,7 +968,28 @@
       z-index: 80;
       background: var(--bg);
       overscroll-behavior: none;
-      touch-action: manipulation;
+      /* The reader owns every gesture on it: taps turn pages, one finger draws,
+         two fingers zoom. Nothing here is a scroll. */
+      touch-action: none;
+    }
+    /* Said once, on the first score anybody opens, and then never again. */
+    #reader-hint {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(1.6rem + env(safe-area-inset-bottom, 0px));
+      z-index: 4;
+      max-width: min(26rem, 92vw);
+      text-align: center;
+      padding: 0.55rem 1rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.85);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-line);
+      color: var(--muted);
+      font-family: var(--display);
+      font-size: 0.78rem;
+      animation: pop-in 240ms var(--spring);
     }
     html[data-reading] body { overflow: hidden; }
     html[data-reading] nav[role="tablist"] { display: none; }
@@ -1140,6 +1161,117 @@
       #reader-ink-bar .reader-tool { width: 1.85rem; height: 1.85rem; font-size: 0.85rem; }
       #reader-ink-bar .reader-swatch { width: 1.1rem; height: 1.1rem; }
     }
+
+    /* --- the scanner: the camera, and the pages so far ------------------- */
+    #scanner {
+      position: fixed;
+      inset: 0;
+      z-index: 90;          /* over the reader, which may be open behind it */
+      background: #000;
+      overflow: hidden;
+    }
+    html[data-scanning] body { overflow: hidden; }
+    #scan-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;    /* the page fills the screen; the shot is the full frame */
+    }
+    /* The shutter fired: one white blink, the way a camera says it took one. */
+    #scanner.flash::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: #fff;
+      animation: scan-flash 180ms ease-out;
+    }
+    @keyframes scan-flash { from { opacity: 0.85; } to { opacity: 0; } }
+    #scan-top {
+      position: absolute;
+      top: max(0.6rem, env(safe-area-inset-top, 0px));
+      left: 0.7rem;
+      right: 0.7rem;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .scan-tool {
+      display: grid; place-items: center;
+      width: 2.4rem; height: 2.4rem;
+      border-radius: 999px; border: none;
+      background: rgb(0 0 0 / 0.45); color: #fff;
+      font-size: 1rem; cursor: pointer;
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    }
+    .scan-chip {
+      margin-left: auto;
+      font-family: var(--display); font-size: 0.82rem; font-weight: 500;
+      padding: 0.5rem 1.1rem; border-radius: 999px; border: none;
+      background: rgb(0 0 0 / 0.45); color: #fff; cursor: pointer;
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+    }
+    .scan-chip.on { background: var(--grad); color: var(--on-primary); }
+    #scan-status {
+      position: absolute;
+      top: calc(max(0.6rem, env(safe-area-inset-top, 0px)) + 3.2rem);
+      left: 50%;
+      transform: translateX(-50%);
+      color: #fff;
+      font-family: var(--display);
+      font-size: 0.86rem;
+      text-shadow: 0 1px 6px rgb(0 0 0 / 0.6);
+      white-space: nowrap;
+    }
+    /* The pages so far, newest at the end — the pile you are building. */
+    #scan-strip {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      gap: 0.5rem;
+      padding: 0 0.8rem;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+    #scan-strip::-webkit-scrollbar { display: none; }
+    .scan-thumb { position: relative; flex: none; }
+    .scan-thumb img {
+      display: block;
+      height: 4.5rem;
+      border-radius: 0.5rem;
+      border: 2px solid rgb(255 255 255 / 0.75);
+    }
+    .scan-drop {
+      position: absolute; top: -0.4rem; right: -0.4rem;
+      width: 1.35rem; height: 1.35rem; border-radius: 999px;
+      border: none; background: rgb(0 0 0 / 0.75); color: #fff;
+      font-size: 0.7rem; line-height: 1; cursor: pointer;
+    }
+    .scan-number {
+      position: absolute; bottom: 0.2rem; left: 0.3rem;
+      color: #fff; font-family: var(--num, inherit); font-size: 0.7rem;
+      text-shadow: 0 1px 4px rgb(0 0 0 / 0.8);
+    }
+    #scan-bottom {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: calc(1.1rem + env(safe-area-inset-bottom, 0px));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.2rem;
+      padding: 0 1rem;
+    }
+    .scan-shutter {
+      width: 4.2rem; height: 4.2rem;
+      border-radius: 999px;
+      border: 4px solid rgb(255 255 255 / 0.9);
+      background: rgb(255 255 255 / 0.25);
+      cursor: pointer;
+    }
+    .scan-shutter:active { transform: scale(0.92); }
+    #scan-bottom .ctl:disabled { opacity: 0.4; }
 
     /* The sheet of everything else, off the ⋯ — the shape forScore uses for the
        same job, with only the rows this app can actually do. */
@@ -2282,6 +2414,7 @@
       </div>
     </form>
   </dialog>
+  <input id="score-notation-file" type="file" hidden>
   <input id="score-pdf" type="file" accept="application/pdf,.pdf" hidden>
   <input id="score-photos" type="file" accept="image/*" capture="environment" multiple hidden>
 

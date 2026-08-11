@@ -12,7 +12,7 @@ import {
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
-  reviewIsWaiting, showTakeReview,
+  reviewIsWaiting, showTakeReview, scanPages,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -1100,7 +1100,11 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
       onPick: () => document.querySelector('#score-pdf')?.click(),
     },
     {
-      label: 'Photograph or scan…',
+      label: 'Scan with the camera…',
+      onPick: () => scanPages(),
+    },
+    {
+      label: 'Photos already taken…',
       onPick: () => document.querySelector('#score-photos')?.click(),
     },
   ]);

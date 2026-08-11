@@ -155,6 +155,30 @@ export async function savePagesScore({ name, source, pageCount, data = null, pag
   });
 }
 
+// Pairing a scan with notation. The player reads the photograph they know; the
+// analysis reads the MusicXML behind it. Nothing in the app can turn one into
+// the other — that is optical music recognition, and it does not run in a
+// browser — but a player who has the file can say "these two are the same
+// piece" and get both halves at once.
+export async function pairScoreNotation(paperId, notationId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(paperId);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      if (notationId === null) delete row.notationId;
+      else row.notationId = notationId;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function renameScore(id, name) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
