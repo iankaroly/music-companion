@@ -101,6 +101,7 @@
       color-scheme: light;
       /* candy-glass stage: drifting color blobs under frosted surfaces */
       --sf: 255 255 255;
+      --primary-rgb: 109 78 246;
       --sh: 42 33 73;
       --on-surface: 42 33 73;
       --bg: #eeebfa;
@@ -165,6 +166,7 @@
     :root[data-theme="dark"] {
       color-scheme: dark;
       --sf: 60 64 96;
+      --primary-rgb: 156 134 255;
       --sh: 0 0 0;
       --on-surface: 232 230 252;
       --bg: #14131f;
@@ -1021,15 +1023,11 @@
       pointer-events: auto;
       touch-action: none;     /* a stroke must not also scroll or turn a page */
     }
-    /* The bar you read under. Edge to edge along the very top, and no panel
-       behind it: a slab of glass over the first system is a slab of glass over
-       the music, and the music is what the screen is for. The controls sit
-       straight on the page with a soft shadow so they read against black ink or
-       white paper, which is how a score reader's bar behaves.
-
-       Nothing is on screen until it is asked for: a score opens as the score,
-       a tap at the top brings this down, and a tap anywhere on the music sends
-       it away again. */
+    /* The bar you read under: edge to edge along the very top, with a panel
+       behind it. It is a title bar, and a title bar has a surface — floating
+       icons over the music read as smudges on the page. It is simply not there
+       until you ask: a score opens as the score, a tap at the top brings this
+       down, a tap on the music sends it away. */
     #reader-top, #reader-ink-bar {
       position: fixed;
       top: 0;
@@ -1041,12 +1039,12 @@
       gap: 0.15rem;
       padding: max(0.4rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-left, 0px))
                0.4rem max(0.5rem, env(safe-area-inset-right, 0px));
-      background: none;
-      border: 0;
+      background: rgb(var(--sf) / 0.94);
+      -webkit-backdrop-filter: blur(26px) saturate(1.8);
+      backdrop-filter: blur(26px) saturate(1.8);
+      border-bottom: 1px solid var(--glass-line);
+      box-shadow: 0 6px 20px rgb(var(--sh) / 0.12);
       transition: opacity 180ms, transform 220ms var(--spring);
-      /* the page is under it, so everything on it needs its own edge */
-      filter: drop-shadow(0 1px 2px rgb(var(--sf) / 0.95))
-              drop-shadow(0 0 7px rgb(var(--sf) / 0.85));
     }
     #reader-top .reader-bar-left,
     #reader-top .reader-bar-right { display: flex; align-items: center; gap: 0.15rem; flex: none; }
@@ -1079,11 +1077,19 @@
       padding: 0 0.2rem;
     }
     #reader-count { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    /* A square button with a round highlight — flex: none so it cannot be
+       stretched into an oval by a crowded bar, which is what made the selected
+       tool look like a smeared blue lozenge. And a tint rather than the app's
+       gradient: a gradient inside a 2rem circle is three colours nobody can
+       see, and next to five of its neighbours it reads as noise. */
     .reader-tool {
+      flex: none;
       display: grid;
       place-items: center;
       width: 2.2rem;
       height: 2.2rem;
+      aspect-ratio: 1;
+      padding: 0;
       border-radius: 999px;
       border: 1px solid transparent;
       background: none;
@@ -1092,17 +1098,15 @@
       font-family: var(--display);
       line-height: 1;
       cursor: pointer;
+      transition: background 140ms, color 140ms;
     }
-    .reader-tool svg { width: 1.35rem; height: 1.35rem; }
-    .reader-tool.on { background: var(--grad); color: var(--on-primary); }
-    /* The tools bar has a panel behind it — you are working, not reading. */
-    #reader-ink-bar {
-      background: rgb(var(--sf) / 0.9);
-      -webkit-backdrop-filter: blur(26px) saturate(1.8);
-      backdrop-filter: blur(26px) saturate(1.8);
-      border-bottom: 1px solid var(--glass-line);
-      filter: none;
+    .reader-tool svg { width: 1.3rem; height: 1.3rem; }
+    .reader-tool.on {
+      background: rgb(var(--primary-rgb, 109 78 246) / 0.16);
+      border-color: rgb(var(--primary-rgb, 109 78 246) / 0.35);
+      color: var(--primary);
     }
+    .reader-tool:disabled { opacity: 0.3; cursor: default; }
     .reader-tool:disabled { opacity: 0.3; cursor: default; }
     .reader-swatch {
       width: 1.35rem;
@@ -1191,6 +1195,37 @@
       #reader-ink-bar .reader-swatch { width: 1.1rem; height: 1.1rem; }
     }
 
+    /* The pages of a scan, as thumbnails. */
+    #pages-dialog { max-width: min(40rem, 92vw); }
+    #pages-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+      gap: 0.7rem;
+      max-height: 60vh;
+      overflow-y: auto;
+      padding: 0.2rem;
+    }
+    .page-item { position: relative; }
+    .page-item img {
+      width: 100%;
+      display: block;
+      border-radius: 0.5rem;
+      border: 1px solid var(--glass-line);
+      background: #fff;
+    }
+    .page-number {
+      position: absolute; top: 0.3rem; left: 0.4rem;
+      font-family: var(--num, inherit); font-size: 0.75rem; color: var(--ink);
+      background: rgb(var(--sf) / 0.85); border-radius: 999px; padding: 0 0.4rem;
+    }
+    .page-tools { display: flex; justify-content: center; gap: 0.25rem; margin-top: 0.3rem; }
+    .page-tools button {
+      border: none; background: var(--fill); color: var(--ink);
+      border-radius: 999px; width: 1.7rem; height: 1.7rem; cursor: pointer;
+      font-size: 0.8rem; line-height: 1;
+    }
+    .page-tools button.danger { color: var(--bad); }
+
     /* --- the scanner: the camera, and the pages so far ------------------- */
     #scanner {
       position: fixed;
@@ -1223,8 +1258,9 @@
       right: 0.7rem;
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.5rem;
     }
+    #scan-top .scan-chip:first-of-type { margin-left: auto; }
     .scan-tool {
       display: grid; place-items: center;
       width: 2.4rem; height: 2.4rem;
@@ -1234,7 +1270,6 @@
       -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
     }
     .scan-chip {
-      margin-left: auto;
       font-family: var(--display); font-size: 0.82rem; font-weight: 500;
       padding: 0.5rem 1.1rem; border-radius: 999px; border: none;
       background: rgb(0 0 0 / 0.45); color: #fff; cursor: pointer;
@@ -1383,6 +1418,20 @@
     }
     #score-save-bar { margin-top: 1.1rem; }
     #score-list-empty { display: none; }
+    #score-search {
+      width: 100%;
+      margin-bottom: 0.7rem;
+      font-size: 1rem;
+      font-family: var(--ui);
+      background: rgb(var(--sf) / 0.8);
+      border: 1px solid var(--glass-line);
+      border-radius: 999px;
+      padding: 0.5rem 1rem;
+      color: var(--ink);
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    #score-search::placeholder { color: var(--muted); }
     #score-review-head { justify-content: flex-start; margin-bottom: 0.8rem; }
     #score-review-title {
       font-family: var(--display);
@@ -2458,6 +2507,16 @@
        document scanner, which is the nearest thing to a scanner this app can
        reach without a native plugin), while accept="image/*" is what makes iOS
        offer the camera and the photo library. -->
+  <dialog id="pages-dialog">
+    <h2>The pages</h2>
+    <div id="pages-list"></div>
+    <form method="dialog">
+      <div class="row">
+        <button value="cancel" class="ctl">Cancel</button>
+        <button value="save" class="ctl primary">Keep this order</button>
+      </div>
+    </form>
+  </dialog>
   <dialog id="score-name-dialog">
     <h2>Name this score</h2>
     <form method="dialog">
@@ -2727,6 +2786,8 @@
           <span id="score-browser-title">Scores</span>
           <button id="score-load" class="ctl" type="button">＋ Score</button>
         </div>
+        <!-- Twenty pieces is a scroll; forty is a search. -->
+        <input id="score-search" type="search" placeholder="Find a piece" aria-label="Find a piece">
         <ul id="score-list"></ul>
         <div id="score-list-empty">No scores yet. Load a MusicXML or .mxl part — export
         one from MuseScore, or download it from IMSLP — and it will open here to play from.</div>

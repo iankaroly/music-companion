@@ -221,6 +221,10 @@ async function addPaper(files, { name: given = null } = {}) {
     });
   }
   scoreChanged?.();
+  // The Record tab's picker is built from the list of scores; a scan that has
+  // just been taken has to appear in it without a reload, or "record against the
+  // thing I just scanned" needs the app restarted first.
+  await refreshPicker(currentScoreId());
   const row = await loadScore(id);
   status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
   await readPaperScore(row);
@@ -459,6 +463,36 @@ function legend(sheet) {
   sheet.after(row);
 }
 
+// The review for a scanned score: no marked-up engraving, because there is no
+// engraving — a sentence about the take, and the page it belongs on.
+function showScanReview(notes) {
+  const played = notes ?? [];
+  const title = el('score-review-title');
+  if (title) title.textContent = current.name ?? '';
+  const summary = el('score-tab-summary');
+  if (summary) {
+    const off = played.length
+      ? played.reduce((sum, n) => sum + Math.abs(n.cents ?? 0), 0) / played.length
+      : 0;
+    summary.textContent = played.length
+      ? `${played.length} ${played.length === 1 ? 'note' : 'notes'}, `
+        + `${off.toFixed(1)}¢ from centre on average. Open the score to see them on the page.`
+      : 'Nothing was heard in that take.';
+  }
+  const stage = el('score-stage');
+  if (stage) {
+    const open = document.createElement('button');
+    open.className = 'ctl primary';
+    open.type = 'button';
+    open.textContent = 'Open the score →';
+    open.addEventListener('click', () => readCurrentScore());
+    stage.replaceChildren(open);
+  }
+  const tempo = el('score-tempo-row');
+  if (tempo) tempo.hidden = true;    // there is no written tempo to play against
+  showReviewCard(true);
+}
+
 // Called on Stop, and when a saved take is reopened.
 export async function annotateTake(notes, { readings = null, a4 = 440, recordingId = null } = {}) {
   pending = { notes, readings, a4, recordingId };
@@ -467,7 +501,11 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   // is aligned. The take is remembered, and the reader draws what the audio
   // proved onto the noteheads the page reader found.
   if (current.plain) {
-    status(`${current.name} — open the score to see it marked on the page.`);
+    // A scan has nothing to line the take up against, but it does have a page
+    // with noteheads on it — so the Score tab says what was played and offers
+    // the page, rather than leaving the take looking like it went nowhere.
+    showScanReview(notes);
+    status(`${current.name} — open the score to see your playing on the page.`);
     return null;
   }
   const sheet = el('score-sheet');
@@ -499,6 +537,9 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
 
   const title = el('score-review-title');
   if (title) title.textContent = current.name ?? '';
+
+  const tempoRow = el('score-tempo-row');
+  if (tempoRow) tempoRow.hidden = false;
 
   const summary = document.createElement('p');
   summary.id = 'score-summary';

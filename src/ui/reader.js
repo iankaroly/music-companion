@@ -1318,6 +1318,20 @@ function buildMenu(sheet) {
       onPick: chooseNotation,
     });
   }
+  menuGroup(sheet, 'while you play');
+  menuRow(sheet, {
+    label: 'Metronome', glyph: '𝅘𝅥', detail: 'the click, without leaving the page',
+    onPick: () => { close(); document.querySelector('.tab-btn[data-tab="metronome"]')?.click(); },
+  });
+  menuRow(sheet, {
+    label: 'Tuner', glyph: '♪', detail: 'tune up and come back',
+    onPick: () => { close(); document.querySelector('.tab-btn[data-tab="tuner"]')?.click(); },
+  });
+  menuRow(sheet, {
+    label: 'Record a take', glyph: '●', detail: 'against this piece',
+    onPick: () => { close(); document.querySelector('.tab-btn[data-tab="analyze"]')?.click(); },
+  });
+
   menuGroup(sheet, 'places');
   menuRow(sheet, {
     label: 'Bookmarks', glyph: '⚑',
@@ -1820,6 +1834,12 @@ async function render() {
 // the width, and it fills the width: the music is as big as the glass allows,
 // and a page turn moves to the next few systems rather than to the next sheet
 // of paper. Where the page could not be read, it falls back to whole pages.
+// NOTE on what this cannot do: a screenful is cut from ONE page, so a page that
+// is wider than the screen's proportions — a squarish scan on an iPad held
+// upright — fills the width and leaves a little slack top and bottom however
+// few systems are shown. Filling that would mean carrying systems over from the
+// next page into the same screenful, which is a different and much larger idea.
+// In landscape, where the mismatch is the other way, it fills.
 function sliceOfPage(page, index, pageAspect) {
   const staves = page?.staves ?? [];
   if (!staves.length) return null;
@@ -2092,9 +2112,12 @@ export async function openReader(row, { take: analysed = null } = {}) {
   hidden = new Set();
   picked = [];
   lasso = null;
+  // A take opened with a scan arrives already marked: you came here from a
+  // review, and hunting through a menu for the thing you came to see is a
+  // menu getting in the way.
+  painted = row.kind === 'pages' && !!analysed?.notes?.length;
   spread = wantsSpread();
   root.classList.toggle('spread', spread);
-  painted = false;
   menuOpen = false;
   pageIndex = 0;
   tool = null;

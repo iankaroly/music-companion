@@ -64,7 +64,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<!-- No status bar. The reader is a page of music, and the page goes to the
+	     edge of the glass: a strip of clock and battery across the top system
+	     is the one thing a music stand never has. Hidden app-wide rather than
+	     per screen, because the app is a practice tool held at arm's length —
+	     the time is on the wall and the battery is somebody else's problem. -->
 	<key>UIViewControllerBasedStatusBarAppearance</key>
+	<false/>
+	<key>UIStatusBarHidden</key>
 	<true/>
 	<!-- Shown verbatim in the iOS permission prompt, so it is written for the
 	     player rather than for review: what is listened to, and what is not. -->

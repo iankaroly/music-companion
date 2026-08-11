@@ -30,6 +30,7 @@ let pages = [];        // File objects, in the order they were taken
 let watching = null;   // the interval that runs the auto-shutter
 let armed = true;      // may the auto-shutter fire?
 let auto = true;
+let cleanUp = true;    // flatten the lighting and whiten the paper on the way in
 let done = null;       // resolve the promise openScanner returned
 
 // The sampling canvas: tiny on purpose. Nothing here needs detail, and reading
@@ -55,13 +56,15 @@ sample.height = SAMPLE_H;
 // steady for a couple of seconds and no shot has been taken, it takes one.
 // Somebody holding a phone over a page for two seconds wants a photograph, and
 // a scanner that refuses because the light is grey is a scanner nobody uses.
-const STILL_ENOUGH = 13;     // mean luma difference between frames, 0–255
+const STILL_ENOUGH = 15;     // mean luma difference between frames, 0–255
 const MOVED_ENOUGH = 24;     // what counts as "the page was turned"
 const PAPER_FRACTION = 0.2;  // how much of the frame is brighter than its own mid-point
-const INK_DENSITY = 0.035;   // how much of it has ink-like detail in it
-const STILL_FRAMES = 3;      // ~600ms of holding steady
-const PATIENCE = 11;         // ~2.2s: shoot anyway rather than wait for perfection
+const INK_DENSITY = 0.03;    // how much of it has ink-like detail in it
+const STILL_FRAMES = 2;      // ~300ms of holding steady: quick, because the
+                             // second half of a scan is done at a rhythm
+const PATIENCE = 7;          // ~1s and it takes the shot regardless
 const NEW_PAGE = 5;          // how different from the last shot counts as another page
+const TICK = 150;            // how often the picture is looked at, in ms
 
 let previous = null;
 let shotOf = null;    // what the last photograph looked like
@@ -194,7 +197,82 @@ function watch() {
       armed = false;
       capture();
     }
-  }, 200);
+  }, TICK);
+}
+
+// What a scanner app does the moment the shutter goes: takes the photograph of
+// a page and makes it look like a page.
+//
+// A phone photograph of paper is grey, unevenly lit and has a shadow across one
+// corner — the lamp is on one side and your own head is on the other. This
+// divides the picture by a blurred copy of itself, which is the page's own
+// lighting, and what is left is ink on white however the light fell. Then the
+// white is pushed to white and the ink to black, gently, so that a pencilled
+// fingering survives but the paper stops being beige.
+function enhance(canvas) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const image = ctx.getImageData(0, 0, w, h);
+  const data = image.data;
+  const count = w * h;
+  const gray = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    gray[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  }
+  // The lighting: the picture, very blurred. Radius is a fraction of the page,
+  // so it follows the shadow without following the notes.
+  const radius = Math.max(8, Math.round(Math.min(w, h) / 14));
+  const light = blur(gray, w, h, radius);
+  // Where the paper sits once the lighting is out of the way, and how dark the
+  // ink is: measured, not assumed, so a pale pencil page and a black print page
+  // both come out right.
+  let sum = 0;
+  const flat = new Float32Array(count);
+  for (let i = 0; i < count; i++) {
+    const value = (gray[i] / Math.max(1, light[i])) * 200;
+    flat[i] = value;
+    sum += value;
+  }
+  const mean = sum / count;
+  const paper = mean * 1.02;
+  const ink = mean * 0.62;
+  const span = Math.max(1, paper - ink);
+  for (let i = 0; i < count; i++) {
+    // A straight ramp from ink to paper, clipped at both ends: black stays
+    // black, white becomes white, and the grey in between keeps its shape.
+    const t = Math.min(1, Math.max(0, (flat[i] - ink) / span));
+    const value = Math.round(t * 255);
+    data[i * 4] = value;
+    data[i * 4 + 1] = value;
+    data[i * 4 + 2] = value;
+  }
+  ctx.putImageData(image, 0, 0);
+  return canvas;
+}
+
+// A separable box blur — two passes, no per-pixel cost beyond a running sum.
+function blur(src, w, h, radius) {
+  const tmp = new Float32Array(w * h);
+  const dst = new Float32Array(w * h);
+  const span = radius * 2 + 1;
+  for (let y = 0; y < h; y++) {
+    let sum = 0;
+    for (let x = -radius; x <= radius; x++) sum += src[y * w + Math.min(w - 1, Math.max(0, x))];
+    for (let x = 0; x < w; x++) {
+      tmp[y * w + x] = sum / span;
+      sum += src[y * w + Math.min(w - 1, x + radius + 1)] - src[y * w + Math.max(0, x - radius)];
+    }
+  }
+  for (let x = 0; x < w; x++) {
+    let sum = 0;
+    for (let y = -radius; y <= radius; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+    for (let y = 0; y < h; y++) {
+      dst[y * w + x] = sum / span;
+      sum += tmp[Math.min(h - 1, y + radius + 1) * w + x] - tmp[Math.max(0, y - radius) * w + x];
+    }
+  }
+  return dst;
 }
 
 async function capture() {
@@ -203,6 +281,9 @@ async function capture() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
+  if (cleanUp) {
+    try { enhance(canvas); } catch { /* the photograph as taken is still a page */ }
+  }
   const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob) return;
   shotOf = previous ? Float32Array.from(previous) : null;
@@ -292,8 +373,16 @@ function build() {
     say(auto ? 'hold the page still and it shoots itself' : 'tap the button for each page');
   });
   autoChip.setAttribute('aria-pressed', 'true');
+  const cleanChip = button('scan-clean', 'Clean up', 'scan-chip on', () => {
+    cleanUp = !cleanUp;
+    cleanChip.classList.toggle('on', cleanUp);
+    cleanChip.setAttribute('aria-pressed', String(cleanUp));
+    say(cleanUp ? 'pages are flattened and whitened as they are taken' : 'pages are kept as photographed');
+  });
+  cleanChip.setAttribute('aria-pressed', 'true');
   top.append(
     button('scan-cancel', '✕', 'scan-tool', () => finish(null)),
+    cleanChip,
     autoChip,
   );
 
@@ -347,6 +436,7 @@ export async function openScanner() {
   build();
   pages = [];
   auto = true;
+  cleanUp = true;
   armed = true;
   refreshCount();
   el('scan-auto')?.classList.add('on');

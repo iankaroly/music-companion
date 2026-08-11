@@ -7,12 +7,13 @@ import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
-  listScores, setRecordingScore,
+  listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
-  reviewIsWaiting, showTakeReview, scanPages,
+  reviewIsWaiting, showTakeReview, scanPages, askScoreName,
+  notationScores, pairWithNotation, importNotationFor, measurePages,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -963,13 +964,22 @@ function scoreRow(score, takes) {
   open.append(icon, text, chev);
   // Into the piece, not straight onto the page: a piece is a shelf with the
   // score on it and every take of it underneath, and both are things you might
-  // have come here for.
-  // Paper has no takes to shelve under it, so the row IS the score: it opens.
+  // have come here for. Paper has no takes to shelve, so its row opens it.
   open.addEventListener('click', () => {
     if (score.kind === 'pages') openScoreFromLibrary(score.id);
     else { openScore = score.id; refreshScoreTab(); }
   });
-  li.append(open);
+
+  // The rarer things behind ⋯, exactly as the library's own rows do them.
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-label', `More actions for ${score.name}`);
+  more.addEventListener('click', () => actionMenu(more, scoreActions(score)));
+
+  li.append(open, more);
   return li;
 }
 
@@ -984,6 +994,8 @@ const scoreBrowser = document.querySelector('#score-browser');
 const scoreList = document.querySelector('#score-list');
 const scoreListEmpty = document.querySelector('#score-list-empty');
 const scoreBrowserBack = document.querySelector('#score-browser-back');
+const scoreSearch = document.querySelector('#score-search');
+let scoreFilter = '';
 const scoreBrowserTitle = document.querySelector('#score-browser-title');
 
 // The row at the top of a piece's shelf: the music itself, apart from the takes
@@ -1049,6 +1061,145 @@ function pendingReviewRow() {
   return li;
 }
 
+// What a piece offers besides opening: the things you reach for once a shelf
+// has more than three things on it.
+function scoreActions(score) {
+  const rows = [
+    { label: 'Open', onPick: () => openScoreFromLibrary(score.id) },
+    {
+      label: 'Rename\u2026',
+      onPick: async () => {
+        const name = await askScoreName(score.name);
+        if (!name) return;
+        await renameScore(score.id, name);
+        refreshLibrary();
+      },
+    },
+  ];
+  if (score.kind === 'pages') {
+    rows.push({ label: 'Pages\u2026', onPick: () => openPageManager(score) });
+    rows.push({
+      label: score.notationId != null ? 'Change its notation\u2026' : 'Add notation for analysis\u2026',
+      onPick: () => pairFromShelf(score),
+    });
+    rows.push({
+      label: 'Read the pages again',
+      onPick: async () => { await measurePages(score.id); refreshLibrary(); },
+    });
+  }
+  rows.push({
+    label: 'Delete',
+    danger: true,
+    onPick: async () => {
+      await deleteScore(score.id);
+      if (openScore === score.id) openScore = null;
+      refreshLibrary();
+    },
+  });
+  return rows;
+}
+
+// The pages of a scan, as thumbnails: throw one away, move one earlier or
+// later. A camera shoots in the order your hand went, which is usually the
+// order of the music and occasionally not.
+async function openPageManager(score) {
+  const payload = await loadScorePages(score.id);
+  if (!payload?.pages?.length) {
+    say('a PDF keeps its own page order', 'bad');
+    return;
+  }
+  const dialog = document.querySelector('#pages-dialog');
+  const list = document.querySelector('#pages-list');
+  if (!dialog || !list) return;
+  let order = payload.pages.map((_, i) => i);
+  const urls = payload.pages.map((blob) => URL.createObjectURL(blob));
+
+  const draw = () => {
+    list.replaceChildren();
+    for (const [position, index] of order.entries()) {
+      const item = document.createElement('div');
+      item.className = 'page-item';
+      const image = document.createElement('img');
+      image.src = urls[index];
+      image.alt = `Page ${position + 1}`;
+      const number = document.createElement('span');
+      number.className = 'page-number';
+      number.textContent = String(position + 1);
+      const tools = document.createElement('div');
+      tools.className = 'page-tools';
+      const move = (delta) => {
+        const to = position + delta;
+        if (to < 0 || to >= order.length) return;
+        [order[position], order[to]] = [order[to], order[position]];
+        draw();
+      };
+      const back = document.createElement('button');
+      back.type = 'button';
+      back.textContent = '\u2190';
+      back.setAttribute('aria-label', `Move page ${position + 1} earlier`);
+      back.addEventListener('click', () => move(-1));
+      const forward = document.createElement('button');
+      forward.type = 'button';
+      forward.textContent = '\u2192';
+      forward.setAttribute('aria-label', `Move page ${position + 1} later`);
+      forward.addEventListener('click', () => move(1));
+      const drop = document.createElement('button');
+      drop.type = 'button';
+      drop.className = 'danger';
+      drop.textContent = '\u2715';
+      drop.setAttribute('aria-label', `Throw away page ${position + 1}`);
+      drop.addEventListener('click', () => { order = order.filter((_, i) => i !== position); draw(); });
+      tools.append(back, forward, drop);
+      item.append(image, number, tools);
+      list.append(item);
+    }
+  };
+  draw();
+
+  const done = async () => {
+    dialog.removeEventListener('close', done);
+    for (const url of urls) URL.revokeObjectURL(url);
+    if (dialog.returnValue !== 'save' || !order.length) return;
+    await savePageOrder(score.id, order);
+    refreshLibrary();
+  };
+  dialog.addEventListener('close', done);
+  dialog.showModal();
+}
+
+// Choosing the notation behind a scan from the shelf \u2014 which is where you are
+// standing when you notice it is missing.
+async function pairFromShelf(score) {
+  const scores = await notationScores();
+  const rows = scores.map((row) => ({
+    label: row.id === score.notationId ? `\u2713 ${row.name}` : row.name,
+    onPick: async () => { await pairWithNotation(score.id, row.id); refreshLibrary(); },
+  }));
+  rows.push({
+    label: '\uFF0B Import a MusicXML file\u2026',
+    onPick: () => {
+      const input = document.querySelector('#score-notation-file');
+      if (!input) return;
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        input.value = '';
+        if (!file) return;
+        await importNotationFor(score.id, file).catch(() => {});
+        refreshLibrary();
+      };
+      input.click();
+    },
+  });
+  if (score.notationId != null) {
+    rows.push({
+      label: 'Unpair',
+      danger: true,
+      onPick: async () => { await pairWithNotation(score.id, null); refreshLibrary(); },
+    });
+  }
+  actionMenu(document.querySelector('#score-browser-title'), rows);
+}
+
 async function refreshScoreTab() {
   if (!scoreList) return;
   try {
@@ -1076,10 +1227,17 @@ async function refreshScoreTab() {
         scoreList.append(libraryRow(r, { from: 'score' }));
       }
     } else {
-      for (const score of scores) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
+      const needle = scoreFilter.trim().toLowerCase();
+      const shown = needle
+        ? scores.filter((score) => score.name.toLowerCase().includes(needle))
+        : scores;
+      for (const score of shown) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
     }
+    if (scoreSearch) scoreSearch.hidden = inScore || scoreNames.size < 6;
     scoreListEmpty.style.display = scoreList.children.length ? 'none' : 'block';
-    scoreListEmpty.textContent = inScore
+    scoreListEmpty.textContent = scoreFilter && !inScore
+      ? `Nothing here called “${scoreFilter}”.`
+      : inScore
       ? 'No takes of this one yet — record, and keep it from the bottom of this tab.'
       : 'No scores yet. Load a MusicXML or .mxl part — export one from MuseScore, or'
         + ' download it from IMSLP — and it will open here to play from.';
@@ -1110,6 +1268,7 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
   ]);
 });
 
+scoreSearch?.addEventListener('input', () => { scoreFilter = scoreSearch.value; refreshScoreTab(); });
 scoreBrowserBack?.addEventListener('click', () => { openScore = null; refreshScoreTab(); });
 // Stepping out of a review puts the shelf back up, and the shelf has to be
 // redrawn to carry the way back IN — the take being reviewed is not in the

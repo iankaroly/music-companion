@@ -240,6 +240,36 @@ export async function saveScoreLayout(scoreId, layout) {
   });
 }
 
+// Pages reordered or thrown away. A scan comes off a camera in the order it was
+// shot, which is usually right and occasionally not — a page taken twice, or
+// one taken out of turn.
+export async function savePageOrder(scoreId, order) {
+  const db = await openDB();
+  const row = await loadScorePages(scoreId);
+  if (!row) return null;
+  const kept = order.map((i) => i);
+  const next = { ...row };
+  if (row.pages) next.pages = kept.map((i) => row.pages[i]).filter(Boolean);
+  if (row.layout) next.layout = kept.map((i) => row.layout[i] ?? null);
+  if (row.source === 'pdf') return null;   // a PDF keeps its own page order
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['score-pages', 'scores'], 'readwrite');
+    tx.objectStore('score-pages').put(next);
+    const scores = tx.objectStore('scores');
+    const req = scores.get(scoreId);
+    req.onsuccess = () => {
+      const score = req.result;
+      if (!score) return;
+      score.pageCount = next.pages?.length ?? score.pageCount;
+      scores.put(score);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+  return next.pages?.length ?? null;
+}
+
 export async function loadScorePages(scoreId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
