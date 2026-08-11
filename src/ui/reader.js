@@ -99,6 +99,10 @@ const PRESETS = [
   { h: 160, s: 78, l: 40, a: 1, label: 'green' },
 ];
 
+// The shapes a musician draws on music: a line under a passage, a box round a
+// bar, a ring round an accidental, an arrow at a page turn.
+const SHAPES = ['line', 'arrow', 'rect', 'ellipse'];
+
 const PEN_WIDTH = 0.28;
 const HIGHLIGHT_WIDTH = 1.6;
 const MIN_WIDTH = 0.08;
@@ -139,6 +143,13 @@ let saveTimer = null;
 // stroke drawn, or every stroke one sweep of the eraser took away.
 let history = [];
 let redoable = [];
+// Layers, in the sense a musician means: the fingerings you agreed with your
+// teacher on one, the bowings you are still arguing about on another, the
+// conductor's cuts on a third. Each can be hidden without rubbing anything out,
+// and a mark belongs to whichever was current when it was made.
+const LAYER_NAMES = ['fingerings', 'bowings', 'notes'];
+let layer = 0;
+let hidden = new Set();   // layers being kept out of sight
 
 const el = (id) => document.querySelector(`#${id}`);
 
@@ -346,18 +357,81 @@ function drawStroke(ctx, stroke) {
   const points = stroke.points.map(place);
   const scale = unitScale();
   ctx.save();
-  ctx.beginPath();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.strokeStyle = strokeColour(stroke);
+  ctx.fillStyle = strokeColour(stroke);
   // A highlighter goes UNDER the notes rather than over them: multiply keeps
   // the black of the engraving showing through a wash of colour, which is what
   // a real one does to paper.
   if (stroke.overlay ?? stroke.tool === 'highlighter') ctx.globalCompositeOperation = 'multiply';
   ctx.lineWidth = Math.max(1, stroke.width * scale);
+
+  // Typed, not drawn: a fingering, a bar number, "watch the shift". Written at
+  // a size in staff spaces like everything else, so it stays the size of the
+  // music it is written on.
+  if (stroke.type === 'text') {
+    const at = points[0];
+    if (at) {
+      const size = Math.max(8, (stroke.size ?? 1.6) * scale);
+      ctx.font = `600 ${size}px ${getComputedStyle(document.documentElement)
+        .getPropertyValue('--display').trim() || 'sans-serif'}`;
+      ctx.textBaseline = 'alphabetic';
+      ctx.fillText(stroke.text ?? '', at.x, at.y);
+    }
+    ctx.restore();
+    return;
+  }
+
+  // Two corners and a shape between them.
+  if (stroke.type === 'shape') {
+    const [a, b] = points;
+    if (a && b) {
+      ctx.beginPath();
+      if (stroke.shape === 'line' || stroke.shape === 'arrow') {
+        ctx.moveTo(a.x, a.y);
+        ctx.lineTo(b.x, b.y);
+        ctx.stroke();
+        if (stroke.shape === 'arrow') {
+          // A head that grows with the pen rather than with the arrow: a long
+          // arrow drawn thin should not arrive with a spearhead on it.
+          const head = Math.max(6, ctx.lineWidth * 3.5);
+          const angle = Math.atan2(b.y - a.y, b.x - a.x);
+          ctx.beginPath();
+          ctx.moveTo(b.x, b.y);
+          ctx.lineTo(b.x - head * Math.cos(angle - 0.4), b.y - head * Math.sin(angle - 0.4));
+          ctx.lineTo(b.x - head * Math.cos(angle + 0.4), b.y - head * Math.sin(angle + 0.4));
+          ctx.closePath();
+          ctx.fill();
+        }
+      } else if (stroke.shape === 'rect') {
+        ctx.strokeRect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+      } else if (stroke.shape === 'ellipse') {
+        ctx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2,
+          Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+    ctx.restore();
+    return;
+  }
+
+  // The pen lifts between systems, not just between pages.
+  //
+  // A mark drawn along a line of music is anchored to the bars it covers, and
+  // those bars do not stay on one line: re-engraved for another screen, bar 7
+  // can end a system and bar 8 begin the next one. Joining them would draw a
+  // diagonal across the page — the marks still cover the right MUSIC, but they
+  // look like a scrawl. Broken at the system, a highlight over four bars comes
+  // back as a highlight over four bars, on however many lines they now occupy.
+  const systems = stroke.points.map((point) => (
+    point.space === 'page' || point.p !== undefined ? null : bars.get(point.m)?.system ?? null
+  ));
+  ctx.beginPath();
   let moved = false;
-  for (const point of points) {
+  for (const [i, point] of points.entries()) {
     if (!point) { moved = false; continue; } // a bar on another page: lift the pen
+    if (i > 0 && systems[i] !== systems[i - 1]) moved = false;
     if (!moved) { ctx.moveTo(point.x, point.y); moved = true; } else ctx.lineTo(point.x, point.y);
   }
   ctx.stroke();
@@ -390,7 +464,10 @@ function redraw() {
   ctx.clearRect(0, 0, w, h);
   ctx.save();
   ctx.translate(box.left, box.top);
-  for (const stroke of strokes) drawStroke(ctx, stroke);
+  for (const stroke of strokes) {
+    if (hidden.has(stroke.layer ?? 0)) continue;
+    drawStroke(ctx, stroke);
+  }
   if (drawing) drawStroke(ctx, drawing);
   ctx.restore();
 }
@@ -401,6 +478,7 @@ function eraseAt(px, py) {
   const reach = 3.2 * scale;
   const gone = [];
   strokes = strokes.filter((stroke) => {
+    if (hidden.has(stroke.layer ?? 0)) return true;  // out of sight, out of reach
     const hit = stroke.points.some((point) => {
       const at = place(point);
       return at && Math.hypot(at.x - px, at.y - py) <= reach;
@@ -439,14 +517,24 @@ function beginStroke(e) {
   if (tool === 'eraser') { erasing = false; eraseAt(at.x, at.y); erasing = true; return; }
   const point = anchor(at.x, at.y);
   if (!point) return;
+  if (tool === 'text') { writeText(point); return; }
   const brush = currentBrush();
   drawing = {
     tool,
+    layer,
     colour: brushCss(brush),
     width: brush.width,
     overlay: brush.overlay,
     points: [point],
   };
+  // A shape is two points: where the finger went down and where it is now. The
+  // second is replaced on every move rather than added to, which is what makes
+  // it stretch instead of scribble.
+  if (SHAPES.includes(tool)) {
+    drawing.type = 'shape';
+    drawing.shape = tool;
+    drawing.points.push(point);
+  }
 }
 
 function extendStroke(e) {
@@ -455,7 +543,8 @@ function extendStroke(e) {
   if (tool === 'eraser') { eraseAt(at.x, at.y); return; }
   if (!drawing) return;
   const point = anchor(at.x, at.y);
-  if (point) drawing.points.push(point);
+  if (point && drawing.type === 'shape') drawing.points[1] = point;
+  else if (point) drawing.points.push(point);
   redraw();
 }
 
@@ -466,6 +555,15 @@ function cancelStroke() {
 }
 
 function endStroke() {
+  if (drawing?.type === 'shape') {
+    // A shape that is a dot was a tap, not a drag.
+    const [a, b] = drawing.points.map(place);
+    const big = a && b && Math.hypot(b.x - a.x, b.y - a.y) > 6;
+    if (big) { strokes.push(drawing); remember({ type: 'add', stroke: drawing }); scheduleSave(); }
+    drawing = null;
+    redraw();
+    return;
+  }
   if (drawing && drawing.points.length > 1) {
     strokes.push(drawing);
     remember({ type: 'add', stroke: drawing });
@@ -585,6 +683,39 @@ function trackPointers(root) {
   }
 }
 
+// Typing on the page. The keyboard is the right tool for a word — writing
+// "sul G" with a fingertip is a worse version of a thing every phone already
+// does well.
+function writeText(point) {
+  const dialog = document.querySelector('#reader-text-dialog');
+  const input = document.querySelector('#reader-text-input');
+  if (!dialog || !input) return;
+  input.value = '';
+  const done = () => {
+    dialog.removeEventListener('close', done);
+    if (dialog.returnValue !== 'save') return;
+    const text = input.value.trim();
+    if (!text) return;
+    const brush = currentBrush();
+    const stroke = {
+      type: 'text',
+      tool: 'text',
+      layer,
+      text,
+      size: Math.max(1, brush.width * 5),
+      colour: brushCss({ ...brush, a: 1 }),
+      points: [point],
+    };
+    strokes.push(stroke);
+    remember({ type: 'add', stroke });
+    scheduleSave();
+    redraw();
+  };
+  dialog.addEventListener('close', done);
+  dialog.showModal();
+  input.focus();
+}
+
 // --- pages -------------------------------------------------------------------
 
 function showPage(index) {
@@ -635,12 +766,49 @@ function setTool(next) {
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
   }
+  const shapes = el('reader-shapes');
+  if (shapes) {
+    const on = SHAPES.includes(tool);
+    shapes.classList.toggle('on', on);
+    shapes.textContent = on ? SHAPE_GLYPH[tool] : '◻';
+  }
   if (tool) {
     setChrome(true);
     closeMenu();
   }
   closeBrush();
   refreshBrushUI();
+}
+
+const SHAPE_GLYPH = { line: '╱', arrow: '↗', rect: '◻', ellipse: '◯' };
+
+function openShapeMenu() {
+  const button = el('reader-shapes');
+  actionMenu(button, SHAPES.map((shape) => ({
+    label: { line: 'Line', arrow: 'Arrow', rect: 'Box', ellipse: 'Ring' }[shape],
+    onPick: () => setTool(shape),
+  })));
+}
+
+// Which sheet you are writing on, and which sheets you are looking at. Both in
+// one menu because they are the same question asked twice.
+function openLayerMenu() {
+  const button = el('reader-layers');
+  actionMenu(button, LAYER_NAMES.map((name, index) => ({
+    label: `${index === layer ? '✎ ' : ''}${name}${hidden.has(index) ? ' — hidden' : ''}`,
+    onPick: () => {
+      if (index === layer) {
+        // Tapping the sheet you are already on is how you put it away.
+        if (hidden.has(index)) hidden.delete(index);
+        else hidden.add(index);
+      } else {
+        layer = index;
+        hidden.delete(index);   // you cannot write on a sheet you cannot see
+      }
+      refreshBrushUI();
+      redraw();
+    },
+  })));
 }
 
 function refreshHistoryButtons() {
@@ -720,6 +888,12 @@ function refreshBrushUI() {
     button.classList.toggle('on', Math.round(preset.h) === Math.round(brush.h)
       && Math.round(preset.s) === Math.round(brush.s)
       && Math.round(preset.l) === Math.round(brush.l));
+  }
+  const layers = el('reader-layers');
+  if (layers) {
+    layers.title = `Writing on ${LAYER_NAMES[layer]}`;
+    layers.setAttribute('aria-label', layers.title);
+    layers.classList.toggle('on', hidden.size > 0);
   }
   const nib = el('reader-nib');
   if (nib) {
@@ -1058,12 +1232,15 @@ function buildInkBar() {
     iconButton('reader-done', '✓', 'Finished annotating', () => setTool(null)),
     toolButton('pen', '✎', 'Pen'),
     toolButton('highlighter', '▬', 'Highlighter'),
+    toolButton('text', 'A', 'Type on the page'),
+    iconButton('reader-shapes', '◻', 'Lines, boxes and rings', openShapeMenu),
     toolButton('eraser', '⌫', 'Rub out'),
     ...PRESETS.map((_, i) => presetSwatch(i)),
     brushBtn,
     iconButton('reader-undo', '↺', 'Undo', undo),
     iconButton('reader-redo', '↻', 'Redo', redo),
     iconButton('reader-clear', '⌧', 'Clear this page', clearPage),
+    iconButton('reader-layers', '≡', 'Layers', openLayerMenu),
     iconButton('reader-reset-zoom', '1×', 'Back to the whole page', resetZoom),
   );
   bar.querySelector('#reader-reset-zoom').hidden = true;
@@ -1368,6 +1545,8 @@ export async function openReader(row, { take: analysed = null } = {}) {
   strokes = await loadAnnotations(row.id).catch(() => []);
   history = [];
   redoable = [];
+  layer = 0;
+  hidden = new Set();
   painted = false;
   menuOpen = false;
   pageIndex = 0;
