@@ -80,16 +80,40 @@ function staffPx() {
   return baseStaffPx() * readingZoom();
 }
 
-const PEN_COLOURS = [
-  { key: 'pencil', label: 'pencil', css: '--reader-pencil' },
-  { key: 'red', label: 'red', css: '--bad' },
-  { key: 'blue', label: 'blue', css: '--primary' },
-  { key: 'green', label: 'green', css: '--good' },
+// The pens. Four presets to reach for without thinking, and behind them a
+// brush you can mix: hue, saturation, brightness, transparency and a size.
+// Colours are stored on the stroke as a plain CSS colour, so a mark keeps the
+// exact ink it was made with rather than a name that might mean something else
+// later.
+//
+// Widths are in STAFF SPACES, never pixels: a pencil line has to look like a
+// pencil line whether the music is set small on a phone or large on an iPad.
+const PRESETS = [
+  { h: 262, s: 12, l: 26, a: 1, label: 'pencil' },
+  { h: 352, s: 82, l: 62, a: 1, label: 'red' },
+  { h: 252, s: 90, l: 63, a: 1, label: 'blue' },
+  { h: 160, s: 78, l: 40, a: 1, label: 'green' },
 ];
 
-// In staff spaces, so a pencil line looks like a pencil line at every size.
 const PEN_WIDTH = 0.28;
 const HIGHLIGHT_WIDTH = 1.6;
+const MIN_WIDTH = 0.08;
+const MAX_WIDTH = 3;
+
+// One brush per tool, because a highlighter is not a pen with the settings
+// changed — reaching for it should not mean re-mixing yellow every time.
+const brushes = {
+  pen: { h: 262, s: 12, l: 26, a: 1, width: PEN_WIDTH, overlay: false },
+  highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true },
+};
+
+function brushCss(brush) {
+  return `hsla(${Math.round(brush.h)} ${Math.round(brush.s)}% ${Math.round(brush.l)}% / ${brush.a.toFixed(2)})`;
+}
+
+function currentBrush() {
+  return brushes[tool === 'highlighter' ? 'highlighter' : 'pen'];
+}
 
 let root = null;      // the whole reader
 let sheet = null;     // where the engraving is mounted
@@ -102,10 +126,13 @@ let sounding = null;  // the notehead lit right now
 let strokes = [];     // every mark on this piece
 let pageIndex = 0;
 let tool = null;      // null = reading; 'pen' | 'highlighter' | 'eraser'
-let colour = 'pencil';
 let drawing = null;   // the stroke being drawn
 let chrome = true;    // is the bar showing
 let saveTimer = null;
+// What was done, so it can be undone: each entry is a whole gesture — one
+// stroke drawn, or every stroke one sweep of the eraser took away.
+let history = [];
+let redoable = [];
 
 const el = (id) => document.querySelector(`#${id}`);
 
@@ -248,20 +275,32 @@ function place(point) {
 
 // --- drawing -----------------------------------------------------------------
 
+// The ink a stroke was made with. Anything that looks like a colour is used as
+// it is; the old named pens still resolve, so marks made before the brush
+// existed keep the colour they were drawn in.
+const NAMED = { pencil: 0, red: 1, blue: 2, green: 3 };
 function strokeColour(stroke) {
-  const found = PEN_COLOURS.find((c) => c.key === stroke.colour) ?? PEN_COLOURS[0];
-  const value = getComputedStyle(document.documentElement).getPropertyValue(found.css).trim();
-  return value || '#888';
+  const value = stroke.colour;
+  if (typeof value === 'string' && /^(#|rgb|hsl)/.test(value)) return value;
+  const preset = PRESETS[NAMED[value] ?? 0];
+  // Marks made before the brush existed: the highlighter's wash was a fixed
+  // transparency applied at drawing time rather than part of the colour, so it
+  // is put back here. Without this every old highlight comes back opaque.
+  return brushCss({ ...preset, a: stroke.tool === 'highlighter' ? 0.32 : preset.a });
 }
 
 function drawStroke(ctx, stroke) {
   const points = stroke.points.map(place);
   const scale = unitScale();
+  ctx.save();
   ctx.beginPath();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
   ctx.strokeStyle = strokeColour(stroke);
-  ctx.globalAlpha = stroke.tool === 'highlighter' ? 0.32 : 1;
+  // A highlighter goes UNDER the notes rather than over them: multiply keeps
+  // the black of the engraving showing through a wash of colour, which is what
+  // a real one does to paper.
+  if (stroke.overlay ?? stroke.tool === 'highlighter') ctx.globalCompositeOperation = 'multiply';
   ctx.lineWidth = Math.max(1, stroke.width * scale);
   let moved = false;
   for (const point of points) {
@@ -269,7 +308,7 @@ function drawStroke(ctx, stroke) {
     if (!moved) { ctx.moveTo(point.x, point.y); moved = true; } else ctx.lineTo(point.x, point.y);
   }
   ctx.stroke();
-  ctx.globalAlpha = 1;
+  ctx.restore();
 }
 
 function redraw() {
@@ -296,15 +335,30 @@ function redraw() {
 function eraseAt(px, py) {
   const scale = unitScale();
   const reach = 3.2 * scale;
-  const before = strokes.length;
-  strokes = strokes.filter((stroke) => !stroke.points.some((point) => {
-    const at = place(point);
-    return at && Math.hypot(at.x - px, at.y - py) <= reach;
-  }));
-  if (strokes.length !== before) {
+  const gone = [];
+  strokes = strokes.filter((stroke) => {
+    const hit = stroke.points.some((point) => {
+      const at = place(point);
+      return at && Math.hypot(at.x - px, at.y - py) <= reach;
+    });
+    if (hit) gone.push(stroke);
+    return !hit;
+  });
+  if (gone.length) {
+    // One sweep of the eraser is one undo, however many marks it caught: the
+    // gesture is what a hand remembers doing.
+    const last = history.at(-1);
+    if (erasing && last?.type === 'erase') last.strokes.push(...gone);
+    else remember({ type: 'erase', strokes: gone });
     redraw();
     scheduleSave();
   }
+}
+
+function remember(op) {
+  history.push(op);
+  redoable = [];       // a new mark ends the branch you could have gone back to
+  refreshHistoryButtons();
 }
 
 function pointerPosition(e) {
@@ -313,16 +367,20 @@ function pointerPosition(e) {
   return { x: e.clientX - box.left, y: e.clientY - box.top };
 }
 
+let erasing = false;
+
 function beginStroke(e) {
   const at = pointerPosition(e);
   if (!at) return;
-  if (tool === 'eraser') { eraseAt(at.x, at.y); return; }
+  if (tool === 'eraser') { erasing = false; eraseAt(at.x, at.y); erasing = true; return; }
   const point = anchor(at.x, at.y);
   if (!point) return;
+  const brush = currentBrush();
   drawing = {
     tool,
-    colour,
-    width: tool === 'highlighter' ? HIGHLIGHT_WIDTH : PEN_WIDTH,
+    colour: brushCss(brush),
+    width: brush.width,
+    overlay: brush.overlay,
     points: [point],
   };
 }
@@ -340,9 +398,11 @@ function extendStroke(e) {
 function endStroke() {
   if (drawing && drawing.points.length > 1) {
     strokes.push(drawing);
+    remember({ type: 'add', stroke: drawing });
     scheduleSave();
   }
   drawing = null;
+  erasing = false;
   redraw();
 }
 
@@ -353,7 +413,7 @@ function showPage(index) {
   pageIndex = Math.max(0, Math.min(view.pages.length - 1, index));
   for (const [i, node] of view.pages.entries()) node.hidden = i !== pageIndex;
   const count = el('reader-count');
-  if (count) count.textContent = `${pageIndex + 1} / ${view.pages.length}`;
+  if (count) count.textContent = `p. ${pageIndex + 1} of ${view.pages.length}`;
   redraw();
 }
 
@@ -361,6 +421,18 @@ const nextPage = () => showPage(pageIndex + 1);
 const previousPage = () => showPage(pageIndex - 1);
 
 // --- chrome ------------------------------------------------------------------
+//
+// Two bars and a sheet, and only one of them is ever up.
+//
+// Reading: a bar across the top with the piece, the page, and the way into
+// everything else. It hides itself when you tap the middle of the page, because
+// the point of the screen is the music.
+//
+// Annotating: that bar is replaced by the tools, which is how every drawing app
+// on a tablet behaves and, more to the point, keeps the page turns and the pen
+// from sharing a tap.
+
+let menuOpen = false;
 
 function setChrome(on) {
   chrome = on;
@@ -371,74 +443,346 @@ function setTool(next) {
   tool = tool === next ? null : next;
   root?.classList.toggle('drawing', tool !== null);
   for (const button of root.querySelectorAll('[data-tool]')) {
-    button.classList.toggle('on', button.dataset.tool === tool);
-    button.setAttribute('aria-pressed', String(button.dataset.tool === tool));
+    const on = button.dataset.tool === tool;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
   }
-  if (tool) setChrome(true);
+  if (tool) {
+    setChrome(true);
+    closeMenu();
+  }
+  closeBrush();
+  refreshBrushUI();
 }
 
-// Picking a colour is also picking up the pen — unless this is the reader
-// setting its own default on the way in, which must not arrive drawing.
-function setColour(next, { pickUpPen = true } = {}) {
-  colour = next;
-  for (const button of root.querySelectorAll('[data-colour]')) {
-    button.classList.toggle('on', button.dataset.colour === colour);
-  }
-  if (pickUpPen && !tool) setTool('pen');
+function refreshHistoryButtons() {
+  const undoBtn = el('reader-undo');
+  const redoBtn = el('reader-redo');
+  if (undoBtn) undoBtn.disabled = history.length === 0;
+  if (redoBtn) redoBtn.disabled = redoable.length === 0;
 }
 
 function undo() {
-  strokes.pop();
+  const op = history.pop();
+  if (!op) return;
+  if (op.type === 'add') strokes = strokes.filter((stroke) => stroke !== op.stroke);
+  else strokes.push(...op.strokes);
+  redoable.push(op);
+  refreshHistoryButtons();
+  redraw();
+  scheduleSave();
+}
+
+function redo() {
+  const op = redoable.pop();
+  if (!op) return;
+  if (op.type === 'add') strokes.push(op.stroke);
+  else strokes = strokes.filter((stroke) => !op.strokes.includes(stroke));
+  history.push(op);
+  refreshHistoryButtons();
   redraw();
   scheduleSave();
 }
 
 function clearPage() {
-  const before = strokes.length;
-  strokes = strokes.filter((stroke) => {
+  const gone = strokes.filter((stroke) => {
     const entry = bars.get(stroke.points[0]?.m);
-    return !entry || entry.page !== pageIndex;
+    return entry && entry.page === pageIndex;
   });
-  if (strokes.length !== before) {
-    redraw();
-    scheduleSave();
+  if (!gone.length) return;
+  strokes = strokes.filter((stroke) => !gone.includes(stroke));
+  remember({ type: 'erase', strokes: gone });
+  redraw();
+  scheduleSave();
+}
+
+// --- the brush ---------------------------------------------------------------
+
+function closeBrush() {
+  el('reader-brush')?.classList.remove('open');
+}
+
+function toggleBrush() {
+  const panel = el('reader-brush');
+  if (!panel) return;
+  if (!tool || tool === 'eraser') setTool('pen');
+  panel.classList.toggle('open');
+  hangBelowBar(panel);
+  refreshBrushUI();
+}
+
+// Under whichever bar is up, measured rather than guessed: on a phone the tool
+// bar wraps onto two rows, and a panel positioned from a constant would open
+// straight through it.
+function hangBelowBar(panel) {
+  const bar = tool ? el('reader-ink-bar') : el('reader-top');
+  const bottom = bar?.getBoundingClientRect().bottom ?? 0;
+  panel.style.top = `${Math.round(bottom + 8)}px`;
+}
+
+function refreshBrushUI() {
+  const brush = currentBrush();
+  const panel = el('reader-brush');
+  for (const button of root.querySelectorAll('[data-preset]')) {
+    const preset = PRESETS[Number(button.dataset.preset)];
+    button.classList.toggle('on', Math.round(preset.h) === Math.round(brush.h)
+      && Math.round(preset.s) === Math.round(brush.s)
+      && Math.round(preset.l) === Math.round(brush.l));
+  }
+  const nib = el('reader-nib');
+  if (nib) {
+    nib.style.setProperty('--nib', brushCss(brush));
+    nib.style.setProperty('--nib-size', `${Math.min(1.4, 0.25 + brush.width * 0.45)}rem`);
+  }
+  if (!panel) return;
+  for (const input of panel.querySelectorAll('input[type="range"]')) {
+    const key = input.dataset.brush;
+    input.value = String(brush[key]);
+    input._paintFill?.();
+  }
+  const overlay = panel.querySelector('#reader-overlay');
+  if (overlay) {
+    overlay.classList.toggle('on', brush.overlay);
+    overlay.setAttribute('aria-pressed', String(brush.overlay));
+  }
+  const preview = panel.querySelector('#reader-brush-preview');
+  if (preview) {
+    preview.style.setProperty('--ink', brushCss(brush));
+    preview.style.setProperty('--thick', `${Math.max(1, brush.width * staffPx())}px`);
+  }
+}
+
+function setBrush(key, value) {
+  const brush = currentBrush();
+  brush[key] = value;
+  refreshBrushUI();
+}
+
+function usePreset(index) {
+  const preset = PRESETS[index];
+  const brush = currentBrush();
+  brush.h = preset.h;
+  brush.s = preset.s;
+  brush.l = preset.l;
+  if (tool !== 'highlighter') brush.a = preset.a;
+  if (!tool || tool === 'eraser') setTool('pen');
+  refreshBrushUI();
+}
+
+// --- the menu ----------------------------------------------------------------
+
+function closeMenu() {
+  menuOpen = false;
+  el('reader-menu')?.classList.remove('open');
+}
+
+function toggleMenu() {
+  const sheet = el('reader-menu');
+  if (!sheet) return;
+  menuOpen = !menuOpen;
+  sheet.classList.toggle('open', menuOpen);
+  if (menuOpen) {
+    setChrome(true);
+    buildMenu(sheet);
+    hangBelowBar(sheet);
+  }
+}
+
+function menuRow(sheet, { label, detail = '', glyph = '', danger = false, onPick }) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = danger ? 'reader-menu-row danger' : 'reader-menu-row';
+  const icon = document.createElement('span');
+  icon.className = 'reader-menu-glyph';
+  icon.textContent = glyph;
+  const text = document.createElement('span');
+  text.className = 'reader-menu-text';
+  const name = document.createElement('b');
+  name.textContent = label;
+  text.append(name);
+  if (detail) {
+    const sub = document.createElement('small');
+    sub.textContent = detail;
+    text.append(sub);
+  }
+  row.append(icon, text);
+  row.addEventListener('click', () => { closeMenu(); onPick(); });
+  sheet.append(row);
+}
+
+function menuGroup(sheet, title) {
+  const head = document.createElement('div');
+  head.className = 'reader-menu-head';
+  head.textContent = title;
+  sheet.append(head);
+}
+
+// Built fresh each time it opens, because most of what it offers depends on
+// what is on screen — whether a take is loaded, how big the music is set.
+function buildMenu(sheet) {
+  sheet.replaceChildren();
+  menuGroup(sheet, 'this score');
+  menuRow(sheet, {
+    label: 'Annotate', glyph: '✎', detail: 'write on the page',
+    onPick: () => setTool('pen'),
+  });
+  menuRow(sheet, {
+    label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
+    onPick: clearPage,
+  });
+  if (take?.aligned) {
+    menuGroup(sheet, 'this take');
+    menuRow(sheet, {
+      label: painted ? 'Hide what you played' : 'Show what you played',
+      glyph: '◉',
+      detail: painted ? 'back to a clean page' : 'colour the notes by how they landed',
+      onPick: () => togglePainted(),
+    });
+    menuRow(sheet, {
+      label: playing() ? 'Pause' : 'Play the take', glyph: playing() ? '❚❚' : '▶',
+      detail: 'the note being heard lights up',
+      onPick: togglePlayback,
+    });
+  }
+  menuGroup(sheet, 'reading');
+  menuRow(sheet, {
+    label: 'Bigger', glyph: '+', detail: 'larger notes, more pages',
+    onPick: () => resize(ZOOM_STEP),
+  });
+  menuRow(sheet, {
+    label: 'Smaller', glyph: '−', detail: 'more music to a page',
+    onPick: () => resize(1 / ZOOM_STEP),
+  });
+  menuRow(sheet, { label: 'Close the score', glyph: '✕', onPick: close });
+}
+
+// --- painting the take over the page -----------------------------------------
+
+let painted = false;
+
+async function togglePainted() {
+  if (!take?.aligned || !view) return;
+  painted = !painted;
+  if (painted) {
+    const { paint } = await import('./score-view.js');
+    paint(view, { aligned: take.aligned, timing: take.timing, landings: take.landings });
+  } else {
+    await engrave();     // the only way back to un-coloured noteheads
+    showPage(pageIndex);
   }
 }
 
 // --- building it -------------------------------------------------------------
 
-function swatch(colourSpec) {
+function iconButton(id, glyph, label, onClick, { className = 'reader-tool' } = {}) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'reader-swatch';
-  button.dataset.colour = colourSpec.key;
-  button.style.setProperty('--swatch', `var(${colourSpec.css})`);
-  button.setAttribute('aria-label', `Draw in ${colourSpec.label}`);
-  button.addEventListener('click', () => setColour(colourSpec.key));
+  button.className = className;
+  if (id) button.id = id;
+  button.textContent = glyph;
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  button.addEventListener('click', onClick);
   return button;
 }
 
 function toolButton(name, glyph, label) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'reader-tool';
+  const button = iconButton(null, glyph, label, () => setTool(name));
   button.dataset.tool = name;
-  button.textContent = glyph;
-  button.setAttribute('aria-label', label);
   button.setAttribute('aria-pressed', 'false');
-  button.addEventListener('click', () => setTool(name));
   return button;
 }
 
-function actionButton(id, glyph, label, onClick) {
+function presetSwatch(index) {
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'reader-tool';
-  button.id = id;
-  button.textContent = glyph;
-  button.setAttribute('aria-label', label);
-  button.addEventListener('click', onClick);
+  button.className = 'reader-swatch';
+  button.dataset.preset = String(index);
+  button.style.setProperty('--swatch', brushCss({ ...PRESETS[index], a: 1 }));
+  button.setAttribute('aria-label', `Draw in ${PRESETS[index].label}`);
+  button.addEventListener('click', () => usePreset(index));
   return button;
+}
+
+function brushSlider(key, label, min, max, step) {
+  const row = document.createElement('label');
+  row.className = 'reader-brush-row';
+  const name = document.createElement('span');
+  name.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.dataset.brush = key;
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.addEventListener('input', () => setBrush(key, Number(input.value)));
+  row.append(name, input);
+  return row;
+}
+
+function buildTopBar() {
+  const bar = document.createElement('div');
+  bar.id = 'reader-top';
+  const title = document.createElement('span');
+  title.id = 'reader-title';
+  const count = document.createElement('span');
+  count.id = 'reader-count';
+  const play = iconButton('reader-play', '▶', 'Play the take', togglePlayback);
+  bar.append(
+    iconButton('reader-close', '✕', 'Close the score', close),
+    title,
+    count,
+    play,
+    iconButton('reader-annotate', '✎', 'Annotate this page', () => setTool('pen')),
+    iconButton('reader-menu-btn', '⋯', 'More', toggleMenu),
+  );
+  return bar;
+}
+
+function buildInkBar() {
+  const bar = document.createElement('div');
+  bar.id = 'reader-ink-bar';
+  const nib = document.createElement('span');
+  nib.id = 'reader-nib';
+  nib.setAttribute('aria-hidden', 'true');
+  const brushBtn = iconButton('reader-brush-btn', '', 'Brush style', toggleBrush);
+  brushBtn.append(nib);
+  bar.append(
+    iconButton('reader-done', '✓', 'Finished annotating', () => setTool(null)),
+    toolButton('pen', '✎', 'Pen'),
+    toolButton('highlighter', '▬', 'Highlighter'),
+    toolButton('eraser', '⌫', 'Rub out'),
+    ...PRESETS.map((_, i) => presetSwatch(i)),
+    brushBtn,
+    iconButton('reader-undo', '↺', 'Undo', undo),
+    iconButton('reader-redo', '↻', 'Redo', redo),
+    iconButton('reader-clear', '⌧', 'Clear this page', clearPage),
+  );
+  return bar;
+}
+
+function buildBrushPanel() {
+  const panel = document.createElement('div');
+  panel.id = 'reader-brush';
+  const head = document.createElement('div');
+  head.className = 'reader-brush-head';
+  head.textContent = 'Brush';
+  const preview = document.createElement('div');
+  preview.id = 'reader-brush-preview';
+  preview.setAttribute('aria-hidden', 'true');
+  const overlay = iconButton('reader-overlay', 'overlay', 'Draw underneath the notes',
+    () => setBrush('overlay', !currentBrush().overlay), { className: 'reader-chip' });
+  panel.append(
+    head,
+    preview,
+    brushSlider('width', 'size', MIN_WIDTH, MAX_WIDTH, 0.02),
+    brushSlider('h', 'hue', 0, 360, 1),
+    brushSlider('s', 'saturation', 0, 100, 1),
+    brushSlider('l', 'brightness', 0, 100, 1),
+    brushSlider('a', 'transparency', 0.08, 1, 0.02),
+    overlay,
+  );
+  return panel;
 }
 
 function build() {
@@ -453,43 +797,21 @@ function build() {
   ink = document.createElement('canvas');
   ink.id = 'reader-ink';
 
-  const bar = document.createElement('div');
-  bar.id = 'reader-bar';
-  const title = document.createElement('span');
-  title.id = 'reader-title';
-  const count = document.createElement('span');
-  count.id = 'reader-count';
-  const tools = document.createElement('div');
-  tools.id = 'reader-tools';
-  tools.append(
-    toolButton('pen', '✎', 'Draw on the page'),
-    toolButton('highlighter', '▬', 'Highlight'),
-    toolButton('eraser', '⌫', 'Rub out'),
-    ...PEN_COLOURS.map(swatch),
-    actionButton('reader-undo', '↺', 'Undo the last mark', undo),
-    actionButton('reader-clear', '⌧', 'Clear this page', clearPage),
-    actionButton('reader-smaller', '−', 'Smaller music, fewer pages', () => resize(1 / ZOOM_STEP)),
-    actionButton('reader-bigger', '+', 'Bigger music, more pages', () => resize(ZOOM_STEP)),
-  );
-  const play = actionButton('reader-play', '▶', 'Play the take', togglePlayback);
-  play.id = 'reader-play';
-  bar.append(
-    actionButton('reader-close', '✕', 'Close the score', close),
-    title,
-    play,
-    tools,
-    count,
-  );
+  const menu = document.createElement('div');
+  menu.id = 'reader-menu';
 
-  root.append(sheet, ink, bar);
+  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(), menu);
   document.body.append(root);
 
-  // A tap: back, forward, or show me the controls. Deliberately on the reader
-  // itself rather than on three overlaid zones — an invisible div over the
-  // music is one more thing to get between a finger and a page turn.
+  // A tap does one of four things, and where it lands decides which. The top
+  // strip is tested FIRST: it overlaps the left and right thirds, and a tap up
+  // there is a reach for the controls, not for a page turn.
   root.addEventListener('click', (e) => {
+    if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
+    if (menuOpen) { closeMenu(); return; }
+    if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     if (tool) return;                        // the pen owns the page while it is out
-    if (e.target.closest('#reader-bar')) return;
+    if (e.clientY < window.innerHeight * 0.16) { setChrome(true); return; }
     const third = window.innerWidth / 3;
     if (e.clientX < third) previousPage();
     else if (e.clientX > window.innerWidth - third) nextPage();
@@ -509,7 +831,12 @@ function build() {
 
   document.addEventListener('keydown', (e) => {
     if (root.hidden) return;
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      if (menuOpen) closeMenu();
+      else if (tool) setTool(null);
+      else close();
+      return;
+    }
     if (e.key === 'ArrowRight' || e.key === 'PageDown') nextPage();
     if (e.key === 'ArrowLeft' || e.key === 'PageUp') previousPage();
   });
@@ -645,6 +972,11 @@ function togglePlayback() {
   setTimeout(refreshPlayButton, 60);
 }
 
+function playing() {
+  const theirs = transportButton();
+  return !!theirs && (theirs.textContent ?? '').trim() !== '▶';
+}
+
 function refreshPlayButton() {
   const mine = el('reader-play');
   if (!mine) return;
@@ -652,9 +984,9 @@ function refreshPlayButton() {
   const playable = !!take && !!theirs && !document.querySelector('#playback')?.hidden;
   mine.hidden = !playable;
   if (!playable) return;
-  const playing = (theirs.textContent ?? '').trim() !== '▶';
-  mine.textContent = playing ? '❚❚' : '▶';
-  mine.setAttribute('aria-label', playing ? 'Pause the take' : 'Play the take');
+  const on = playing();
+  mine.textContent = on ? '❚❚' : '▶';
+  mine.setAttribute('aria-label', on ? 'Pause the take' : 'Play the take');
 }
 
 // --- the door ----------------------------------------------------------------
@@ -667,6 +999,10 @@ export async function openReader(row, { take: analysed = null } = {}) {
   score = row;
   take = analysed;
   strokes = await loadAnnotations(row.id).catch(() => []);
+  history = [];
+  redoable = [];
+  painted = false;
+  menuOpen = false;
   pageIndex = 0;
   tool = null;
   root.classList.remove('drawing');
@@ -680,8 +1016,9 @@ export async function openReader(row, { take: analysed = null } = {}) {
     close();
     throw err;
   }
-  setColour(colour, { pickUpPen: false });
   setTool(null);
+  refreshBrushUI();
+  refreshHistoryButtons();
   showPage(0);
   refreshPlayButton();
   return view;
@@ -692,6 +1029,8 @@ export function close() {
   clearTimeout(saveTimer);
   if (score) saveAnnotations(score.id, strokes).catch(() => {});
   root.hidden = true;
+  closeMenu();
+  closeBrush();
   delete document.documentElement.dataset.reading;
   unfollow?.();
   unfollow = null;

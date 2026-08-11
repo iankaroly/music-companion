@@ -983,46 +983,53 @@
       pointer-events: auto;
       touch-action: none;     /* a stroke must not also scroll or turn a page */
     }
-    #reader-bar {
+    /* The bar you read under: piece, page, and the way into everything else.
+       It sits at the TOP because that is where a hand reaches on a stand, and
+       because the bottom of a page of music is where the last system is. */
+    #reader-top, #reader-ink-bar {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+      top: max(0.5rem, env(safe-area-inset-top, 0px));
       z-index: 2;
       display: flex;
       align-items: center;
-      gap: 0.45rem;
+      gap: 0.35rem;
       max-width: calc(100vw - 0.8rem);
       flex-wrap: wrap;
       justify-content: center;
-      padding: 0.4rem 0.55rem;
-      border-radius: 2rem;
-      background: rgb(var(--sf) / 0.72);
+      padding: 0.35rem 0.5rem;
+      border-radius: 1.6rem;
+      background: rgb(var(--sf) / 0.78);
       -webkit-backdrop-filter: blur(26px) saturate(1.8);
       backdrop-filter: blur(26px) saturate(1.8);
       border: 1px solid var(--glass-line);
       box-shadow: 0 14px 34px rgb(var(--sh) / 0.22);
       transition: opacity 200ms, transform 250ms var(--spring);
     }
-    /* Tapping the middle of the page puts the controls away — the music is the
+    /* One or the other, never both: reading, or drawing. */
+    #reader-ink-bar { display: none; }
+    #reader.drawing #reader-top { display: none; }
+    #reader.drawing #reader-ink-bar { display: flex; }
+    /* Tapping the middle of the page puts the chrome away — the music is the
        point, and on a stand at arm's length a glass bar is a distraction. */
-    #reader.bare #reader-bar {
+    #reader.bare #reader-top {
       opacity: 0;
       pointer-events: none;
-      transform: translateX(-50%) translateY(0.8rem);
+      transform: translateX(-50%) translateY(-0.8rem);
     }
     #reader-title {
       font-family: var(--display);
       font-weight: 500;
       font-size: 0.82rem;
       color: var(--ink);
-      max-width: 9rem;
+      max-width: 11rem;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+      padding: 0 0.2rem;
     }
-    #reader-count { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
-    #reader-tools { display: flex; align-items: center; gap: 0.3rem; }
+    #reader-count { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
     .reader-tool {
       display: grid;
       place-items: center;
@@ -1037,6 +1044,7 @@
       cursor: pointer;
     }
     .reader-tool.on { background: var(--grad); color: var(--on-primary); }
+    .reader-tool:disabled { opacity: 0.3; cursor: default; }
     .reader-swatch {
       width: 1.35rem;
       height: 1.35rem;
@@ -1047,6 +1055,125 @@
       padding: 0;
     }
     .reader-swatch.on { border-color: var(--ink); transform: scale(1.15); }
+    /* The nib: the brush you are actually holding, at the colour and roughly
+       the size it will draw. It is the button that opens the mixer. */
+    #reader-nib {
+      display: block;
+      width: var(--nib-size, 0.5rem);
+      height: var(--nib-size, 0.5rem);
+      border-radius: 999px;
+      background: var(--nib, var(--ink));
+      box-shadow: 0 0 0 1px rgb(var(--sh) / 0.2);
+    }
+    #reader-brush-btn { border-color: var(--glass-line); }
+
+    /* The mixer. Hue, saturation, brightness and transparency rather than a
+       fixed set of pens, because "a bit lighter than that red" is a thing you
+       want at the stand and a palette of six can never have. */
+    #reader-brush {
+      position: fixed;
+      z-index: 3;
+      top: calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.2rem);
+      left: 50%;
+      transform: translateX(-50%) scale(0.96);
+      width: min(20rem, calc(100vw - 1.6rem));
+      display: none;
+      flex-direction: column;
+      gap: 0.5rem;
+      padding: 0.9rem 1rem 1rem;
+      border-radius: 1.4rem;
+      background: rgb(var(--sf) / 0.9);
+      -webkit-backdrop-filter: blur(26px) saturate(1.8);
+      backdrop-filter: blur(26px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 18px 44px rgb(var(--sh) / 0.26);
+    }
+    #reader-brush.open { display: flex; animation: pop-in 180ms var(--spring); }
+    .reader-brush-head {
+      font-family: var(--display); font-weight: 500; font-size: 0.8rem;
+      letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted);
+    }
+    #reader-brush-preview {
+      height: 2.4rem;
+      border-radius: 0.9rem;
+      background: var(--fill);
+      position: relative;
+      overflow: hidden;
+    }
+    #reader-brush-preview::after {
+      content: '';
+      position: absolute;
+      left: 8%; right: 8%; top: 50%;
+      height: var(--thick, 2px);
+      transform: translateY(-50%);
+      border-radius: 999px;
+      background: var(--ink);   /* set to the mixed colour from reader.js */
+    }
+    .reader-brush-row { display: grid; grid-template-columns: 5.2rem 1fr; align-items: center; gap: 0.6rem; }
+    .reader-brush-row span { font-size: 0.76rem; color: var(--muted); }
+    .reader-chip {
+      justify-self: start;
+      font-family: var(--display); font-size: 0.76rem; font-weight: 500;
+      padding: 0.35rem 0.8rem; border-radius: 999px;
+      background: var(--fill); border: 1px solid transparent; color: var(--ink);
+      cursor: pointer;
+    }
+    .reader-chip.on { background: var(--grad); color: var(--on-primary); }
+
+    /* A phone has room for twelve controls in one bar only if they are small.
+       On a tablet — where this is meant to be used — they are not. */
+    @media (max-width: 560px) {
+      #reader-top { gap: 0.15rem; padding: 0.3rem 0.4rem; }
+      #reader-top .reader-tool { width: 1.9rem; height: 1.9rem; }
+      #reader-title { max-width: 6.5rem; font-size: 0.78rem; }
+      #reader-count { font-size: 0.7rem; }
+      #reader-ink-bar { gap: 0.2rem; padding: 0.3rem 0.35rem; }
+      #reader-ink-bar .reader-tool { width: 1.85rem; height: 1.85rem; font-size: 0.85rem; }
+      #reader-ink-bar .reader-swatch { width: 1.1rem; height: 1.1rem; }
+    }
+
+    /* The sheet of everything else, off the ⋯ — the shape forScore uses for the
+       same job, with only the rows this app can actually do. */
+    #reader-menu {
+      position: fixed;
+      z-index: 3;
+      top: calc(max(0.5rem, env(safe-area-inset-top, 0px)) + 3.2rem);
+      left: 50%;
+      transform: translateX(-50%);
+      width: min(22rem, calc(100vw - 1.6rem));
+      max-height: 72vh;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+      padding: 0.5rem;
+      border-radius: 1.4rem;
+      background: rgb(var(--sf) / 0.92);
+      -webkit-backdrop-filter: blur(26px) saturate(1.8);
+      backdrop-filter: blur(26px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 18px 44px rgb(var(--sh) / 0.26);
+    }
+    #reader-menu.open { display: flex; animation: pop-in 180ms var(--spring); }
+    .reader-menu-head {
+      font-family: var(--display); font-weight: 500; font-size: 0.72rem;
+      letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
+      padding: 0.6rem 0.7rem 0.3rem;
+    }
+    .reader-menu-row {
+      display: flex; align-items: center; gap: 0.7rem;
+      width: 100%; text-align: left;
+      padding: 0.55rem 0.7rem;
+      border: none; background: none; border-radius: 0.9rem;
+      color: var(--ink); cursor: pointer;
+    }
+    .reader-menu-row:hover { background: var(--fill); }
+    .reader-menu-row.danger { color: var(--bad); }
+    .reader-menu-glyph { width: 1.4rem; text-align: center; color: var(--primary); }
+    .reader-menu-row.danger .reader-menu-glyph { color: var(--bad); }
+    .reader-menu-text { display: flex; flex-direction: column; }
+    .reader-menu-text b { font-family: var(--display); font-weight: 500; font-size: 0.92rem; }
+    .reader-menu-text small { font-size: 0.74rem; color: var(--muted); }
+
     :root { --reader-pencil: #3b3550; }
     :root[data-theme="dark"] { --reader-pencil: #e8e4f6; }
 
