@@ -16,8 +16,9 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
-const VERSION = 6;
-const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores'];
+const VERSION = 7;
+const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores',
+  'annotations'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -39,6 +40,12 @@ function createStores(db) {
   }
   if (!db.objectStoreNames.contains('scores')) {
     db.createObjectStore('scores', { keyPath: 'id', autoIncrement: true });
+  }
+  // What you wrote on the music: keyed by the score it was written on, one
+  // record per piece. Kept apart from the score itself so re-reading a page
+  // never carries the megabyte of MusicXML with it.
+  if (!db.objectStoreNames.contains('annotations')) {
+    db.createObjectStore('annotations', { keyPath: 'scoreId' });
   }
 }
 
@@ -146,7 +153,9 @@ export async function loadScore(id) {
 export async function deleteScore(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction('scores', 'readwrite');
+    // The ink goes with the paper it was written on.
+    const tx = db.transaction(['scores', 'annotations'], 'readwrite');
+    tx.objectStore('annotations').delete(id);
     tx.objectStore('scores').delete(id);
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -154,9 +163,39 @@ export async function deleteScore(id) {
   });
 }
 
+// --- what you wrote on the page ---------------------------------------------
+//
+// Strokes are stored against BARS, not against pixels: each point is an offset
+// from the top-left corner of the bar it was drawn over, in the engraver's own
+// units. Turn the phone and the music re-flows — different page breaks, wider
+// systems, a different number of bars per line — and the ink goes with the bar
+// it was written on instead of sliding off into the margin.
+
+export async function saveAnnotations(scoreId, strokes) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('annotations', 'readwrite');
+    const store = tx.objectStore('annotations');
+    if (strokes?.length) store.put({ scoreId, strokes, date: Date.now() });
+    else store.delete(scoreId); // an erased page is not an empty record
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+export async function loadAnnotations(scoreId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('annotations', 'readonly').objectStore('annotations').get(scoreId);
+    req.onsuccess = () => resolve(req.result?.strokes ?? []);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 // Alignment happens after the fact, so a score can be attached to a take that
 // was recorded before anyone thought to pick the piece.
-export async function setRecordingScore(id, scoreId) {
+export async function setRecordingScore(id, scoreId, scoreStats = undefined) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('recordings', 'readwrite');
@@ -167,6 +206,10 @@ export async function setRecordingScore(id, scoreId) {
       if (!row) return;
       if (scoreId === null) delete row.scoreId;
       else row.scoreId = scoreId;
+      // The note-by-note reading, when the caller has one. Attaching a piece to
+      // a take that is already in the library is the same event as saving it
+      // with the piece chosen, and it should leave the same record behind.
+      if (scoreStats !== undefined) row.scoreStats = scoreStats;
       store.put(row);
     };
     tx.oncomplete = () => resolve();

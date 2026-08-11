@@ -96,6 +96,10 @@ function describe(attempt, timing) {
   return `${bar}: ${tuning}, ${Math.abs(Math.round(ms))} milliseconds ${timing.verdict}`;
 }
 
+// pageFormat: { width, height } in OSMD units turns the engraving into real
+// pages — the reader hands one screenful at a time. Left out, the music runs on
+// endlessly and the panel it sits in is as tall as the music, which is what the
+// Score tab wants.
 export async function showScore(container, {
   xml,
   scoreNotes,
@@ -105,16 +109,15 @@ export async function showScore(container, {
   landings = null,
   onPickNote = null,
   zoom = 1,
+  pageFormat = null,
+  autoRelayout = true,
 } = {}) {
   const { OpenSheetMusicDisplay } = await loadEngraver();
 
   container.replaceChildren();
   const page = document.createElement('div');
   page.className = 'score-page';
-  const overlay = document.createElement('div');
-  overlay.className = 'score-overlay';
-  overlay.setAttribute('aria-hidden', 'true');
-  container.append(page, overlay);
+  container.append(page);
 
   const osmd = new OpenSheetMusicDisplay(page, {
     backend: 'svg', // the overlay and the per-notehead lookup both want real DOM
@@ -122,10 +125,22 @@ export async function showScore(container, {
     drawPartNames: false,
     autoResize: false, // re-rendered on our own terms, so marks and page stay in step
   });
+  // The music is drawn in the app's ink on the app's background — no sheet of
+  // white paper laid on top of the screen. A page of engraving inside a panel
+  // inside a screen is two edges too many, and on a dark theme a white page is
+  // a torch in a dark room. The verdict colours in paint() still override every
+  // notehead they touch, so nothing about the marking-up changes.
+  const ink = palette().ink || '#000000';
+  for (const rule of ['DefaultColorMusic', 'DefaultColorNotehead', 'DefaultColorStem',
+    'DefaultColorRest', 'DefaultColorLabel', 'DefaultColorTitle']) {
+    osmd.EngravingRules[rule] = ink;
+  }
   // "Endless" instead of a paper size: this is a panel on a phone, not a sheet
   // to print, and A4 leaves most of a blank page hanging under a two-bar
-  // exercise. The margins go with it for the same reason.
-  osmd.setPageFormat('Endless');
+  // exercise. The margins go with it for the same reason. The reader asks for
+  // real pages instead, shaped like the screen it is about to fill.
+  if (pageFormat) osmd.setCustomPageFormat(pageFormat.width, pageFormat.height);
+  else osmd.setPageFormat('Endless');
   // The title is a label, not a banner. OSMD sizes a sheet title for the top of
   // a printed page — 4 units of staff height, with 5 more above it — which on a
   // phone gave a two-bar exercise a headline taller than its music and pushed
@@ -157,10 +172,28 @@ export async function showScore(container, {
   const engraved = engravedNotes(osmd, instruments.length > 1 ? instrument : null);
   const { map, unmatched, ok } = reconcile(scoreNotes ?? [], engraved);
 
+  // OSMD draws each page into a container of its own. Tagging them is what lets
+  // a mark be placed against the page it belongs to rather than against the
+  // whole stack — and it is what the reader shows and hides one at a time.
+  function tagPages() {
+    const pages = [...page.children];
+    for (const [i, node] of pages.entries()) {
+      node.classList.add('osmd-page');
+      node.dataset.page = String(i);
+      if (!node.querySelector(':scope > .score-overlay')) {
+        const layer = document.createElement('div');
+        layer.className = 'score-overlay';
+        layer.setAttribute('aria-hidden', 'true');
+        node.append(layer);
+      }
+    }
+    return pages;
+  }
+
   const view = {
     osmd,
     page,
-    overlay,
+    pages: tagPages(),
     map,
     unmatched,
     ok,
@@ -169,19 +202,20 @@ export async function showScore(container, {
     // the noteheads has to redraw the marks in the same breath — otherwise they
     // stay behind, pointing at whatever note has moved under them.
     relayout() {
-      if (!this.last) return;
       osmd.render();
-      paint(this, this.last);
+      this.pages = tagPages();
+      if (this.last) paint(this, this.last);
+      this.onRelayout?.();
     },
     destroy() {
       window.removeEventListener('resize', onResize);
-      overlay.replaceChildren();
       container.replaceChildren();
     },
   };
 
   let resizeTimer = null;
   function onResize() {
+    if (!autoRelayout) return;
     clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => view.relayout(), 150);
   }
@@ -197,9 +231,11 @@ export function paint(view, {
   aligned, timing = null, landings = null, onPickNote = null, comparison = null,
 } = {}) {
   const colours = palette();
-  const { map, overlay, page } = view;
+  const { map, page } = view;
   view.last = { aligned, timing, landings, onPickNote, comparison };
-  overlay.replaceChildren();
+  // One overlay per engraved page, so a mark lands on the page its notehead is
+  // drawn on. With the music running on endlessly there is exactly one.
+  for (const layer of page.querySelectorAll('.score-overlay')) layer.replaceChildren();
 
   const timingByNote = new Map();
   for (const entry of timing?.perNote ?? []) {
@@ -222,8 +258,6 @@ export function paint(view, {
   // and still be different notes, and the object is what playback hands back.
   const noteheads = new Map();
   view.noteheadFor = (note) => noteheads.get(note) ?? null;
-
-  const pageBox = page.getBoundingClientRect();
 
   for (const [scoreNoteId, engravedNote] of map) {
     const attempts = aligned.byNote.get(scoreNoteId) ?? [];
@@ -279,9 +313,16 @@ export function paint(view, {
       });
     }
 
+    // Measured against the page the notehead is ON, not against the stack of
+    // pages: in the reader every page but one is hidden, and a hidden page has
+    // no box to measure from.
+    const host = element.closest('.osmd-page') ?? page;
+    const overlay = host.querySelector(':scope > .score-overlay');
+    if (!overlay) continue;
+    const hostBox = host.getBoundingClientRect();
     const box = element.getBoundingClientRect();
-    const x = box.left - pageBox.left + box.width / 2;
-    const y = box.top - pageBox.top;
+    const x = box.left - hostBox.left + box.width / 2;
+    const y = box.top - hostBox.top;
 
     const marks = [];
 

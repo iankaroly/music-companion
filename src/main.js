@@ -7,7 +7,7 @@ import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
-  listScores,
+  listScores, setRecordingScore,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
@@ -64,6 +64,10 @@ const clearRecNote = () => say('');
 
 let capture = null;       // active mic session
 let lastTake = null;      // finished recording awaiting save/discard
+// The take just saved to the library, until it is filed under a piece or
+// another take replaces it — so "save it" and "file it under the Bach" can be
+// done in either order.
+let savedTakeId = null;
 let tunerStarting = false; // declared before tabs init — onShown fires during it
 
 // --- tabs ------------------------------------------------------------------
@@ -385,34 +389,49 @@ listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });
 // --- record → review → save or discard -------------------------------------
 
 const saveBtn = document.querySelector('#save-rec');
-const attachBtn = document.querySelector('#attach-score');
+const scoreSaveBar = document.querySelector('#score-save-bar');
+const scoreSaveTake = document.querySelector('#score-save-take');
 
-// Saving a take and adding it to a piece's history are two decisions, and only
-// the first one is implied by pressing Save. A score being open is not the same
-// as wanting every run-through counted against it.
-const attachingToScore = () => attachBtn.getAttribute('aria-pressed') === 'true';
-
+// Saving a take and keeping it as an attempt at a PIECE are two decisions, and
+// they are now made in two places rather than by arming a toggle before
+// pressing Save. Under Record: save it to the library, plainly. At the bottom
+// of the Score tab, where you have just read the take against the music: keep
+// it as a take of this piece.
+//
+// The order does not matter. Save it to the library first and the Score tab
+// still offers to file it under the piece — it says "add" rather than "save",
+// because by then the take is already kept and only the piece is missing.
 function refreshSaveLabel() {
   const piece = scoreName();
   saveBtn.textContent = 'Save to library';
-  attachBtn.hidden = !piece;
-  // Reset on every change of piece: a choice made about the Bach should not
-  // quietly carry over to the Elgar. It stays put between takes of the SAME
-  // piece, which is the run of takes it was turned on for.
-  attachBtn.setAttribute('aria-pressed', 'false');
-  attachBtn.textContent = piece ? `＋ add to ${piece}` : '';
-  attachBtn.classList.toggle('active', attachingToScore());
+  if (!scoreSaveBar || !scoreSaveTake) return;
+  scoreSaveBar.hidden = !(piece && (lastTake || savedTakeId !== null));
+  scoreSaveTake.textContent = !piece ? ''
+    : lastTake ? `Save this take to ${piece}` : `Add this take to ${piece}`;
 }
 refreshSaveLabel();
 
-attachBtn.addEventListener('click', () => {
-  attachBtn.setAttribute('aria-pressed', String(!attachingToScore()));
-  attachBtn.classList.toggle('active', attachingToScore());
+scoreSaveTake?.addEventListener('click', async () => {
+  if (lastTake) { saveTake({ toScore: true }); return; }
+  if (savedTakeId === null) return;
+  const id = savedTakeId;
+  try {
+    await setRecordingScore(id, currentScoreId(), currentScoreStats());
+    savedTakeId = null;
+    refreshSaveLabel();
+    statusEl.textContent = `added to ${scoreName()}`;
+    await takeSaved(id);
+    refreshLibrary();
+  } catch (err) {
+    say(`could not add it to the piece: ${err.message}`, 'bad');
+  }
 });
 
 function clearTake() {
   clearRecNote(); // whatever went wrong last time is not about this take
   lastTake = null;
+  savedTakeId = null; // a new take on screen; the last one is the library's now
+  refreshSaveLabel();
   saveBar.hidden = true;
   hideReport(document);
   clearSheet();
@@ -434,6 +453,7 @@ function finishRecording(note = null) {
     return;
   }
   lastTake = { recorder, notes: collected, readings, a4: currentA4() };
+  refreshSaveLabel(); // there is a take to keep now, so the Score tab offers to
   renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
   saveBar.hidden = false;
   if (note) statusEl.textContent = note;
@@ -547,9 +567,12 @@ startBtn.addEventListener('click', async () => {
   }
 });
 
-document.querySelector('#save-rec').addEventListener('click', async () => {
+// One save, two doors into it. toScore attaches the take to the piece it was
+// read against, which is what puts it under that piece in the library.
+async function saveTake({ toScore = false } = {}) {
   if (!lastTake) return;
   const { recorder, notes, readings, a4 } = lastTake;
+  const piece = toScore ? scoreName() : null;
   try {
     const id = await saveRecording({
       date: Date.now(),
@@ -559,16 +582,16 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
       notes,
       readings,
       a4,
-      scoreId: attachingToScore() ? currentScoreId() : null,
-      // Note-by-note against the written pitch, so the next take of this piece
-      // can be compared with this one without re-aligning anything.
-      scoreStats: attachingToScore() ? currentScoreStats() : null,
+      scoreId: toScore ? currentScoreId() : null,
+      // Note-by-note against the written pitch, so this take can be read again
+      // tomorrow without re-aligning anything.
+      scoreStats: toScore ? currentScoreStats() : null,
     });
     saveBar.hidden = true;
     lastTake = null;
-    statusEl.textContent = attachingToScore()
-      ? `saved to library, and added to ${scoreName()}`
-      : 'saved to library';
+    savedTakeId = toScore ? null : id; // still fileable under a piece if it wasn't
+    refreshSaveLabel();
+    statusEl.textContent = piece ? `saved to ${piece}` : 'saved to library';
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -576,14 +599,15 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
     // and the attachment would be lost until it was reopened.
     renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
     annotateTake(notes, { readings, a4, recordingId: id })
-      // Only a take that was added to the piece belongs in its history.
-      .then(() => (attachingToScore() ? takeSaved(id) : null))
+      .then(() => (toScore ? takeSaved(id) : null))
       .catch(() => {});
     refreshLibrary();
   } catch (err) {
     say(`could not save: ${err.message}`, 'bad');
   }
-});
+}
+
+saveBtn.addEventListener('click', () => saveTake());
 
 document.querySelector('#discard-rec').addEventListener('click', () => {
   clearTake();
@@ -696,6 +720,7 @@ async function openRecording(r) {
 // "every attempt at the Elgar" without scrolling a month of dates.
 
 let openFolder = null;   // folder id, or null for the top level
+let openScore = null;    // score id, when the list is one piece's shelf
 let folders = [];
 const folderDialog = document.querySelector('#folder-dialog');
 const folderInput = document.querySelector('#folder-name');
@@ -884,7 +909,11 @@ function libraryRow(r) {
 const libraryBack = document.querySelector('#library-back');
 const libraryTitle = document.querySelector('#library-title');
 
-libraryBack.addEventListener('click', () => { openFolder = null; refreshLibrary(); });
+libraryBack.addEventListener('click', () => {
+  openFolder = null;
+  openScore = null;
+  refreshLibrary();
+});
 document.querySelector('#new-folder').addEventListener('click', () => askFolderName('create'));
 
 // Score name by id, so a take can say which piece it was played from without
@@ -924,6 +953,44 @@ function scoreRow(score, takes) {
   chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
     + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
   open.append(icon, text, chev);
+  // Into the piece, not straight onto the page: a piece in the library is a
+  // shelf with the score on it and every take of it underneath, and both are
+  // things you might have come here for.
+  open.addEventListener('click', () => { openScore = score.id; refreshLibrary(); });
+  li.append(open);
+  return li;
+}
+
+// The row at the top of a piece's shelf: the music itself, apart from the takes
+// of it. Reading the part is a different errand from listening back to Tuesday.
+function openScoreRow(score) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const icon = document.createElement('span');
+  icon.className = 'lib-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="16" height="17" rx="2"/>'
+    + '<line x1="7.5" y1="8" x2="16.5" y2="8"/><line x1="7.5" y1="11.5" x2="16.5" y2="11.5"/>'
+    + '<line x1="7.5" y1="15" x2="12.5" y2="15"/></svg>';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = 'Open the score';
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = 'read it full screen';
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(icon, text, chev);
   open.addEventListener('click', () => openScoreFromLibrary(score.id));
   li.append(open);
   return li;
@@ -953,19 +1020,32 @@ async function refreshLibrary() {
     folders = allFolders;
     // A folder deleted in another tab shouldn't leave this one inside it.
     if (openFolder !== null && !folders.some((f) => f.id === openFolder)) openFolder = null;
+    if (openScore !== null && !scoreNames.has(openScore)) openScore = null;
 
     const inFolder = openFolder !== null;
-    libraryBack.hidden = !inFolder;
-    libraryTitle.textContent = inFolder
-      ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
-      : 'Library';
+    const inScore = openScore !== null;
+    libraryBack.hidden = !(inFolder || inScore);
+    libraryTitle.textContent = inScore
+      ? scoreNames.get(openScore) ?? 'Piece'
+      : inFolder
+        ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
+        : 'Library';
+    // The shelf for one piece is the whole list while you are on it; the pieces
+    // section below would otherwise offer you the shelf you are standing on.
+    const scoresWrap = document.querySelector('#library-scores');
+    if (scoresWrap) scoresWrap.hidden = inScore || scoreNames.size === 0;
 
-    const shown = inFolder
-      ? recordings.filter((r) => r.folderId === openFolder)
-      : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
+    const shown = inScore
+      ? recordings.filter((r) => r.scoreId === openScore)
+      : inFolder
+        ? recordings.filter((r) => r.folderId === openFolder)
+        : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
 
     libraryList.replaceChildren();
-    if (!inFolder) {
+    if (inScore) {
+      libraryList.append(openScoreRow({ id: openScore, name: scoreNames.get(openScore) }));
+    }
+    if (!inFolder && !inScore) {
       const counts = new Map();
       for (const r of recordings) {
         if (r.folderId != null) counts.set(r.folderId, (counts.get(r.folderId) ?? 0) + 1);
@@ -1340,7 +1420,6 @@ initWelcome(document, {
 initScoreCard({
   onPickNote: (note) => selectPlayedNote(note),
   onOpenScoreTab: () => showTab('score'),
-  onOpenTake: (take) => openRecording(take),
   onOpenLibrary: () => showTab('library'),
   onScoreChanged: () => { refreshSaveLabel(); refreshLibrary(); },
 });

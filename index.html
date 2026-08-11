@@ -2,13 +2,19 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <!-- No maximum-scale: blocking page zoom fails WCAG 1.4.4, and iOS Safari
-       ignored the request anyway, so it only ever took magnification away from
-       the people on Android who needed it. The charts still own the pinch
-       gesture, but only on their own canvas and only while the page is not
-       already zoomed (pageIsZoomed in pitch-chart.js) — so a pinch anywhere
-       else zooms the page as usual, and a pinch on a chart can always undo it. -->
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <!-- The page does not zoom. This app is a score on a stand and a set of
+       controls sized for a thumb: a pinch or a double-tap here has never given
+       anyone a better view of anything, and what it actually did was leave the
+       app stuck at 1.4x with the dock off the side of the screen after a
+       stray gesture, or lurch sideways the moment a number field was tapped.
+       The charts still do their own zooming on their own canvas, and the score
+       has a full-screen reader, so magnification is where it belongs — in the
+       things that know what they are magnifying.
+
+       (Blocking page zoom is a WCAG 1.4.4 trade, and it is made with eyes
+       open: every text size here follows the system font scale, and the score
+       reader scales the music itself.) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>Practice Partner</title>
   <meta name="description" content="A tuner, recorder and practice coach for anyone who plays a pitch. It listens while you play and tells you which notes ran sharp or flat, where the tempo drifted, and what has improved since last week. No account, no server — every recording stays on your device." />
   <!-- Versioned because Safari keeps icons in its own database, keyed by URL and
@@ -495,6 +501,25 @@
       box-shadow: var(--shadow);
     }
     .cluster { padding: 1.1rem 1.1rem 1.2rem; margin-top: 1rem; text-align: center; }
+
+    /* ---- no boxes where you work ----
+       The Record and Score tabs are one continuous surface. They used to be a
+       stack of glass cards, and a card inside a screen inside a card is a box
+       inside a box: the score in particular ended up with a white page, on a
+       glass panel, on the app's background, three edges deep before a single
+       note. The cards elsewhere (the tuner's dial, the coach's tiles) are
+       genuinely separate objects and keep their glass. */
+    #tab-analyze .card, #tab-score .card {
+      background: none;
+      -webkit-backdrop-filter: none;
+      backdrop-filter: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+      padding-left: 0;
+      padding-right: 0;
+    }
+    #tab-analyze #report { padding: 0; }
     .cluster-title {
       font-family: var(--display);
       font-weight: 500;
@@ -643,8 +668,11 @@
     .row { display: flex; flex-wrap: wrap; gap: 0.55rem; justify-content: center; align-items: center; }
     .row + .row { margin-top: 0.9rem; }
     .row label, .mini-label { color: var(--muted); font-family: var(--display); font-weight: 500; font-size: 0.8rem; }
+    /* 1rem, not 0.9: iOS zooms the whole page in when a field smaller than
+       16px takes focus, and that zoom is exactly what tapping the tempo box
+       used to do. Every input in the app is at or above it. */
     .tab-panel input[type="number"] {
-      font-size: 0.9rem;
+      font-size: 1rem;
       font-weight: 600;
       appearance: none;
       -webkit-appearance: none;
@@ -817,14 +845,19 @@
       overflow-x: auto;   /* a wide system scrolls itself; the page never does */
       overflow-y: hidden;
     }
-    /* The engraver draws in black on white. On a lavender glass card that
-       reads as a photocopy, so the page gets its own paper. */
+    /* No paper. The engraving is drawn in the app's own ink (see the colour
+       rules in score-view.js) straight onto the app's own background, so the
+       score is part of the screen rather than a white rectangle laid on it.
+       No minimum width either — that minimum was what made the page wider than
+       a phone: 34rem against a 414px screen is a score you had to drag
+       sideways to read, and dragging sideways is what music should never do. */
     .score-page {
-      background: #fff;
-      border-radius: 14px;
-      padding: 0.4rem 0.2rem;
-      min-width: min(100%, 34rem);
+      width: 100%;
     }
+    /* One engraved page. OSMD makes a container per page; the marks for that
+       page live in an overlay of its own inside it, so a hidden page takes its
+       marks with it. */
+    .osmd-page { position: relative; }
     .score-overlay {
       position: absolute;
       inset: 0;
@@ -856,10 +889,10 @@
        the music by itself belongs. */
     #score-stage {
       position: relative;
-      overflow-x: auto;
-      overflow-y: hidden;
-      border-radius: 14px;
-      scroll-behavior: smooth;
+      /* Nothing scrolls here in either direction: the engraving is laid out to
+         the width it is given, so there is nothing hanging off the side to
+         drag at, and the page below scrolls as one. */
+      overflow: hidden;
       cursor: zoom-in;
     }
     /* Full screen: the same node, given the whole glass. Nothing is moved in
@@ -927,14 +960,108 @@
     @media (prefers-reduced-motion: reduce) {
       #score-stage { scroll-behavior: auto; }
     }
+    /* --- the reader: the part, full screen, to play from ------------------ */
+    /* Everything here is fixed to the screen and nothing scrolls. A page turn
+       is a page turn, not a scroll position, and a page of music that can be
+       dragged about is a page of music you lose your place in. */
+    #reader {
+      position: fixed;
+      inset: 0;
+      z-index: 80;
+      background: var(--bg);
+      overscroll-behavior: none;
+      touch-action: manipulation;
+    }
+    html[data-reading] body { overflow: hidden; }
+    html[data-reading] nav[role="tablist"] { display: none; }
+    #reader-sheet { position: absolute; inset: 0; }
+    #reader-sheet .score-page { width: 100%; }
+    #reader-ink {
+      position: fixed;
+      pointer-events: none;   /* the page underneath takes the taps */
+      z-index: 1;
+    }
+    #reader.drawing #reader-ink {
+      pointer-events: auto;
+      touch-action: none;     /* a stroke must not also scroll or turn a page */
+    }
+    #reader-bar {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(0.6rem + env(safe-area-inset-bottom, 0px));
+      z-index: 2;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      max-width: calc(100vw - 0.8rem);
+      flex-wrap: wrap;
+      justify-content: center;
+      padding: 0.4rem 0.55rem;
+      border-radius: 2rem;
+      background: rgb(var(--sf) / 0.72);
+      -webkit-backdrop-filter: blur(26px) saturate(1.8);
+      backdrop-filter: blur(26px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 14px 34px rgb(var(--sh) / 0.22);
+      transition: opacity 200ms, transform 250ms var(--spring);
+    }
+    /* Tapping the middle of the page puts the controls away — the music is the
+       point, and on a stand at arm's length a glass bar is a distraction. */
+    #reader.bare #reader-bar {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-50%) translateY(0.8rem);
+    }
+    #reader-title {
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.82rem;
+      color: var(--ink);
+      max-width: 9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #reader-count { font-size: 0.78rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    #reader-tools { display: flex; align-items: center; gap: 0.3rem; }
+    .reader-tool {
+      display: grid;
+      place-items: center;
+      width: 2.1rem;
+      height: 2.1rem;
+      border-radius: 999px;
+      border: 1px solid transparent;
+      background: none;
+      color: var(--ink);
+      font-size: 0.95rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .reader-tool.on { background: var(--grad); color: var(--on-primary); }
+    .reader-swatch {
+      width: 1.35rem;
+      height: 1.35rem;
+      border-radius: 999px;
+      border: 2px solid transparent;
+      background: var(--swatch);
+      cursor: pointer;
+      padding: 0;
+    }
+    .reader-swatch.on { border-color: var(--ink); transform: scale(1.15); }
+    :root { --reader-pencil: #3b3550; }
+    :root[data-theme="dark"] { --reader-pencil: #e8e4f6; }
+
     #score-dock { margin-top: 1rem; }
+    /* report.js owns this button's `hidden`, so the Score tab hides it with an
+       attribute of its own rather than fighting over the same one. */
+    #compare[data-borrowed] { display: none; }
     #score-dock #playback { padding: 0; }
     #clip-restart {
       font-size: 1.1rem;
       line-height: 1;
     }
-    /* --- takes of this piece -------------------------------------------- */
-    #score-takes { margin-top: 1.1rem; }
+    #score-save-bar { margin-top: 1.1rem; }
     #score-empty { text-align: center; }
     #score-empty p { margin: 0 0 0.5rem; }
     #score-empty .row { justify-content: center; margin-top: 0.9rem; }
@@ -944,7 +1071,6 @@
       color: var(--muted); padding: 0 0.2rem 0.5rem;
     }
     #score-library-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
-    #bars-status { font-size: 0.82rem; color: var(--muted); }
     .passage-row {
       display: flex;
       align-items: center;
@@ -2212,9 +2338,6 @@
       </div>
       <div class="row" id="save-bar" hidden>
         <button id="save-rec" class="ctl primary">Save to library</button>
-        <!-- Off unless asked for: a take joins a piece's history because you
-             said so, not because a score happened to be open. -->
-        <button id="attach-score" class="ctl" type="button" aria-pressed="false" hidden></button>
         <button id="discard-rec" class="ctl">Discard</button>
       </div>
     </section>
@@ -2272,12 +2395,11 @@
         <p id="score-tab-summary"></p>
         <div id="score-stage"></div>
         <div id="score-dock"></div>
-        <div id="score-takes">
-          <div class="row score-row">
-            <button id="compare-last" class="ctl" type="button" hidden>Compare with last time</button>
-            <span id="bars-status"></span>
-          </div>
-          <div id="score-take-list"></div>
+        <!-- Keeping the take is decided here, on the piece it belongs to,
+             rather than by arming a toggle on the Record tab before pressing
+             Save. Saving it to the library plainly is still under Record. -->
+        <div class="row" id="score-save-bar" hidden>
+          <button id="score-save-take" class="ctl primary" type="button"></button>
         </div>
       </div>
     </section>
