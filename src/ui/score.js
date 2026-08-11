@@ -53,9 +53,16 @@ function el(id) { return document.querySelector(`#${id}`); }
 
 function status(message, tone = '') {
   const hint = el('score-hint');
-  if (!hint) return;
-  hint.textContent = message;
-  hint.dataset.tone = tone;
+  if (hint) {
+    hint.textContent = message;
+    hint.dataset.tone = tone;
+  }
+  // #score-hint lives in the Record tab's card, so anything said while the
+  // player is standing on the Score tab was said to an element they cannot
+  // see — a refused file looked exactly like nothing happening. The app's one
+  // status line sits outside the panes and is visible from every tab.
+  const line = document.querySelector('#status');
+  if (line) line.textContent = message;
 }
 
 export function currentScoreId() {

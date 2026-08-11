@@ -82,8 +82,19 @@ function looksLikeZip(buffer) {
 }
 
 // The one call the UI makes: bytes in, MusicXML text out.
+// What a file has to contain to be worth handing to the parser. Checked here so
+// the refusal names the file and says what to do about it, rather than letting
+// an XML reader report "no root element" at somebody holding a PDF.
+function asScoreText(bytes, filename) {
+  const text = decoder.decode(bytes);
+  if (/<score-(partwise|timewise)/.test(text)) return text;
+  throw new Error(`${filename || 'that file'} isn't MusicXML.`
+    + ' In MuseScore use File → Export → MusicXML; a PDF or an image of the'
+    + ' music will not work yet.');
+}
+
 export async function readScoreFile(buffer, filename = '') {
-  if (!looksLikeZip(buffer)) return decoder.decode(new Uint8Array(buffer));
+  if (!looksLikeZip(buffer)) return asScoreText(new Uint8Array(buffer), filename);
 
   const files = await unzip(buffer);
 
@@ -96,7 +107,7 @@ export async function readScoreFile(buffer, filename = '') {
       const rootfile = xml.child('rootfiles')?.child('rootfile');
       const path = rootfile?.attrs['full-path'];
       const read = path && files.get(path);
-      if (read) return decoder.decode(await read());
+      if (read) return asScoreText(await read(), filename);
     } catch {
       // A broken container is not a broken score — fall through and look.
     }
@@ -105,7 +116,7 @@ export async function readScoreFile(buffer, filename = '') {
   for (const [name, read] of files) {
     if (name.startsWith('META-INF/') || name.startsWith('__MACOSX/')) continue;
     if (!/\.(musicxml|xml)$/i.test(name)) continue;
-    return decoder.decode(await read());
+    return asScoreText(await read(), filename);
   }
 
   throw new Error(`no MusicXML found inside ${filename || 'the file'}`);

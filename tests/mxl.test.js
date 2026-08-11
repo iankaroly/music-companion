@@ -92,6 +92,12 @@ describe('readScoreFile', () => {
     await expect(readScoreFile(buffer, 'x.mxl')).rejects.toThrow(/no MusicXML/i);
   });
 
+  test('a file that is not a score says so in words a player can act on', async () => {
+    const pdfish = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37]);
+    await expect(readScoreFile(pdfish.buffer, 'sonata.pdf')).rejects.toThrow(/sonata\.pdf isn't MusicXML/);
+    await expect(readScoreFile(pdfish.buffer, 'sonata.pdf')).rejects.toThrow(/Export → MusicXML/);
+  });
+
   test('an mxl is recognised by its bytes even when the name lies', async () => {
     const buffer = await zip([['Score.xml', SCORE]]);
     expect(await readScoreFile(buffer, 'score.musicxml')).toBe(SCORE);
