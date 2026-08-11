@@ -128,25 +128,75 @@ export async function ensureMic() {
 // simply stop — which used to look exactly like a quiet passage, so a take
 // silently truncated while the screen still said "recording". Callers pass
 // onInterrupted so they can stop and say what happened.
+//
+// The screen going dark is NOT one of those things, and it used to be treated
+// as one. A locked screen suspends the audio context and mutes the input track
+// exactly the way an interruption does, so putting the phone face down mid-take
+// — or simply letting it dim while playing a long movement — ended the
+// recording and threw up "recording was interrupted". So a suspend or a mute
+// that arrives while the app is out of sight is taken as a pause: nothing is
+// said, nothing is stopped, and coming back resumes it (see the
+// visibilitychange handler at the bottom). Only a track that has actually ENDED
+// is an interruption on the spot — that one never comes back.
 function watchForInterruption(session, onInterrupted) {
   const fire = (reason) => {
     if (session.interrupted) return;
     session.interrupted = true;
     onInterrupted?.(reason);
   };
+  session.fire = fire;
+  // "Wait for it to come back" rather than "stop and say so": only for a take,
+  // and only while the app is out of sight.
+  const waits = () => session.throughLock
+    && globalThis.document?.visibilityState === 'hidden';
   for (const track of session.stream.getTracks()) {
     track.onended = () => fire('the microphone was taken by something else');
-    track.onmute = () => fire('the microphone went silent');
+    track.onmute = () => { if (!waits()) fire('the microphone went silent'); };
   }
   session.ctx.onstatechange = () => {
-    // iOS suspends the capture context when the audio session is interrupted
-    if (session.ctx.state === 'suspended' && !session.parked) {
-      fire('recording was interrupted');
-    }
+    if (session.ctx.state !== 'suspended' || session.parked) return;
+    // Ask for it back first. In the foreground this is the audio session being
+    // re-activated under us and the resume takes; if it does not, something
+    // really has taken the microphone.
+    session.ctx.resume().then(
+      () => { if (session.ctx.state !== 'running' && !waits()) fire('recording was interrupted'); },
+      () => { if (!waits()) fire('recording was interrupted'); },
+    );
   };
 }
 
-export async function startCapture(onChunk, { onInterrupted } = {}) {
+// Back from a locked screen or another app. Whatever was suspended or muted
+// while we were away is picked back up, and only a microphone that will not
+// come back at all is reported as an interruption.
+function resumeAfterHiding() {
+  const session = held;
+  if (!session || !inUse || session.parked || session.interrupted) return;
+  const live = session.stream.getTracks().some((t) => t.readyState === 'live');
+  if (!live) {
+    session.fire?.('the microphone was taken by something else');
+    return;
+  }
+  session.stream.getTracks().forEach((t) => { t.enabled = true; });
+  if (session.ctx.state !== 'running') {
+    session.ctx.resume().catch(() => session.fire?.('recording was interrupted'));
+  }
+  // A mute that was forgiven on the way out has to be checked on the way back:
+  // if the input is still silent a moment after returning, it is not coming
+  // back on its own and saying nothing would be the old silent-truncation bug
+  // in a new place.
+  setTimeout(() => {
+    if (!inUse || session.parked || session.interrupted) return;
+    if (session.stream.getTracks().some((t) => t.muted)) {
+      session.fire?.('the microphone went silent');
+    }
+  }, 800);
+}
+
+// throughLock: this session is a TAKE, so it survives the screen locking and
+// the app being put away — see watchForInterruption. A tuner reading nobody is
+// looking at gets no such protection: it hands the microphone back like it
+// always did, indicator and all.
+export async function startCapture(onChunk, { onInterrupted, throughLock = false } = {}) {
   // record-capable session only while the mic is live — it halves iOS
   // output volume, so playback-only features must not inherit it
   setAudioSessionType('play-and-record');
@@ -161,6 +211,7 @@ export async function startCapture(onChunk, { onInterrupted } = {}) {
 
   session.parked = false;
   session.interrupted = false;
+  session.throughLock = throughLock;
   session.stream.getTracks().forEach((t) => { t.enabled = true; });
   // auto-started tuners run outside a user gesture — nudge the context awake
   if (session.ctx.state !== 'running') await session.ctx.resume().catch(() => {});
@@ -183,6 +234,7 @@ export async function startCapture(onChunk, { onInterrupted } = {}) {
       stopped = true;
       inUse = false;
       session.parked = true; // our own suspend, not an interruption
+      session.throughLock = false; // nothing is being recorded to protect now
       session.worklet.port.onmessage = null;
       session.ctx.onstatechange = null;
       session.stream.getTracks().forEach((t) => { t.onended = null; t.onmute = null; });
@@ -202,14 +254,21 @@ export async function startCapture(onChunk, { onInterrupted } = {}) {
 
 // Leaving the page for good hands the mic back rather than letting a
 // backgrounded tab sit on it.
+//
+// It no longer forces the release out from under a take. pagehide fires when a
+// webview is frozen as well as when it is torn down, and clearing inUse first
+// meant a recording that outlived a screen lock had its microphone taken away
+// by its own app. A page that is genuinely going away takes the stream with it.
 globalThis.addEventListener?.('pagehide', () => {
-  inUse = false;
+  if (!held?.throughLock) inUse = false;
   releaseMic();
 });
 
 // Swiped away or sent to the home screen. releaseMic bows out while a take is
 // actually recording, so this hands back a parked stream without cutting one
 // short — and the indicator goes out, because by then nothing is listening.
+// Coming back picks up anything the system suspended while we were gone.
 globalThis.addEventListener?.('visibilitychange', () => {
   if (globalThis.document?.visibilityState === 'hidden') releaseMic();
+  else resumeAfterHiding();
 });

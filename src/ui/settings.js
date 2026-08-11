@@ -91,11 +91,30 @@ function wireLevel(root, id, { get, set, format }) {
 // A practice app that dims the screen mid-étude is a practice app you put down.
 // The lock is dropped whenever the tab is hidden (the browser insists) and
 // taken again on return, so it survives a glance at something else.
+//
+// ON by default. It was off, which meant the app dimmed and locked halfway
+// through everything unless you had found the setting — and the one posture
+// this app is used in is "phone propped on the stand, hands on the instrument",
+// which is precisely the posture with nothing to touch the screen. Someone who
+// has deliberately chosen Normal still gets Normal: only a stored 'off' turns
+// it off, and nothing writes that key until the toggle is used.
+//
+// The installed iOS app keeps the screen on natively as well
+// (ios/App/App/AppDelegate.swift) — WKWebView's own wake lock is not something
+// to bet a practice session on.
 
 let wakeLock = null;
 
 function wantsAwake() {
-  return read(AWAKE_KEY, 'off') === 'on';
+  return read(AWAKE_KEY, 'on') !== 'off';
+}
+
+// Asked for again at the start of a take. The system drops the lock for its own
+// reasons — a call, low power mode, the app being put away — and the one moment
+// it must not be missing is the one where nobody is going to touch the screen
+// for the next ten minutes.
+export function keepScreenAwake() {
+  acquireWakeLock();
 }
 
 async function acquireWakeLock() {

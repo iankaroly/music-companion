@@ -23,11 +23,10 @@ import { fftMagnitudes } from './audio/fft.js';
 import { RingBuffer } from './audio/ring-buffer.js';
 import { Metronome, tempoName, scheduleClick } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
-import { intonationStatus } from './ui/chart-utils.js';
 import { initLiquidTabs } from './ui/liquid-tabs.js';
 import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/controls.js';
 import { renderCoach } from './ui/coach.js';
-import { initSettings } from './ui/settings.js';
+import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
 import { instrument, segmentation } from './analysis/instruments.js';
 
@@ -46,10 +45,7 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
 const statusEl = document.querySelector('#status');
-const notesRow = document.querySelector('#notes-row');
 const saveBar = document.querySelector('#save-bar');
-
-const MAX_CHIPS = 24;
 
 let capture = null;       // active mic session
 let lastTake = null;      // finished recording awaiting save/discard
@@ -61,10 +57,13 @@ const tabs = initLiquidTabs({
   nav: document.querySelector('nav[role="tablist"]'),
   panes: document.querySelector('#panes'),
   order: ['tuner', 'analyze', 'score', 'library', 'coach', 'metronome'],
-  // Never restore into the Score tab: it is hidden until a take has been
-  // marked up, and nothing has been recorded yet at startup, so restoring it
-  // would open the app on an empty panel with no dock button to leave by.
-  initial: (localStorage.getItem('tab') === 'score' ? 'analyze' : localStorage.getItem('tab')) ?? 'tuner',
+  // The Score tab is permanent: it is always in the dock and it always has
+  // something to say — the review when a take has been marked up, and how to
+  // load a piece when none is open. So it restores like every other tab. (It
+  // used to be sent to Record on launch, from when the dock button appeared
+  // and disappeared with the score and restoring stranded you on a blank
+  // panel with no way out.)
+  initial: localStorage.getItem('tab') ?? 'tuner',
   onShown: (name, previous) => {
     localStorage.setItem('tab', name);
     // The playback panel is one node shared by both views of the review, so
@@ -185,18 +184,14 @@ document.addEventListener('settings-change', (e) => {
 
 // --- shared display helpers ------------------------------------------------
 
-function addNoteChip(note) {
-  const chip = document.createElement('div');
-  chip.className = note.chord ? 'note-chip chord' : 'note-chip';
-  chip.dataset.state = intonationStatus(note.cents);
-  const cents = `${note.cents >= 0 ? '+' : ''}${note.cents.toFixed(0)}`;
-  chip.innerHTML = `${note.chord ? '+' : ''}${note.name}<small>${cents}¢</small>`;
-  notesRow.append(chip);
-  while (notesRow.children.length > MAX_CHIPS) notesRow.firstChild.remove();
-}
-
+// Every note is kept; none of them is shown while the take is running.
+//
+// A row of chips filling up with cents as you play is a screen you play TO —
+// you hear a note, you read a number, and the next phrase is about the number.
+// The whole take is read back the moment you stop, which is when reading it is
+// any use. (The tuner tab is the place for a live reading, and it is a separate
+// tab on purpose.)
 function handleNote(note) {
-  if (!capture?.listen) addNoteChip(note);
   capture?.collected?.push(note);
 }
 
@@ -246,6 +241,9 @@ async function beginCapture(extra = {}) {
     spectrumRing.write(chunk);
     feed(analyzer, segmenter, chunk, handleNote, readings, chord);
   }, {
+    // A take keeps its microphone through a locked screen; the tuner does not
+    // (it hands the hardware back the moment nobody is looking at it).
+    throughLock: !extra.listen,
     // A phone call mid-take used to truncate it in silence while the button
     // still said "Stop & review". Now the take is closed off and offered for
     // review with what was actually captured, and the reason is said out loud.
@@ -402,7 +400,6 @@ function clearTake() {
   saveBar.hidden = true;
   hideReport(document);
   clearSheet();
-  notesRow.replaceChildren();
 }
 
 // Close off the take and put the review up. Shared by the Stop button and by
@@ -421,7 +418,6 @@ function finishRecording(note = null) {
     return;
   }
   lastTake = { recorder, notes: collected, readings, a4: currentA4() };
-  notesRow.replaceChildren(); // chips are redundant once the review is up
   renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
   saveBar.hidden = false;
   if (note) statusEl.textContent = note;
@@ -517,6 +513,7 @@ startBtn.addEventListener('click', async () => {
     // away must not leave a recording running on a tab you can't see.
     if (tabs.current !== 'analyze') { statusEl.textContent = ''; return; }
     capture = await beginCapture({ collected: [] });
+    keepScreenAwake(); // ten minutes of playing is ten minutes of nobody tapping
     capture.recorder.onFull = () => {
       statusEl.textContent = `that's the ${MAX_SECONDS / 60}-minute limit — stop and review`;
     };

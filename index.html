@@ -376,7 +376,11 @@
     /* ---- the liquid dock ---- */
     nav[role="tablist"] {
       position: fixed;
-      bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));
+      /* Low on the glass. The safe-area inset is the home-indicator strip, and
+         holding the whole dock above it left it floating a finger's width up
+         the screen; it now sits into the top of that strip the way a system
+         tab bar does, and never below the reachable edge. */
+      bottom: max(0.4rem, calc(env(safe-area-inset-bottom, 0px) - 1.1rem));
       left: 50%;
       transform: translateX(-50%);
       z-index: 50;
@@ -432,28 +436,26 @@
     .tab-btn:active { transform: scale(0.86); }
     .tab-btn[aria-selected="true"] { color: var(--primary); }
 
-    /* ---- status toast ---- */
+    /* ---- status line ----
+       Spoken, not shown. This used to be a glass pill above the dock, and what
+       it mostly did was narrate the app to someone who could already see it —
+       "recording", "mic unavailable", "saved to library" — a caption at the
+       bottom of the screen for every state change. The line stays in the
+       document because it is the app's aria-live region and a screen reader
+       still needs to be told; it just no longer sits over the music. Anything
+       a player has to ACT on is said where it happened (#score-hint on the
+       score card, the storage line in settings), not down here. */
     #status {
-      position: fixed;
-      bottom: calc(5.4rem + env(safe-area-inset-bottom, 0px));
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 49;
-      max-width: 88vw;
-      padding: 0.45rem 1.05rem;
-      border-radius: 999px;
-      background: var(--glass);
-      -webkit-backdrop-filter: blur(20px) saturate(1.6);
-      backdrop-filter: blur(20px) saturate(1.6);
-      border: 1px solid var(--glass-line);
-      box-shadow: var(--shadow);
-      color: var(--ink);
-      font-family: var(--display);
-      font-weight: 500;
-      font-size: 0.82rem;
-      transition: opacity 200ms, transform 300ms var(--spring);
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      margin: -1px;
+      padding: 0;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+      border: 0;
     }
-    #status:empty { opacity: 0; transform: translateX(-50%) translateY(0.6rem) scale(0.9); pointer-events: none; }
 
     /* ---- panes & panels ---- */
     #panes {
@@ -655,6 +657,7 @@
     /* The calibration reading is a number you type and read back, not a
        label — the rounded display face made "442" look hand-drawn. */
     #a4 { width: 4.8rem; text-align: center; font-family: var(--num); letter-spacing: -0.01em; }
+    #score-target-bpm { width: 5.4rem; text-align: center; font-family: var(--num); }
     #calibration label {
       font-family: var(--num);
       font-weight: 500;
@@ -787,16 +790,11 @@
     }
     #viz-toggle button.active { background: var(--fill-2); color: var(--ink); }
 
-    /* ---- record & analyze ---- */
-    #notes-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      justify-content: center;
-      min-height: 2rem;
-      margin: 1.2rem auto;
-      max-width: 60rem;
-    }
+    /* ---- record & analyze ----
+       No live note read-out while a take is running. Watching each note's
+       cents scroll past as you play is the thing that makes you correct for
+       the screen instead of for your ear, and the take is read back in full
+       the moment you stop. The chips and their row are gone with it. */
 
     /* --- the score you played from ------------------------------------- */
     .score-row { align-items: center; gap: 0.6rem; flex-wrap: wrap; }
@@ -840,13 +838,71 @@
     .score-mark.wrong { color: var(--bad); font-size: 0.7rem; }
     .score-mark.passes { color: var(--muted); font-size: 0.62rem; }
     /* --- the Score tab ------------------------------------------------- */
+    /* The page does NOT scroll inside its own little window any more. A box
+       with its own scrollbar sitting in the middle of a scrolling page means a
+       flick either moves the music or moves the page depending on where your
+       thumb landed, and you cannot tell which until it happens. So the stage is
+       exactly as tall as the music and the page scrolls, full stop. Only the
+       sideways overflow is still the stage's own — a system wider than the
+       phone has nowhere else to go, and a horizontal drag is unambiguous.
+       Tapping it opens the full-screen reader below, which is where scrolling
+       the music by itself belongs. */
     #score-stage {
       position: relative;
-      max-height: 62vh;
-      overflow-y: auto;
       overflow-x: auto;
+      overflow-y: hidden;
       border-radius: 14px;
       scroll-behavior: smooth;
+      cursor: zoom-in;
+    }
+    /* Full screen: the same node, given the whole glass. Nothing is moved in
+       the DOM, so the marks stay exactly where they were measured. */
+    #score-stage.full {
+      position: fixed;
+      inset: 0;
+      z-index: 60;
+      max-height: none;
+      overflow: auto;
+      overscroll-behavior: contain;
+      border-radius: 0;
+      background: var(--bg);
+      padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0 calc(1rem + env(safe-area-inset-bottom, 0px));
+      cursor: zoom-out;
+    }
+    /* The dock is z-index 50 and would float over the music. */
+    html[data-score-full] nav[role="tablist"] { display: none; }
+    html[data-score-full] body { overflow: hidden; }
+    /* Beside the sentence about the take, not on top of the music. */
+    #score-tab-summary {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    #score-expand {
+      flex: none;
+      display: grid;
+      place-items: center;
+      width: 2.2rem;
+      height: 2.2rem;
+      border-radius: 999px;
+      border: 1px solid var(--glass-line);
+      background: var(--glass);
+      -webkit-backdrop-filter: blur(18px) saturate(1.6);
+      backdrop-filter: blur(18px) saturate(1.6);
+      box-shadow: var(--shadow);
+      color: var(--ink);
+      font-size: 1rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    /* Full screen the sheet covers the summary line the button lives on, so the
+       button leaves the flow and rides above it as the way out. */
+    html[data-score-full] #score-expand {
+      position: fixed;
+      z-index: 61;
+      top: max(0.6rem, env(safe-area-inset-top, 0px));
+      right: 0.7rem;
     }
     #score-tab-summary {
       text-align: center;
@@ -927,23 +983,7 @@
       font-size: 0.9rem;
       color: var(--ink);
     }
-    .note-chip {
-      background: rgb(var(--sf) / 0.7);
-      border: 1px solid transparent;
-      border-radius: 999px;
-      padding: 0.32rem 0.75rem;
-      font-family: var(--display);
-      font-size: 0.85rem;
-      font-weight: 500;
-      font-variant-numeric: tabular-nums;
-      box-shadow: 0 2px 6px rgb(var(--sh) / 0.07);
-      animation: chip-in 300ms var(--spring);
-    }
-    @keyframes chip-in { from { opacity: 0; transform: scale(0.6); } }
-    .note-chip[data-state="good"] { background: var(--good-soft); color: var(--good); }
-    .note-chip[data-state="off"] { background: var(--off-soft); color: var(--off); }
-    .note-chip[data-state="bad"] { background: var(--bad-soft); color: var(--bad); }
-    .note-chip.chord, .degree.chord { border-style: dashed; }
+    .degree.chord { border-style: dashed; }
 
     #report { display: none; padding: 1.6rem; margin: 0 auto 1.5rem; text-align: left; }
     #report.visible { display: block; }
@@ -1021,7 +1061,7 @@
     .degree[data-state="bad"] b { color: var(--bad); }
     .degree[data-state="missed"] { opacity: 0.45; }
     .degree.peek { border-color: var(--ink); }
-    .degree.chord, .note-chip.chord { border: 1px dashed var(--line-strong); }
+    .degree.chord { border: 1px dashed var(--line-strong); }
     .degree.clickable { cursor: pointer; transition: transform 100ms, box-shadow 100ms; }
     .degree.clickable:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
     .degree.playing { outline: 2px solid var(--primary); outline-offset: 1px; }
@@ -1777,7 +1817,7 @@
       .beat-dot, #glider { transition: none !important; }
       #blobs i { animation: none !important; }
       .beat-dot.on { transform: none; }
-      .note-chip, .pick-pop { animation: none !important; }
+      .pick-pop { animation: none !important; }
     }
 
     /* ---- tablet ----
@@ -1877,6 +1917,7 @@
         <li><b>Tuner</b> a dial, drones and a spectrum — for tuning up.</li>
         <li><b>Record</b> play something, then read it back note by note.</li>
         <li><b>Library</b> every take you keep, grouped into folders by piece.</li>
+        <li><b>Score</b> load the part you are working on and see your playing marked onto it.</li>
         <li><b>Coach</b> what your takes say about you over weeks, not minutes.</li>
         <li><b>Metronome</b> subdivisions, a tempo trainer and a practice timer.</li>
       </ul>
@@ -2064,7 +2105,6 @@
           <span id="rec-clock" aria-live="polite"></span>
         </div>
       </div>
-      <div id="notes-row"></div>
       <div id="score-card" class="card">
         <div class="row score-row">
           <span class="mini-label">playing from</span>
@@ -2200,9 +2240,15 @@
       <div class="card" id="score-review" hidden>
         <div class="row score-row" id="score-tempo-row">
           <span class="mini-label">tempo</span>
+          <!-- Two rows only: no tempo, and the one you typed. A list of
+               metronome marks is a list of numbers that are not the number you
+               are working at — see initTempoPicker in ui/score.js. -->
           <select id="score-target" aria-label="Tempo to play against">
-            <option value="none" selected>your own</option>
+            <option value="none" selected>no tempo</option>
           </select>
+          <input id="score-target-bpm" type="number" min="20" max="300" step="1"
+                 inputmode="numeric" enterkeyhint="done" placeholder="bpm"
+                 aria-label="Type a tempo in beats per minute">
           <span id="score-tempo-read"></span>
         </div>
         <p id="score-tab-summary"></p>
@@ -2407,11 +2453,12 @@
       <div class="set-group">
         <span class="set-label" id="awake-label">Screen</span>
         <div class="seg" role="radiogroup" aria-labelledby="awake-label" id="awake-seg">
-          <button type="button" role="radio" data-awake="on" aria-checked="false">Stay awake</button>
-          <button type="button" role="radio" data-awake="off" aria-checked="true">Normal</button>
+          <button type="button" role="radio" data-awake="on" aria-checked="true">Stay awake</button>
+          <button type="button" role="radio" data-awake="off" aria-checked="false">Normal</button>
         </div>
-        <p class="set-hint">Keeps the display on while the app is open, so it doesn't
-        dim in the middle of a passage.</p>
+        <p class="set-hint">On by default: the display stays on the whole time the app
+        is open, so it doesn't dim in the middle of a passage. A take carries on
+        recording either way, even if the screen locks.</p>
       </div>
       <div class="set-group">
         <span class="set-label" id="theme-label">Appearance</span>

@@ -19,7 +19,7 @@ import { initScoreTakes, resetScoreTakes } from './score-takes.js';
 import { takeStats } from '../analysis/score-history.js';
 import {
   mountScore, follow, stopFollowing, clearScoreTab, showReviewCard,
-  syncDockVisibility, borrowPanel, scoreTabIsShowing,
+  syncDockVisibility, borrowPanel, scoreTabIsShowing, initScoreFullScreen,
 } from './score-tab.js';
 import {
   saveScore, listScores, loadScore, deleteScore, setRecordingScore,
@@ -404,30 +404,89 @@ async function refreshTakes(recordingId) {
   });
 }
 
-// The traditional metronome marks, because those are the numbers on the dial a
-// player already thinks in — a plain 40-to-208 list is forty rows of noise to
-// scroll past to reach 120.
-const TEMPO_MARKS = [40, 50, 60, 66, 72, 80, 88, 96, 104, 112, 120, 132, 144, 160, 176, 192, 208];
+// The tempo you are working at is a number you already know — the one written
+// at the top of the page, or the one on the metronome in front of you. It used
+// to be chosen from the seventeen traditional metronome marks, which is a list
+// whose whole purpose is to not contain 137. So: type it.
+//
+// Two rows in the picker, and no more: "no tempo", and whatever number was
+// typed. Nothing is lost by that — "no tempo" is the old default, where the
+// take is read against the pulse you actually played rather than a fixed grid.
+const MIN_BPM = 20;
+const MAX_BPM = 300;
+const CUSTOM = 'custom';
+
+// What was last typed, whether or not it is the one in force — so turning the
+// tempo off and on again does not make you type it a second time.
+let typedBpm = Number(localStorage.getItem('scoreTargetBpm')) || null;
+
+function paintTempoPicker() {
+  const pick = el('score-target');
+  const input = el('score-target-bpm');
+  if (!pick) return;
+  pick.replaceChildren();
+  const none = document.createElement('option');
+  none.value = 'none';
+  none.textContent = 'no tempo';
+  pick.append(none);
+  if (typedBpm) {
+    const mine = document.createElement('option');
+    mine.value = CUSTOM;
+    mine.textContent = `${typedBpm} bpm`;
+    pick.append(mine);
+  }
+  pick.value = targetBpm ? CUSTOM : 'none';
+  // The custom pickers mirror the native select; this is how they are told the
+  // options changed without firing 'change' and re-running the analysis.
+  pick.dispatchEvent(new CustomEvent('refresh-label'));
+  if (input && document.activeElement !== input) {
+    input.value = typedBpm ? String(typedBpm) : '';
+  }
+}
+
+// Put the take back through the timing with whatever the tempo is now. Nothing
+// is re-recorded and nothing is re-engraved — only the timing marks and the
+// sentence change.
+async function applyTempo(bpm) {
+  targetBpm = bpm;
+  if (bpm) localStorage.setItem('scoreTargetBpm', String(bpm));
+  else localStorage.removeItem('scoreTargetBpm');
+  paintTempoPicker();
+  if (pending) await annotateTake(pending.notes, pending);
+}
 
 function initTempoPicker() {
   const pick = el('score-target');
+  const input = el('score-target-bpm');
   if (!pick) return;
-  for (const bpm of TEMPO_MARKS) {
-    const option = document.createElement('option');
-    option.value = String(bpm);
-    option.textContent = `${bpm} bpm`;
-    pick.append(option);
-  }
-  pick.value = targetBpm ? String(targetBpm) : 'none';
-  pick.dispatchEvent(new CustomEvent('refresh-label'));
+  paintTempoPicker();
 
-  pick.addEventListener('change', async () => {
-    targetBpm = pick.value === 'none' ? null : Number(pick.value);
-    if (targetBpm) localStorage.setItem('scoreTargetBpm', String(targetBpm));
-    else localStorage.removeItem('scoreTargetBpm');
-    // Re-read the take against the new grid. Nothing is re-recorded and nothing
-    // is re-engraved — only the timing marks and the sentence change.
-    if (pending) await annotateTake(pending.notes, pending);
+  pick.addEventListener('change', () => {
+    applyTempo(pick.value === CUSTOM ? typedBpm : null).catch(() => {});
+  });
+
+  if (!input) return;
+  // Typing a tempo IS choosing it — having to type 96 and then pick "96 bpm"
+  // from a menu of one is a step that exists only because the markup has two
+  // controls in it.
+  const commit = () => {
+    const raw = input.value.trim();
+    if (!raw) {
+      typedBpm = null;
+      applyTempo(null).catch(() => {});
+      return;
+    }
+    const bpm = Math.round(Number(raw));
+    if (!Number.isFinite(bpm) || bpm < MIN_BPM || bpm > MAX_BPM) {
+      paintTempoPicker(); // put the last good number back
+      return;
+    }
+    typedBpm = bpm;
+    applyTempo(bpm).catch(() => {});
+  };
+  input.addEventListener('change', commit);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); input.blur(); }
   });
 }
 
@@ -442,6 +501,7 @@ export function initScoreCard({
 } = {}) {
   scoreChanged = onScoreChanged ?? null;
   initTempoPicker();
+  initScoreFullScreen();
   // The empty state's two ways out: load a file, or pick one already saved.
   el('score-empty-load')?.addEventListener('click', () => el('score-file')?.click());
   el('score-empty-library')?.addEventListener('click', () => onOpenLibrary?.());

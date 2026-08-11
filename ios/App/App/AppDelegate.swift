@@ -7,7 +7,15 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Override point for customization after application launch.
+        // The screen stays on while the app is in front.
+        //
+        // The web layer asks for a Screen Wake Lock too (src/ui/settings.js),
+        // but a practice session is exactly the case where nothing touches the
+        // screen for ten minutes — the phone is on the stand and both hands are
+        // on the instrument — so the installed app does not leave that to the
+        // web view. iOS clears the flag by itself the moment the app is no
+        // longer active, so this cannot keep a backgrounded app's display lit.
+        application.isIdleTimerDisabled = true
         return true
     }
 
@@ -27,6 +35,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
+        // Re-asserted here because iOS resets it whenever the app stops being
+        // active — coming back from a phone call must not leave the screen
+        // dimming again mid-practice.
+        application.isIdleTimerDisabled = true
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

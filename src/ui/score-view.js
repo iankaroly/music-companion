@@ -126,6 +126,18 @@ export async function showScore(container, {
   // to print, and A4 leaves most of a blank page hanging under a two-bar
   // exercise. The margins go with it for the same reason.
   osmd.setPageFormat('Endless');
+  // The title is a label, not a banner. OSMD sizes a sheet title for the top of
+  // a printed page — 4 units of staff height, with 5 more above it — which on a
+  // phone gave a two-bar exercise a headline taller than its music and pushed
+  // the first system off the bottom of the panel. These are the same numbers
+  // scaled to a screen: the piece still says what it is, in one line, and the
+  // music starts where you can see it.
+  osmd.EngravingRules.SheetTitleHeight = 2;
+  osmd.EngravingRules.SheetSubtitleHeight = 1.4;
+  osmd.EngravingRules.SheetComposerHeight = 1.5;
+  osmd.EngravingRules.SheetAuthorHeight = 1.5;
+  osmd.EngravingRules.TitleTopDistance = 1;
+  osmd.EngravingRules.TitleBottomDistance = 0.6;
   osmd.EngravingRules.PageTopMargin = 1;
   osmd.EngravingRules.PageBottomMargin = 1;
   osmd.EngravingRules.PageLeftMargin = 1;
@@ -259,7 +271,12 @@ export function paint(view, {
 
     if (onPickNote && attempt?.played) {
       element.style.cursor = 'pointer';
-      element.addEventListener('click', () => onPickNote(attempt));
+      // Stopped here on purpose: a tap on the page itself opens the full-screen
+      // reader (score-tab.js), and picking a note is not asking for that.
+      element.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onPickNote(attempt);
+      });
     }
 
     const box = element.getBoundingClientRect();

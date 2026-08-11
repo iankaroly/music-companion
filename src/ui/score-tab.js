@@ -88,14 +88,100 @@ function clearSounding() {
 
 // Keep the sounding bar on screen without yanking the page around: only scroll
 // when the note has actually left the comfortable middle of the view.
+//
+// What "the view" is depends on which reader is up. Full screen, the stage IS
+// the scroller and its box is the frame. Inline it is not a scroller at all any
+// more — it is as tall as the whole score and the page scrolls past it — so the
+// frame is the window, and measuring against the stage would have said every
+// note was comfortably in view and quietly stopped following.
 function keepInView(element) {
-  const scroller = el('score-stage');
-  if (!scroller) return;
+  const stage = el('score-stage');
+  if (!stage) return;
+  const full = stage.classList.contains('full');
+  const frame = full
+    ? stage.getBoundingClientRect()
+    : { top: 0, bottom: window.innerHeight, height: window.innerHeight };
   const box = element.getBoundingClientRect();
-  const frame = scroller.getBoundingClientRect();
   const margin = Math.min(120, frame.height * 0.25);
   if (box.top >= frame.top + margin && box.bottom <= frame.bottom - margin) return;
   element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+}
+
+// --- full screen -------------------------------------------------------------
+//
+// Tap the music, get the whole screen — the gesture every score reader and half
+// the sports apps have trained everyone to expect. The stage itself becomes the
+// sheet: same node, same engraving, so the overlay marks stay exactly on the
+// noteheads they were measured against. Escape, the ✕, or a tap on the paper
+// brings it back.
+//
+// It is lifted to <body> while it is open, and that is not decoration. The card
+// it normally sits in carries a backdrop-filter, and a filtered element becomes
+// the containing block for any fixed-position descendant — so "inset: 0" inside
+// the card means the card, not the screen, and full screen came out as a
+// hundred-pixel window in the middle of the page. Whatever is moved out is put
+// back exactly where it was.
+
+let stageHome = null; // { parent, next } while the sheet is lifted out
+
+function setFullScreen(on) {
+  const stage = el('score-stage');
+  if (!stage || stage.classList.contains('full') === on) return;
+  const button = el('score-expand');
+  if (on) {
+    stageHome = { parent: stage.parentNode, next: stage.nextSibling };
+    document.body.append(stage);
+    if (button) document.body.append(button); // fixed, for the same reason
+    document.documentElement.dataset.scoreFull = 'yes';
+  } else {
+    if (stageHome) {
+      const { parent, next } = stageHome;
+      if (next && next.parentNode === parent) parent.insertBefore(stage, next);
+      else parent.append(stage);
+    }
+    stageHome = null;
+    if (button) el('score-tab-summary')?.append(button);
+    delete document.documentElement.dataset.scoreFull;
+  }
+  stage.classList.toggle('full', on);
+  if (button) {
+    button.textContent = on ? '✕' : '⤢';
+    button.setAttribute('aria-label', on ? 'Close the full-screen score' : 'Read the score full screen');
+  }
+  if (on) stage.scrollTop = 0;
+}
+
+// Built once, and hung beside the summary line rather than on the music: a
+// long title runs the full width of the page, and a button floating over the
+// top-right corner of it sits on the composer's name.
+let expandBtn = null;
+
+function fullScreenButton() {
+  if (expandBtn) return expandBtn;
+  const stage = el('score-stage');
+  if (!stage) return null;
+  expandBtn = document.createElement('button');
+  expandBtn.id = 'score-expand';
+  expandBtn.type = 'button';
+  expandBtn.textContent = '⤢';
+  expandBtn.setAttribute('aria-label', 'Read the score full screen');
+  expandBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setFullScreen(!stage.classList.contains('full'));
+  });
+  return expandBtn;
+}
+
+export function initScoreFullScreen() {
+  const stage = el('score-stage');
+  if (!stage || stage.dataset.wired === 'yes') return;
+  stage.dataset.wired = 'yes';
+  // A tap on the page toggles. Noteheads stop the event (score-view.js), so
+  // choosing a note still just chooses a note.
+  stage.addEventListener('click', () => setFullScreen(!stage.classList.contains('full')));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setFullScreen(false);
+  });
 }
 
 // noteheadFor: played note → the SVG element drawn for it.
@@ -126,9 +212,14 @@ export function stopFollowing() {
 export function mountScore(page, summary) {
   stage = el('score-stage');
   if (!stage) return null;
+  initScoreFullScreen();
   stage.replaceChildren(page);
   const line = el('score-tab-summary');
-  if (line) line.textContent = summary ?? '';
+  if (line) {
+    line.textContent = summary ?? '';
+    const button = fullScreenButton();
+    if (button) line.append(button);
+  }
   return stage;
 }
 
@@ -136,6 +227,7 @@ export function clearScoreTab() {
   stopFollowing();
   returnPanel();
   showReviewCard(false);
+  setFullScreen(false); // nothing to read full screen once the page has gone
   el('score-stage')?.replaceChildren();
   const line = el('score-tab-summary');
   if (line) line.textContent = '';
@@ -148,6 +240,7 @@ export function onScoreTabShown() {
 
 export function onScoreTabHidden() {
   returnPanel();
+  setFullScreen(false); // never leave the dock hidden behind a tab nobody is on
 }
 
 export function scoreTabIsShowing() {
