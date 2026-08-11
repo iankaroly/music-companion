@@ -514,6 +514,7 @@ function redraw() {
     drawStroke(ctx, stroke);
   }
   if (drawing) drawStroke(ctx, drawing);
+  drawLasso(ctx);
 }
 
 // Rubbing out: a stroke goes if the eraser passes within a finger's width of it.
@@ -554,11 +555,25 @@ function pointerPosition(e) {
 }
 
 let erasing = false;
+// The lasso: a loop drawn round marks, and then what you do with them. Kept
+// apart from the drawing tools because it does not add ink — it picks up ink
+// that is already there.
+let lasso = null;        // the loop being drawn, in screen points
+let picked = [];         // the strokes inside it
+let dragging = null;     // { x, y } while the selection is being moved
 
 function beginStroke(e) {
   const at = pointerPosition(e);
   if (!at) return;
   if (tool === 'eraser') { erasing = false; eraseAt(at.x, at.y); erasing = true; return; }
+  if (tool === 'lasso') {
+    // Inside a selection you already have, the drag moves it; anywhere else it
+    // starts a new loop.
+    if (picked.length && insideSelection(at.x, at.y)) dragging = { x: at.x, y: at.y };
+    else { picked = []; lasso = [at]; }
+    redraw();
+    return;
+  }
   const point = anchor(at.x, at.y);
   if (!point) return;
   if (tool === 'text') { writeText(point); return; }
@@ -585,6 +600,16 @@ function extendStroke(e) {
   const at = pointerPosition(e);
   if (!at) return;
   if (tool === 'eraser') { eraseAt(at.x, at.y); return; }
+  if (tool === 'lasso') {
+    if (dragging) {
+      moveSelection(at.x - dragging.x, at.y - dragging.y);
+      dragging = at;
+    } else if (lasso) {
+      lasso.push(at);
+    }
+    redraw();
+    return;
+  }
   if (!drawing) return;
   const point = anchor(at.x, at.y);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
@@ -599,6 +624,12 @@ function cancelStroke() {
 }
 
 function endStroke() {
+  if (tool === 'lasso') {
+    if (dragging) { dragging = null; scheduleSave(); }
+    else if (lasso) { picked = strokesInside(lasso); lasso = null; refreshSelectionBar(); }
+    redraw();
+    return;
+  }
   if (drawing?.type === 'shape') {
     // A shape that is a dot was a tap, not a drag.
     const [a, b] = drawing.points.map(place);
@@ -760,6 +791,133 @@ function writeText(point) {
   input.focus();
 }
 
+// --- the lasso ---------------------------------------------------------------
+
+// Even-odd ray casting: the usual answer to "is this point inside that loop".
+function insideLoop(loop, x, y) {
+  let inside = false;
+  for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) {
+    const a = loop[i];
+    const b = loop[j];
+    if ((a.y > y) !== (b.y > y) && x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+// A mark is caught if MOST of it is in the loop — catching a long slur because
+// one end of it strayed inside would be worse than missing it.
+function strokesInside(loop) {
+  if (loop.length < 3) return [];
+  return strokes.filter((stroke) => {
+    if (hidden.has(stroke.layer ?? 0)) return false;
+    const points = stroke.points.map(place).filter(Boolean);
+    if (!points.length) return false;
+    const caught = points.filter((point) => insideLoop(loop, point.x, point.y)).length;
+    return caught / points.length > 0.6;
+  });
+}
+
+function selectionBounds() {
+  let box = null;
+  for (const stroke of picked) {
+    for (const point of stroke.points.map(place)) {
+      if (!point) continue;
+      box ??= { left: point.x, right: point.x, top: point.y, bottom: point.y };
+      box.left = Math.min(box.left, point.x);
+      box.right = Math.max(box.right, point.x);
+      box.top = Math.min(box.top, point.y);
+      box.bottom = Math.max(box.bottom, point.y);
+    }
+  }
+  return box;
+}
+
+function insideSelection(x, y) {
+  const box = selectionBounds();
+  if (!box) return false;
+  const margin = 20;
+  return x > box.left - margin && x < box.right + margin
+    && y > box.top - margin && y < box.bottom + margin;
+}
+
+// Moving marks means moving them WITHIN their anchor: a few staff spaces
+// further along the bar they belong to, or a fraction further down the page
+// they are on. They stay attached to the music they were about.
+function moveSelection(dx, dy) {
+  const scale = unitScale();
+  for (const stroke of picked) {
+    for (const point of stroke.points) {
+      if (point.p !== undefined) {
+        const box = boxOfPage(point.p);
+        if (!box) continue;
+        point.x += dx / box.width;
+        point.y += dy / box.height;
+      } else {
+        point.u += dx / scale;
+        point.v += dy / scale;
+      }
+    }
+  }
+}
+
+function recolourSelection() {
+  const brush = currentBrush();
+  for (const stroke of picked) stroke.colour = brushCss(brush);
+  scheduleSave();
+  redraw();
+}
+
+function deleteSelection() {
+  if (!picked.length) return;
+  const gone = picked;
+  strokes = strokes.filter((stroke) => !gone.includes(stroke));
+  remember({ type: 'erase', strokes: gone });
+  picked = [];
+  refreshSelectionBar();
+  scheduleSave();
+  redraw();
+}
+
+function clearSelection() {
+  picked = [];
+  lasso = null;
+  refreshSelectionBar();
+  redraw();
+}
+
+function refreshSelectionBar() {
+  const bar = el('reader-selection');
+  if (!bar) return;
+  bar.hidden = picked.length === 0;
+  const count = bar.querySelector('.reader-selection-count');
+  if (count) count.textContent = `${picked.length} ${picked.length === 1 ? 'mark' : 'marks'}`;
+}
+
+// The loop itself, and a box round what it caught.
+function drawLasso(ctx) {
+  if (lasso?.length > 1) {
+    ctx.save();
+    ctx.setLineDash([6, 5]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#6d4ef6';
+    ctx.beginPath();
+    ctx.moveTo(lasso[0].x, lasso[0].y);
+    for (const point of lasso.slice(1)) ctx.lineTo(point.x, point.y);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.restore();
+  }
+  const box = picked.length ? selectionBounds() : null;
+  if (box) {
+    ctx.save();
+    ctx.setLineDash([4, 4]);
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary').trim() || '#6d4ef6';
+    ctx.strokeRect(box.left - 8, box.top - 8, box.right - box.left + 16, box.bottom - box.top + 16);
+    ctx.restore();
+  }
+}
+
 // --- pages -------------------------------------------------------------------
 
 function showPage(index) {
@@ -825,6 +983,7 @@ function setChrome(on) {
 
 function setTool(next) {
   tool = tool === next ? null : next;
+  if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
   for (const button of root.querySelectorAll('[data-tool]')) {
     const on = button.dataset.tool === tool;
@@ -1378,6 +1537,7 @@ function buildInkBar() {
     toolButton('highlighter', '▬', 'Highlighter'),
     toolButton('text', 'A', 'Type on the page'),
     iconButton('reader-shapes', '◻', 'Lines, boxes and rings', openShapeMenu),
+    toolButton('lasso', '◌', 'Pick up marks'),
     toolButton('eraser', '⌫', 'Rub out'),
     ...PRESETS.map((_, i) => presetSwatch(i)),
     brushBtn,
@@ -1388,6 +1548,23 @@ function buildInkBar() {
     iconButton('reader-reset-zoom', '1×', 'Back to the whole page', resetZoom),
   );
   bar.querySelector('#reader-reset-zoom').hidden = true;
+  return bar;
+}
+
+// What you can do to marks you have picked up. It appears with them and goes
+// away with them.
+function buildSelectionBar() {
+  const bar = document.createElement('div');
+  bar.id = 'reader-selection';
+  bar.hidden = true;
+  const count = document.createElement('span');
+  count.className = 'reader-selection-count';
+  bar.append(
+    count,
+    iconButton(null, '🎨', 'Recolour them', recolourSelection, { className: 'reader-chip' }),
+    iconButton(null, 'Delete', 'Rub them out', deleteSelection, { className: 'reader-chip danger' }),
+    iconButton(null, 'Done', 'Put them down', clearSelection, { className: 'reader-chip' }),
+  );
   return bar;
 }
 
@@ -1430,7 +1607,7 @@ function build() {
   const menu = document.createElement('div');
   menu.id = 'reader-menu';
 
-  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(), menu);
+  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(), buildSelectionBar(), menu);
   document.body.append(root);
   trackPointers(root);
 
@@ -1694,6 +1871,8 @@ export async function openReader(row, { take: analysed = null } = {}) {
   redoable = [];
   layer = 0;
   hidden = new Set();
+  picked = [];
+  lasso = null;
   spread = wantsSpread();
   root.classList.toggle('spread', spread);
   painted = false;

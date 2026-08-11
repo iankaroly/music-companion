@@ -1281,6 +1281,31 @@
     .scan-shutter:active { transform: scale(0.92); }
     #scan-bottom .ctl:disabled { opacity: 0.4; }
 
+    /* Marks picked up with the lasso, and what can be done to them. */
+    #reader-selection {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(1.2rem + env(safe-area-inset-bottom, 0px));
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.4rem 0.6rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.9);
+      -webkit-backdrop-filter: blur(24px) saturate(1.8);
+      backdrop-filter: blur(24px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 14px 34px rgb(var(--sh) / 0.22);
+    }
+    #reader-selection[hidden] { display: none; }
+    .reader-selection-count {
+      font-family: var(--display); font-size: 0.78rem; color: var(--muted);
+      padding: 0 0.3rem;
+    }
+    .reader-chip.danger { color: var(--bad); }
+
     /* The sheet of everything else, off the ⋯ — the shape forScore uses for the
        same job, with only the rows this app can actually do. */
     #reader-menu {
