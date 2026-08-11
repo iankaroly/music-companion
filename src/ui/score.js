@@ -255,11 +255,19 @@ export async function measurePages(scoreId) {
 
 // Paper opens straight into the reader: there is no picking a part, no marking
 // up, nothing to choose. It is a score to play from.
+// The programme this piece is being played as part of, if any: the reader asks
+// for it so that the page after the last page is the next piece.
+let programme = null;
+
 async function readPaperScore(row) {
   try {
     // The take on screen goes with it: on a scan the reader marks the notes it
     // can — how in tune each one was — onto the noteheads read off the page.
-    await openReader(row, { take: pending ? { notes: pending.notes } : null });
+    await openReader(row, {
+      take: pending ? { notes: pending.notes } : null,
+      setlist: programme,
+      onSetlistMove: playFromSetlist,
+    });
   } catch (err) {
     status(`could not open that score: ${err.message}`, 'bad');
   }
@@ -706,9 +714,10 @@ function initTempoPicker() {
 // Opened from the Library: this is the piece you are about to play, so it
 // becomes the chosen one (the next take is marked against it) and the reader
 // opens on it straight away.
-export async function openScoreFromLibrary(id) {
+export async function openScoreFromLibrary(id, { setlist = null } = {}) {
   const row = await loadScore(id);
   if (!row) return;
+  programme = setlist;
   // Paper is not notation and must not go through the parser: it has no XML to
   // parse, no part to choose and no review to open. Straight to the reader.
   if (row.kind === 'pages') {
@@ -717,6 +726,18 @@ export async function openScoreFromLibrary(id) {
   }
   await selectScore(id);
   await readCurrentScore();
+}
+
+// Turning past the end of one piece in a programme, or back before the start of
+// it: the reader asks, and this opens the neighbour with the programme intact.
+export async function playFromSetlist(setlist, index) {
+  if (!setlist?.items?.length) return false;
+  const at = Math.max(0, Math.min(setlist.items.length - 1, index));
+  if (at === setlist.index) return false;
+  await openScoreFromLibrary(setlist.items[at], {
+    setlist: { ...setlist, index: at },
+  });
+  return true;
 }
 
 // The music, full screen, to play from — with this take's marks on it if there
@@ -733,6 +754,8 @@ export async function readCurrentScore() {
   try {
     await openReader(current, {
       take: ready ? { aligned: ready.aligned, timing: ready.timing } : null,
+      setlist: programme,
+      onSetlistMove: playFromSetlist,
     });
   } catch (err) {
     status(`could not open that score: ${err.message}`, 'bad');

@@ -1337,6 +1337,33 @@
     .scan-shutter:active { transform: scale(0.92); }
     #scan-bottom .ctl:disabled { opacity: 0.4; }
 
+    /* What the reader is waiting for you to do — taping a jump down, mostly. */
+    #reader-say {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      top: calc(max(0.4rem, env(safe-area-inset-top, 0px)) + 3.4rem);
+      z-index: 4;
+      padding: 0.4rem 0.9rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.92);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-line);
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 0.78rem;
+      white-space: nowrap;
+    }
+    #reader-say[hidden] { display: none; }
+    #reader-land {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(1.4rem + env(safe-area-inset-bottom, 0px));
+      z-index: 4;
+    }
+    #reader-land[hidden] { display: none; }
+
     /* Marks picked up with the lasso, and what can be done to them. */
     #reader-selection {
       position: fixed;
@@ -2784,6 +2811,7 @@
         <div id="score-browser-head">
           <button id="score-browser-back" type="button" hidden>← Scores</button>
           <span id="score-browser-title">Scores</span>
+          <button id="score-sets" class="ctl" type="button">Setlists</button>
           <button id="score-load" class="ctl" type="button">＋ Score</button>
         </div>
         <!-- Twenty pieces is a scroll; forty is a search. -->

@@ -16,9 +16,9 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
 const DB_NAME = 'music-companion';
-const VERSION = 8;
+const VERSION = 9;
 const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores',
-  'annotations', 'score-pages'];
+  'annotations', 'score-pages', 'setlists'];
 
 // Every branch is `if (!contains)`, so this is safe to re-run at any version.
 function createStores(db) {
@@ -46,6 +46,10 @@ function createStores(db) {
   // never carries the megabyte of MusicXML with it.
   if (!db.objectStoreNames.contains('annotations')) {
     db.createObjectStore('annotations', { keyPath: 'scoreId' });
+  }
+  // A programme: the pieces you are playing, in the order you are playing them.
+  if (!db.objectStoreNames.contains('setlists')) {
+    db.createObjectStore('setlists', { keyPath: 'id', autoIncrement: true });
   }
   // A scanned or downloaded part: the PDF's bytes, or one image per page.
   // Split off the listing the same way audio is split off a recording — the
@@ -193,6 +197,67 @@ export async function pairScoreNotation(paperId, notationId) {
       if (!row) return;
       if (notationId === null) delete row.notationId;
       else row.notationId = notationId;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+// --- setlists ----------------------------------------------------------------
+//
+// A recital, a lesson, an audition list: the pieces in the order they happen.
+// It holds score ids rather than copies, so renaming a piece renames it here
+// too, and deleting one leaves a gap that the list quietly steps over.
+
+export async function listSetlists() {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('setlists', 'readonly').objectStore('setlists').getAll();
+    req.onsuccess = () => resolve(req.result.sort((a, b) => b.date - a.date));
+    req.onerror = () => reject(req.error);
+  });
+}
+
+export async function saveSetlist({ id = null, name, items = [] }) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('setlists', 'readwrite');
+    const store = tx.objectStore('setlists');
+    const row = { name, items, date: Date.now() };
+    const req = id === null ? store.add(row) : store.put({ ...row, id });
+    tx.oncomplete = () => resolve(id ?? req.result);
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+export async function deleteSetlist(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('setlists', 'readwrite');
+    tx.objectStore('setlists').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
+// Jumps taped to the page: a repeat back to the top, a coda across three pages,
+// the cut your teacher wants. Stored with the score because there are never
+// many and they are meaningless without it.
+export async function saveLinks(scoreId, links) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(scoreId);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      if (links?.length) row.links = links;
+      else delete row.links;
       store.put(row);
     };
     tx.oncomplete = () => resolve();

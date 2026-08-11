@@ -8,6 +8,7 @@ import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
+  listSetlists, saveSetlist, deleteSetlist,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
@@ -996,6 +997,12 @@ const scoreListEmpty = document.querySelector('#score-list-empty');
 const scoreBrowserBack = document.querySelector('#score-browser-back');
 const scoreSearch = document.querySelector('#score-search');
 let scoreFilter = '';
+// Setlists: the shelf's other half. A programme is a list of pieces in the
+// order they happen, and the shelf shows one thing at a time — pieces, or
+// programmes, or the inside of one of either.
+let showingSets = false;
+let openSet = null;      // the setlist being looked at
+let sets = [];
 const scoreBrowserTitle = document.querySelector('#score-browser-title');
 
 // The row at the top of a piece's shelf: the music itself, apart from the takes
@@ -1061,6 +1068,168 @@ function pendingReviewRow() {
   return li;
 }
 
+// --- setlists on the shelf ------------------------------------------------------
+
+function setRow(set) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const icon = document.createElement('span');
+  icon.className = 'lib-icon';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"/>'
+    + '<line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="17" x2="14" y2="17"/></svg>';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = set.name;
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  const count = (set.items ?? []).filter((id) => scoreNames.has(id)).length;
+  sub.textContent = count === 0 ? 'nothing in it yet'
+    : `${count} ${count === 1 ? 'piece' : 'pieces'}`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(icon, text, chev);
+  open.addEventListener('click', () => { openSet = set.id; refreshScoreTab(); });
+
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-label', `More actions for ${set.name}`);
+  more.addEventListener('click', () => actionMenu(more, [
+    {
+      label: 'Play through',
+      onPick: () => playSet(set, 0),
+    },
+    {
+      label: 'Rename…',
+      onPick: async () => {
+        const name = await askScoreName(set.name);
+        if (!name) return;
+        await saveSetlist({ id: set.id, name, items: set.items ?? [] });
+        refreshLibrary();
+      },
+    },
+    {
+      label: 'Delete',
+      danger: true,
+      onPick: async () => {
+        await deleteSetlist(set.id);
+        if (openSet === set.id) openSet = null;
+        refreshLibrary();
+      },
+    },
+  ]));
+
+  li.append(open, more);
+  return li;
+}
+
+// One piece inside a programme: it opens to play, and ⋯ moves it or takes it
+// out. The order IS the programme, so moving is the main thing you do here.
+function setItemRow(set, scoreId, position) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = scoreNames.get(scoreId) ?? 'a piece that has gone';
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = `${position + 1} of ${set.items.length}`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(text, chev);
+  open.addEventListener('click', () => playSet(set, position));
+
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-label', `Move or remove ${name.textContent}`);
+  const move = async (delta) => {
+    const items = [...set.items];
+    const to = position + delta;
+    if (to < 0 || to >= items.length) return;
+    [items[position], items[to]] = [items[to], items[position]];
+    await saveSetlist({ id: set.id, name: set.name, items });
+    refreshLibrary();
+  };
+  more.addEventListener('click', () => actionMenu(more, [
+    { label: 'Earlier in the programme', onPick: () => move(-1) },
+    { label: 'Later in the programme', onPick: () => move(1) },
+    {
+      label: 'Take it out',
+      danger: true,
+      onPick: async () => {
+        const items = set.items.filter((_, i) => i !== position);
+        await saveSetlist({ id: set.id, name: set.name, items });
+        refreshLibrary();
+      },
+    },
+  ]));
+
+  li.append(open, more);
+  return li;
+}
+
+// Opening a piece as part of a programme, so the reader knows what comes next:
+// past the last page of one piece is the first page of the next.
+async function playSet(set, position) {
+  const items = (set.items ?? []).filter((id) => scoreNames.has(id));
+  if (!items.length) return;
+  const at = Math.max(0, Math.min(items.length - 1, position));
+  await openScoreFromLibrary(items[at], {
+    setlist: { id: set.id, name: set.name, items, index: at },
+  });
+}
+
+// Putting a piece into a programme, from the piece rather than from the list —
+// which is where you are standing when you decide it belongs in one.
+async function addToSet(score) {
+  const all = await listSetlists();
+  const rows = all.map((set) => ({
+    label: (set.items ?? []).includes(score.id) ? `✓ ${set.name}` : set.name,
+    onPick: async () => {
+      const items = (set.items ?? []).includes(score.id)
+        ? set.items.filter((id) => id !== score.id)
+        : [...(set.items ?? []), score.id];
+      await saveSetlist({ id: set.id, name: set.name, items });
+      refreshLibrary();
+    },
+  }));
+  rows.push({
+    label: '＋ New setlist…',
+    onPick: async () => {
+      const name = await askScoreName('');
+      if (!name) return;
+      await saveSetlist({ name, items: [score.id] });
+      refreshLibrary();
+    },
+  });
+  actionMenu(document.querySelector('#score-sets'), rows);
+}
+
 // What a piece offers besides opening: the things you reach for once a shelf
 // has more than three things on it.
 function scoreActions(score) {
@@ -1087,6 +1256,7 @@ function scoreActions(score) {
       onPick: async () => { await measurePages(score.id); refreshLibrary(); },
     });
   }
+  rows.push({ label: 'Add to a setlist…', onPick: () => addToSet(score) });
   rows.push({
     label: 'Delete',
     danger: true,
@@ -1213,15 +1383,33 @@ async function refreshScoreTab() {
       if (r.scoreId != null) counts.set(r.scoreId, (counts.get(r.scoreId) ?? 0) + 1);
     }
 
+    sets = await listSetlists();
+    if (openSet !== null && !sets.some((set) => set.id === openSet)) openSet = null;
+    const inSet = openSet !== null;
+    const set = inSet ? sets.find((s) => s.id === openSet) : null;
     const inScore = openScore !== null;
-    scoreBrowserBack.hidden = !inScore;
-    scoreBrowserTitle.textContent = inScore ? scoreNames.get(openScore) : 'Scores';
+    scoreBrowserBack.hidden = !(inScore || inSet);
+    scoreBrowserTitle.textContent = inSet ? set.name
+      : inScore ? scoreNames.get(openScore)
+        : showingSets ? 'Setlists' : 'Scores';
+    const setsButton = document.querySelector('#score-sets');
+    if (setsButton) {
+      setsButton.hidden = inScore || inSet;
+      setsButton.textContent = showingSets ? 'Scores' : 'Setlists';
+    }
 
     scoreList.replaceChildren();
     // The take you have just played is not in the database yet, so nothing else
     // in this list can lead back to it.
-    if (reviewIsWaiting()) scoreList.append(pendingReviewRow());
-    if (inScore) {
+    if (reviewIsWaiting() && !inSet && !showingSets) scoreList.append(pendingReviewRow());
+    if (inSet) {
+      const items = (set.items ?? []).filter((id) => scoreNames.has(id));
+      for (const [position, id] of items.entries()) {
+        scoreList.append(setItemRow({ ...set, items }, id, position));
+      }
+    } else if (showingSets) {
+      for (const one of sets) scoreList.append(setRow(one));
+    } else if (inScore) {
       scoreList.append(openScoreRow({ id: openScore, name: scoreNames.get(openScore) }));
       for (const r of recordings.filter((t) => t.scoreId === openScore)) {
         scoreList.append(libraryRow(r, { from: 'score' }));
@@ -1233,11 +1421,16 @@ async function refreshScoreTab() {
         : scores;
       for (const score of shown) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
     }
-    if (scoreSearch) scoreSearch.hidden = inScore || scoreNames.size < 6;
+    if (scoreSearch) scoreSearch.hidden = inScore || inSet || showingSets || scoreNames.size < 6;
     scoreListEmpty.style.display = scoreList.children.length ? 'none' : 'block';
-    scoreListEmpty.textContent = scoreFilter && !inScore
-      ? `Nothing here called “${scoreFilter}”.`
-      : inScore
+    scoreListEmpty.textContent = showingSets && !inSet
+      ? 'No setlists yet. A setlist is the pieces of a recital or a lesson in the order'
+        + ' they happen — make one from ⋯ on any piece.'
+      : inSet
+        ? 'Nothing in this programme yet — add pieces from ⋯ on the Scores list.'
+        : scoreFilter && !inScore
+          ? `Nothing here called “${scoreFilter}”.`
+          : inScore
       ? 'No takes of this one yet — record, and keep it from the bottom of this tab.'
       : 'No scores yet. Load a MusicXML or .mxl part — export one from MuseScore, or'
         + ' download it from IMSLP — and it will open here to play from.';
@@ -1269,7 +1462,16 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
 });
 
 scoreSearch?.addEventListener('input', () => { scoreFilter = scoreSearch.value; refreshScoreTab(); });
-scoreBrowserBack?.addEventListener('click', () => { openScore = null; refreshScoreTab(); });
+scoreBrowserBack?.addEventListener('click', () => {
+  if (openSet !== null) openSet = null;
+  else openScore = null;
+  refreshScoreTab();
+});
+document.querySelector('#score-sets')?.addEventListener('click', () => {
+  showingSets = !showingSets;
+  openScore = null;
+  refreshScoreTab();
+});
 // Stepping out of a review puts the shelf back up, and the shelf has to be
 // redrawn to carry the way back IN — the take being reviewed is not in the
 // database yet, so nothing else in the list leads to it. (score.js owns the

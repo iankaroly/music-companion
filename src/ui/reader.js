@@ -34,7 +34,7 @@ import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
-  saveBookmarks,
+  saveBookmarks, saveLinks,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -148,6 +148,9 @@ let paper = null;     // the pages, when the score is paper
 let layout = null;    // what was read off those pages: staves, bars, noteheads
 let slices = [];      // what the reader shows as pages: screenfuls of a scan
 let screens = null;   // those screenfuls, as rows of systems
+let setlist = null;   // the programme this piece is being played in, if any
+let moveSet = null;   // ask the app to open the neighbouring piece
+let pendingLink = null; // a link being taped down: where it starts
 let composer = null;  // draws a screenful out of a page's systems
 let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
@@ -570,6 +573,7 @@ function redraw() {
   }
   if (drawing) drawStroke(ctx, drawing);
   if (painted) drawScanMarks(ctx);
+  drawLinks(ctx);
   drawLasso(ctx);
 }
 
@@ -1023,8 +1027,27 @@ function showPage(index) {
 }
 
 const step = () => (spread ? 2 : 1);
-const nextPage = () => showPage(pageIndex + step());
-const previousPage = () => showPage(pageIndex - step());
+
+// The page after the last one is the next piece in the programme, and the page
+// before the first is the end of the one before it. Without a programme they
+// are simply the ends of the score.
+function nextPage() {
+  if (pageIndex + step() >= pageEls.length && setlist && moveSet) {
+    if (setlist.index + 1 < setlist.items.length) {
+      moveSet(setlist, setlist.index + 1);
+      return;
+    }
+  }
+  showPage(pageIndex + step());
+}
+
+function previousPage() {
+  if (pageIndex === 0 && setlist && moveSet && setlist.index > 0) {
+    moveSet(setlist, setlist.index - 1);
+    return;
+  }
+  showPage(pageIndex - step());
+}
 
 // --- chrome ------------------------------------------------------------------
 //
@@ -1091,6 +1114,11 @@ function openLayerMenu() {
       redraw();
     },
   })));
+}
+
+function refreshLandButton() {
+  const land = el('reader-land');
+  if (land) land.hidden = pendingLink?.stage !== 'to';
 }
 
 function refreshHistoryButtons() {
@@ -1271,6 +1299,108 @@ function openBookmarks() {
   actionMenu(el('reader-menu-btn'), rows);
 }
 
+// --- links -------------------------------------------------------------------
+//
+// A jump taped to the page: the repeat back to the top, the coda three pages
+// on, the cut your teacher wants. You put the badge where the sign is, then go
+// to where it should land and say so — because that is the order you think in
+// when you are looking at the music.
+
+function linksOf() {
+  return score?.links ?? [];
+}
+
+function drawLinks(ctx) {
+  const style = getComputedStyle(document.documentElement);
+  const colour = style.getPropertyValue('--primary').trim() || '#6d4ef6';
+  for (const index of visiblePages()) {
+    const box = boxOfPage(index);
+    if (!box) continue;
+    for (const link of linksOf()) {
+      if (link.from.screen !== index) continue;
+      const x = box.left + link.from.x * box.width;
+      const y = box.top + link.from.y * box.height;
+      const r = Math.max(9, box.height * 0.016);
+      ctx.save();
+      ctx.fillStyle = colour;
+      ctx.globalAlpha = 0.85;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = style.getPropertyValue('--on-primary').trim() || '#fff';
+      ctx.font = `600 ${Math.round(r * 1.1)}px ${style.getPropertyValue('--display').trim() || 'sans-serif'}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('↴', x, y + r * 0.05);
+      ctx.restore();
+    }
+  }
+}
+
+// Did that tap land on a link? If it did, take it.
+function followLink(px, py) {
+  for (const index of visiblePages()) {
+    const box = boxOfPage(index);
+    if (!box) continue;
+    for (const link of linksOf()) {
+      if (link.from.screen !== index) continue;
+      const x = box.left + link.from.x * box.width;
+      const y = box.top + link.from.y * box.height;
+      const r = Math.max(14, box.height * 0.02);
+      if (Math.hypot(px - x, py - y) <= r) {
+        showPage(link.to);
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function startLink() {
+  pendingLink = { stage: 'from' };
+  setChrome(true);
+  say('tap the page where the sign is');
+}
+
+function say(text) {
+  const line = el('reader-say');
+  if (!line) return;
+  line.textContent = text ?? '';
+  line.hidden = !text;
+}
+
+async function finishLink(to) {
+  const links = [...linksOf(), { from: pendingLink.from, to }];
+  score.links = links;
+  pendingLink = null;
+  await saveLinks(score.id, links).catch(() => {});
+  say('');
+  redraw();
+}
+
+function openLinks() {
+  const rows = linksOf().map((link, i) => ({
+    label: `Jump on page ${link.from.screen + 1} → page ${link.to + 1}`,
+    onPick: () => showPage(link.to),
+    ...(i === undefined ? {} : {}),
+  }));
+  rows.push({ label: '＋ Tape a jump to this page', onPick: startLink });
+  if (linksOf().length) {
+    rows.push({
+      label: 'Peel the last one off',
+      danger: true,
+      onPick: async () => {
+        const links = linksOf().slice(0, -1);
+        score.links = links;
+        await saveLinks(score.id, links).catch(() => {});
+        redraw();
+      },
+    });
+  }
+  actionMenu(el('reader-menu-btn'), rows);
+}
+
 // --- the menu ----------------------------------------------------------------
 
 function closeMenu() {
@@ -1384,6 +1514,13 @@ function buildMenu(sheet) {
   });
 
   menuGroup(sheet, 'places');
+  menuRow(sheet, {
+    label: 'Jumps', glyph: '↴',
+    detail: linksOf().length
+      ? `${linksOf().length} taped to this score`
+      : 'a repeat, a coda, a cut',
+    onPick: openLinks,
+  });
   menuRow(sheet, {
     label: 'Bookmarks', glyph: '⚑',
     detail: bookmarksOf().length
@@ -1744,7 +1881,17 @@ function build() {
   const menu = document.createElement('div');
   menu.id = 'reader-menu';
 
-  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(), buildSelectionBar(), menu);
+  const line = document.createElement('div');
+  line.id = 'reader-say';
+  line.hidden = true;
+  const land = iconButton('reader-land', 'Land it', 'Land the jump here', () => {
+    if (pendingLink?.stage === 'to') finishLink(pageIndex);
+    refreshLandButton();
+  }, { className: 'reader-chip' });
+  land.hidden = true;
+
+  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
+    buildSelectionBar(), menu, line, land);
   document.body.append(root);
   trackPointers(root);
 
@@ -1756,6 +1903,23 @@ function build() {
     if (menuOpen) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     if (tool) return;                        // the pen owns the page while it is out
+    // Taping a jump down: the first tap is where the sign is, and after that
+    // the page turns as usual until you say where it lands.
+    if (pendingLink?.stage === 'from') {
+      const box = boxOfPage(pageIndex);
+      if (box) {
+        pendingLink.from = {
+          screen: pageIndex,
+          x: (e.clientX - box.left) / box.width,
+          y: (e.clientY - box.top) / box.height,
+        };
+        pendingLink.stage = 'to';
+        say('now turn to where it should land, and tap Land it');
+        refreshLandButton();
+      }
+      return;
+    }
+    if (followLink(e.clientX, e.clientY)) return;
     // While the bar is down, ANY tap on the music puts it away again — it is
     // in the way, and reaching for a particular third of the screen to dismiss
     // something that is covering the music is a rule nobody should have to
@@ -2250,13 +2414,18 @@ function refreshPlayButton() {
 
 // row: the score, with its parsed notes. take: the analysed take on screen, if
 // there is one — used to light the notes as they play, not to colour the page.
-export async function openReader(row, { take: analysed = null } = {}) {
+export async function openReader(row, {
+  take: analysed = null, setlist: programme = null, onSetlistMove = null,
+} = {}) {
   // Notation needs its XML; paper needs nothing but the row, because its pages
   // live in a store of their own.
   if (!row || (row.kind !== 'pages' && !row.xml)) return null;
   build();
   score = row;
   take = analysed;
+  setlist = programme;
+  moveSet = onSetlistMove;
+  pendingLink = null;
   strokes = await loadAnnotations(row.id).catch(() => []);
   history = [];
   redoable = [];
@@ -2299,6 +2468,7 @@ export async function openReader(row, { take: analysed = null } = {}) {
   refreshHistoryButtons();
   showPage(0);
   refreshPlayButton();
+  refreshLandButton();
   return view;
 }
 
