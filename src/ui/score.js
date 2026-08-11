@@ -147,7 +147,16 @@ async function chooseScore(id) {
       // The piece is the scan — it keeps its name, its id and its takes — but
       // the notes come from the notation paired with it.
       const notation = row.notationId != null ? await loadScore(row.notationId) : null;
-      if (!notation?.xml) throw new Error('that score has no notation behind it to read');
+      if (!notation?.xml) {
+        // The notation was unpaired or deleted after a take was recorded
+        // against this piece. Say so, and leave the pages readable rather than
+        // throwing the take out with the pairing.
+        current = null;
+        showReviewCard(false);
+        scoreChanged?.();
+        status(`${row.name} is a scan with no notation behind it — takes cannot be marked up on it`, 'bad');
+        return;
+      }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
     } else {
       await adopt(row);
@@ -223,6 +232,9 @@ export async function notationScores() {
 // Say that this scan and that MusicXML are the same piece.
 export async function pairWithNotation(paperId, notationId) {
   await pairScoreNotation(paperId, notationId);
+  // The picker on the Record tab is what pairing is FOR: the scan can now be
+  // the piece you record against, so it has to appear there without a reload.
+  await refreshPicker(currentScoreId());
   scoreChanged?.();
 }
 

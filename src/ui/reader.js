@@ -1507,19 +1507,32 @@ function brushSlider(key, label, min, max, step) {
 function buildTopBar() {
   const bar = document.createElement('div');
   bar.id = 'reader-top';
+
+  const left = document.createElement('div');
+  left.className = 'reader-bar-left';
+  left.append(
+    iconButton('reader-close', '✕', 'Close the score', close),
+    iconButton('reader-back', '‹', 'The page before', previousPage),
+    iconButton('reader-forward', '›', 'The next page', nextPage),
+  );
+
+  const middle = document.createElement('div');
+  middle.className = 'reader-bar-middle';
   const title = document.createElement('span');
   title.id = 'reader-title';
   const count = document.createElement('span');
   count.id = 'reader-count';
-  const play = iconButton('reader-play', '▶', 'Play the take', togglePlayback);
-  bar.append(
-    iconButton('reader-close', '✕', 'Close the score', close),
-    title,
-    count,
-    play,
+  middle.append(title, count);
+
+  const right = document.createElement('div');
+  right.className = 'reader-bar-right';
+  right.append(
+    iconButton('reader-play', '▶', 'Play the take', togglePlayback),
     iconButton('reader-annotate', '✎', 'Annotate this page', () => setTool('pen')),
     iconButton('reader-menu-btn', '⋯', 'More', toggleMenu),
   );
+
+  bar.append(left, middle, right);
   return bar;
 }
 
@@ -1939,12 +1952,15 @@ function showFirstRunHint() {
   try { seen = globalThis.localStorage?.getItem(HINT_KEY) === 'yes'; } catch { /* private mode */ }
   if (seen) return;
   try { globalThis.localStorage?.setItem(HINT_KEY, 'yes'); } catch { /* survivable */ }
-  setChrome(true);
+  // A line at the bottom, and NOT the bar itself: "show nothing until it is
+  // asked for" is the whole point, and a bar that drops down uninvited to
+  // explain that nothing drops down uninvited is a joke at the reader's
+  // expense.
   const hint = document.createElement('div');
   hint.id = 'reader-hint';
   hint.textContent = 'Tap the top of the screen for the controls · left and right to turn pages';
   root.append(hint);
-  setTimeout(() => { hint.remove(); setChrome(false); }, 4200);
+  setTimeout(() => hint.remove(), 4600);
 }
 
 export function readerIsOpen() {

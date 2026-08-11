@@ -1021,40 +1021,54 @@
       pointer-events: auto;
       touch-action: none;     /* a stroke must not also scroll or turn a page */
     }
-    /* The bar you read under: piece, page, and the way into everything else.
-       It sits at the TOP because that is where a hand reaches on a stand, and
-       because the bottom of a page of music is where the last system is. */
+    /* The bar you read under, and it is a BAR: edge to edge across the very top
+       of the screen, the way a score reader's is. It was a floating pill in the
+       middle, which is fine for a control and wrong for a title bar — a pill
+       hovers over the music, a bar has a top edge to sit against and gives the
+       page the whole rest of the screen.
+
+       Nothing is on screen until it is asked for: a score opens as the score,
+       and a tap on the top strip brings this down. */
     #reader-top, #reader-ink-bar {
       position: fixed;
-      left: 50%;
-      transform: translateX(-50%);
-      top: max(0.5rem, env(safe-area-inset-top, 0px));
+      top: 0;
+      left: 0;
+      right: 0;
       z-index: 2;
       display: flex;
       align-items: center;
-      gap: 0.35rem;
-      max-width: calc(100vw - 0.8rem);
-      flex-wrap: wrap;
-      justify-content: center;
-      padding: 0.35rem 0.5rem;
-      border-radius: 1.6rem;
-      background: rgb(var(--sf) / 0.78);
+      gap: 0.3rem;
+      padding: max(0.35rem, env(safe-area-inset-top, 0px)) max(0.6rem, env(safe-area-inset-left, 0px))
+               0.35rem max(0.6rem, env(safe-area-inset-right, 0px));
+      background: rgb(var(--sf) / 0.86);
       -webkit-backdrop-filter: blur(26px) saturate(1.8);
       backdrop-filter: blur(26px) saturate(1.8);
-      border: 1px solid var(--glass-line);
-      box-shadow: 0 14px 34px rgb(var(--sh) / 0.22);
-      transition: opacity 200ms, transform 250ms var(--spring);
+      border-bottom: 1px solid var(--glass-line);
+      box-shadow: 0 8px 26px rgb(var(--sh) / 0.14);
+      transition: opacity 180ms, transform 220ms var(--spring);
+    }
+    /* Left, middle, right — the shape every title bar has. */
+    #reader-top .reader-bar-left,
+    #reader-top .reader-bar-right { display: flex; align-items: center; gap: 0.3rem; flex: none; }
+    #reader-top .reader-bar-middle {
+      flex: 1;
+      min-width: 0;
+      display: flex;
+      align-items: baseline;
+      justify-content: center;
+      gap: 0.45rem;
     }
     /* One or the other, never both: reading, or drawing. */
-    #reader-ink-bar { display: none; }
+    #reader-ink-bar { display: none; flex-wrap: wrap; justify-content: center; }
     #reader.drawing #reader-top { display: none; }
     #reader.drawing #reader-ink-bar { display: flex; }
     /* Tapping the middle of the page puts the chrome away — the music is the
-       point, and on a stand at arm's length a glass bar is a distraction. */
+       point, and on a stand at arm's length a bar across the top is a bar
+       across the top system. */
     #reader.bare #reader-top {
       opacity: 0;
       pointer-events: none;
-      transform: translateX(-50%) translateY(-0.8rem);
+      transform: translateY(-100%);
     }
     #reader-title {
       font-family: var(--display);
