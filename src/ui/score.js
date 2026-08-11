@@ -52,15 +52,19 @@ const NO_SCORE = 'none';
 function el(id) { return document.querySelector(`#${id}`); }
 
 function status(message, tone = '') {
-  const hint = el('score-hint');
-  if (hint) {
+  // Said twice, in the two places a player can be standing when a score is
+  // loaded. #score-hint is in the Record tab's card; #score-tab-hint sits in
+  // the Score tab outside both of its cards, so it is readable whether or not
+  // a piece is open. Without the second one, a file refused from the Score
+  // tab's own Load button was explained to an element on another screen —
+  // which looked exactly like nothing happening.
+  for (const id of ['score-hint', 'score-tab-hint']) {
+    const hint = el(id);
+    if (!hint) continue;
     hint.textContent = message;
     hint.dataset.tone = tone;
   }
-  // #score-hint lives in the Record tab's card, so anything said while the
-  // player is standing on the Score tab was said to an element they cannot
-  // see — a refused file looked exactly like nothing happening. The app's one
-  // status line sits outside the panes and is visible from every tab.
+  // And once more into the app's aria-live region, for a screen reader.
   const line = document.querySelector('#status');
   if (line) line.textContent = message;
 }

@@ -45,7 +45,22 @@ for (const type of ['gesturestart', 'gesturechange', 'gestureend']) {
 const tuner = new Tuner(document);
 const startBtn = document.querySelector('#start');
 const statusEl = document.querySelector('#status');
+const recNote = document.querySelector('#rec-note');
 const saveBar = document.querySelector('#save-bar');
+
+// Most of what this file says goes to #status, which is spoken and not shown.
+// A few things have to be READ, though: they are the answer to a button that
+// was just pressed and that otherwise appears to have done nothing at all — a
+// take with nothing in it, a save that failed, a microphone that would not
+// open. Those go through here as well, onto one line under the Record button.
+function say(message, tone = '') {
+  statusEl.textContent = message;
+  if (!recNote) return;
+  recNote.textContent = message;
+  recNote.dataset.tone = tone;
+}
+
+const clearRecNote = () => say('');
 
 let capture = null;       // active mic session
 let lastTake = null;      // finished recording awaiting save/discard
@@ -396,6 +411,7 @@ attachBtn.addEventListener('click', () => {
 });
 
 function clearTake() {
+  clearRecNote(); // whatever went wrong last time is not about this take
   lastTake = null;
   saveBar.hidden = true;
   hideReport(document);
@@ -414,7 +430,7 @@ function finishRecording(note = null) {
   for (const n of chord.segmenter.flush()) chord.onNote(n);
   stopEverything();
   if (collected.length === 0) {
-    statusEl.textContent = note ?? 'nothing detected — recording discarded';
+    say(note ?? 'nothing detected — recording discarded', note ? '' : 'bad');
     return;
   }
   lastTake = { recorder, notes: collected, readings, a4: currentA4() };
@@ -525,7 +541,7 @@ startBtn.addEventListener('click', async () => {
     startClock(capture.recorder);
   } catch (err) {
     rememberGrant(false);
-    statusEl.textContent = `mic unavailable: ${err.message}`;
+    say(`mic unavailable: ${err.message}`, 'bad');
   } finally {
     startBtn.disabled = false;
   }
@@ -565,7 +581,7 @@ document.querySelector('#save-rec').addEventListener('click', async () => {
       .catch(() => {});
     refreshLibrary();
   } catch (err) {
-    statusEl.textContent = `could not save: ${err.message}`;
+    say(`could not save: ${err.message}`, 'bad');
   }
 });
 

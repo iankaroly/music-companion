@@ -798,12 +798,19 @@
 
     /* --- the score you played from ------------------------------------- */
     .score-row { align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-    #score-card .hint {
+    #score-card .hint, #rec-note, #score-tab-hint {
       color: var(--muted);
       font-size: 0.8rem;
       margin: 0.55rem 0 0;
       text-align: center;
     }
+    #score-tab-hint { margin: 0 0 0.7rem; }
+    /* Said in the app's own voice normally; in red when it is a refusal.
+       Written with the ids so it outweighs the muted colour above. */
+    #score-hint[data-tone="bad"], #rec-note[data-tone="bad"], #score-tab-hint[data-tone="bad"] {
+      color: var(--bad);
+    }
+    #rec-note:empty, #score-tab-hint:empty { display: none; }
     #score-sheet {
       position: relative;
       margin-top: 1rem;
@@ -2104,6 +2111,12 @@
           </select>
           <span id="rec-clock" aria-live="polite"></span>
         </div>
+        <!-- The one line the Record tab says out loud. It is not the old status
+             pill coming back: it appears only when something you just did did
+             not do what it said — a take with nothing in it, a save that
+             failed, a microphone that would not open — and it is said here,
+             under the button you pressed, rather than floating over the app. -->
+        <p id="rec-note" class="hint"></p>
       </div>
       <div id="score-card" class="card">
         <div class="row score-row">
@@ -2229,6 +2242,11 @@
          graph. #score-dock is where the ONE playback panel lives while this
          tab is showing; see ui/score-tab.js. -->
     <section id="tab-score" class="tab-panel" role="tabpanel">
+      <!-- Outside both cards, because it has to be readable in either state:
+           the score card's own hint lives on the Record tab, so a file refused
+           from HERE used to be explained to an element on a screen the player
+           was not looking at. -->
+      <p id="score-tab-hint" class="hint"></p>
       <div class="card" id="score-empty">
         <p>No score open.</p>
         <p class="hint">Load a MusicXML or .mxl part — export one from MuseScore, or download it from IMSLP — then record, and your playing is marked onto it.</p>
