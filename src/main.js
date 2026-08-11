@@ -12,6 +12,7 @@ import {
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
+  reviewIsWaiting, showTakeReview,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -1012,6 +1013,34 @@ function openScoreRow(score) {
   return li;
 }
 
+// The way back into a review you stepped out of. It disappears the moment the
+// take is saved or discarded, because then the ordinary rows lead to it.
+function pendingReviewRow() {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = 'The take you just played';
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = lastTake ? 'read against this piece — not kept yet' : 'read against this piece';
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(text, chev);
+  open.addEventListener('click', () => showTakeReview());
+  li.append(open);
+  return li;
+}
+
 async function refreshScoreTab() {
   if (!scoreList) return;
   try {
@@ -1030,6 +1059,9 @@ async function refreshScoreTab() {
     scoreBrowserTitle.textContent = inScore ? scoreNames.get(openScore) : 'Scores';
 
     scoreList.replaceChildren();
+    // The take you have just played is not in the database yet, so nothing else
+    // in this list can lead back to it.
+    if (reviewIsWaiting()) scoreList.append(pendingReviewRow());
     if (inScore) {
       scoreList.append(openScoreRow({ id: openScore, name: scoreNames.get(openScore) }));
       for (const r of recordings.filter((t) => t.scoreId === openScore)) {
@@ -1047,6 +1079,11 @@ async function refreshScoreTab() {
 }
 
 scoreBrowserBack?.addEventListener('click', () => { openScore = null; refreshScoreTab(); });
+// Stepping out of a review puts the shelf back up, and the shelf has to be
+// redrawn to carry the way back IN — the take being reviewed is not in the
+// database yet, so nothing else in the list leads to it. (score.js owns the
+// button; this is the list's half of the same press.)
+document.querySelector('#score-review-back')?.addEventListener('click', () => refreshScoreTab());
 document.querySelector('#score-load')?.addEventListener('click',
   () => document.querySelector('#score-file')?.click());
 

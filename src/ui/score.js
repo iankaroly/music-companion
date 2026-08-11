@@ -76,6 +76,18 @@ export function scoreName() {
   return current?.name ?? null;
 }
 
+// Is there a take read against this piece, sitting behind the shelf? The Score
+// tab shows one thing at a time, so leaving the review by its ← would otherwise
+// strand the take: it is not saved yet, so no row in the shelf leads back to
+// it, and with it goes the button that would have saved it.
+export function reviewIsWaiting() {
+  return !!ready && !!current;
+}
+
+export function showTakeReview() {
+  if (reviewIsWaiting()) showReviewCard(true);
+}
+
 async function refreshPicker(selectedId = null) {
   const pick = el('score-pick');
   if (!pick) return;
@@ -538,6 +550,7 @@ export function initScoreCard({
     clearSheet();
     await deleteScore(id);
     await refreshPicker(null);
+    scoreChanged?.(); // the shelf is still showing the piece that just went
     status('score removed.');
   });
 

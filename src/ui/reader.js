@@ -921,6 +921,13 @@ async function engrave() {
   if (take?.aligned) {
     indexNoteheads(view, take.aligned);
     followTake();
+    // A re-engraving throws the colours away with the old pages; if they were
+    // asked for, they are asked for again. Rotating the iPad is not a request
+    // to stop showing what you played.
+    if (painted) {
+      const { paint } = await import('./score-view.js');
+      paint(view, { aligned: take.aligned, timing: take.timing, landings: take.landings });
+    }
   }
   return view;
 }
