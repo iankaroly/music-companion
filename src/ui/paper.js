@@ -108,9 +108,20 @@ async function loadPdfLib() {
   let lib;
   let worker;
   try {
+    // The LEGACY build, deliberately.
+    //
+    // pdf.js's default build is written against whatever the newest browsers
+    // have, and one of the things it assumes is Map.prototype.getOrInsertComputed
+    // — a method that reached browsers in 2025. On an iPad a version behind
+    // that, opening a part died on "this.getOrInsertComputed is not a function"
+    // and the import hung there for ever. The legacy build is the same reader
+    // with the polyfills for those built-ins compiled in; it costs a larger
+    // download of a chunk that is only ever fetched when a PDF is opened, and
+    // it is the difference between a reader that works on the tablet somebody
+    // actually owns and one that works on this year's.
     [lib, worker] = await Promise.all([
-      import('pdfjs-dist'),
-      import('pdfjs-dist/build/pdf.worker.mjs?url'),
+      import('pdfjs-dist/legacy/build/pdf.mjs'),
+      import('pdfjs-dist/legacy/build/pdf.worker.mjs?url'),
     ]);
   } catch {
     // The reader itself would not load. On an older tablet that is the whole
@@ -365,14 +376,19 @@ export async function readPages(payload, onProgress = null) {
   const layout = [];
   for (let i = 0; i < pages.count; i++) {
     onProgress?.(i, pages.count);
-    const canvas = scratch(8, 8);
-    // Big enough to read a staff space, and no bigger. draw() works in device
-    // pixels, so the request is divided by them — on a phone at 3× this would
-    // otherwise build a 4200px canvas per page to look at 1400px of it.
-    const dpr = window.devicePixelRatio || 1;
-    await pages.draw(i, canvas, 1400 / dpr, 6000 / dpr);
     let found = null;
     try {
+      const canvas = scratch(8, 8);
+      // Big enough to read a staff space, and no bigger. draw() works in device
+      // pixels, so the request is divided by them — on a phone at 3× this would
+      // otherwise build a 4200px canvas per page to look at 1400px of it.
+      const dpr = window.devicePixelRatio || 1;
+      // The DRAW is inside the try as well, and that is the point of this.
+      // A page that will not render threw straight out of the loop, so the
+      // narration stopped on "reading the pages… 1 of 21" and stayed there —
+      // the score was already saved and openable, and the only thing broken
+      // was the sentence on the screen.
+      await pages.draw(i, canvas, 1400 / dpr, 6000 / dpr);
       found = readPage(canvas, canvas.width, canvas.height);
     } catch {
       found = null;   // an unreadable page is not a reason to lose the score

@@ -2801,9 +2801,46 @@ async function drawPaperPage(index) {
   if (!paper || !node || !slice || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
-  await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight);
+  try {
+    await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight);
+  } catch (err) {
+    // A page the renderer chokes on leaves a blank canvas and no explanation,
+    // which reads as a score that has lost a page. Say it on the page itself:
+    // the rest of the part still turns, and the reason is where the missing
+    // music would have been.
+    sayOnPage(canvas, `Page ${slice.page + 1} could not be drawn — ${err.message}`, across);
+  }
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
+}
+
+// A sentence where a page should have been.
+function sayOnPage(canvas, text, across) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = Math.round(across);
+  const h = Math.round(window.innerHeight * 0.6);
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.fillStyle = '#f6f5f2';
+  ctx.fillRect(0, 0, w, h);
+  ctx.fillStyle = '#8a8794';
+  ctx.textAlign = 'center';
+  ctx.font = `400 ${Math.max(13, Math.round(w / 34))}px system-ui, sans-serif`;
+  // Wrapped by hand: a canvas has no idea what a line is.
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > w * 0.8 && line) { lines.push(line); line = word; }
+    else line = next;
+  }
+  if (line) lines.push(line);
+  lines.forEach((one, i) => ctx.fillText(one, w / 2, h / 2 + (i - (lines.length - 1) / 2) * 26));
 }
 
 async function engrave() {
