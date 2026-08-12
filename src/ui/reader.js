@@ -864,8 +864,11 @@ function snapDrawing() {
   if (screen.length !== drawing.points.length) return;   // half of it is off-page
   const shaped = shapeFrom(screen);
   if (!shaped) return;
+  // Every point of the ideal has to find somewhere on the music to live. Half
+  // an ellipse anchored and half of it dropped is not a tidier version of what
+  // was drawn — it is a shape with a chord cut across it.
   const anchored = shaped.map((p) => anchor(p.x, p.y)).filter(Boolean);
-  if (anchored.length < 2) return;
+  if (anchored.length !== shaped.length) return;
   // The scrawl is kept until the pen lifts. Carrying on drawing is somebody
   // saying they did not want the shape, and they should get their own line
   // back rather than have to undo and write it again.

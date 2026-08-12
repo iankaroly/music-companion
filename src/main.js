@@ -554,7 +554,21 @@ async function micWithin(ms) {
 
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.listen) {
-    finishRecording();
+    // Said before, not after: this branch and the one below both begin with a
+    // tap on the same button, and "nothing happened" has to be able to tell
+    // which of them ran.
+    say('finishing that take…');
+    try {
+      finishRecording();
+    } catch (err) {
+      // A capture left in pieces — an interruption iOS never told us about, a
+      // session reclaimed while the app was away — must not turn this into a
+      // button that can only ever try to finish something that is not there.
+      // Whatever state it is in, the next press records.
+      capture = null;
+      startBtn.textContent = 'Record';
+      say(`that take could not be finished: ${err.message} — press record to start again`, 'bad');
+    }
     return;
   }
   // in the tap, before the count-in — see prepareCapture in capture.js

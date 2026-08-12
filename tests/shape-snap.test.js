@@ -139,6 +139,16 @@ describe('what it must leave exactly as drawn', () => {
     expect(shapeFrom(scrawl)).toBeNull();
   });
 
+  it('leaves a trill squiggle alone', () => {
+    // Thirty small oscillations along a straight axis: never far from its own
+    // chord, and ironing it flat would delete the mark entirely.
+    const trill = Array.from({ length: 120 }, (_, i) => ({
+      x: 200 + i * 5,
+      y: 300 + Math.sin(i * 0.9) * 7,
+    }));
+    expect(shapeFrom(trill)).toBeNull();
+  });
+
   it('leaves a dot alone', () => {
     expect(shapeFrom([{ x: 10, y: 10 }, { x: 11, y: 11 }, { x: 12, y: 10 }, { x: 11, y: 9 }]))
       .toBeNull();

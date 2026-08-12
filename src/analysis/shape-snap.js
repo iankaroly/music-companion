@@ -164,8 +164,16 @@ export function shapeFrom(points) {
   if (!closed) {
     // Straight, or left alone. A slur is a deliberate curve and snapping it to
     // its own chord would be vandalism, so the tolerance here is tight.
+    //
+    // Tight in TWO ways, and the second is not optional: how far the line
+    // strays from its own chord, and how much further the pen travelled than
+    // the chord is long. Without the second, a trill squiggle — thirty small
+    // oscillations along a straight axis, none of them far off the chord —
+    // reads as a very straight line and gets ironed flat. A hand-drawn line
+    // walks a few per cent further than its chord; a squiggle walks double.
+    const chord = Math.hypot(last.x - first.x, last.y - first.y);
     const { distance } = farthestFromChord(points, first, last);
-    if (distance < Math.max(4, walked * 0.045)) return traceLine(first, last);
+    if (distance < Math.max(4, walked * 0.045) && walked < chord * 1.3) return traceLine(first, last);
     // A corner or two, drawn without lifting: a bracket, an arrow's shaft and
     // head, the zig of a page-turn mark. Two or three segments, no more —
     // beyond that it is handwriting, and handwriting fits four chords nicely
