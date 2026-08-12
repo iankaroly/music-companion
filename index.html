@@ -256,7 +256,22 @@
       user-select: none;
       -webkit-touch-callout: none;
     }
+    /* The grey box iOS paints over whatever you tapped.
+       It is Safari's own tap feedback, and in a menu it arrives just AFTER the
+       menu has closed — so picking "fingerings" off the layer menu left a grey
+       rectangle hanging over the page for a moment, apparently from nowhere.
+       Every control in here already answers a tap with its own colour, so the
+       system rectangle is only ever a smudge on top of the answer. */
+    html {
+      -webkit-tap-highlight-color: transparent;
+    }
     :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+    /* …and since that grey box is what a finger was getting as "yes, that one",
+       the rows give the feedback themselves, at once and only while held. */
+    .pick-row:active { background: var(--fill); }
+    .reader-tool:active, .brush-nib:active, .brush-dot:active, .brush-colour:active {
+      opacity: 0.6;
+    }
 
     /* ---- the resonance blobs: soft color drifting behind every glass pane ---- */
     #blobs { position: fixed; inset: -20vmax; z-index: -1; filter: var(--blob-filter); pointer-events: none; }

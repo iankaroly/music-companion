@@ -31,6 +31,7 @@ import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
 import { notesInOrder } from '../analysis/scan-read.js';
+import { shapeFrom } from '../analysis/shape-snap.js';
 import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
@@ -819,6 +820,63 @@ function pointerPosition(e) {
   return { x: e.clientX, y: e.clientY };
 }
 
+// --- draw it, then hold: the shape you meant ----------------------------------
+//
+// Hold the pen still at the end of a stroke and the scrawl becomes the thing it
+// was trying to be: a straight line, a box round a bar, a ring round an
+// accidental, a triangle, a shape with corners. It is how GoodNotes does it and
+// it is the right way round — you draw first and ask for tidiness afterwards,
+// rather than choosing a shape tool before you know you want one.
+//
+// Nothing is guessed about intent: the snap only happens while the pen is DOWN
+// and STILL, so a stroke that is finished and lifted is never touched.
+
+const HOLD_MS = 550;        // how long still counts as "hold"
+const HOLD_STIR = 4;        // px of wobble allowed while holding — a hand is a hand
+const CHANGED_MIND = 34;    // px of travel after a snap that means "no, keep mine"
+
+let holdTimer = null;
+let holdFrom = null;        // where the pen was when the hold clock started
+
+function stopHold() {
+  clearTimeout(holdTimer);
+  holdTimer = null;
+  holdFrom = null;
+}
+
+// The clock restarts every time the pen moves, so only the END of a stroke can
+// trigger it.
+function watchForHold(at) {
+  if (!drawing || drawing.snapped) return;
+  if (holdFrom && Math.hypot(at.x - holdFrom.x, at.y - holdFrom.y) < HOLD_STIR) return;
+  clearTimeout(holdTimer);
+  holdFrom = at;
+  holdTimer = setTimeout(snapDrawing, HOLD_MS);
+}
+
+// The moment the hold pays off: the scrawl on screen is replaced, in place, by
+// the shape it was drawing. Anchored back onto the music the same way every
+// other mark is, so it re-flows with the page like anything else.
+function snapDrawing() {
+  holdTimer = null;
+  if (!drawing || drawing.snapped || drawing.type === 'shape') return;
+  const screen = drawing.points.map(place).filter(Boolean);
+  if (screen.length !== drawing.points.length) return;   // half of it is off-page
+  const shaped = shapeFrom(screen);
+  if (!shaped) return;
+  const anchored = shaped.map((p) => anchor(p.x, p.y)).filter(Boolean);
+  if (anchored.length < 2) return;
+  // The scrawl is kept until the pen lifts. Carrying on drawing is somebody
+  // saying they did not want the shape, and they should get their own line
+  // back rather than have to undo and write it again.
+  drawing.freehand = drawing.points;
+  drawing.points = anchored;
+  drawing.snapped = true;
+  // A hold that has done its work should feel like it did.
+  navigator.vibrate?.(8);
+  redraw();
+}
+
 let erasing = false;
 // The lasso: a loop drawn round marks, and then what you do with them. Kept
 // apart from the drawing tools because it does not add ink — it picks up ink
@@ -862,6 +920,11 @@ function beginStroke(e) {
     drawing.type = 'shape';
     drawing.shape = tool;
     drawing.points.push(point);
+  } else {
+    // Freehand only: the shape tools are already shapes, and the hold is for
+    // the pen and the highlighter.
+    stopHold();
+    watchForHold(at);
   }
 }
 
@@ -880,19 +943,33 @@ function extendStroke(e) {
     return;
   }
   if (!drawing) return;
+  // Once it has snapped, the mark is the shape: the wobble of a hand that has
+  // not lifted yet must not scribble over it. Moving off properly is another
+  // matter — that is somebody carrying on drawing, and they get their own line
+  // back, exactly as they drew it.
+  if (drawing.snapped) {
+    if (!holdFrom || Math.hypot(at.x - holdFrom.x, at.y - holdFrom.y) < CHANGED_MIND) return;
+    drawing.points = drawing.freehand;
+    delete drawing.freehand;
+    delete drawing.snapped;
+    watchForHold(at);
+  }
   const point = anchor(at.x, at.y);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
   else if (point) drawing.points.push(point);
+  if (drawing.type !== 'shape') watchForHold(at);
   redraw();
 }
 
 // A stroke that turned out to be the start of a pinch is not a stroke.
 function cancelStroke() {
+  stopHold();
   drawing = null;
   redraw();
 }
 
 function endStroke() {
+  stopHold();
   if (tool === 'lasso') {
     if (dragging) { dragging = null; scheduleSave(); }
     else if (lasso) { picked = strokesInside(lasso); lasso = null; refreshSelectionBar(); }
@@ -909,6 +986,9 @@ function endStroke() {
     return;
   }
   if (drawing && drawing.points.length > 1) {
+    // The scrawl behind a snapped shape is scaffolding, not part of the mark.
+    delete drawing.freehand;
+    delete drawing.snapped;
     strokes.push(drawing);
     remember({ type: 'add', stroke: drawing });
     scheduleSave();
