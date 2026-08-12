@@ -28,7 +28,8 @@
 
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
-import { openPaper, composedPage } from './paper.js';
+import { openPaper } from './paper.js';
+import { bandsOfPage } from './bands.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
@@ -120,6 +121,38 @@ const PRESETS = [
 // bar, a ring round an accidental, an arrow at a page turn.
 const SHAPES = ['line', 'arrow', 'rect', 'ellipse'];
 
+// The signs a musician stamps on music. Written by hand these take a second and
+// come out wobbly; on a screen they are a tap, and they are the marks that
+// actually get made at a rehearsal — a flat somebody forgot to print, a bowing
+// the section agreed on, a breath, a fermata, the coda you keep missing.
+//
+// Every one of them is a CHARACTER, drawn with the same code that writes a
+// fingering on the page, which means a stamp can be rubbed out, picked up,
+// recoloured and resized like any other mark rather than being a special kind
+// of thing with its own half-working menu.
+const STAMPS = [
+  { glyph: '\u266F', label: 'sharp' },
+  { glyph: '\u266D', label: 'flat' },
+  { glyph: '\u266E', label: 'natural' },
+  { glyph: '\u2293', label: 'down bow' },
+  { glyph: 'V', label: 'up bow' },
+  { glyph: '>', label: 'accent' },
+  { glyph: '\u2022', label: 'staccato' },
+  { glyph: '\u2013', label: 'tenuto' },
+  { glyph: '\u{1D110}', label: 'fermata' },
+  { glyph: ',', label: 'breath' },
+  // Written out rather than set in the Musical Symbols block: a segno that
+  // arrives as an empty box because the font on the device has no glyph for it
+  // is worse than the two letters every player writes by hand anyway.
+  { glyph: 'D.S.', label: 'dal segno' },
+  { glyph: 'Coda', label: 'coda' },
+  { glyph: 'tr', label: 'trill' },
+  { glyph: 'pizz.', label: 'pizzicato' },
+  { glyph: 'arco', label: 'arco' },
+  { glyph: '8va', label: 'octave up' },
+];
+let stamp = STAMPS[0];
+
 const PEN_WIDTH = 0.28;
 const HIGHLIGHT_WIDTH = 1.6;
 const MIN_WIDTH = 0.08;
@@ -146,12 +179,10 @@ let ink = null;       // the canvas the marks are drawn on
 let view = null;      // the engraved score, when the score IS notation
 let paper = null;     // the pages, when the score is paper
 let layout = null;    // what was read off those pages: staves, bars, noteheads
-let slices = [];      // what the reader shows as pages: screenfuls of a scan
-let screens = null;   // those screenfuls, as rows of systems
+let slices = [];      // what the reader shows as pages: bands of a scanned page
 let setlist = null;   // the programme this piece is being played in, if any
 let moveSet = null;   // ask the app to open the neighbouring piece
 let pendingLink = null; // a link being taped down: where it starts
-let composer = null;  // draws a screenful out of a page's systems
 let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
 let take = null;      // the analysed take on screen, if there is one
@@ -315,7 +346,11 @@ function barFrame(bar) {
 function unitScale() {
   if (isPaper()) {
     const box = pageBox();
-    return Math.max(1, (box?.height ?? 600) / 60);
+    // The box is a BAND of the page, not the page: divide it back out, or a pen
+    // drawn on a page split in two comes back twice as thick on a page shown
+    // whole.
+    const band = slices[pageIndex]?.rect?.h ?? 1;
+    return Math.max(1, (box?.height ?? 600) / band / 60);
   }
   const shown = visiblePages();
   for (const [bar, entry] of bars) {
@@ -326,76 +361,66 @@ function unitScale() {
   return 10;
 }
 
-// On paper, a mark is held against the PAGE, as a fraction of its width and
-// height. There is nothing else to hold it against — and nothing needs
-// anything else, because a scanned page never re-flows: it is the same picture
-// at every size, so a mark two thirds of the way across bar 12 stays exactly
-// there whatever the screen does.
-// On a reflowed scan a mark is held against the SYSTEM it was drawn over, not
-// against the screen: the screens are composed out of systems and the
-// composition changes with the shape of the screen, so a mark pinned to the
-// glass would be pinned to nothing. Where the page could not be read there are
-// no systems, and it falls back to the page itself.
+// On paper, a mark is held against the PAGE: a fraction across and down the
+// photograph, margins trimmed. There is nothing else to hold it against, and
+// nothing else is needed — a scan does not re-flow. The same picture is shown
+// at every size, so a mark on the second beat of bar 12 is on the second beat
+// of bar 12 whatever the screen does with the paper afterwards.
+//
+// The screen may be showing only part of that page. Everything below goes
+// through one mapping, so the ink and the analysis rings cannot drift apart.
 function anchorOnPaper(px, py) {
   const index = pageAt(px, py);
   const slice = slices[index];
   const box = boxOfPage(index);
-  if (!box || !box.width || !box.height) return null;
-  if (slice?.rows) {
-    const y = py - box.top;
-    let best = null;
-    let bestGap = Infinity;
-    for (const [row, at] of slice.rows.entries()) {
-      const gap = y < at.destY ? at.destY - y
-        : y > at.destY + at.destH ? y - (at.destY + at.destH) : 0;
-      if (gap < bestGap) { bestGap = gap; best = { row, at }; }
-      if (gap === 0) break;
-    }
-    if (!best) return null;
-    const x0 = best.at.x0 ?? 0;
-    const x1 = best.at.x1 ?? 1;
-    return {
-      space: 'system',
-      p: best.at.page,
-      top: best.at.top,
-      bottom: best.at.bottom,
-      x0,
-      // across the page, not across the piece: the piece a mark sits in can
-      // change when the music is re-cut at another size
-      x: x0 + ((px - box.left) / box.width) * (x1 - x0),
-      v: (y - best.at.destY) / Math.max(1, best.at.destH),
-    };
-  }
+  if (!slice || !box || !box.width || !box.height) return null;
+  const { rect } = slice;
   return {
     space: 'page',
-    p: index,
-    x: (px - box.left) / box.width,
-    y: (py - box.top) / box.height,
+    p: slice.page,
+    x: rect.x + ((px - box.left) / box.width) * rect.w,
+    y: rect.y + ((py - box.top) / box.height) * rect.h,
   };
 }
 
-function placeOnPaper(point) {
+// A place on the paper → where it is on the screen, or null when that part of
+// the page is not being shown.
+function pageToScreen(p, x, y) {
   for (const index of visiblePages()) {
     const slice = slices[index];
     const box = boxOfPage(index);
-    if (!box) continue;
-    if (point.space === 'system' && slice?.rows) {
-      const row = slice.rows.find((at) => at.page === point.p
-        && Math.abs(at.top - point.top) < 0.002
-        && point.x >= (at.x0 ?? 0) - 0.01 && point.x <= (at.x1 ?? 1) + 0.01);
-      if (!row) continue;
-      const x0 = row.x0 ?? 0;
-      const x1 = row.x1 ?? 1;
-      return {
-        x: box.left + ((point.x - x0) / (x1 - x0)) * box.width,
-        y: box.top + row.destY + point.v * row.destH,
-      };
-    }
-    if (point.space !== 'system' && slice && !slice.rows && point.p === slice.page) {
-      return { x: box.left + point.x * box.width, y: box.top + point.y * box.height };
-    }
+    if (!slice || !box || slice.page !== p) continue;
+    const { rect } = slice;
+    // A whisker of tolerance: a fingering written just above the top system of
+    // a band belongs to that band, not to nothing.
+    const air = rect.h * 0.04;
+    if (y < rect.y - air || y > rect.y + rect.h + air) continue;
+    return {
+      x: box.left + ((x - rect.x) / rect.w) * box.width,
+      y: box.top + ((y - rect.y) / rect.h) * box.height,
+      unit: box.height / rect.h,      // pixels per whole page height
+    };
   }
   return null;
+}
+
+function placeOnPaper(point) {
+  return pageToScreen(point.p, point.x, point.y);
+}
+
+// Marks made while scans were re-cut into screenfuls were held against the
+// SYSTEM they were drawn over. The same numbers give the same place on the
+// paper, so they are converted once as the score opens and written back in the
+// new form — rather than disappearing, which is what an unrecognised anchor
+// does: silently, and to work somebody actually did.
+function onPaperNow(point) {
+  if (point.space !== 'system') return point;
+  return {
+    space: 'page',
+    p: point.p,
+    x: point.x,
+    y: point.top + (point.v ?? 0) * (point.bottom - point.top),
+  };
 }
 
 // A point on screen → the bar it is over, plus how far into that bar it sits.
@@ -453,9 +478,11 @@ function strokeColour(stroke) {
   return brushCss({ ...preset, a: stroke.tool === 'highlighter' ? 0.32 : preset.a });
 }
 
-function drawStroke(ctx, stroke) {
-  const points = stroke.points.map(place);
-  const scale = unitScale();
+// `at` and `scale` are how a point becomes a pixel. On screen that is the page
+// being read; on an export it is the page being written into a file. Same ink,
+// same code, so what you send is what you saw.
+function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
+  const points = stroke.points.map(at);
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -530,8 +557,7 @@ function drawStroke(ctx, stroke) {
   // look like a scrawl. Broken at the system, a highlight over four bars comes
   // back as a highlight over four bars, on however many lines they now occupy.
   const systems = stroke.points.map((point) => (
-    point.p !== undefined ? (point.space === 'system' ? `${point.p}:${point.top}` : null)
-      : bars.get(point.m)?.system ?? null
+    point.p !== undefined ? `paper:${point.p}` : bars.get(point.m)?.system ?? null
   ));
   ctx.beginPath();
   let moved = false;
@@ -637,6 +663,7 @@ function beginStroke(e) {
   const point = anchor(at.x, at.y);
   if (!point) return;
   if (tool === 'text') { writeText(point); return; }
+  if (tool === 'stamp') { placeStamp(point); return; }
   const brush = currentBrush();
   drawing = {
     tool,
@@ -771,8 +798,10 @@ function redrawPaperAtZoom() {
     if (!isPaper() || !paper) return;
     const node = pageEls[pageIndex];
     const canvas = node?.querySelector('canvas');
-    if (!canvas) return;
-    await paper.draw(pageIndex, canvas, window.innerWidth * zoom, window.innerHeight * zoom);
+    const slice = slices[pageIndex];
+    if (!canvas || !slice) return;
+    await paper.drawBand(slice.page, canvas, slice.rect,
+      window.innerWidth * zoom, window.innerHeight * zoom);
     // Drawn big, shown at the page's own size: the transform does the rest.
     canvas.style.width = `${Math.round(canvas.width / (window.devicePixelRatio || 1) / zoom)}px`;
     canvas.style.height = `${Math.round(canvas.height / (window.devicePixelRatio || 1) / zoom)}px`;
@@ -859,6 +888,39 @@ function writeText(point) {
   input.focus();
 }
 
+// A sign, dropped where the finger went down. Sized like the music rather than
+// like the screen — a flat is about two staff spaces tall on paper, so that is
+// what it is here.
+function placeStamp(point) {
+  const brush = currentBrush();
+  const mark = {
+    type: 'text',
+    tool: 'stamp',
+    layer,
+    text: stamp.glyph,
+    size: Math.max(1.4, brush.width * 6),
+    colour: brushCss({ ...brush, a: 1 }),
+    points: [point],
+  };
+  strokes.push(mark);
+  remember({ type: 'add', stroke: mark });
+  scheduleSave();
+  redraw();
+}
+
+function openStampMenu() {
+  actionMenu(el('reader-stamps'), STAMPS.map((sign) => ({
+    label: `${sign.glyph}   ${sign.label}`,
+    onPick: () => {
+      stamp = sign;
+      const button = el('reader-stamps');
+      if (button) button.textContent = sign.glyph;
+      if (tool !== 'stamp') setTool('stamp');
+      else refreshBrushUI();
+    },
+  })));
+}
+
 // --- the lasso ---------------------------------------------------------------
 
 // Even-odd ray casting: the usual answer to "is this point inside that loop".
@@ -916,10 +978,12 @@ function moveSelection(dx, dy) {
   for (const stroke of picked) {
     for (const point of stroke.points) {
       if (point.p !== undefined) {
-        const box = boxOfPage(point.p);
-        if (!box) continue;
-        point.x += dx / box.width;
-        point.y += dy / box.height;
+        const index = visiblePages().find((i) => slices[i]?.page === point.p);
+        const box = boxOfPage(index);
+        const rect = slices[index]?.rect;
+        if (!box || !rect) continue;
+        point.x += (dx / box.width) * rect.w;
+        point.y += (dy / box.height) * rect.h;
       } else {
         point.u += dx / scale;
         point.v += dy / scale;
@@ -1079,6 +1143,8 @@ function setTool(next) {
   }
   const shapes = el('reader-shapes');
   if (shapes) shapes.classList.toggle('on', SHAPES.includes(tool));
+  const stamps = el('reader-stamps');
+  if (stamps) stamps.classList.toggle('on', tool === 'stamp');
   if (tool) {
     setChrome(true);
     closeMenu();
@@ -1401,6 +1467,81 @@ function openLinks() {
   actionMenu(el('reader-menu-btn'), rows);
 }
 
+// --- reading in the dark ------------------------------------------------------
+//
+// A pit, a dark hall, a stand light somebody else is using: a white page at
+// full brightness is a lamp pointed at your own eyes and at everyone behind
+// you. Inverted, the paper goes black and the notes go white, and the marks
+// keep their colours — a red circle on a black page is still a red circle,
+// which a plain brightness setting cannot do.
+const NIGHT_KEY = 'readerNight';
+let night = false;
+
+function toggleNight() {
+  night = !night;
+  try { globalThis.localStorage?.setItem(NIGHT_KEY, night ? 'on' : 'off'); } catch { /* fine */ }
+  root?.classList.toggle('night', night);
+}
+
+// --- out of the app -----------------------------------------------------------
+//
+// A PDF of the pages with everything you have written on them, handed to the
+// share sheet: mail it to your teacher, print it, put it in Files, open it in
+// another reader. Nothing is uploaded — the file is made here and given to the
+// phone, which is a different thing from sending it somewhere.
+
+async function sendScore(withMarks) {
+  const { pdfFromPages, shareFile, fileName } = await import('./export.js');
+  const pages = [];
+  say('making the file…');
+  try {
+    for (let p = 0; p < paper.count; p++) {
+      const canvas = document.createElement('canvas');
+      // The whole page, margins and all: an export is a copy of the music, not
+      // a copy of what happens to be on the screen.
+      await paper.drawBand(p, canvas, { x: 0, y: 0, w: 1, h: 1 },
+        1600 / (window.devicePixelRatio || 1), 40000);
+      if (withMarks) {
+        const ctx = canvas.getContext('2d');
+        const at = (point) => (point.p === p
+          ? { x: point.x * canvas.width, y: point.y * canvas.height }
+          : null);
+        for (const stroke of strokes) {
+          if (hidden.has(stroke.layer ?? 0)) continue;
+          drawStroke(ctx, stroke, { at, scale: canvas.height / 60 });
+        }
+      }
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.88));
+      pages.push({
+        bytes: new Uint8Array(await blob.arrayBuffer()),
+        width: canvas.width,
+        height: canvas.height,
+      });
+    }
+    const how = await shareFile(pdfFromPages(pages), fileName(score.name, 'pdf'));
+    say(how === 'saved' ? 'saved to your files' : '');
+  } catch {
+    say('that file could not be made');
+  }
+  setTimeout(() => say(''), 2600);
+}
+
+async function sendNotation() {
+  const { shareFile, fileName } = await import('./export.js');
+  const blob = new Blob([score.xml], { type: 'application/vnd.recordare.musicxml+xml' });
+  const how = await shareFile(blob, fileName(score.name, 'musicxml'));
+  say(how === 'saved' ? 'saved to your files' : '');
+  setTimeout(() => say(''), 2600);
+}
+
+function openSend() {
+  if (!isPaper()) { sendNotation(); return; }
+  actionMenu(el('reader-menu-btn'), [
+    { label: 'PDF, with everything written on it', onPick: () => sendScore(true) },
+    { label: 'PDF of the pages as they are', onPick: () => sendScore(false) },
+  ]);
+}
+
 // --- the menu ----------------------------------------------------------------
 
 function closeMenu() {
@@ -1536,7 +1677,18 @@ function buildMenu(sheet) {
       onPick: toggleSpread,
     });
   }
+  menuRow(sheet, {
+    label: night ? 'Light page' : 'Dark page',
+    glyph: night ? '☀' : '☾',
+    detail: night ? 'back to black on white' : 'white on black, for a dark hall',
+    onPick: toggleNight,
+  });
   menuGroup(sheet, 'this file');
+  menuRow(sheet, {
+    label: 'Send a copy…', glyph: '⤴',
+    detail: isPaper() ? 'a PDF, with your marks on it' : 'the MusicXML file',
+    onPick: openSend,
+  });
   menuRow(sheet, {
     label: 'Rename…', glyph: 'Aa', detail: score?.name ?? '',
     onPick: renameThisScore,
@@ -1811,6 +1963,7 @@ function buildInkBar() {
     toolButton('highlighter', 'highlighter', 'Highlighter'),
     toolButton('text', 'text', 'Type on the page'),
     iconButton('reader-shapes', 'shapes', 'Lines, boxes and rings', openShapeMenu),
+    iconButton('reader-stamps', STAMPS[0].glyph, 'Stamp a sign on the page', openStampMenu),
     toolButton('lasso', 'lasso', 'Pick up marks'),
     toolButton('eraser', 'eraser', 'Rub out'),
     ...PRESETS.map((_, i) => presetSwatch(i)),
@@ -1964,8 +2117,17 @@ function build() {
       else close();
       return;
     }
-    if (e.key === 'ArrowRight' || e.key === 'PageDown') nextPage();
-    if (e.key === 'ArrowLeft' || e.key === 'PageUp') previousPage();
+    // The keys a Bluetooth page turner sends. Every pedal on the market sends
+    // one of these pairs, so supporting the keys is supporting the pedals —
+    // no pairing screen, no driver, nothing to configure.
+    if (['ArrowRight', 'PageDown', 'ArrowDown', ' ', 'Enter'].includes(e.key)) {
+      e.preventDefault();
+      nextPage();
+    }
+    if (['ArrowLeft', 'PageUp', 'ArrowUp', 'Backspace'].includes(e.key)) {
+      e.preventDefault();
+      previousPage();
+    }
   });
 
   window.addEventListener('resize', () => {
@@ -1983,11 +2145,10 @@ async function resize(factor) {
   if (!score) return;
   setReadingZoom(readingZoom() * factor);
   if (isPaper()) {
-    // Bigger music on a scan means fewer bars to a line: the page is cut into
-    // more pieces and each is drawn across the whole screen.
+    // Bigger music on a scan means less of the paper on screen at once: the
+    // page is split at another system gap and each half fills the glass.
     const first = pageIndex;
     drawn.clear();
-    composer?.forget();
     await render();
     showPage(Math.min(first, pageEls.length - 1));
     return;
@@ -2018,8 +2179,7 @@ function relayout() {
     const wasOn = pageIndex;
     spread = wantsSpread();
     root.classList.toggle('spread', spread);
-    drawn.clear();
-    composer?.forget();      // the screen changed shape; so does every page
+    drawn.clear();           // the screen changed shape; so does every page
     await render();
     showPage(Math.min(wasOn, pageEls.length - 1));
   }, 200);
@@ -2051,110 +2211,21 @@ async function render() {
 // Nothing is scaled by CSS — every page is rendered at the device's own pixels,
 // because a photograph of a page stretched by a browser is exactly the blurry
 // mess this app tells people it isn't.
-// A page of music is roughly square; a phone is not. Fitting one inside the
-// other leaves a band of nothing above and below, and on a phone that band is a
-// third of the screen — the complaint that started this.
-//
-// So a scanned page is cut into SCREENFULS at its own system boundaries, which
-// the page reader already found. Each screenful is as many systems as will fill
-// the width, and it fills the width: the music is as big as the glass allows,
-// and a page turn moves to the next few systems rather than to the next sheet
-// of paper. Where the page could not be read, it falls back to whole pages.
-// Screens composed out of systems, and it is allowed to run on from one page to
-// the next: the last two systems of page one and the first three of page two
-// are a perfectly good screenful of music, and refusing to mix them is what
-// left a band of nothing at the bottom of every page.
-//
-// The rule is simple: fill the width with each system, take as many as fit down
-// the screen, then share out whatever is left over as air between them. What
-// you get is a screen with music from edge to edge, whatever shape the paper
-// was and whatever shape the screen is.
-const AIR = 0.3;        // the most of a piece's height to give away as gaps
-
-// How wide a piece of a system should be, so the music comes out the size it
-// ought to be. A line of music drawn across a phone at its full page width is
-// a thin ribbon of tiny notes; cut at a barline and stacked, each half is drawn
-// across the same screen and the notes are twice the size. This works out how
-// many pieces each line wants, using the same reading size the engraved scores
-// use — so ± makes a scan bigger too.
-function piecesFor(staff, pageHeightPx) {
-  const spacePx = staff.space * pageHeightPx;
-  if (!(spacePx > 0.5)) return 1;
-  const wanted = staffPx() / spacePx;
-  return Math.min(4, Math.max(1, Math.round(wanted)));
-}
-
-// Cut a line of music into that many pieces, at barlines wherever there is one
-// near the right place: a piece that ends mid-bar is a piece you cannot read
-// the end of.
-function cutStaff(staff, count) {
-  if (count <= 1) return [{ x0: 0, x1: 1 }];
-  const bars = (staff.bars ?? []).filter((x) => x > 0.08 && x < 0.97);
-  const cuts = [0];
-  for (let i = 1; i < count; i++) {
-    const ideal = i / count;
-    let best = ideal;
-    let bestGap = 0.14;               // no barline near enough: cut where it falls
-    for (const x of bars) {
-      const gap = Math.abs(x - ideal);
-      if (gap < bestGap) { bestGap = gap; best = x; }
-    }
-    cuts.push(best);
-  }
-  cuts.push(1);
-  const pieces = [];
-  for (let i = 0; i + 1 < cuts.length; i++) {
-    // A whisker of overlap, so a barline is never sliced down the middle.
-    pieces.push({ x0: Math.max(0, cuts[i] - 0.004), x1: Math.min(1, cuts[i + 1] + 0.004) });
-  }
-  return pieces;
-}
-
-async function composeScreens(width, height) {
-  const rows = [];
-  for (const [pageIndex, page] of (layout ?? []).entries()) {
-    if (!page) continue;
-    // How tall this page is when its full width fills the screen: the scale
-    // everything else is measured against.
-    const pageHeightPx = await composer.heightOf(pageIndex, 0, 1, width);
-    for (const staff of page.staves ?? []) {
-      const top = Math.max(0, staff.top);
-      const bottom = Math.min(1, staff.bottom);
-      if (bottom <= top) continue;
-      const count = piecesFor(staff, pageHeightPx);
-      for (const piece of cutStaff(staff, count)) {
-        const tall = await composer.heightOf(pageIndex, top, bottom, width, piece.x0, piece.x1);
-        rows.push({ page: pageIndex, top, bottom, x0: piece.x0, x1: piece.x1, tall });
-      }
-    }
-  }
-  if (!rows.length) return null;
-
-  const screens = [];
-  let taken = [];
-  let used = 0;
-  const flush = () => {
-    if (!taken.length) return;
-    const slack = Math.max(0, height - used);
-    const gaps = taken.length + 1;
-    const air = Math.min(slack / gaps, (used / taken.length) * AIR);
-    let y = (height - (used + air * (taken.length - 1))) / 2;
-    const placed = taken.map((row) => {
-      const at = { ...row, destY: y, destH: row.tall };
-      y += row.tall + air;
-      return at;
+// Which part of which page each screen shows — see bands.js for the whole of
+// that argument. Here it is only asked, page by page, of the paper in hand.
+async function bandPages(target) {
+  const out = [];
+  for (let p = 0; p < paper.count; p++) {
+    const rects = bandsOfPage({
+      staves: layout?.[p]?.staves ?? [],
+      crop: await paper.cropOf(p),
+      size: await paper.sizeOf(p),
+      target,
+      zoom: readingZoom(),
     });
-    screens.push(placed);
-    taken = [];
-    used = 0;
-  };
-  for (const row of rows) {
-    if (taken.length && used + row.tall > height) flush();
-    taken.push(row);
-    used += row.tall;
+    for (const rect of rects) out.push({ page: p, rect });
   }
-  flush();
-  return screens;
+  return out;
 }
 
 async function layOutPaper() {
@@ -2162,18 +2233,12 @@ async function layOutPaper() {
   layout = payload?.layout ?? null;
   paper?.destroy?.();
   paper = await openPaper(payload);
-  composer = composedPage(paper);
   view = null;
   bars = new Map();
   sheet.replaceChildren();
   pageEls = [];
   const across = window.innerWidth / (spread ? 2 : 1);
-  // Screenfuls of systems where the page could be read; whole pages where it
-  // could not, because a page nobody could make sense of is still a page.
-  screens = layout?.some(Boolean) ? await composeScreens(across, window.innerHeight) : null;
-  slices = screens
-    ? screens.map((rows) => ({ rows }))
-    : Array.from({ length: paper.count }, (_, i) => ({ page: i, top: 0, bottom: 1 }));
+  slices = await bandPages(across / window.innerHeight);
   for (let i = 0; i < slices.length; i++) {
     const node = document.createElement('div');
     node.className = 'osmd-page reader-paper';
@@ -2199,8 +2264,7 @@ async function drawPaperPage(index) {
   if (!paper || !node || !slice || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
-  if (slice.rows) await composer.draw(canvas, slice.rows, across, window.innerHeight);
-  else await paper.draw(slice.page, canvas, across, window.innerHeight);
+  await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight);
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
 }
@@ -2284,46 +2348,12 @@ function drawScanMarks(ctx) {
     good: '--good', off: '--off', bad: '--bad', flatOff: '--flat-off', flatBad: '--flat-bad',
   };
   const style = getComputedStyle(document.documentElement);
-  const shown = visiblePages();
-  const marks = markedHeads();
-  for (const index of shown) {
-    const slice = slices[index];
-    const box = boxOfPage(index);
-    if (!slice || !box) continue;
-    for (const head of marks) {
-      const place = placeOnScreen(head, slice, box);
-      if (place) drawOneMark(ctx, head, place, style, colours);
-    }
+  for (const head of markedHeads()) {
+    // The same page-to-screen mapping the ink uses, so a ring and a fingering
+    // written on the same note stay on the same note.
+    const place = pageToScreen(head.page, head.x, head.y);
+    if (place) drawOneMark(ctx, head, place, style, colours);
   }
-}
-
-// Where a notehead ends up on a composed screenful: which system row it is in,
-// and how far down that row. On an unreadable page it is simply the page.
-function placeOnScreen(head, slice, box) {
-  if (slice.rows) {
-    for (const row of slice.rows) {
-      if (row.page !== head.page) continue;
-      if (head.y < row.top || head.y > row.bottom) continue;
-      const x0 = row.x0 ?? 0;
-      const x1 = row.x1 ?? 1;
-      if (head.x < x0 || head.x > x1) continue;     // this half of the line
-      const span = Math.max(0.0001, row.bottom - row.top);
-      return {
-        x: box.left + ((head.x - x0) / (x1 - x0)) * box.width,
-        y: box.top + row.destY + ((head.y - row.top) / span) * row.destH,
-        // pixels per unit of page height, which is what a staff space is in
-        unit: row.destH / span,
-      };
-    }
-    return null;
-  }
-  if (head.page !== slice.page) return null;
-  const span = Math.max(0.0001, slice.bottom - slice.top);
-  return {
-    x: box.left + head.x * box.width,
-    y: box.top + ((head.y - slice.top) / span) * box.height,
-    unit: box.height / span,
-  };
 }
 
 function drawOneMark(ctx, head, place, style, colours) {
@@ -2426,7 +2456,8 @@ export async function openReader(row, {
   setlist = programme;
   moveSet = onSetlistMove;
   pendingLink = null;
-  strokes = await loadAnnotations(row.id).catch(() => []);
+  strokes = (await loadAnnotations(row.id).catch(() => []))
+    .map((stroke) => ({ ...stroke, points: stroke.points.map(onPaperNow) }));
   history = [];
   redoable = [];
   layer = 0;
@@ -2439,6 +2470,8 @@ export async function openReader(row, {
   painted = row.kind === 'pages' && !!analysed?.notes?.length;
   spread = wantsSpread();
   root.classList.toggle('spread', spread);
+  try { night = globalThis.localStorage?.getItem(NIGHT_KEY) === 'on'; } catch { night = false; }
+  root.classList.toggle('night', night);
   menuOpen = false;
   pageIndex = 0;
   tool = null;
@@ -2487,10 +2520,9 @@ export function close() {
   view = null;
   paper?.destroy?.();
   paper = null;
-  composer = null;
-  screens = null;
   pageEls = [];
   drawn.clear();
+  slices = [];
   sheet.replaceChildren();
   score = null;
   take = null;

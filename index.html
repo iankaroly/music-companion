@@ -245,6 +245,17 @@
       overflow-x: clip;
     }
     button, select, input { font-family: var(--ui); color: var(--ink); }
+    /* Holding a control down is holding a control down. Left alone, iOS treats
+       a long press on a button as a press on TEXT: it highlights the label,
+       raises the copy/look-up bubble, and hands back a selection you then have
+       to tap away — on the annotate button, of all things, which is meant to be
+       held. Nothing in this app is text you would want to copy out of a
+       control. */
+    button, .tab-btn, label, #reader {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
     :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
 
     /* ---- the resonance blobs: soft color drifting behind every glass pane ---- */
@@ -1014,6 +1025,10 @@
       place-items: center;
     }
     .reader-paper canvas { display: block; border-radius: 2px; }
+    /* Reading in the dark: the paper goes black and the notes go white, and the
+       ink layer is left alone so a red circle stays a red circle. */
+    #reader.night #reader-sheet { filter: invert(1) hue-rotate(180deg); }
+    #reader.night { background: #000; }
     #reader-ink {
       position: fixed;
       pointer-events: none;   /* the page underneath takes the taps */
