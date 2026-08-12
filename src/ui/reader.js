@@ -335,9 +335,13 @@ function currentPage() {
   return pageEls[pageIndex] ?? null;
 }
 
-function visiblePages() {
-  const shown = [pageIndex];
-  if (spread && pageIndex + 1 < pageEls.length) shown.push(pageIndex + 1);
+// Which pages are on screen — or would be, if the reader were showing the page
+// given. A turn asks the second question before it commits to the first: the
+// pages have to be drawn before they are shown, and that means knowing which
+// ones they will be.
+function visiblePages(at = pageIndex) {
+  const shown = [at];
+  if (spread && at + 1 < pageEls.length) shown.push(at + 1);
   return shown;
 }
 
@@ -1318,10 +1322,40 @@ function drawLasso(ctx) {
 
 // --- pages -------------------------------------------------------------------
 
-function showPage(index) {
+// How long the page you are ON stays up while the next one is being drawn.
+//
+// A page is REVEALED before it has been drawn, or it is not revealed at all:
+// showing an empty canvas is showing a black rectangle, which is the flash on
+// every turn that had outrun its own rendering. Waiting is only ever better
+// than that — the music you are still reading stays on screen — but not
+// forever, so a page that is taking an unreasonable time is shown blank rather
+// than leaving the turn stuck.
+const HOLD_PAGE = 1200;
+
+// Which pages are worth keeping drawn, either side of the one being read. Every
+// drawn page is a screenful of pixels: on a tablet, twenty of them left lying
+// about is how a long part turns into a renderer that gives up.
+const KEEP_NEAR = 2;
+
+let turnToken = 0;
+
+async function showPage(index) {
   if (!pageEls.length) return;
-  const moved = index !== pageIndex;
-  pageIndex = Math.max(0, Math.min(pageEls.length - 1, index));
+  const next = Math.max(0, Math.min(pageEls.length - 1, index));
+  const shownNext = visiblePages(next);
+  // Drawn BEFORE anything on screen changes. A turn that has to wait shows the
+  // page you were reading for a moment longer, which is the right thing to
+  // look at while waiting.
+  if (isPaper()) {
+    const token = ++turnToken;
+    const ready = Promise.all(shownNext.map((i) => drawPaperPage(i).catch(() => {})));
+    await Promise.race([ready, new Promise((resolve) => { setTimeout(resolve, HOLD_PAGE); })]);
+    // Somebody tapped again while this page was being drawn: that turn is the
+    // one that matters, and this one must not undo it.
+    if (token !== turnToken) return;
+  }
+  const moved = next !== pageIndex;
+  pageIndex = next;
   // A new page is a new page: it arrives whole, not at whatever corner you had
   // magnified on the last one.
   if (moved && zoom !== 1) { zoom = 1; panX = 0; panY = 0; applyZoom(); }
@@ -1348,15 +1382,48 @@ function showPage(index) {
       node.style.width = '';
     }
   }
-  if (isPaper()) {
-    for (const index of shown) drawPaperPage(index).catch(() => {});
-    // The page after, quietly, so a turn is instant.
-    const ahead = shown.at(-1) + 1;
-    if (ahead < pageEls.length) setTimeout(() => drawPaperPage(ahead).catch(() => {}), 120);
-  }
   const count = el('reader-count');
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   redraw();
+  if (isPaper()) keepNeighboursReady(shown);
+}
+
+// The pages either side, drawn while nobody is waiting, and the ones far behind
+// thrown away. Both halves matter: the first is what makes a turn instant, and
+// the second is what stops a twenty-one page part holding twenty-one screenfuls
+// of pixels at once.
+function keepNeighboursReady(shown) {
+  const first = shown[0];
+  const last = shown.at(-1);
+  const near = (i) => i >= first - KEEP_NEAR && i <= last + KEEP_NEAR;
+  // Swept by looking at the PAGES rather than at the list of what has been
+  // drawn. That list is cleared in several places — a resize, a re-layout,
+  // coming back to the app — and every time it is, the canvases it was
+  // describing keep their pixels and become invisible to a sweep that trusts
+  // it. Eleven screenfuls were still being held after a dozen turns. The pages
+  // themselves cannot get out of step with themselves.
+  const forget = () => {
+    for (const [i, node] of pageEls.entries()) {
+      if (near(i)) continue;
+      const canvas = node.querySelector('canvas');
+      if (!canvas || canvas.width <= 1) continue;
+      // Zero by zero is how a canvas gives its pixels back.
+      canvas.width = 0;
+      canvas.height = 0;
+      drawn.delete(i);
+    }
+  };
+  const wanted = [];
+  for (let i = last + 1; i <= last + KEEP_NEAR && i < pageEls.length; i++) wanted.push(i);
+  for (let i = first - 1; i >= first - KEEP_NEAR && i >= 0; i--) wanted.push(i);
+  forget();
+  setTimeout(async () => {
+    for (const i of wanted) await drawPaperPage(i).catch(() => {});
+    // Again afterwards: a page drawn by the LAST turn's look-ahead finishes
+    // after this turn has already swept, and without a second sweep those
+    // stragglers are what a long part accumulates.
+    forget();
+  }, 0);
 }
 
 // Straight to a page, for a part long enough that turning to it is a chore.
@@ -2778,6 +2845,22 @@ function build() {
       endStroke();
     });
   }
+
+  // Coming back to the app, with the pages possibly gone.
+  //
+  // iOS takes the pixels back out of a canvas when it needs the memory, and
+  // putting the app aside for a minute is when it needs the memory. The canvas
+  // is still there and still the right size — nothing about it says it has been
+  // emptied — so a reader that believes it has already drawn a page will show
+  // that page as a black rectangle for ever. Everything drawn is therefore
+  // forgotten on the way out, and the page in front of you is drawn again on
+  // the way back.
+  document.addEventListener('visibilitychange', () => {
+    if (root.hidden || document.visibilityState !== 'visible' || !isPaper()) return;
+    drawn.clear();
+    for (const index of visiblePages()) drawPaperPage(index).catch(() => {});
+    keepNeighboursReady(visiblePages());
+  });
 
   document.addEventListener('keydown', (e) => {
     if (root.hidden) return;
