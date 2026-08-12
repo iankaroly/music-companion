@@ -528,6 +528,30 @@ pauseBtn.addEventListener('click', () => {
   statusEl.textContent = recorder.paused ? 'paused' : 'recording';
 });
 
+// A microphone that never answers is a promise that never settles, and a
+// promise that never settles is a button that stays disabled for the rest of
+// the session with nothing said. It happens on iOS: a permission prompt
+// dismissed rather than answered, or an audio session the system will not hand
+// over, and getUserMedia simply never comes back. So the wait is bounded, and
+// running out of patience is an error like any other — the button comes back
+// and the screen says what to do about it.
+async function micWithin(ms) {
+  let timer = null;
+  try {
+    await Promise.race([
+      ensureMic(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(
+          'the microphone never answered. If iOS asked for permission, answer it and press record again'
+          + ' — otherwise turn it on in Settings → Practice Partner → Microphone',
+        )), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 startBtn.addEventListener('click', async () => {
   if (capture && !capture.listen) {
     finishRecording();
@@ -538,6 +562,15 @@ startBtn.addEventListener('click', async () => {
   stopEverything();
   clearTake();
   startBtn.disabled = true;
+  // Said BEFORE the microphone is asked for, not after.
+  //
+  // Everything between the tap and the count-in used to happen in silence, and
+  // the button is disabled for the whole of it — so a microphone that never
+  // answered (which is what a dismissed permission prompt looks like inside an
+  // installed app: getUserMedia neither resolves nor rejects) left a dead
+  // button and no explanation at all. Whatever else goes wrong, the tap now
+  // always puts something on screen.
+  say('asking for the microphone…');
   try {
     // Settle the microphone BEFORE the count-in rather than behind a button of
     // its own. Pressing record is the moment you have said you want it, and the
@@ -545,7 +578,7 @@ startBtn.addEventListener('click', async () => {
     // this costs nothing. It must not happen mid-count-in, though: the take
     // would start late, and a permission sheet is exactly the kind of pause
     // that used to leave capture running on a context iOS had stopped allowing.
-    await ensureMic();
+    await micWithin(12000);
     rememberGrant(true);
     await countIn(Number(countInSel.value) || 0);
     // A count-in is seconds long and the app is still usable during it; walking

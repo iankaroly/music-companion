@@ -63,6 +63,36 @@
       if (localStorage.getItem('mc-motion') === 'off') document.documentElement.dataset.motion = 'off';
     } catch (e) { /* blocked storage: the stylesheet default stands */ }
   </script>
+  <script>
+    // Say when something has broken.
+    //
+    // Installed on an iPad there is no console and no way to open one, so a
+    // script that fails to load, or a promise nobody caught, is invisible: a
+    // button that does nothing, and no way to tell whether the tap missed, the
+    // app is thinking, or the whole module never ran. This is inline and first
+    // on the page on purpose — it is registered before the app is fetched, so
+    // it can report an app that never started.
+    (function () {
+      var bar = null;
+      function show(text) {
+        if (!bar) {
+          bar = document.createElement('div');
+          bar.id = 'trouble';
+          bar.setAttribute('role', 'alert');
+          bar.addEventListener('click', function () { bar.remove(); bar = null; });
+          (document.body || document.documentElement).appendChild(bar);
+        }
+        bar.textContent = String(text).slice(0, 300) + ' — tap to dismiss';
+      }
+      addEventListener('error', function (e) {
+        // A failed <script>/<link> fires an error event with no message.
+        show(e.message || ('could not load ' + ((e.target && (e.target.src || e.target.href)) || 'part of the app')));
+      }, true);
+      addEventListener('unhandledrejection', function (e) {
+        show((e.reason && (e.reason.message || e.reason)) || 'something did not finish');
+      });
+    }());
+  </script>
   <style>
     /* ---- typeface ---------------------------------------------------------
        One variable file per subset covers 400–600, which is every weight the
@@ -266,6 +296,23 @@
       -webkit-tap-highlight-color: transparent;
     }
     :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
+    /* Where the thing above puts what it has to say. Above everything, because
+       what it is reporting is the app not working. */
+    #trouble {
+      position: fixed;
+      z-index: 9999;
+      left: 0.6rem;
+      right: 0.6rem;
+      bottom: max(0.6rem, env(safe-area-inset-bottom, 0px));
+      padding: 0.6rem 0.8rem;
+      border-radius: 0.8rem;
+      background: #3a1220;
+      color: #ffd9e0;
+      font-family: var(--ui);
+      font-size: 0.8rem;
+      line-height: 1.4;
+      box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+    }
     /* …and since that grey box is what a finger was getting as "yes, that one",
        the rows give the feedback themselves, at once and only while held. */
     .pick-row:active { background: var(--fill); }
