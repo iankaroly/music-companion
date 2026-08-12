@@ -3053,7 +3053,9 @@ function rememberMeasurements(payload) {
     reading.add(id);
     import('./score.js')
       .then(({ measurePages }) => measurePages(id))
-      .catch(() => { /* an unread scan is still a score to play from */ });
+      // A pass that FAILED has not answered the question, so the next open is
+      // allowed to ask again. Only a pass that finished puts the score down.
+      .catch(() => { reading.delete(id); /* still a score to play from */ });
   }
 }
 
