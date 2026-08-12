@@ -25,7 +25,9 @@ import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
   pairScoreNotation, loadScorePages, saveScoreLayout,
 } from '../store/db.js';
-import { isPdf, isImage, nameFromFile, pdfPageCount, readPages, pdfTrouble } from './paper.js';
+import {
+  isPdf, isImage, sniffPdf, sniffImage, nameFromFile, pdfPageCount, readPages, pdfTrouble,
+} from './paper.js';
 import { openScanner } from './scanner.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
@@ -210,7 +212,11 @@ async function addPaper(files, { name: given = null } = {}) {
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
   let id = null;
   let trouble = null;   // pages that could not be read, said out loud at the end
-  if (isPdf(list[0])) {
+  // What the file SAYS it is comes second to what is inside it. A part that has
+  // been exported out of another app and handed over by iOS arrives often
+  // enough with an empty type and no extension, and being refused as "not pages
+  // of music" is not a thing anybody can act on.
+  if (isPdf(list[0]) || await sniffPdf(list[0])) {
     const data = await list[0].arrayBuffer();
     let opened;
     try {
@@ -233,8 +239,13 @@ async function addPaper(files, { name: given = null } = {}) {
   } else {
     // Photographs come back in whatever order the picker felt like; by name is
     // the only order that means anything, and phones name them in sequence.
-    const pages = list
-      .filter(isImage)
+    // Same again for pictures: a photograph handed over with no type and no
+    // extension is still a photograph, and the first bytes say so.
+    const named = list.filter(isImage);
+    const anonymous = await Promise.all(list
+      .filter((file) => !isImage(file))
+      .map(async (file) => ((await sniffImage(file)) ? file : null)));
+    const pages = [...named, ...anonymous.filter(Boolean)]
       .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
     if (pages.length === 0) throw new Error('those were not pages of music');
     // Every photograph becomes a page before it is stored: the sheet of paper

@@ -16,3 +16,4 @@ ios/App/CapApp-SPM/build/
 ios/DerivedData/
 *.xcuserstate
 xcuserdata/
+public/pdfjs/

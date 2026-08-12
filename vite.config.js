@@ -1,4 +1,52 @@
 import { defineConfig } from 'vite';
+import { cp, mkdir } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+
+// The parts of the PDF reader that are not JavaScript.
+//
+// pdf.js ships four things it fetches at RUNTIME rather than bundling, and a
+// build that does not put them anywhere is a reader that cannot open half the
+// PDFs in the world:
+//
+//   wasm/          JBIG2 and JPEG 2000 decoders. Every scanned part is one of
+//                  those two — JBIG2 is what a black-and-white page scan is
+//                  compressed with — and without these the images decode to
+//                  nothing and the page comes out blank.
+//   standard_fonts/ Helvetica, Times and the rest, for the PDFs that name a
+//                  standard font instead of embedding it. Most exports do.
+//   cmaps/         the encoding tables a CID font needs to say which glyph is
+//                  which.
+//   iccs/          colour profiles.
+//
+// They are copied out of the package rather than committed, and served from
+// /pdfjs/ in both the dev server and the build.
+const pdfjsRoot = dirname(createRequire(import.meta.url).resolve('pdfjs-dist/package.json'));
+const PDFJS_ASSETS = ['wasm', 'standard_fonts', 'cmaps', 'iccs'];
+
+async function copyPdfAssets(into) {
+  await mkdir(into, { recursive: true });
+  await Promise.all(PDFJS_ASSETS.map((name) => cp(
+    join(pdfjsRoot, name),
+    join(into, name),
+    { recursive: true },
+  )));
+}
+
+function pdfjsAssets() {
+  return {
+    name: 'pdfjs-runtime-assets',
+    // The dev server reads from public/, so they go there for `npm run dev`…
+    async buildStart() {
+      await copyPdfAssets(join(process.cwd(), 'public', 'pdfjs'));
+    },
+    // …and into the build output, which does not include anything written to
+    // public/ after the copy step has already run.
+    async closeBundle() {
+      await copyPdfAssets(join(process.cwd(), 'dist', 'pdfjs'));
+    },
+  };
+}
 
 // Which build is this?
 //
@@ -14,6 +62,7 @@ const stamp = [
 ].join(' · ');
 
 export default defineConfig({
+  plugins: [pdfjsAssets()],
   define: {
     __BUILD__: JSON.stringify(stamp),
   },

@@ -126,6 +126,29 @@ async function loadPdfLib() {
   return lib;
 }
 
+// Where the rest of the reader lives — the decoders and fonts pdf.js fetches
+// when a page turns out to need them. See vite.config.js for what these are.
+//
+// Unset, which is what they were, the URLs come out as the string "null" and
+// every fetch for them fails: a scanned part is JBIG2 or JPEG 2000 inside, so
+// its images decode to nothing and the page arrives blank. Nothing says so
+// either — the render "succeeds" on an empty canvas.
+// Worked out when a PDF is actually opened rather than when this file loads:
+// the base URL is a browser thing, and reading it at module scope makes the
+// whole module unimportable anywhere else — including the tests that check what
+// a refused PDF says.
+function pdfAssets() {
+  const base = globalThis.document?.baseURI ?? '/';
+  const at = (path) => new URL(path, base).href;
+  return {
+    wasmUrl: at('/pdfjs/wasm/'),
+    standardFontDataUrl: at('/pdfjs/standard_fonts/'),
+    cMapUrl: at('/pdfjs/cmaps/'),
+    cMapPacked: true,
+    iccUrl: at('/pdfjs/iccs/'),
+  };
+}
+
 // What pdf.js is actually complaining about, in words a player can act on.
 //
 // This is the difference between "there was a problem" and knowing that the
@@ -172,6 +195,7 @@ async function openPdf(data, password = null) {
   // one in the database is wanted again next time.
   const doc = await lib.getDocument({
     data: new Uint8Array(data.slice(0)),
+    ...pdfAssets(),
     ...(password ? { password } : {}),
   }).promise;
   const crops = new Map();
@@ -367,6 +391,40 @@ export function isImage(file) {
   return file.type?.startsWith('image/') || /\.(jpe?g|png|heic|heif|webp|gif)$/i.test(file.name ?? '');
 }
 
+// What the FILE says it is, rather than what the phone called it.
+//
+// A file arriving from an iPad — out of Files, out of another app's share
+// sheet, out of iCloud Drive — regularly has an empty type and a name with no
+// extension on it, and then a PDF looks like neither a PDF nor a picture and is
+// refused as "not pages of music". Every PDF ever written begins %PDF, so ask
+// the bytes.
+export async function sniffPdf(file) {
+  try {
+    // Not just the first four bytes: a PDF is allowed a little rubbish in front
+    // of its header, and files that have been through a few apps often have it.
+    const head = new Uint8Array(await file.slice(0, 1024).arrayBuffer());
+    return String.fromCharCode(...head).includes('%PDF-');
+  } catch {
+    return false;
+  }
+}
+
+// The same question for a picture: the four magic numbers that cover
+// everything a camera or a scanner produces.
+export async function sniffImage(file) {
+  try {
+    const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+    const is = (...bytes) => bytes.every((b, i) => head[i] === b);
+    if (is(0xff, 0xd8, 0xff)) return true;                                  // JPEG
+    if (is(0x89, 0x50, 0x4e, 0x47)) return true;                            // PNG
+    if (is(0x47, 0x49, 0x46, 0x38)) return true;                            // GIF
+    const tag = String.fromCharCode(...head.slice(4, 12));
+    return tag.startsWith('ftyp') || String.fromCharCode(...head.slice(0, 4)) === 'RIFF';
+  } catch {
+    return false;
+  }
+}
+
 // A name a player would recognise: the file's, without the extension, without
 // the phone's timestamp soup.
 export function nameFromFile(file) {
@@ -389,6 +447,7 @@ export async function pdfPageCount(data, { askPassword = null } = {}) {
     try {
       const doc = await lib.getDocument({
         data: new Uint8Array(data.slice(0)),
+        ...pdfAssets(),
         ...(password ? { password } : {}),
       }).promise;
       const count = doc.numPages;
