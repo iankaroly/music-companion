@@ -155,18 +155,104 @@ let stamp = STAMPS[0];
 
 const PEN_WIDTH = 0.28;
 const HIGHLIGHT_WIDTH = 1.6;
-const MIN_WIDTH = 0.08;
+// Hair-thin at the bottom end, and meant to be: a fingering written between two
+// ledger lines, a bracket over a beam, the sort of mark that used to come out
+// four times too fat because the thinnest pen on offer was 0.08 of a staff
+// space. On a phone that is now a third of a pixel, which the canvas draws as
+// the faint hairline a sharp pencil actually makes.
+const MIN_WIDTH = 0.015;
 const MAX_WIDTH = 3;
+
+// What the pen IS, not just what colour it is. A pencil that goes down grey and
+// grainy, a ballpoint that goes down the same width however fast you move, a
+// fountain pen that swells where the hand slows — the three things a musician
+// has in the case, behaving the way they behave on paper.
+const NIBS = [
+  { id: 'pencil', label: 'Pencil' },
+  { id: 'ballpoint', label: 'Ballpoint' },
+  { id: 'fountain', label: 'Fountain' },
+  { id: 'marker', label: 'Marker' },
+];
+
+// The sizes worth having as a tap. GoodNotes gets this right: nobody wants to
+// aim at a slider for the pen they use forty times a session, they want the
+// same four or five nibs where they left them.
+const SIZE_DOTS = [0.03, 0.07, 0.14, 0.28, 0.55, 1];
+
+// A full palette, because "any colour you want" is the ask and a mixer alone is
+// not an answer — mixing is for the colour you cannot find here.
+const PALETTE = [
+  '#1c1b22', '#5b5768', '#9a94ab', '#ffffff',
+  '#d81b3c', '#f0552b', '#f5a623', '#f7d64a',
+  '#2fae62', '#0f9a8a', '#2f7fe8', '#3b4ff5',
+  '#7b3ff2', '#c23bd6', '#e8558f', '#8a5a3c',
+];
 
 // One brush per tool, because a highlighter is not a pen with the settings
 // changed — reaching for it should not mean re-mixing yellow every time.
 const brushes = {
-  pen: { h: 262, s: 12, l: 26, a: 1, width: PEN_WIDTH, overlay: false },
-  highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true },
+  pen: { h: 262, s: 12, l: 26, a: 1, width: PEN_WIDTH, overlay: false, nib: 'ballpoint' },
+  highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true, nib: 'marker' },
 };
 
 function brushCss(brush) {
   return `hsla(${Math.round(brush.h)} ${Math.round(brush.s)}% ${Math.round(brush.l)}% / ${brush.a.toFixed(2)})`;
+}
+
+// --- colour, in the three shapes it has to take -------------------------------
+//
+// The brush thinks in HSL because that is what a mark is stored as. A picker
+// thinks in HSV, because a saturation/brightness square IS an HSV plane. And a
+// player thinks in hex, because that is the number they have written down.
+
+function hslToHsv({ h, s, l }) {
+  const v = l + (s / 100) * Math.min(l, 100 - l);
+  return { h, s: v === 0 ? 0 : 200 * (1 - l / v), v };
+}
+
+function hsvToHsl({ h, s, v }) {
+  const l = v * (1 - s / 200);
+  const m = Math.min(l, 100 - l);
+  return { h, s: m === 0 ? 0 : 100 * ((v - l) / m), l };
+}
+
+function hslToRgb({ h, s, l }) {
+  const sat = s / 100;
+  const light = l / 100;
+  const c = (1 - Math.abs(2 * light - 1)) * sat;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = light - c / 2;
+  const [r, g, b] = h < 60 ? [c, x, 0] : h < 120 ? [x, c, 0] : h < 180 ? [0, c, x]
+    : h < 240 ? [0, x, c] : h < 300 ? [x, 0, c] : [c, 0, x];
+  return [r, g, b].map((v) => Math.round((v + m) * 255));
+}
+
+function rgbToHsl(r, g, b) {
+  const [rn, gn, bn] = [r / 255, g / 255, b / 255];
+  const max = Math.max(rn, gn, bn);
+  const min = Math.min(rn, gn, bn);
+  const l = (max + min) / 2;
+  const d = max - min;
+  if (d === 0) return { h: 0, s: 0, l: l * 100 };
+  const s = d / (1 - Math.abs(2 * l - 1));
+  const h = max === rn ? 60 * (((gn - bn) / d + 6) % 6)
+    : max === gn ? 60 * ((bn - rn) / d + 2)
+      : 60 * ((rn - gn) / d + 4);
+  return { h, s: s * 100, l: l * 100 };
+}
+
+function hexOf(brush) {
+  return `#${hslToRgb(brush).map((v) => v.toString(16).padStart(2, '0')).join('')}`;
+}
+
+// Null unless it really is a colour, so a half-typed hex does not repaint the
+// pen on every keystroke.
+function hslFromHex(text) {
+  const hex = String(text).trim().replace(/^#/, '');
+  const full = hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex;
+  if (!/^[0-9a-f]{6}$/i.test(full)) return null;
+  const n = parseInt(full, 16);
+  return rgbToHsl((n >> 16) & 255, (n >> 8) & 255, n & 255);
 }
 
 function currentBrush() {
@@ -492,7 +578,10 @@ function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
   // the black of the engraving showing through a wash of colour, which is what
   // a real one does to paper.
   if (stroke.overlay ?? stroke.tool === 'highlighter') ctx.globalCompositeOperation = 'multiply';
-  ctx.lineWidth = Math.max(1, stroke.width * scale);
+  // A floor well under a pixel, because the thinnest pen is meant to be a
+  // hairline: the canvas draws a 0.4px line as a faint one, which is exactly
+  // what a sharp pencil does to paper.
+  ctx.lineWidth = Math.max(0.35, stroke.width * scale);
 
   // Typed, not drawn: a fingering, a bar number, "watch the shift". Written at
   // a size in staff spaces like everything else, so it stays the size of the
@@ -559,15 +648,105 @@ function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
   const systems = stroke.points.map((point) => (
     point.p !== undefined ? `paper:${point.p}` : bars.get(point.m)?.system ?? null
   ));
-  ctx.beginPath();
-  let moved = false;
+  // The runs of points the pen never left the paper for.
+  const runs = [];
+  let run = [];
   for (const [i, point] of points.entries()) {
-    if (!point) { moved = false; continue; } // a bar on another page: lift the pen
-    if (i > 0 && systems[i] !== systems[i - 1]) moved = false;
-    if (!moved) { ctx.moveTo(point.x, point.y); moved = true; } else ctx.lineTo(point.x, point.y);
+    if (!point || (i > 0 && systems[i] !== systems[i - 1])) {
+      if (run.length) runs.push(run);
+      run = [];
+    }
+    if (point) run.push(point);
   }
-  ctx.stroke();
+  if (run.length) runs.push(run);
+  for (const line of runs) inkRun(ctx, line, stroke, ctx.lineWidth);
   ctx.restore();
+}
+
+// --- what each nib does to a line ---------------------------------------------
+//
+// The same run of points, laid down four ways. None of it is simulation for its
+// own sake: a pencil that goes down as a flat opaque cable does not read as a
+// pencil, and "which pen is this" should be answerable by looking at the mark.
+
+// Jitter that is the SAME every frame. A pencil's grain has to be part of the
+// mark, not an animation: seeded off the position, it stays where it was drawn
+// through every redraw, zoom and export.
+function grain(x, y, salt) {
+  const n = Math.sin(x * 12.9898 + y * 78.233 + salt * 43.758) * 43758.5453;
+  return (n - Math.floor(n)) - 0.5;
+}
+
+function polyline(ctx, points) {
+  ctx.beginPath();
+  points.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.stroke();
+}
+
+function inkRun(ctx, points, stroke, width) {
+  const nib = stroke.nib ?? (stroke.tool === 'highlighter' ? 'marker' : 'ballpoint');
+  if (points.length === 1) {
+    // A tap is a dot, whichever pen made it.
+    ctx.beginPath();
+    ctx.arc(points[0].x, points[0].y, width / 2, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (nib === 'fountain') {
+    // Width from speed: the hand slows into a turn and the line swells there,
+    // which is most of what makes handwriting look written rather than plotted.
+    let carried = width;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1];
+      const b = points[i];
+      const gone = Math.hypot(b.x - a.x, b.y - a.y);
+      const want = width * Math.max(0.35, Math.min(1.5, 1.5 - gone / 26));
+      carried += (want - carried) * 0.35;   // no sudden steps between segments
+      ctx.lineWidth = carried;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+    ctx.lineWidth = width;
+    return;
+  }
+  if (nib === 'pencil') {
+    // Graphite: a soft core with a scattering of grain either side of it, and
+    // never quite opaque, so what is underneath still shows through.
+    const alpha = ctx.globalAlpha;
+    ctx.globalAlpha = alpha * 0.55;
+    ctx.lineWidth = width;
+    polyline(ctx, points);
+    ctx.globalAlpha = alpha * 0.3;
+    ctx.lineWidth = Math.max(0.3, width * 0.55);
+    for (const side of [-1, 1]) {
+      const shifted = points.map((p, i) => {
+        const next = points[Math.min(i + 1, points.length - 1)];
+        const prev = points[Math.max(i - 1, 0)];
+        const dx = next.x - prev.x;
+        const dy = next.y - prev.y;
+        const len = Math.hypot(dx, dy) || 1;
+        const off = width * (0.35 + 0.3 * grain(p.x, p.y, side));
+        return { x: p.x + (-dy / len) * off * side, y: p.y + (dx / len) * off * side };
+      });
+      polyline(ctx, shifted);
+    }
+    ctx.globalAlpha = alpha;
+    ctx.lineWidth = width;
+    return;
+  }
+  if (nib === 'marker') {
+    // A flat tip: square ends, no swell, and one pass so the overlaps inside a
+    // single stroke do not darken it the way two passes of a wash would.
+    ctx.lineCap = 'butt';
+    ctx.lineJoin = 'round';
+    polyline(ctx, points);
+    ctx.lineCap = 'round';
+    return;
+  }
+  // Ballpoint: the same width all the way along, and dense.
+  polyline(ctx, points);
 }
 
 // The ink layer is the whole screen, and the drawing is moved onto the page.
@@ -671,6 +850,9 @@ function beginStroke(e) {
     colour: brushCss(brush),
     width: brush.width,
     overlay: brush.overlay,
+    // The pen it was written with, kept on the mark: a pencil note stays a
+    // pencil note after you have picked up the highlighter.
+    nib: brush.nib,
     points: [point],
   };
   // A shape is two points: where the finger went down and where it is now. The
@@ -1136,6 +1318,13 @@ function setChrome(on) {
 }
 
 function setTool(next) {
+  // Tapping the pen you are already holding opens the pen case — which pen,
+  // how thick, what colour. It is what every drawing app does, and it is how
+  // the brush gets reached without a second button to learn.
+  if (next && next === tool && (next === 'pen' || next === 'highlighter')) {
+    toggleBrush();
+    return;
+  }
   tool = tool === next ? null : next;
   if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
@@ -1281,26 +1470,112 @@ function refreshBrushUI() {
     nib.style.setProperty('--nib-size', `${Math.min(1.4, 0.25 + brush.width * 0.45)}rem`);
   }
   if (!panel) return;
-  for (const input of panel.querySelectorAll('input[type="range"]')) {
-    const key = input.dataset.brush;
-    input.value = String(brush[key]);
-    input._paintFill?.();
+  // Named apart from the app's own --ink on purpose: setting that here would
+  // repaint every label inside the panel in whatever colour the pen happens to
+  // be, which is exactly what it did.
+  panel.style.setProperty('--brush-ink', brushCss(brush));
+  panel.style.setProperty('--brush-solid', brushCss({ ...brush, a: 1 }));
+  panel.style.setProperty('--brush-hue', `hsl(${Math.round(brush.h)} 100% 50%)`);
+
+  for (const button of panel.querySelectorAll('[data-nib]')) {
+    const on = button.dataset.nib === brush.nib;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
   }
+  for (const button of panel.querySelectorAll('[data-size]')) {
+    const size = Number(button.dataset.size);
+    button.classList.toggle('on', Math.abs(size - brush.width) < 0.005);
+  }
+  for (const button of panel.querySelectorAll('[data-colour]')) {
+    button.classList.toggle('on', button.dataset.colour.toLowerCase() === hexOf(brush));
+  }
+  const sizeWrap = panel.querySelector('.brush-size-wrap');
+  if (sizeWrap) sizeWrap.style.setProperty('--at', `${Math.round(sizeToRail(brush.width) * 100)}%`);
+  const hue = panel.querySelector('#reader-hue-rail');
+  if (hue) hue.style.setProperty('--at', `${Math.round((brush.h / 360) * 100)}%`);
+  const alpha = panel.querySelector('#reader-alpha-rail');
+  if (alpha) alpha.style.setProperty('--at', `${Math.round(brush.a * 100)}%`);
+  const field = panel.querySelector('#reader-sv');
+  if (field) {
+    const hsv = hslToHsv(brush);
+    field.style.setProperty('--sx', `${Math.round(hsv.s)}%`);
+    field.style.setProperty('--sy', `${Math.round(100 - hsv.v)}%`);
+  }
+  const hex = panel.querySelector('#reader-hex');
+  if (hex && document.activeElement !== hex) hex.value = hexOf(brush);
+  const readout = panel.querySelector('#reader-size-value');
+  if (readout) readout.textContent = brush.width.toFixed(brush.width < 0.1 ? 3 : 2);
   const overlay = panel.querySelector('#reader-overlay');
   if (overlay) {
     overlay.classList.toggle('on', brush.overlay);
     overlay.setAttribute('aria-pressed', String(brush.overlay));
   }
-  const preview = panel.querySelector('#reader-brush-preview');
-  if (preview) {
-    preview.style.setProperty('--ink', brushCss(brush));
-    preview.style.setProperty('--thick', `${Math.max(1, brush.width * staffPx())}px`);
+  paintBrushPreview();
+}
+
+// The sample stroke, drawn with the very code that draws on the page — the
+// pencil in the preview is grainy because the pencil IS grainy, not because a
+// preview was styled to look like one.
+function paintBrushPreview() {
+  const canvas = el('reader-brush-preview');
+  if (!canvas?.getContext) return;
+  const brush = currentBrush();
+  const box = canvas.getBoundingClientRect();
+  const w = box.width || 260;
+  const h = box.height || 46;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(w * dpr);
+  canvas.height = Math.round(h * dpr);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+  const points = [];
+  for (let i = 0; i <= 48; i++) {
+    const t = i / 48;
+    // Slower at the ends than in the middle, so a fountain nib shows its swell.
+    const eased = t * t * (3 - 2 * t);
+    points.push({
+      x: 10 + eased * (w - 20),
+      y: h / 2 + Math.sin(t * Math.PI * 2) * (h * 0.22),
+    });
   }
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.strokeStyle = brushCss(brush);
+  ctx.fillStyle = brushCss(brush);
+  const width = Math.max(0.35, brush.width * staffPx());
+  ctx.lineWidth = width;
+  inkRun(ctx, points, { nib: brush.nib }, width);
+  ctx.restore();
+}
+
+// The size rail is not linear. Half of every session is spent between a
+// hairline and a fingering — a straight rail puts all of that in the first
+// eighth of the track and hands the rest to widths nobody uses.
+function sizeToRail(width) {
+  const t = Math.log(width / MIN_WIDTH) / Math.log(MAX_WIDTH / MIN_WIDTH);
+  return Math.min(1, Math.max(0, t));
+}
+
+function railToSize(t) {
+  return MIN_WIDTH * ((MAX_WIDTH / MIN_WIDTH) ** Math.min(1, Math.max(0, t)));
 }
 
 function setBrush(key, value) {
   const brush = currentBrush();
   brush[key] = value;
+  refreshBrushUI();
+}
+
+// A colour off the palette or out of the mixer. Transparency is left alone —
+// it belongs to the pen, not to the colour, and a highlighter that turns opaque
+// because you chose a different yellow is a highlighter nobody asked for.
+function setColour({ h, s, l }) {
+  const brush = currentBrush();
+  brush.h = h;
+  brush.s = s;
+  brush.l = l;
   refreshBrushUI();
 }
 
@@ -1908,20 +2183,139 @@ function presetSwatch(index) {
   return button;
 }
 
-function brushSlider(key, label, min, max, step) {
-  const row = document.createElement('label');
-  row.className = 'reader-brush-row';
-  const name = document.createElement('span');
-  name.textContent = label;
-  const input = document.createElement('input');
-  input.type = 'range';
-  input.dataset.brush = key;
-  input.min = String(min);
-  input.max = String(max);
-  input.step = String(step);
-  input.addEventListener('input', () => setBrush(key, Number(input.value)));
-  row.append(name, input);
-  return row;
+// A rail you drag along, rather than a browser slider. Every one of these is
+// showing a colour or a thickness, and a native range input shows neither: it
+// puts a grey track and a fat knob over the top of the only thing you came to
+// look at.
+function rail(id, className, onDrag) {
+  const track = document.createElement('div');
+  track.id = id;
+  track.className = `brush-rail ${className}`;
+  const thumb = document.createElement('span');
+  thumb.className = 'brush-thumb';
+  thumb.setAttribute('aria-hidden', 'true');
+  track.append(thumb);
+  const pick = (e) => {
+    const box = track.getBoundingClientRect();
+    onDrag(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
+  };
+  track.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    // Capture is what makes a drag survive leaving the rail; a device that
+    // will not give it is still allowed to tap.
+    try { track.setPointerCapture(e.pointerId); } catch { /* tap only */ }
+    pick(e);
+  });
+  track.addEventListener('pointermove', (e) => {
+    if (!track.hasPointerCapture(e.pointerId)) return;
+    e.stopPropagation();
+    pick(e);
+  });
+  return track;
+}
+
+// The nibs, as a segmented row with the mark each one makes drawn on it.
+function nibButton(nib) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'brush-nib';
+  button.dataset.nib = nib.id;
+  const mark = document.createElement('span');
+  mark.className = `brush-nib-mark is-${nib.id}`;
+  mark.setAttribute('aria-hidden', 'true');
+  const label = document.createElement('span');
+  label.textContent = nib.label;
+  button.append(mark, label);
+  button.setAttribute('aria-label', `${nib.label} nib`);
+  button.addEventListener('click', () => {
+    setBrush('nib', nib.id);
+    // A marker is a wash and a pencil is not: the transparency that goes with
+    // the nib comes with it, unless the pen already has one of its own.
+    if (nib.id === 'marker' && currentBrush().a > 0.8) setBrush('a', 0.4);
+    if (nib.id !== 'marker' && tool !== 'highlighter' && currentBrush().a < 0.5) setBrush('a', 1);
+  });
+  return button;
+}
+
+function sizeDot(width) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'brush-dot';
+  button.dataset.size = String(width);
+  button.style.setProperty('--dot', `${Math.max(2, Math.min(18, 2 + width * 12))}px`);
+  button.setAttribute('aria-label', `${width} staff spaces`);
+  button.addEventListener('click', () => setBrush('width', width));
+  return button;
+}
+
+function paletteSwatch(hex) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'brush-colour';
+  button.dataset.colour = hex;
+  button.style.setProperty('--swatch', hex);
+  button.setAttribute('aria-label', `Draw in ${hex}`);
+  button.addEventListener('click', () => {
+    const hsl = hslFromHex(hex);
+    if (hsl) setColour(hsl);
+  });
+  return button;
+}
+
+// The mixer: a saturation/brightness field with a hue rail under it, the way
+// every drawing app does it, because it is the one arrangement where "a bit
+// lighter than that red" is a single movement.
+function buildMixer() {
+  const wrap = document.createElement('div');
+  wrap.id = 'reader-mixer';
+  wrap.hidden = true;
+
+  const field = document.createElement('div');
+  field.id = 'reader-sv';
+  const dot = document.createElement('span');
+  dot.className = 'brush-sv-dot';
+  dot.setAttribute('aria-hidden', 'true');
+  field.append(dot);
+  const pick = (e) => {
+    const box = field.getBoundingClientRect();
+    const s = Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)) * 100;
+    const v = 100 - Math.min(1, Math.max(0, (e.clientY - box.top) / box.height)) * 100;
+    setColour(hsvToHsl({ h: currentBrush().h, s, v }));
+  };
+  field.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { field.setPointerCapture(e.pointerId); } catch { /* tap only */ }
+    pick(e);
+  });
+  field.addEventListener('pointermove', (e) => {
+    if (!field.hasPointerCapture(e.pointerId)) return;
+    e.stopPropagation();
+    pick(e);
+  });
+
+  const hue = rail('reader-hue-rail', 'is-hue', (t) => setBrush('h', t * 360));
+  const alpha = rail('reader-alpha-rail', 'is-alpha', (t) => setBrush('a', Math.max(0.05, t)));
+
+  const hex = document.createElement('input');
+  hex.id = 'reader-hex';
+  hex.type = 'text';
+  hex.spellcheck = false;
+  hex.setAttribute('aria-label', 'Colour, as hex');
+  hex.addEventListener('input', () => {
+    const hsl = hslFromHex(hex.value);
+    if (hsl) setColour(hsl);
+  });
+
+  const row = document.createElement('div');
+  row.className = 'brush-hex-row';
+  const label = document.createElement('span');
+  label.textContent = 'Hex';
+  row.append(label, hex);
+
+  wrap.append(field, hue, alpha, row);
+  return wrap;
 }
 
 function buildTopBar() {
@@ -2002,27 +2396,64 @@ function buildSelectionBar() {
   return bar;
 }
 
+// The pen, laid out the way a pen case is: which pen, how thick, what colour.
+// Three questions in that order, each answered by tapping the thing itself
+// rather than by aiming at a row of unlabelled sliders.
 function buildBrushPanel() {
   const panel = document.createElement('div');
   panel.id = 'reader-brush';
-  const head = document.createElement('div');
-  head.className = 'reader-brush-head';
-  head.textContent = 'Brush';
-  const preview = document.createElement('div');
+
+  const nibs = document.createElement('div');
+  nibs.className = 'brush-nibs';
+  nibs.append(...NIBS.map(nibButton));
+
+  const preview = document.createElement('canvas');
   preview.id = 'reader-brush-preview';
   preview.setAttribute('aria-hidden', 'true');
-  const overlay = iconButton('reader-overlay', 'overlay', 'Draw underneath the notes',
+
+  const sizes = document.createElement('div');
+  sizes.className = 'brush-sizes';
+  const value = document.createElement('span');
+  value.id = 'reader-size-value';
+  sizes.append(...SIZE_DOTS.map(sizeDot), value);
+
+  // The wedge is clipped to its own shape, so the handle rides in a wrapper
+  // above it rather than being sliced off by the clip.
+  const sizeWrap = document.createElement('div');
+  sizeWrap.className = 'brush-size-wrap';
+  const sizeRail = rail('reader-size-rail', 'is-size', (t) => setBrush('width', railToSize(t)));
+  const sizeThumb = document.createElement('span');
+  sizeThumb.className = 'brush-thumb';
+  sizeThumb.setAttribute('aria-hidden', 'true');
+  sizeWrap.append(sizeRail, sizeThumb);
+
+  const palette = document.createElement('div');
+  palette.className = 'brush-palette';
+  palette.append(...PALETTE.map(paletteSwatch));
+
+  const mixer = buildMixer();
+  const custom = document.createElement('button');
+  custom.type = 'button';
+  custom.id = 'reader-custom';
+  custom.className = 'brush-more';
+  custom.textContent = 'Mix a colour';
+  custom.setAttribute('aria-expanded', 'false');
+  custom.addEventListener('click', () => {
+    mixer.hidden = !mixer.hidden;
+    custom.setAttribute('aria-expanded', String(!mixer.hidden));
+    custom.textContent = mixer.hidden ? 'Mix a colour' : 'Hide the mixer';
+    refreshBrushUI();
+  });
+
+  const overlay = iconButton('reader-overlay', 'Under the notes', 'Draw underneath the notes',
     () => setBrush('overlay', !currentBrush().overlay), { className: 'reader-chip' });
-  panel.append(
-    head,
-    preview,
-    brushSlider('width', 'size', MIN_WIDTH, MAX_WIDTH, 0.02),
-    brushSlider('h', 'hue', 0, 360, 1),
-    brushSlider('s', 'saturation', 0, 100, 1),
-    brushSlider('l', 'brightness', 0, 100, 1),
-    brushSlider('a', 'transparency', 0.08, 1, 0.02),
-    overlay,
-  );
+
+  // Everything that shows the ink itself goes on the paper card.
+  const paper = document.createElement('div');
+  paper.className = 'brush-paper';
+  paper.append(preview, sizes, sizeWrap);
+
+  panel.append(nibs, paper, palette, custom, mixer, overlay);
   return panel;
 }
 

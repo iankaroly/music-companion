@@ -139,20 +139,35 @@ export function explainPop(btn, { title, body }) {
   openPop = { pop, btn };
 }
 
-// A one-shot action menu: rows of [{ label, danger, onPick }]. Nothing is
+// A one-shot action menu: rows of [{ label, hint, danger, onPick }]. Nothing is
 // "selected" here, unlike the select-backed menus below.
+//
+// It is set as a MENU rather than as a row of pills: the system UI face, the
+// label ranged left where the eye goes for it, a hairline between one choice
+// and the next, and a second line of explanation where a choice deserves one.
+// A menu is a list of things to do, and it should read like one.
 export function actionMenu(btn, items) {
   if (openPop?.btn === btn) { closePop(); return; }
   closePop();
   const pop = document.createElement('div');
-  pop.className = 'pick-pop';
+  pop.className = 'pick-pop menu';
   pop.setAttribute('role', 'menu');
   for (const item of items) {
     const row = document.createElement('button');
     row.type = 'button';
     row.className = item.danger ? 'pick-row danger' : 'pick-row';
     row.setAttribute('role', 'menuitem');
-    row.textContent = item.label;
+    if (item.hint) {
+      const label = document.createElement('span');
+      label.className = 'pick-label';
+      label.textContent = item.label;
+      const hint = document.createElement('span');
+      hint.className = 'pick-hint';
+      hint.textContent = item.hint;
+      row.append(label, hint);
+    } else {
+      row.textContent = item.label;
+    }
     row.addEventListener('click', () => {
       closePop();
       item.onPick();

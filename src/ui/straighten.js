@@ -20,6 +20,14 @@ import { unshadow } from '../analysis/unshadow.js';
 
 const LOOK_AT = 220;      // the width the corners are looked for at
 const MOST = 2000;        // the widest a straightened page is stored at
+// The longest edge the PIXEL work is done at. A phone camera hands over twelve
+// megapixels; squaring a page reads every one of them into a Float array, twice,
+// and on a phone that is where the whole thing quietly falls over — the canvas
+// comes back blank, the encode comes back empty, and what gets stored is a page
+// no browser will open. Nothing downstream wants more than MOST pixels across
+// anyway, so the work happens at a size that fits in memory on the device this
+// is actually used on.
+const WORK_MAX = 2600;
 
 function scratch(width, height) {
   const canvas = document.createElement('canvas');
@@ -143,16 +151,29 @@ function cropToBright(source, width, height) {
 // The whole of it, on a canvas: square, then unlit. Returns a canvas — the
 // original if nothing could be done with it.
 export function straightenCanvas(source, width, height, known = null) {
-  const quad = known ?? paperIn(source, width, height);
+  // Down to a size the device can hold before a single pixel is read. The
+  // quadrilateral is measured in the picture's own 0–1 terms, so nothing about
+  // the search changes; only the amount of memory it takes.
+  let src = source;
+  let w = width;
+  let h = height;
+  const shrink = Math.min(1, WORK_MAX / Math.max(width, height));
+  if (shrink < 1) {
+    w = Math.max(1, Math.round(width * shrink));
+    h = Math.max(1, Math.round(height * shrink));
+    src = scratch(w, h);
+    src.getContext('2d').drawImage(source, 0, 0, w, h);
+  }
+  const quad = known ?? paperIn(src, w, h);
   let page = null;
   try {
-    page = quad ? pullSquare(source, width, height, quad) : cropToBright(source, width, height);
+    page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);
   } catch {
     page = null;
   }
   if (!page) {
-    page = scratch(width, height);
-    page.getContext('2d').drawImage(source, 0, 0, width, height);
+    page = scratch(w, h);
+    page.getContext('2d').drawImage(src, 0, 0, w, h);
   }
   try {
     const ctx = page.getContext('2d', { willReadFrequently: true });
@@ -173,16 +194,83 @@ function loadImage(file) {
   });
 }
 
-// A photograph in, a page out, under the same name so the ordering of a scan
-// survives. Anything that goes wrong hands back the file it was given.
-export async function straightenFile(file) {
+// --- proving a picture is a picture -------------------------------------------
+//
+// A file being called .heic, or a canvas handing back a blob, is not the same
+// as a page this browser can draw. That difference is where "could not open
+// that score" came from: nothing between the camera and the database ever
+// checked, so bytes nothing could decode were stored as a page, and the failure
+// surfaced later, in the reader, as a score that would not open at all.
+//
+// So: everything on the way in is DECODED first, and what cannot be decoded
+// never becomes a page.
+
+// Whatever the engine can make of these bytes: an <img> first, because it
+// applies the EXIF rotation a phone writes into every photograph, and an
+// ImageBitmap after it for the formats <img> will not take. Null when neither
+// can read it.
+export async function readableImage(file) {
   try {
-    const image = await loadImage(file);
-    const page = straightenCanvas(image, image.naturalWidth, image.naturalHeight);
-    const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
-    if (!blob) return file;
-    return new File([blob], file.name, { type: 'image/jpeg' });
-  } catch {
-    return file;
+    return await loadImage(file);
+  } catch { /* try the other decoder */ }
+  if (typeof createImageBitmap === 'function') {
+    try {
+      return await createImageBitmap(file, { imageOrientation: 'from-image' });
+    } catch { /* nothing can read it */ }
   }
+  return null;
+}
+
+export function sizeOfImage(image) {
+  return {
+    w: image?.naturalWidth || image?.width || 0,
+    h: image?.naturalHeight || image?.height || 0,
+  };
+}
+
+// Why a page could not be read, in words a player can act on. HEIC is worth
+// naming: it is the default on every iPhone, most browsers cannot decode it,
+// and the fix is two taps in Settings.
+export function unreadableReason(file) {
+  const name = String(file?.name ?? '').trim() || 'that page';
+  if (/hei[cf]/i.test(`${file?.type ?? ''} ${name}`)) {
+    return `${name} is an iPhone HEIC photo and this device cannot read those`
+      + ' — either set Camera → Formats to “Most Compatible”, or scan the page with the camera here';
+  }
+  return `${name} could not be read as an image`;
+}
+
+const jpegName = (name) => String(name ?? 'page').replace(/\.[a-z0-9]+$/i, '') + '.jpg';
+
+// A decoded picture, encoded back out as a JPEG this engine has just proved it
+// can read. It is the safety net under every page that goes into the library.
+async function asJpeg(image, name) {
+  const { w, h } = sizeOfImage(image);
+  if (!w || !h) return null;
+  const canvas = scratch(Math.min(w, MOST), Math.min(w, MOST) * (h / w));
+  canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  return blob ? new File([blob], jpegName(name), { type: 'image/jpeg' }) : null;
+}
+
+// A photograph in, a page out, under the same name so the ordering of a scan
+// survives.
+//
+// It THROWS when the photograph cannot be read at all — deliberately, and
+// early. Handing back the unreadable file, which is what this used to do, is
+// what put pages nothing can open into the library.
+export async function straightenFile(file) {
+  const image = await readableImage(file);
+  if (!image) throw new Error(unreadableReason(file));
+  const { w, h } = sizeOfImage(image);
+  let straightened = null;
+  try {
+    const page = straightenCanvas(image, w, h);
+    const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
+    if (blob?.size) straightened = new File([blob], jpegName(file.name), { type: 'image/jpeg' });
+  } catch { /* the photograph as taken is still a page */ }
+  // Proved, not assumed: a phone under memory pressure hands back a blob that
+  // decodes to nothing, and that blob must not be what gets kept.
+  if (straightened && await readableImage(straightened)) return straightened;
+  return (await asJpeg(image, file.name)) ?? file;
 }

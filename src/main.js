@@ -1470,20 +1470,24 @@ async function refreshScoreTab() {
 document.querySelector('#score-load')?.addEventListener('click', (e) => {
   actionMenu(e.currentTarget, [
     {
-      label: 'Music file (MusicXML)…',
-      onPick: () => document.querySelector('#score-file')?.click(),
-    },
-    {
-      label: 'PDF…',
-      onPick: () => document.querySelector('#score-pdf')?.click(),
-    },
-    {
-      label: 'Scan with the camera…',
+      label: 'Scan with the camera',
+      hint: 'Page after page, straightened as they come in',
       onPick: () => scanPages(),
     },
     {
-      label: 'Photos already taken…',
+      label: 'Photos already taken',
+      hint: 'Pictures of the part from your library',
       onPick: () => document.querySelector('#score-photos')?.click(),
+    },
+    {
+      label: 'PDF',
+      hint: 'A part you printed or downloaded',
+      onPick: () => document.querySelector('#score-pdf')?.click(),
+    },
+    {
+      label: 'Music file',
+      hint: 'MusicXML or .mxl — the only kind you can record against',
+      onPick: () => document.querySelector('#score-file')?.click(),
     },
   ]);
 });

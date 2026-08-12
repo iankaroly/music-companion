@@ -14,6 +14,8 @@
 // PDF.js is fetched on FIRST USE and never at startup, exactly like the
 // engraver. A tuner has no business paying for a PDF renderer.
 
+import { readableImage, sizeOfImage } from './straighten.js';
+
 // Where the music actually is on the page.
 //
 // A photograph of a book, or a PDF made for a printer, is mostly margin: the
@@ -195,40 +197,59 @@ async function openPdf(data) {
   };
 }
 
+// A page that will not decode, drawn as a page that says so. One bad photograph
+// in a twelve-page part is a bad photograph; it is not a reason for the part to
+// refuse to open, which is what throwing here used to make it.
+function missingPage(index) {
+  const canvas = scratch(1000, 1400);
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#f6f5f2';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = '#8a8794';
+  ctx.textAlign = 'center';
+  ctx.font = '400 42px system-ui, sans-serif';
+  ctx.fillText(`Page ${index + 1} could not be read`, canvas.width / 2, canvas.height / 2 - 24);
+  ctx.font = '400 30px system-ui, sans-serif';
+  ctx.fillText('Scan or import this page again', canvas.width / 2, canvas.height / 2 + 34);
+  return canvas;
+}
+
 async function openImages(blobs) {
-  const urls = blobs.map((blob) => URL.createObjectURL(blob));
   const cache = new Map();
   const crops = new Map();
+  // Every page is decoded through the same door as the importer, so a format
+  // one of them accepts is a format the other one draws.
   const load = (index) => {
     if (cache.has(index)) return cache.get(index);
-    const promise = new Promise((resolve, reject) => {
-      const image = new Image();
-      image.onload = () => resolve(image);
-      image.onerror = () => reject(new Error('that page could not be read as an image'));
-      image.src = urls[index];
-    });
+    const promise = (async () => {
+      const blob = blobs[index];
+      const image = blob ? await readableImage(blob) : null;
+      if (!image) return { el: missingPage(index), w: 1000, h: 1400, missing: true };
+      const { w, h } = sizeOfImage(image);
+      return { el: image, w, h, missing: false };
+    })();
     cache.set(index, promise);
     return promise;
   };
   async function cropFor(index) {
     if (crops.has(index)) return crops.get(index);
-    const image = await load(index);
-    const small = scratch(160, Math.max(1, Math.round(160 * (image.naturalHeight / image.naturalWidth))));
+    const page = await load(index);
+    const small = scratch(160, Math.max(1, Math.round(160 * (page.h / page.w))));
     small.getContext('2d', { willReadFrequently: true })
-      .drawImage(image, 0, 0, small.width, small.height);
-    crops.set(index, contentBox(small));
+      .drawImage(page.el, 0, 0, small.width, small.height);
+    crops.set(index, page.missing ? { x: 0, y: 0, w: 1, h: 1 } : contentBox(small));
     return crops.get(index);
   }
   return {
-    count: urls.length,
+    count: blobs.length,
     async aspect(index) {
-      const image = await load(index);
-      return image.naturalWidth / image.naturalHeight;
+      const page = await load(index);
+      return page.w / page.h;
     },
     cropOf: cropFor,
     async sizeOf(index) {
-      const image = await load(index);
-      return { w: image.naturalWidth, h: image.naturalHeight };
+      const page = await load(index);
+      return { w: page.w, h: page.h };
     },
     draw(index, canvas, width, height, band = null) {
       return this.drawBand(index, canvas, band
@@ -236,13 +257,13 @@ async function openImages(blobs) {
         : { x: 0, y: 0, w: 1, h: 1 }, width, height);
     },
     async drawBand(index, canvas, rect, width, height) {
-      const image = await load(index);
+      const page = await load(index);
       const dpr = window.devicePixelRatio || 1;
       const crop = region(await cropFor(index), rect);
-      const sx = crop.x * image.naturalWidth;
-      const sy = crop.y * image.naturalHeight;
-      const sw = crop.w * image.naturalWidth;
-      const sh = crop.h * image.naturalHeight;
+      const sx = crop.x * page.w;
+      const sy = crop.y * page.h;
+      const sw = crop.w * page.w;
+      const sh = crop.h * page.h;
       const scale = Math.min(width / sw, height / sh);
       const w = Math.round(sw * scale);
       const h = Math.round(sh * scale);
@@ -253,10 +274,12 @@ async function openImages(blobs) {
       const context = canvas.getContext('2d');
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.clearRect(0, 0, w, h);
-      context.drawImage(image, sx, sy, sw, sh, 0, 0, w, h);
+      context.drawImage(page.el, sx, sy, sw, sh, 0, 0, w, h);
     },
     destroy() {
-      for (const url of urls) URL.revokeObjectURL(url);
+      for (const promise of cache.values()) {
+        Promise.resolve(promise).then((page) => page?.el?.close?.()).catch(() => {});
+      }
       cache.clear();
     },
   };

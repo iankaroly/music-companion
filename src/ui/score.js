@@ -209,6 +209,7 @@ async function addPaper(files, { name: given = null } = {}) {
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
   let id = null;
+  let trouble = null;   // pages that could not be read, said out loud at the end
   if (isPdf(list[0])) {
     const data = await list[0].arrayBuffer();
     const pageCount = await pdfPageCount(data);
@@ -228,14 +229,28 @@ async function addPaper(files, { name: given = null } = {}) {
     // the reader, the crop, the page reader — is measuring the paper.
     const { straightenFile } = await import('./straighten.js');
     const flattened = [];
+    // A page that cannot be decoded is refused HERE, before anything is
+    // written, and named while the player still knows which one it was. It used
+    // to be stored anyway and the score simply would not open afterwards.
+    const refused = [];
     for (const [at, file] of pages.entries()) {
       status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
-      flattened.push(await straightenFile(file));
+      try {
+        flattened.push(await straightenFile(file));
+      } catch (err) {
+        refused.push(`page ${at + 1}: ${err.message}`);
+      }
     }
+    if (flattened.length === 0) throw new Error(refused[0] ?? 'those pages could not be read');
     id = await savePagesScore({
       name: given ?? nameFromFile(pages[0]), source: 'photos', pageCount: flattened.length,
       pages: flattened,
     });
+    // Some pages in, some refused: the part is still worth having, and the ones
+    // that did not make it have to be said out loud rather than quietly missing.
+    if (refused.length) {
+      trouble = `${refused.length} of ${pages.length} pages could not be read — ${refused[0]}`;
+    }
   }
   scoreChanged?.();
   // The Record tab's picker is built from the list of scores; a scan that has
@@ -243,17 +258,19 @@ async function addPaper(files, { name: given = null } = {}) {
   // thing I just scanned" needs the app restarted first.
   await refreshPicker(currentScoreId());
   const row = await loadScore(id);
-  status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
+  if (trouble) status(trouble, 'bad');
+  else status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
   await readPaperScore(row);
   // And then, quietly, read the SHAPE of the pages — where the staves, bars and
   // noteheads are. It is what lets a take be marked onto a photograph, it takes
   // about a second a page, and nothing waits for it.
-  measurePages(id).catch(() => { /* an unreadable scan is still a readable score */ });
+  measurePages(id, { note: trouble })
+    .catch(() => { /* an unreadable scan is still a readable score */ });
   return id;
 }
 
 // Reading the geometry of a scan, in the background, and remembering it.
-export async function measurePages(scoreId) {
+export async function measurePages(scoreId, { note = null } = {}) {
   const payload = await loadScorePages(scoreId);
   if (!payload) return null;
   const layout = await readPages(payload, (page, total) => {
@@ -263,10 +280,13 @@ export async function measurePages(scoreId) {
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)
     .reduce((n, page) => n + page.staves.reduce((m, st) => m + st.heads.length, 0), 0);
-  status(found
+  // A page that was refused on the way in outlives this narration: it is the
+  // thing the player has to do something about, and the note count is not.
+  status(note ?? (found
     ? `read ${found} of ${layout.length} ${layout.length === 1 ? 'page' : 'pages'}`
       + ` — ${heads} notes found, so your playing can be marked onto them`
-    : 'the music on those pages could not be made out — they are still yours to read from');
+    : 'the music on those pages could not be made out — they are still yours to read from'),
+  note ? 'bad' : '');
   return layout;
 }
 

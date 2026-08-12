@@ -25,7 +25,7 @@
 // same page while you reach for the corner.
 
 import { findPage } from '../analysis/page-edges.js';
-import { straightenCanvas } from './straighten.js';
+import { straightenCanvas, readableImage } from './straighten.js';
 
 let root = null;
 let video = null;
@@ -309,12 +309,25 @@ function watch() {
 // and a hand moves in a sixth of a second: warping this frame by where the page
 // was in the last one shears the page by exactly that much. Finding them again
 // costs about thirty milliseconds and carries no state at all.
+// A canvas, encoded and then PROVED: a phone that has run out of room for
+// canvases hands back a blob that decodes to nothing, and a page nothing can
+// decode is what "could not open that score" was made of. Null if it did not
+// come out.
+async function pageFrom(canvas, name) {
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  if (!blob?.size) return null;
+  const file = new File([blob], name, { type: 'image/jpeg' });
+  return (await readableImage(file)) ? file : null;
+}
+
 async function capture() {
   if (!video?.videoWidth) return;
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
+  const number = String(pages.length + 1).padStart(2, '0');
+  const name = `page-${number}.jpg`;
   let page = canvas;
   if (cleanUp) {
     try {
@@ -323,12 +336,16 @@ async function capture() {
       page = canvas;    // the photograph as taken is still a page
     }
   }
-  const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
-  if (!blob) return;
+  // The straightened page first, the photograph as taken behind it: squaring up
+  // is worth having and is never worth losing the shot over.
+  const file = (await pageFrom(page, name)) ?? (page === canvas ? null : await pageFrom(canvas, name));
+  if (!file) {
+    say('that shot did not come out — take it again');
+    return;
+  }
   shotOf = previous ? Float32Array.from(previous) : null;
-  const number = String(pages.length + 1).padStart(2, '0');
-  pages.push(new File([blob], `page-${number}.jpg`, { type: 'image/jpeg' }));
-  addThumb(pages.at(-1), pages.length - 1);
+  pages.push(file);
+  addThumb(file, pages.length - 1);
   refreshCount();
   waiting = 0;
   say(auto ? 'got it — turn the page' : 'got it');
