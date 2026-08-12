@@ -1070,8 +1070,11 @@ function showPage(index) {
     if (side) {
       node.style.position = 'absolute';
       node.style.top = '0';
-      node.style.left = side === 'left' ? '0' : '100%';
-      node.style.width = '100%';
+      // An engraved page container is already half the screen wide (the
+      // stylesheet says so, because the engraver was asked for a half-width
+      // page); a photographed one is not, so it is halved here.
+      node.style.width = isPaper() ? '50%' : '100%';
+      node.style.left = side === 'left' ? '0' : (isPaper() ? '50%' : '100%');
     } else {
       node.style.position = '';
       node.style.top = '';
@@ -1669,14 +1672,12 @@ function buildMenu(sheet) {
       : 'mark where you keep stopping',
     onPick: openBookmarks,
   });
-  if (!isPaper()) {
-    menuRow(sheet, {
-      label: spread ? 'One page at a time' : 'Two pages side by side',
-      glyph: '▥',
-      detail: spread ? 'the way a phone reads' : 'the way a tablet on a stand reads',
-      onPick: toggleSpread,
-    });
-  }
+  menuRow(sheet, {
+    label: spread ? 'One page at a time' : 'Two pages side by side',
+    glyph: '▥',
+    detail: spread ? 'the way a phone reads' : 'the way a tablet on a stand reads',
+    onPick: toggleSpread,
+  });
   menuRow(sheet, {
     label: night ? 'Light page' : 'Dark page',
     glyph: night ? '☀' : '☾',
@@ -1798,9 +1799,15 @@ async function toggleSpread() {
   spread = !spread;
   try { globalThis.localStorage?.setItem(SPREAD_KEY, spread ? 'on' : 'off'); } catch { /* fine */ }
   root.classList.toggle('spread', spread);
-  const bar = firstBarOnPage();
+  // Come back to the music you were reading, not to page one. On paper that is
+  // the sheet of paper you were on — half the screen means half the width, so
+  // the bands are recut and the numbering changes underneath you.
+  const paperPage = isPaper() ? slices[pageIndex]?.page ?? 0 : null;
+  const bar = isPaper() ? null : firstBarOnPage();
+  drawn.clear();
   await render();
-  showPage(bars.get(bar)?.page ?? 0);
+  if (isPaper()) showPage(Math.max(0, slices.findIndex((slice) => slice.page === paperPage)));
+  else showPage(bars.get(bar)?.page ?? 0);
 }
 
 // --- painting the take over the page -----------------------------------------
@@ -2111,6 +2118,12 @@ function build() {
 
   document.addEventListener('keydown', (e) => {
     if (root.hidden) return;
+    // Not while something is being typed. The reader is still up behind the
+    // rename box and the text-on-the-page box, and a space bar that turns the
+    // page instead of typing a space makes naming a piece "Menuet II"
+    // impossible — the page turn is a reading gesture, not a keyboard.
+    if (e.target?.closest?.('input, textarea, [contenteditable]')
+      || document.querySelector('dialog[open]')) return;
     if (e.key === 'Escape') {
       if (menuOpen) closeMenu();
       else if (tool) setTool(null);
