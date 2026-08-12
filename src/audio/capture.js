@@ -12,6 +12,15 @@ import { setAudioSessionType, releaseCaptureSession } from './context.js';
 
 const KEY = 'micRetain';
 
+// How long a live microphone may send nothing before it is treated as broken
+// rather than quiet. Long enough that a player thinking about the first note is
+// not interrupted; short enough that nobody records a whole phrase into a
+// microphone that was never going to hear it.
+const DEAD_MS = 4000;
+
+const NOTHING_ARRIVING = 'the microphone is open but no sound is coming through it'
+  + ' — close anything else that might be using it, or reopen the app';
+
 let held = null;      // { stream, ctx, worklet, source } parked between uses
 let inUse = false;
 let primed = null;    // context built during a user gesture, waiting for open()
@@ -96,13 +105,21 @@ async function open() {
     );
   }
   try {
+    // The processing OFF, because everything this app measures is the thing
+    // those three are designed to remove: echo cancellation ducks a sustained
+    // note, noise suppression treats a bow as noise, and automatic gain makes
+    // a diminuendo look like a crescendo.
+    //
+    // Asked for as a preference, not a demand. A device that will not give
+    // them still has a microphone, and a tuner with the processing left on is
+    // worth incomparably more than no tuner at all.
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
         noiseSuppression: false,
         autoGainControl: false,
       },
-    });
+    }).catch(() => navigator.mediaDevices.getUserMedia({ audio: true }));
     await module;
     const source = ctx.createMediaStreamSource(stream);
     const worklet = new AudioWorkletNode(ctx, 'capture-processor');
@@ -127,10 +144,41 @@ export async function ensureMic() {
   setAudioSessionType('play-and-record');
   const session = await open();
   held = session;
-  session.parked = true;
-  session.stream.getTracks().forEach((t) => { t.enabled = false; });
-  session.ctx.suspend().catch(() => {});
-  releaseCaptureSession();
+  // Left LIVE, deliberately, where it used to be parked — the track disabled
+  // and the context suspended — for the half-second before capture turned both
+  // back on again.
+  //
+  // On iOS that half-second is fatal. Switching a microphone track off and on
+  // again hands back a track that is still there, still live, still reporting
+  // itself as fine, and completely silent: no error, no interruption, nothing
+  // to catch. The tuner sat on "listening" and a take came back with nothing
+  // detected, which is exactly what "the microphone works but the app doesn't"
+  // looks like from outside.
+  //
+  // The parking was there to keep the orange microphone light off between the
+  // grant and the count-in, which is a second or two of a light that is telling
+  // the truth anyway: the app is about to record.
+  session.parked = false;
+  if (session.ctx.state !== 'running') await session.ctx.resume().catch(() => {});
+}
+
+// The same microphone, opened again from nothing.
+//
+// A track that has gone silent cannot be talked round — enabling it, resuming
+// the context, re-connecting the node all leave it exactly as silent as they
+// found it. The only way back is a new stream and a new context, which is what
+// this is.
+async function reopen(old) {
+  old.stream.getTracks().forEach((t) => t.stop());
+  old.ctx.close().catch(() => {});
+  primed = null;
+  const session = await open();
+  session.parked = false;
+  session.throughLock = old.throughLock;
+  if (session.ctx.state !== 'running') await session.ctx.resume().catch(() => {});
+  if (session.ctx.state !== 'running') throw new Error('audio is blocked until you tap again');
+  held = session;
+  return session;
 }
 
 // Something took the microphone away mid-session: a phone call, Siri, AirPods
@@ -233,15 +281,57 @@ export async function startCapture(onChunk, { onInterrupted, throughLock = false
     session.parked = true;
     throw new Error('audio is blocked until you tap again');
   }
-  session.worklet.port.onmessage = (e) => onChunk(e.data);
+  // A microphone that is open, live, and sending nothing.
+  //
+  // It is the one failure with no error attached to it: the track is live, the
+  // context is running, the worklet is wired up, and not a single chunk ever
+  // arrives. iOS produces exactly this after certain permission and session
+  // sequences, and from the outside it is indistinguishable from a player who
+  // has not started playing — which is why it went undiagnosed for so long.
+  //
+  // So it is now noticed. Nothing for two seconds means something is wrong with
+  // the microphone rather than with the playing, and the one thing that fixes
+  // it is a stream opened from scratch: a track in this state never recovers.
+  let stopped = false;
+  let heard = false;
+  // Not just "did anything arrive" but "was any of it sound". A live microphone
+  // in a silent room still has a noise floor; a sample of exactly zero, over
+  // and over, is not a quiet player but a dead input — which is the other shape
+  // the iOS failure takes, and it arrives looking like perfectly healthy audio.
+  let anySignal = false;
+  const listen = (block) => {
+    heard = true;
+    if (!anySignal) {
+      for (let i = 0; i < block.length; i++) {
+        if (block[i] !== 0) { anySignal = true; break; }
+      }
+    }
+    onChunk(block);
+  };
+  session.worklet.port.onmessage = (e) => listen(e.data);
+  const dead = () => !stopped && (!heard || !anySignal);
+  const silence = setTimeout(async () => {
+    if (!dead()) return;
+    const fresh = await reopen(session).catch(() => null);
+    if (!fresh) {
+      onInterrupted?.(NOTHING_ARRIVING);
+      return;
+    }
+    heard = false;
+    fresh.worklet.port.onmessage = (e) => listen(e.data);
+    watchForInterruption(fresh, onInterrupted);
+    // …and if a fresh one is dead too, that is worth saying rather than trying
+    // again for ever.
+    setTimeout(() => { if (dead()) onInterrupted?.(NOTHING_ARRIVING); }, DEAD_MS);
+  }, DEAD_MS);
   watchForInterruption(session, onInterrupted);
 
-  let stopped = false;
   return {
     sampleRate: session.ctx.sampleRate,
     stop: () => {
       if (stopped) return;
       stopped = true;
+      clearTimeout(silence);
       inUse = false;
       session.parked = true; // our own suspend, not an interruption
       session.throughLock = false; // nothing is being recorded to protect now

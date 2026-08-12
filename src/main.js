@@ -272,8 +272,18 @@ async function beginCapture(extra = {}) {
     // review with what was actually captured, and the reason is said out loud.
     onInterrupted: (reason) => {
       if (!capture) return;
-      if (capture.listen) { stopEverything(); showListenButton(true); }
-      else finishRecording(`${reason} — here's the take up to that point`);
+      if (capture.listen) {
+        stopEverything();
+        showListenButton(true);
+        // On the TUNER, where the person watching the needle is looking. This
+        // is the same mistake the failed-to-start path made: the microphone
+        // stops working and the explanation appears on another tab.
+        const note = document.querySelector('#tuner-listen-note');
+        if (note) { note.textContent = reason; note.dataset.tone = 'bad'; }
+        document.querySelector('#cents').textContent = '';
+      } else {
+        finishRecording(`${reason} — here's the take up to that point`);
+      }
       statusEl.textContent = reason;
     },
   });
@@ -2057,6 +2067,29 @@ function appSetting() {
   ].filter(Boolean).join(' · ');
 }
 
+// Two seconds of the app's OWN capture — the same constraints, the same audio
+// worklet, the same context — and what came out of it.
+async function listenThrough() {
+  let chunks = 0;
+  let peak = 0;
+  let session = null;
+  try {
+    session = await startCapture((block) => {
+      chunks++;
+      for (let i = 0; i < block.length; i++) {
+        const level = Math.abs(block[i]);
+        if (level > peak) peak = level;
+      }
+    });
+    await new Promise((resolve) => { setTimeout(resolve, 2000); });
+  } catch (err) {
+    return { chunks: 0, peak: 0, error: err.message };
+  } finally {
+    session?.stop();
+  }
+  return { chunks, peak };
+}
+
 async function checkMicrophone() {
   const report = document.querySelector('#set-mic-report');
   const button = document.querySelector('#set-mic-check');
@@ -2081,7 +2114,23 @@ async function checkMicrophone() {
       }),
     ]);
     stream.getTracks().forEach((t) => t.stop());
-    say('The microphone opened. The tuner and recording should work here.');
+    // Opening it is not the same as HEARING anything through it, and the
+    // difference is the whole of "the check says it works but the tuner
+    // doesn't": a microphone can be granted, live and completely silent. So the
+    // check goes the rest of the way — the same capture the tuner uses, for two
+    // seconds, reporting what actually arrived.
+    say('The microphone opened. Listening through it…');
+    const heard = await listenThrough();
+    if (heard.chunks === 0) {
+      say('The microphone opens but no sound arrives through it — which is a fault in this app'
+        + ' on this device, not a setting on the iPad. Send this line on.', true);
+    } else if (heard.peak < 0.002) {
+      say(`Sound is arriving (${heard.chunks} blocks) but it is silent — the microphone is`
+        + ' open and hearing nothing. Check nothing is covering it, and that no other app has it.', true);
+    } else {
+      say(`Working: ${heard.chunks} blocks heard, peak ${heard.peak.toFixed(3)}.`
+        + ' The tuner and recording should work here.');
+    }
   } catch (err) {
     if (err.message === 'no answer') {
       say('No answer after ten seconds — the permission prompt never appeared. That is the system'
