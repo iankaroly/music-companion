@@ -354,16 +354,38 @@ function showListenButton(show) {
   if (show) document.querySelector('#cents').textContent = '';
 }
 
+// What the note under the Listen button says when nothing has gone wrong.
+const listenNote = document.querySelector('#tuner-listen-note')?.textContent ?? '';
+
 async function startTuner() {
   if (capture || tunerStarting) return;
   tunerStarting = true;
   showListenButton(false);
   document.querySelector('#cents').textContent = 'listening';
   try {
-    capture = await beginCapture({ listen: true });
+    // Bounded, for the same reason the record button's wait is: a microphone
+    // that never answers is a promise that never settles, and the tuner would
+    // sit on the word "listening" until the app was closed. A late answer
+    // after this has given up leaves a session nobody picked up — which costs
+    // a stream on a device that is already refusing to work, and is worth it
+    // for a tuner that says what happened.
+    capture = await within(beginCapture({ listen: true }), 12000);
+    const note = document.querySelector('#tuner-listen-note');
+    if (note) { note.textContent = listenNote; delete note.dataset.tone; }
     rememberGrant(true); // whatever the Permissions API said, we have it now
   } catch (err) {
+    // Said on the TUNER, where the person who tapped Listen is looking. It
+    // used to be written to the Record tab's status line, on another screen —
+    // so a microphone the iPad would not open left the tuner sitting on the
+    // word "listening" for ever, with the explanation on a tab nobody had any
+    // reason to visit.
     statusEl.textContent = `mic unavailable: ${err.message}`;
+    document.querySelector('#cents').textContent = 'no microphone';
+    const note = document.querySelector('#tuner-listen-note');
+    if (note) {
+      note.textContent = `The microphone did not open: ${err.message}`;
+      note.dataset.tone = 'bad';
+    }
     rememberGrant(false); // it was refused or revoked — ask again next time
     showListenButton(true);
   } finally {
@@ -533,18 +555,19 @@ pauseBtn.addEventListener('click', () => {
 // the session with nothing said. It happens on iOS: a permission prompt
 // dismissed rather than answered, or an audio session the system will not hand
 // over, and getUserMedia simply never comes back. So the wait is bounded, and
-// running out of patience is an error like any other — the button comes back
+// running out of patience is an error like any other — the control comes back
 // and the screen says what to do about it.
-async function micWithin(ms) {
+const NO_ANSWER = 'the microphone never answered. If a permission prompt appeared, answer it and try again'
+  + ' — otherwise check Settings → Safari → Microphone, and Screen Time → Content & Privacy'
+  + ' → Microphone if that is on';
+
+async function within(work, ms) {
   let timer = null;
   try {
-    await Promise.race([
-      ensureMic(),
+    return await Promise.race([
+      work,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(
-          'the microphone never answered. If iOS asked for permission, answer it and press record again'
-          + ' — otherwise turn it on in Settings → Practice Partner → Microphone',
-        )), ms);
+        timer = setTimeout(() => reject(new Error(NO_ANSWER)), ms);
       }),
     ]);
   } finally {
@@ -592,7 +615,7 @@ startBtn.addEventListener('click', async () => {
     // this costs nothing. It must not happen mid-count-in, though: the take
     // would start late, and a permission sheet is exactly the kind of pause
     // that used to leave capture running on a context iOS had stopped allowing.
-    await micWithin(12000);
+    await within(ensureMic(), 12000);
     rememberGrant(true);
     await countIn(Number(countInSel.value) || 0);
     // A count-in is seconds long and the app is still usable during it; walking
@@ -1963,6 +1986,66 @@ initScoreCard({
 initControls(document);
 
 // --- installable app: register the service worker -----------------------------
+
+// --- what this device will actually do with a microphone ----------------------
+//
+// One tap, and the app says what it found instead of somebody guessing from the
+// other end of a message. It matters most on the device where nothing works:
+// the same app on the same account can be fine on a phone and dead on an iPad,
+// and the difference is never in the code — it is the permission, the iOS
+// version, or a home-screen app the system will not give a microphone to.
+
+function appSetting() {
+  const standalone = navigator.standalone === true
+    || globalThis.matchMedia?.('(display-mode: standalone)').matches;
+  const os = navigator.userAgent.match(/OS (\d+)[._](\d+)/);
+  return [
+    standalone ? 'Added to the home screen' : 'Running in the browser',
+    os ? `iOS/iPadOS ${os[1]}.${os[2]}` : null,
+    globalThis.isSecureContext ? null : 'the page is not secure, which alone stops the microphone',
+  ].filter(Boolean).join(' · ');
+}
+
+async function checkMicrophone() {
+  const report = document.querySelector('#set-mic-report');
+  const button = document.querySelector('#set-mic-check');
+  if (!report) return;
+  const say = (line, bad = false) => {
+    report.textContent = `${appSetting()}. ${line}`;
+    report.dataset.tone = bad ? 'bad' : '';
+  };
+  if (!navigator.mediaDevices?.getUserMedia) {
+    say('This device offers the app no microphone at all — open the site in Safari itself'
+      + ' and record there, which does work on older iPads.', true);
+    return;
+  }
+  button.disabled = true;
+  say('Asking…');
+  let timer = null;
+  try {
+    const stream = await Promise.race([
+      navigator.mediaDevices.getUserMedia({ audio: true }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('no answer')), 10000);
+      }),
+    ]);
+    stream.getTracks().forEach((t) => t.stop());
+    say('The microphone opened. The tuner and recording should work here.');
+  } catch (err) {
+    if (err.message === 'no answer') {
+      say('No answer after ten seconds — the permission prompt never appeared. That is the system'
+        + ' refusing silently: check Settings → Safari → Microphone, and Screen Time → Content &'
+        + ' Privacy Restrictions → Microphone if that is switched on.', true);
+    } else {
+      say(`Refused: ${err.name} — ${err.message}`, true);
+    }
+  } finally {
+    clearTimeout(timer);
+    button.disabled = false;
+  }
+}
+
+document.querySelector('#set-mic-check')?.addEventListener('click', checkMicrophone);
 
 // Which build this is, said out loud in Settings.
 //
