@@ -36,7 +36,12 @@ let stream = null;
 let pages = [];        // File objects, in the order they were taken
 let watching = null;   // the interval that runs the auto-shutter
 let armed = true;      // may the auto-shutter fire?
-let auto = true;
+// The shutter is yours. The camera finds the page and shows you it has — the
+// blue outline — and then waits, because a scanner that fires by itself takes
+// the picture half a beat before you have the book flat, and you find out two
+// pages later. Auto is still here, one tap away, for somebody working through
+// a thick part at a rhythm; it starts off.
+let auto = false;
 let cleanUp = true;    // pull the page square and take the shadows out, on the way in
 let paper = null;      // where the page is in the LIVE picture: for the outline only
 let done = null;       // resolve the promise openScanner returned
@@ -404,13 +409,13 @@ function build() {
 
   const top = document.createElement('div');
   top.id = 'scan-top';
-  const autoChip = button('scan-auto', 'Auto', 'scan-chip on', () => {
+  const autoChip = button('scan-auto', 'Auto', 'scan-chip', () => {
     auto = !auto;
     autoChip.classList.toggle('on', auto);
     autoChip.setAttribute('aria-pressed', String(auto));
     say(auto ? 'hold the page still and it shoots itself' : 'tap the button for each page');
   });
-  autoChip.setAttribute('aria-pressed', 'true');
+  autoChip.setAttribute('aria-pressed', 'false');
   const cleanChip = button('scan-clean', 'Straighten', 'scan-chip on', () => {
     cleanUp = !cleanUp;
     cleanChip.classList.toggle('on', cleanUp);
@@ -476,11 +481,11 @@ function finish(result) {
 export async function openScanner() {
   build();
   pages = [];
-  auto = true;
+  auto = false;
   cleanUp = true;
   armed = true;
   refreshCount();
-  el('scan-auto')?.classList.add('on');
+  el('scan-auto')?.classList.remove('on');
   root.hidden = false;
   document.documentElement.dataset.scanning = 'yes';
   say('starting the camera…');
@@ -495,7 +500,7 @@ export async function openScanner() {
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
-  say('hold the page still and it shoots itself');
+  say('line the page up — the button lights when it has it');
   watch();
   return new Promise((resolve) => { done = resolve; });
 }
