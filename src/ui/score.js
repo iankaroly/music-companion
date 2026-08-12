@@ -70,6 +70,12 @@ function status(message, tone = '') {
   if (line) line.textContent = message;
 }
 
+// The one line of feedback the Score tab has, for jobs that live elsewhere in
+// the app but happen to the scores on this shelf.
+export function scoreStatus(message, tone = '') {
+  status(message, tone);
+}
+
 export function currentScoreId() {
   return current?.id ?? null;
 }
@@ -216,8 +222,19 @@ async function addPaper(files, { name: given = null } = {}) {
       .filter(isImage)
       .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
     if (pages.length === 0) throw new Error('those were not pages of music');
+    // Every photograph becomes a page before it is stored: the sheet of paper
+    // found in it, pulled square, with the lighting taken off. A picture of a
+    // book on a table is not a page of music, and the whole app downstream —
+    // the reader, the crop, the page reader — is measuring the paper.
+    const { straightenFile } = await import('./straighten.js');
+    const flattened = [];
+    for (const [at, file] of pages.entries()) {
+      status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
+      flattened.push(await straightenFile(file));
+    }
     id = await savePagesScore({
-      name: given ?? nameFromFile(pages[0]), source: 'photos', pageCount: pages.length, pages,
+      name: given ?? nameFromFile(pages[0]), source: 'photos', pageCount: flattened.length,
+      pages: flattened,
     });
   }
   scoreChanged?.();

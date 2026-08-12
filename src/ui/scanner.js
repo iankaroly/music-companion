@@ -10,29 +10,35 @@
 // it with a score. There is no page limit; there is no order to get right,
 // because the order is the order you shot them in.
 //
-// Two shutters. The manual one is a button. The automatic one watches the
-// picture: when the frame stops moving and looks like a page — bright, with ink
-// on it — it takes the shot itself, and then refuses to take another until the
-// picture CHANGES, which is what turning a page does. That last part is the
-// whole trick; without it an auto-shutter takes forty photographs of the same
-// page while you reach for the corner.
+// The sheet of paper is found in the picture several times a second and drawn
+// on it: a blue outline round the page when it has got it, nothing when it has
+// not. That outline is the whole interface. You can see whether the scan is
+// going to come out before you press anything, and what gets kept is exactly
+// what was outlined — the page pulled square out of the frame, not the
+// photograph of a book on a table.
 //
-// What this is not: it is not document detection. It does not find the corners
-// of the paper, straighten it, or crop to the edges. The page is captured as
-// the camera sees it, which is what a phone held over a book gives you anyway.
+// Two shutters, both driven by that. The manual one is a button, and it lights
+// up blue the moment the page is squarely in view. The automatic one takes the
+// shot itself when the outline has held still, and then refuses to take another
+// until the picture CHANGES, which is what turning a page does. That last part
+// is the whole trick; without it an auto-shutter takes forty photographs of the
+// same page while you reach for the corner.
 
-import { unshadow } from '../analysis/unshadow.js';
+import { findPage } from '../analysis/page-edges.js';
+import { straightenCanvas } from './straighten.js';
 
 let root = null;
 let video = null;
 let strip = null;
+let guide = null;      // the outline drawn over the picture
 let statusLine = null;
 let stream = null;
 let pages = [];        // File objects, in the order they were taken
 let watching = null;   // the interval that runs the auto-shutter
 let armed = true;      // may the auto-shutter fire?
 let auto = true;
-let cleanUp = true;    // take the shadows out of the lighting on the way in
+let cleanUp = true;    // pull the page square and take the shadows out, on the way in
+let paper = null;      // where the page is in the picture right now, if it is
 let done = null;       // resolve the promise openScanner returned
 
 // The sampling canvas: tiny on purpose. Nothing here needs detail, and reading
@@ -43,6 +49,77 @@ const SAMPLE_H = 48;
 const sample = document.createElement('canvas');
 sample.width = SAMPLE_W;
 sample.height = SAMPLE_H;
+
+// A second, larger look at the picture: enough to find the corners of a sheet
+// of paper, still small enough to do it several times a second. It is the same
+// search that runs when the shutter goes, so what you see outlined is exactly
+// what will be kept.
+const EDGE_W = 200;
+const edges = document.createElement('canvas');
+
+function findPaper() {
+  if (!video?.videoWidth) return null;
+  const w = EDGE_W;
+  const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
+  if (edges.width !== w || edges.height !== h) { edges.width = w; edges.height = h; }
+  const ctx = edges.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(video, 0, 0, w, h);
+  const { data } = ctx.getImageData(0, 0, w, h);
+  const luma = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    luma[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  }
+  try {
+    return findPage(luma, w, h);
+  } catch {
+    return null;
+  }
+}
+
+// The page, drawn on the picture the way every scanner app does it: a blue
+// outline when it has got it, and nothing at all when it has not. It is the
+// only feedback that matters — you can see whether the thing is going to work
+// before you press anything, and you press when it is blue.
+function showPaper(quad, ready) {
+  if (!guide || !video?.videoWidth) return;
+  const box = video.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  if (guide.width !== Math.round(box.width * dpr) || guide.height !== Math.round(box.height * dpr)) {
+    guide.width = Math.round(box.width * dpr);
+    guide.height = Math.round(box.height * dpr);
+  }
+  guide.style.width = `${box.width}px`;
+  guide.style.height = `${box.height}px`;
+  const ctx = guide.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, box.width, box.height);
+  if (!quad) return;
+  // The video is drawn with object-fit: cover, so the picture is cropped to the
+  // screen, not letterboxed into it. The outline has to be cropped the same way
+  // or it sits somewhere the page is not.
+  const scale = Math.max(box.width / video.videoWidth, box.height / video.videoHeight);
+  const shownW = video.videoWidth * scale;
+  const shownH = video.videoHeight * scale;
+  const offX = (box.width - shownW) / 2;
+  const offY = (box.height - shownH) / 2;
+  const at = quad.map(([x, y]) => [offX + x * shownW, offY + y * shownH]);
+  ctx.save();
+  ctx.lineJoin = 'round';
+  ctx.lineWidth = ready ? 4 : 2.5;
+  ctx.strokeStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.55)';
+  ctx.fillStyle = 'rgb(58 130 255 / 0.14)';
+  ctx.beginPath();
+  at.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+  ctx.closePath();
+  if (ready) ctx.fill();
+  ctx.stroke();
+  ctx.restore();
+}
+
+function readyToShoot(on) {
+  const shutter = el('scan-shutter');
+  if (shutter) shutter.classList.toggle('ready', on);
+}
 
 // Thresholds, and the reason they are this loose.
 //
@@ -143,8 +220,20 @@ function watch() {
   waiting = 0;
   watching = setInterval(() => {
     if (!video || video.readyState < 2) return;
-    const { motion, paper, ink, lit, frame } = readFrame();
-    if (!auto) return;
+    const { motion, paper: bright, ink, lit, frame } = readFrame();
+    // Where the sheet of paper is, every tick, whether or not the shutter is
+    // automatic: the outline is what tells you the scan is going to come out.
+    paper = findPaper();
+    const steady = motion <= STILL_ENOUGH;
+    const ready = !!paper && steady && lit >= 25;
+    showPaper(paper, ready);
+    readyToShoot(ready);
+    if (!auto) {
+      say(ready ? 'tap the button — the page is square in view'
+        : paper ? 'hold it steady…'
+          : lit < 25 ? 'too dark to see the page' : 'show the whole page, edges and all');
+      return;
+    }
     // Re-arming asks the right question: not "did the picture just move" but
     // "is this a different page from the one already taken". A hand moving out
     // of shot is movement; the next page is a different picture. Comparing
@@ -171,8 +260,6 @@ function watch() {
       stillFor = 0;
       return;
     }
-    const steady = motion <= STILL_ENOUGH;
-    const looksLikePaper = paper >= PAPER_FRACTION;
     if (!steady) {
       // Anything moving resets the clock — including the hand that just turned
       // the page. Without this the patience below fires on the hand: it is
@@ -183,17 +270,22 @@ function watch() {
       say('hold it steady…');
       return;
     }
-    const hasInk = ink >= INK_DENSITY;
-    if (looksLikePaper && hasInk) stillFor++;
+    // A page whose four corners are in view is a page: nothing else in a room
+    // is a big bright quadrilateral held still under a phone. When the corners
+    // cannot be found — the page fills the frame, a hand is over one edge — it
+    // falls back to what it always did: mostly paper, with ink on it.
+    if (ready) stillFor++;
     else {
-      stillFor = 0;
-      say(hasInk ? 'point it at the page' : 'move it over the music');
+      const looksLikePaper = bright >= PAPER_FRACTION;
+      const hasInk = ink >= INK_DENSITY;
+      if (looksLikePaper && hasInk) stillFor++;
+      else {
+        stillFor = 0;
+        say(hasInk ? 'point it at the page' : 'move it over the music');
+      }
     }
-    // Either it looks right and has been still, or it has been still for a
-    // good while: two seconds of a phone held motionless over a book is a
-    // photograph waiting to happen, whatever the light is doing.
     if (stillFor >= STILL_FRAMES
-      || (waiting >= PATIENCE && paper >= PAPER_FRACTION * 0.6 && ink >= INK_DENSITY * 0.7)) {
+      || (waiting >= PATIENCE && bright >= PAPER_FRACTION * 0.6 && ink >= INK_DENSITY * 0.7)) {
       stillFor = 0;
       waiting = 0;
       armed = false;
@@ -202,29 +294,25 @@ function watch() {
   }, TICK);
 }
 
-// What a scanner app does the moment the shutter goes: takes the photograph of
-// a page and makes it look like a page. Here that means the shadows come out
-// and NOTHING else is touched — see analysis/unshadow.js for why.
-function enhance(canvas) {
-  const w = canvas.width;
-  const h = canvas.height;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const image = ctx.getImageData(0, 0, w, h);
-  unshadow(image.data, w, h);
-  ctx.putImageData(image, 0, 0);
-  return canvas;
-}
-
+// The shutter. What is kept is not the photograph — it is the page out of it:
+// the sheet of paper found in the frame, pulled square, with the shadows taken
+// off. The corners are the ones that were outlined in blue a moment ago, so
+// what you saw is what you get.
 async function capture() {
   if (!video?.videoWidth) return;
   const canvas = document.createElement('canvas');
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
+  let page = canvas;
   if (cleanUp) {
-    try { enhance(canvas); } catch { /* the photograph as taken is still a page */ }
+    try {
+      page = straightenCanvas(canvas, canvas.width, canvas.height, paper);
+    } catch {
+      page = canvas;    // the photograph as taken is still a page
+    }
   }
-  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.9));
+  const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob) return;
   shotOf = previous ? Float32Array.from(previous) : null;
   const number = String(pages.length + 1).padStart(2, '0');
@@ -304,6 +392,10 @@ function build() {
   video.muted = true;
   video.autoplay = true;
 
+  guide = document.createElement('canvas');
+  guide.id = 'scan-guide';
+  guide.setAttribute('aria-hidden', 'true');
+
   const top = document.createElement('div');
   top.id = 'scan-top';
   const autoChip = button('scan-auto', 'Auto', 'scan-chip on', () => {
@@ -313,11 +405,12 @@ function build() {
     say(auto ? 'hold the page still and it shoots itself' : 'tap the button for each page');
   });
   autoChip.setAttribute('aria-pressed', 'true');
-  const cleanChip = button('scan-clean', 'No shadows', 'scan-chip on', () => {
+  const cleanChip = button('scan-clean', 'Straighten', 'scan-chip on', () => {
     cleanUp = !cleanUp;
     cleanChip.classList.toggle('on', cleanUp);
     cleanChip.setAttribute('aria-pressed', String(cleanUp));
-    say(cleanUp ? 'the shadows come out; the music is left as it is' : 'pages are kept exactly as photographed');
+    say(cleanUp ? 'the page is squared up and the shadows come out'
+      : 'pages are kept exactly as photographed');
   });
   cleanChip.setAttribute('aria-pressed', 'true');
   top.append(
@@ -339,7 +432,7 @@ function build() {
     button('scan-done', 'Done', 'ctl primary', () => finish(pages)),
   );
 
-  root.append(video, top, statusLine, strip, bottom);
+  root.append(video, guide, top, statusLine, strip, bottom);
   document.body.append(root);
   return root;
 }
@@ -350,6 +443,8 @@ function stopCamera() {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   if (video) video.srcObject = null;
+  paper = null;
+  showPaper(null, false);
   previous = null;
   shotOf = null;
   stillFor = 0;

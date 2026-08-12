@@ -308,6 +308,23 @@ export async function saveScoreLayout(scoreId, layout) {
 // Pages reordered or thrown away. A scan comes off a camera in the order it was
 // shot, which is usually right and occasionally not — a page taken twice, or
 // one taken out of turn.
+// The pages of a scan, replaced by better copies of themselves — straightened,
+// unlit — with everything else about the score left alone. Its layout is
+// cleared, because where the staves are is a fact about the OLD pictures.
+export async function replacePages(scoreId, pages) {
+  const db = await openDB();
+  const row = await loadScorePages(scoreId);
+  if (!row || row.source === 'pdf') return null;
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['score-pages'], 'readwrite');
+    tx.objectStore('score-pages').put({ ...row, pages, layout: null });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+  return pages.length;
+}
+
 export async function savePageOrder(scoreId, order) {
   const db = await openDB();
   const row = await loadScorePages(scoreId);

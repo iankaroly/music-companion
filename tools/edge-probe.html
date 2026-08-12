@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Page edges — the bench</title>
+<style>
+  body { font: 15px/1.5 -apple-system, system-ui, sans-serif; margin: 1.5rem; background: #f6f6f8; }
+  h1 { font-size: 1.1rem; }
+  .row { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+  figure { margin: 0; }
+  figcaption { font-size: 0.8rem; color: #555; margin-top: 0.3rem; }
+  canvas { border: 1px solid #ccc; background: #fff; max-height: 70vh; width: auto; }
+  pre { background: #fff; border: 1px solid #ddd; padding: 0.6rem; font-size: 0.75rem; overflow: auto; }
+</style>
+</head>
+<body>
+<h1>Finding the sheet of paper</h1>
+<p>Give it a photograph of a page. Left: what the detector sees, with the
+quadrilateral it found drawn on it. Right: that page pulled square and unlit —
+which is exactly what gets stored when a page is scanned or uploaded.</p>
+<input type="file" id="file" accept="image/*">
+<div class="row">
+  <figure><canvas id="found"></canvas><figcaption>the photograph, and the corners</figcaption></figure>
+  <figure><canvas id="page"></canvas><figcaption>the page as it will be stored</figcaption></figure>
+</div>
+<pre id="out">no photograph yet</pre>
+<script type="module">
+import { inspect, findPage } from '../src/analysis/page-edges.js';
+import { straightenCanvas } from '../src/ui/straighten.js';
+
+const file = document.querySelector('#file');
+const found = document.querySelector('#found');
+const pageOut = document.querySelector('#page');
+const out = document.querySelector('#out');
+
+file.addEventListener('change', async () => {
+  const chosen = file.files?.[0];
+  if (!chosen) return;
+  const image = await new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(chosen);
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+  const w = 220;
+  const h = Math.round(image.naturalHeight * (w / image.naturalWidth));
+  found.width = w;
+  found.height = h;
+  const ctx = found.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(image, 0, 0, w, h);
+  const { data } = ctx.getImageData(0, 0, w, h);
+  const luma = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) {
+    luma[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+  }
+  const report = inspect(luma, w, h);
+  const quad = findPage(luma, w, h);
+  if (report.quad?.every(Boolean)) {
+    ctx.strokeStyle = report.accepted ? '#2b6cff' : '#c33';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    report.quad.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    ctx.stroke();
+  }
+  const page = straightenCanvas(image, image.naturalWidth, image.naturalHeight);
+  pageOut.width = page.width;
+  pageOut.height = page.height;
+  pageOut.getContext('2d').drawImage(page, 0, 0);
+  out.textContent = JSON.stringify({
+    photograph: [image.naturalWidth, image.naturalHeight],
+    accepted: report.accepted,
+    threshold: report.cut,
+    brightRegion: +report.regionFraction.toFixed(3),
+    quadFraction: +report.quadFraction.toFixed(3),
+    fill: +report.fill.toFixed(3),
+    sides: report.sides,
+    corners: quad,
+    stored: [page.width, page.height],
+  }, null, 2);
+});
+</script>
+</body>
+</html>

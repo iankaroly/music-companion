@@ -8,13 +8,13 @@ import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
-  listSetlists, saveSetlist, deleteSetlist,
+  listSetlists, saveSetlist, deleteSetlist, replacePages,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
   reviewIsWaiting, showTakeReview, scanPages, askScoreName,
-  notationScores, pairWithNotation, importNotationFor, measurePages,
+  notationScores, pairWithNotation, importNotationFor, measurePages, scoreStatus,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
@@ -1252,6 +1252,10 @@ function scoreActions(score) {
       onPick: () => pairFromShelf(score),
     });
     rows.push({
+      label: 'Straighten the pages',
+      onPick: () => straightenScore(score),
+    });
+    rows.push({
       label: 'Read the pages again',
       onPick: async () => { await measurePages(score.id); refreshLibrary(); },
     });
@@ -1272,6 +1276,29 @@ function scoreActions(score) {
 // The pages of a scan, as thumbnails: throw one away, move one earlier or
 // later. A camera shoots in the order your hand went, which is usually the
 // order of the music and occasionally not.
+// Pages that came in before the app knew how to find the paper in a
+// photograph: the same job, done again, to the pictures already stored. It says
+// what it will do to the marks first, because a scan straightened is a
+// differently shaped page and anything written on it moves with the music
+// rather than staying under the finger that wrote it.
+async function straightenScore(score) {
+  const payload = await loadScorePages(score.id);
+  if (!payload?.pages?.length) {
+    scoreStatus('a PDF is already flat — this is for photographed pages');
+    return;
+  }
+  const { straightenFile } = await import('./ui/straighten.js');
+  const done = [];
+  for (const [at, file] of payload.pages.entries()) {
+    scoreStatus(`straightening page ${at + 1} of ${payload.pages.length}…`);
+    done.push(await straightenFile(file));
+  }
+  await replacePages(score.id, done);
+  await measurePages(score.id);
+  refreshLibrary();
+  scoreStatus(`${score.name} — straightened. Anything written on these pages has moved with the music.`);
+}
+
 async function openPageManager(score) {
   const payload = await loadScorePages(score.id);
   if (!payload?.pages?.length) {
