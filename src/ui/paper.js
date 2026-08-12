@@ -195,12 +195,14 @@ export function needsPassword(err) {
 // How many pages, and how to draw one. Both kinds answer the same two
 // questions, so the reader never asks which it is holding.
 export async function openPaper(payload) {
-  if (payload?.source === 'pdf' && payload.data) return openPdf(payload.data, payload.password);
-  if (payload?.pages?.length) return openImages(payload.pages);
+  // What was measured when the pages came in, if it was: see saveScoreLayout.
+  const known = { crops: payload?.crops ?? null, sizes: payload?.sizes ?? null };
+  if (payload?.source === 'pdf' && payload.data) return openPdf(payload.data, payload.password, known);
+  if (payload?.pages?.length) return openImages(payload.pages, known);
   throw new Error('there are no pages in that score');
 }
 
-async function openPdf(data, password = null) {
+async function openPdf(data, password = null, known = {}) {
   const lib = await loadPdfLib();
   // A copy, because pdf.js takes ownership of the buffer it is handed and the
   // one in the database is wanted again next time.
@@ -210,9 +212,15 @@ async function openPdf(data, password = null) {
     ...(password ? { password } : {}),
   }).promise;
   const crops = new Map();
-  // Where the music is on this page, measured once off a thumbnail.
+  // Where the music is on this page. Measured off a thumbnail the first time,
+  // which means RENDERING the page — so if it was measured when the score came
+  // in, that answer is used and nothing is rendered at all.
   async function cropFor(index) {
     if (crops.has(index)) return crops.get(index);
+    if (known.crops?.[index]) {
+      crops.set(index, known.crops[index]);
+      return crops.get(index);
+    }
     const page = await doc.getPage(index + 1);
     const base = page.getViewport({ scale: 1 });
     const small = scratch(160, Math.round(160 * (base.height / base.width)));
@@ -234,6 +242,7 @@ async function openPdf(data, password = null) {
     },
     cropOf: cropFor,
     async sizeOf(index) {
+      if (known.sizes?.[index]) return known.sizes[index];
       const page = await doc.getPage(index + 1);
       const view = page.getViewport({ scale: 1 });
       return { w: view.width, h: view.height };
@@ -294,7 +303,7 @@ function missingPage(index) {
   return canvas;
 }
 
-async function openImages(blobs) {
+async function openImages(blobs, known = {}) {
   const cache = new Map();
   const crops = new Map();
   // Every page is decoded through the same door as the importer, so a format
@@ -313,6 +322,12 @@ async function openImages(blobs) {
   };
   async function cropFor(index) {
     if (crops.has(index)) return crops.get(index);
+    // Measured when the page came in, if it was: measuring means decoding the
+    // whole photograph, and the answer cannot have changed since.
+    if (known.crops?.[index]) {
+      crops.set(index, known.crops[index]);
+      return crops.get(index);
+    }
     const page = await load(index);
     const small = scratch(160, Math.max(1, Math.round(160 * (page.h / page.w))));
     small.getContext('2d', { willReadFrequently: true })
@@ -328,6 +343,7 @@ async function openImages(blobs) {
     },
     cropOf: cropFor,
     async sizeOf(index) {
+      if (known.sizes?.[index]) return known.sizes[index];
       const page = await load(index);
       return { w: page.w, h: page.h };
     },
@@ -374,6 +390,11 @@ export async function readPages(payload, onProgress = null) {
   const pages = await openPaper(payload);
   const { readPage } = await import('../analysis/scan-read.js');
   const layout = [];
+  // Measured here because this is the one pass that already looks at every
+  // page. Doing it here means the reader never has to, and opening a long part
+  // stops costing a render per page before anything appears.
+  const crops = [];
+  const sizes = [];
   for (let i = 0; i < pages.count; i++) {
     onProgress?.(i, pages.count);
     let found = null;
@@ -394,9 +415,20 @@ export async function readPages(payload, onProgress = null) {
       found = null;   // an unreadable page is not a reason to lose the score
     }
     layout.push(found);
+    try {
+      crops.push(await pages.cropOf(i));
+      sizes.push(await pages.sizeOf(i));
+    } catch {
+      crops.push(null);
+      sizes.push(null);
+    }
   }
   pages.destroy?.();
-  return layout;
+  // Three arrays, one per page, rather than properties hung off the layout: an
+  // array with things attached to it loses them the moment it is stored, and
+  // storing them is the entire point. A null in crops or sizes means that page
+  // was not measured, and the reader works that one out for itself.
+  return { layout, crops, sizes };
 }
 
 export function isPdf(file) {

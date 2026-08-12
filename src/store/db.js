@@ -143,7 +143,9 @@ export async function saveScore({ name, xml, partIndex = 0, parts = [] }) {
 // A score that is PAPER rather than notation: a PDF, or a page per photograph.
 // It can be read, paged through and written on; it cannot be marked up against
 // a take, because nothing in a picture of a page says which note is which.
-export async function savePagesScore({ name, source, pageCount, data = null, pages = null, password = null }) {
+export async function savePagesScore({
+  name, source, pageCount, data = null, pages = null, password = null, raws = null,
+}) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['scores', 'score-pages'], 'readwrite');
@@ -151,7 +153,11 @@ export async function savePagesScore({ name, source, pageCount, data = null, pag
       name, kind: 'pages', source, pageCount, date: Date.now(),
     });
     req.onsuccess = () => {
-      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages, password });
+      // `raws` is the photograph behind each page, before it was squared up.
+      // Kept because changing the edges later means going back to it: a crop of
+      // a crop cannot return what the first one cut off. It roughly doubles
+      // what a scanned part takes up, and is what makes the pages editable.
+      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages, password, raws });
     };
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
@@ -287,7 +293,14 @@ export async function renameScore(id, name) {
 // What was read off the pages: staves, bars and noteheads, one entry per page.
 // It lives with the pages rather than with the score row because it is big and
 // is only ever wanted when the pages themselves are.
-export async function saveScoreLayout(scoreId, layout) {
+// …along with the two measurements the reader needs before it can lay a single
+// page out: where the music sits on each page, and how big each page is.
+//
+// Those were worked out every time a score was opened, and working them out
+// means RENDERING every page — a twenty-one page part rendered twenty-one times
+// before the first page appeared. They cannot change once the pages are stored,
+// so they are written down here with the layout and never computed twice.
+export async function saveScoreLayout(scoreId, layout, measurements = null) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('score-pages', 'readwrite');
@@ -297,6 +310,8 @@ export async function saveScoreLayout(scoreId, layout) {
       const row = req.result;
       if (!row) return;
       row.layout = layout;
+      if (measurements?.crops) row.crops = measurements.crops;
+      if (measurements?.sizes) row.sizes = measurements.sizes;
       store.put(row);
     };
     tx.oncomplete = () => resolve();
@@ -323,6 +338,29 @@ export async function replacePages(scoreId, pages) {
     tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
   return pages.length;
+}
+
+// One page of a scan, taken again with different edges. Everything else about
+// the score is left alone, and only THAT page's measurements are forgotten —
+// where its staves are, where the music sits on it — because they are facts
+// about the picture that has just been replaced.
+export async function replaceOnePage(scoreId, index, file) {
+  const db = await openDB();
+  const row = await loadScorePages(scoreId);
+  if (!row?.pages?.[index]) return null;
+  const next = { ...row };
+  next.pages = row.pages.map((page, i) => (i === index ? file : page));
+  if (row.layout) next.layout = row.layout.map((page, i) => (i === index ? null : page));
+  if (row.crops) next.crops = row.crops.map((crop, i) => (i === index ? null : crop));
+  if (row.sizes) next.sizes = row.sizes.map((size, i) => (i === index ? null : size));
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['score-pages'], 'readwrite');
+    tx.objectStore('score-pages').put(next);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+  return index;
 }
 
 export async function savePageOrder(scoreId, order) {

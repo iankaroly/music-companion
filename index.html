@@ -1201,7 +1201,42 @@
       white-space: nowrap;
       padding: 0 0.2rem;
     }
-    #reader-count { font-size: 0.76rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+    /* The page number is a button, and looks like the label it replaced until
+       a finger is on it. */
+    #reader-count {
+      font-size: 0.76rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+      font-family: var(--ui);
+      background: none;
+      border: none;
+      padding: 0.15rem 0.4rem;
+      border-radius: 0.5rem;
+      cursor: pointer;
+    }
+    #reader-count:hover, #reader-count:active { background: var(--fill); color: var(--ink); }
+    /* Straight to a page: a grid of numbers, because a stand is no place for a
+       keyboard. */
+    .pick-pop.pages {
+      display: grid;
+      grid-template-columns: repeat(6, 2.4rem);
+      gap: 0.15rem;
+      padding: 0.45rem;
+      max-height: 60vh;
+    }
+    .page-cell {
+      height: 2.2rem;
+      border: none;
+      border-radius: 0.5rem;
+      background: none;
+      color: var(--ink);
+      font-family: var(--num, var(--ui));
+      font-variant-numeric: tabular-nums;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    .page-cell:hover { background: var(--fill); }
+    .page-cell.on { background: var(--grad); color: var(--on-primary); }
     /* A square button with a round highlight — flex: none so it cannot be
        stretched into an oval by a crowded bar, which is what made the selected
        tool look like a smeared blue lozenge. And a tint rather than the app's

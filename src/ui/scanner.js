@@ -558,7 +558,9 @@ function finish(result) {
   delete document.documentElement.dataset.scanning;
   for (const image of strip.querySelectorAll('img')) URL.revokeObjectURL(image.src);
   strip.replaceChildren();
-  const taken = result;
+  // The photographs go with the pages, so the edges can still be changed
+  // tomorrow rather than only during the session that took them.
+  const taken = result ? { pages: result, raws: shots.map((shot) => shot.raw ?? null) } : null;
   pages = [];
   shots = [];
   done?.(taken);

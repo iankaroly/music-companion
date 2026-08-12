@@ -1359,6 +1359,43 @@ function showPage(index) {
   redraw();
 }
 
+// Straight to a page, for a part long enough that turning to it is a chore.
+//
+// A grid of numbers rather than a box to type in: on a stand you are holding a
+// bow, and "page 14" is one tap rather than a keyboard, a return key and a
+// missed entry. Bookmarks are the other half of this and live under ⋯ — this is
+// for the page you have not marked.
+function openPageJump() {
+  if (pageEls.length < 2) return;
+  const pop = document.createElement('div');
+  pop.className = 'pick-pop pages';
+  pop.setAttribute('role', 'menu');
+  for (let i = 0; i < pageEls.length; i += step()) {
+    const cell = document.createElement('button');
+    cell.type = 'button';
+    cell.className = 'page-cell';
+    cell.textContent = String(i + 1);
+    cell.classList.toggle('on', visiblePages().includes(i));
+    cell.setAttribute('aria-label', `Page ${i + 1}`);
+    cell.addEventListener('click', () => { pop.remove(); showPage(i); });
+    pop.append(cell);
+  }
+  const shut = (e) => {
+    if (pop.contains(e.target) || e.target.closest('#reader-count')) return;
+    pop.remove();
+    document.removeEventListener('pointerdown', shut, true);
+  };
+  document.body.append(pop);
+  const box = el('reader-count').getBoundingClientRect();
+  pop.style.left = `${Math.round(Math.max(8, Math.min(
+    box.left + box.width / 2 - pop.offsetWidth / 2, window.innerWidth - pop.offsetWidth - 8,
+  )))}px`;
+  pop.style.top = `${Math.round(box.bottom + 8)}px`;
+  pop.classList.add('from-top');
+  setTimeout(() => document.addEventListener('pointerdown', shut, true), 0);
+  pop.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+}
+
 const step = () => (spread ? 2 : 1);
 
 // The page after the last one is the next piece in the programme, and the page
@@ -1991,6 +2028,15 @@ function buildMenu(sheet) {
       onPick: () => resize(1 / ZOOM_STEP),
     });
   }
+  if (isPaper() && score?.source !== 'pdf') {
+    menuGroup(sheet, 'the pages themselves');
+    menuRow(sheet, {
+      label: 'Change the edges…',
+      glyph: '⛶',
+      detail: 'crop a page again, or straighten one that came out crooked',
+      onPick: openEdgesMenu,
+    });
+  }
   if (isPaper()) {
     menuGroup(sheet, 'what is behind it');
     menuRow(sheet, {
@@ -2106,6 +2152,66 @@ async function deleteThisScore() {
 
 function announceLibraryChanged() {
   document.dispatchEvent(new CustomEvent('settings-change', { detail: { key: 'library' } }));
+}
+
+// --- changing the edges of a page, after the fact -----------------------------
+//
+// The edges could be moved while the scanner was still open and never again,
+// which is the wrong half of the life of a part: the page that turns out to be
+// crooked is the one you notice at a rehearsal, weeks later, with the scanner
+// long gone. The photographs are kept with the pages for exactly this, so the
+// crop is done again from the negative rather than from the page — a crop of a
+// crop cannot give back what the first one took.
+
+function openEdgesMenu() {
+  const rows = pageEls.map((_, i) => ({
+    label: `Page ${(slices[i]?.page ?? i) + 1}`,
+    onPick: () => changeEdges(slices[i]?.page ?? i),
+  }));
+  // One row per PAGE, not per screenful: two bands of the same photograph are
+  // one piece of paper and one set of edges.
+  const seen = new Set();
+  const pages = rows.filter((row) => (seen.has(row.label) ? false : seen.add(row.label)));
+  actionMenu(el('reader-menu-btn'), pages);
+}
+
+async function changeEdges(pageNumber) {
+  if (!score) return;
+  const { loadScorePages, replaceOnePage } = await import('../store/db.js');
+  const row = await loadScorePages(score.id);
+  const original = row?.raws?.[pageNumber] ?? row?.pages?.[pageNumber];
+  if (!original) {
+    say('there is no photograph behind that page to crop');
+    return;
+  }
+  const fresh = !!row?.raws?.[pageNumber];
+  const { editCorners } = await import('./crop.js');
+  const { readableImage, sizeOfImage, straightenCanvas } = await import('./straighten.js');
+  // Starting from the whole photograph when it IS the photograph, and from the
+  // whole page when all that is left is the page — in which case the edges can
+  // only take away, and saying so is better than a surprise.
+  const chosen = await editCorners(original, null);
+  if (!chosen) return;
+  const image = await readableImage(original);
+  if (!image) { say('that page could not be read'); return; }
+  const { w, h } = sizeOfImage(image);
+  let page;
+  try {
+    page = straightenCanvas(image, w, h, chosen.quad);
+  } catch {
+    say('those edges could not be made into a page');
+    return;
+  }
+  const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
+  if (!blob?.size) { say('that did not come out — try the edges again'); return; }
+  const name = original.name ?? `page-${pageNumber + 1}.jpg`;
+  await replaceOnePage(score.id, pageNumber, new File([blob], name, { type: 'image/jpeg' }));
+  say(fresh ? 'page changed' : 'page changed — cropped from the page, not the photograph');
+  // Everything measured about that page is gone with it, so the reader is
+  // rebuilt from the score as it now stands.
+  drawn.clear();
+  await render();
+  showPage(Math.min(pageIndex, pageEls.length - 1));
 }
 
 // Behind a scan: the notation that says which note is which.
@@ -2418,8 +2524,14 @@ function buildTopBar() {
   middle.className = 'reader-bar-middle';
   const title = document.createElement('span');
   title.id = 'reader-title';
-  const count = document.createElement('span');
+  // "p. 7 of 21" is already the answer to "where am I", so it is also the way
+  // to say where you would rather be. A button rather than a label, and it
+  // looks like a label until it is worth pressing — nothing new to find, and
+  // nothing in the way of a part with three pages.
+  const count = document.createElement('button');
+  count.type = 'button';
   count.id = 'reader-count';
+  count.addEventListener('click', openPageJump);
   middle.append(title, count);
 
   const right = document.createElement('div');
@@ -2578,7 +2690,38 @@ function build() {
   // A tap does one of four things, and where it lands decides which. The top
   // strip is tested FIRST: it overlaps the left and right thirds, and a tap up
   // there is a reach for the controls, not for a page turn.
-  root.addEventListener('click', (e) => {
+  // A tap, worked out from the pointer rather than waited for as a click.
+  //
+  // Two things were wrong with listening for `click` on a tablet. It arrives
+  // late — the browser waits to see whether the touch is going to become
+  // something else — and it does not arrive AT ALL if the finger moved a few
+  // pixels on the way down, which a finger resting on a music stand does every
+  // time. That is the whole of "sometimes it doesn't register, sometimes it
+  // takes a while": the turn was waiting on an event that was slow when it came
+  // and often never came.
+  //
+  // A tap is now what it looks like: one pointer, down and up in the same place
+  // inside half a second, and the page turns on the up.
+  // A generous idea of "the same place". A page-turn zone is a third of the
+  // screen wide, so nothing is ambiguous at this distance, and a finger resting
+  // on a music stand travels further than you would think.
+  const TAP_SLIP = 20;      // px of travel still counts as a tap
+  const TAP_TIME = 600;     // ms held still counts as a tap
+  let tapFrom = null;
+  root.addEventListener('pointerdown', (e) => {
+    tapFrom = pointers.size > 1 ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
+  }, true);
+  root.addEventListener('pointerup', (e) => {
+    const from = tapFrom;
+    tapFrom = null;
+    if (!from || from.id !== e.pointerId || pinching) return;
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > TAP_SLIP) return;
+    if (e.timeStamp - from.at > TAP_TIME) return;
+    onTap(e);
+  });
+  root.addEventListener('pointercancel', () => { tapFrom = null; });
+
+  function onTap(e) {
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
     if (menuOpen) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
@@ -2610,7 +2753,7 @@ function build() {
     if (e.clientX < third) previousPage();
     else if (e.clientX > window.innerWidth - third) nextPage();
     else setChrome(true);
-  });
+  }
 
   // Drawing and pinching share the same surface, and the pen must lose every
   // argument between them. A stroke is only started by a lone finger, is thrown

@@ -206,7 +206,7 @@ async function chooseScore(id) {
 // can be — this is a picture of music, and the app is honest about that: it can
 // be read from, paged through and drawn on, and it is never offered as
 // something to record against.
-async function addPaper(files, { name: given = null } = {}) {
+async function addPaper(files, { name: given = null, raws = null } = {}) {
   const list = [...files];
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
@@ -270,6 +270,10 @@ async function addPaper(files, { name: given = null } = {}) {
     id = await savePagesScore({
       name: given ?? nameFromFile(pages[0]), source: 'photos', pageCount: flattened.length,
       pages: flattened,
+      // The photographs as taken, so the edges can be changed later. From the
+      // scanner these are the frames it kept; from the picker they are the
+      // files themselves, which is the same thing.
+      raws: raws ?? pages,
     });
     // Some pages in, some refused: the part is still worth having, and the ones
     // that did not make it have to be said out loud rather than quietly missing.
@@ -298,10 +302,10 @@ async function addPaper(files, { name: given = null } = {}) {
 export async function measurePages(scoreId, { note = null } = {}) {
   const payload = await loadScorePages(scoreId);
   if (!payload) return null;
-  const layout = await readPages(payload, (page, total) => {
+  const { layout, crops, sizes } = await readPages(payload, (page, total) => {
     status(`reading the pages… ${page + 1} of ${total}`);
   });
-  await saveScoreLayout(scoreId, layout);
+  await saveScoreLayout(scoreId, layout, { crops, sizes });
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)
     .reduce((n, page) => n + page.staves.reduce((m, st) => m + st.heads.length, 0), 0);
@@ -411,12 +415,13 @@ export function askScoreName(subtitle = '') {
 export async function scanPages() {
   try {
     const taken = await openScanner();
-    if (!taken?.length) return null;
+    if (!taken?.pages?.length) return null;
     // Named on the way in. A shelf of "Scanned score", "Scanned score 2" is a
     // shelf you cannot read, and the moment you have just photographed the
     // thing is the moment you know what it is called.
-    const name = await askScoreName(`${taken.length} ${taken.length === 1 ? 'page' : 'pages'} scanned`);
-    return await addPaper(taken, { name: name || 'Scanned score' });
+    const count = taken.pages.length;
+    const name = await askScoreName(`${count} ${count === 1 ? 'page' : 'pages'} scanned`);
+    return await addPaper(taken.pages, { name: name || 'Scanned score', raws: taken.raws });
   } catch (err) {
     status(err.message, 'bad');
     return null;
