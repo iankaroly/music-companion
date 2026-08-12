@@ -2437,14 +2437,20 @@ function buildTopBar() {
 function buildInkBar() {
   const bar = document.createElement('div');
   bar.id = 'reader-ink-bar';
+  // The ink you are holding, shown ON the pen rather than on a button of its
+  // own. There used to be a brush button here, and everything behind it is
+  // already one tap on the pen you are already holding — so it was a second
+  // door into the same room, taking up space in a bar that has none. What it
+  // was worth keeping was the nib: the colour and rough thickness of the mark
+  // you are about to make, which now sits on the tool itself.
+  const pen = toolButton('pen', 'pen', 'Pen');
   const nib = document.createElement('span');
   nib.id = 'reader-nib';
   nib.setAttribute('aria-hidden', 'true');
-  const brushBtn = iconButton('reader-brush-btn', 'brush', 'Brush style', toggleBrush);
-  brushBtn.append(nib);
+  pen.append(nib);
   bar.append(
     iconButton('reader-done', 'tick', 'Finished annotating', () => setTool(null)),
-    toolButton('pen', 'pen', 'Pen'),
+    pen,
     toolButton('highlighter', 'highlighter', 'Highlighter'),
     toolButton('text', 'text', 'Type on the page'),
     iconButton('reader-shapes', 'shapes', 'Lines, boxes and rings', openShapeMenu),
@@ -2452,7 +2458,6 @@ function buildInkBar() {
     toolButton('lasso', 'lasso', 'Pick up marks'),
     toolButton('eraser', 'eraser', 'Rub out'),
     ...PRESETS.map((_, i) => presetSwatch(i)),
-    brushBtn,
     iconButton('reader-undo', 'undo', 'Undo', undo),
     iconButton('reader-redo', 'redo', 'Redo', redo),
     iconButton('reader-clear', 'clear', 'Clear this page', clearPage),

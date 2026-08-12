@@ -1243,17 +1243,23 @@
       padding: 0;
     }
     .reader-swatch.on { border-color: var(--ink); transform: scale(1.15); }
-    /* The nib: the brush you are actually holding, at the colour and roughly
-       the size it will draw. It is the button that opens the mixer. */
+    /* The nib: the ink you are actually holding, at the colour and roughly the
+       thickness it will draw, sitting under the pen it belongs to. Tapping the
+       pen again is what opens the case — there is no second button for it. */
+    #reader-ink-bar [data-tool="pen"] { position: relative; }
     #reader-nib {
-      display: block;
+      position: absolute;
+      left: 50%;
+      bottom: 0.12rem;
+      transform: translateX(-50%);
       width: var(--nib-size, 0.5rem);
-      height: var(--nib-size, 0.5rem);
+      height: 0.22rem;
+      max-width: 1.4rem;
       border-radius: 999px;
       background: var(--nib, var(--ink));
-      box-shadow: 0 0 0 1px rgb(var(--sh) / 0.2);
+      box-shadow: 0 0 0 1px rgb(var(--sh) / 0.18);
+      pointer-events: none;
     }
-    #reader-brush-btn { border-color: var(--glass-line); }
 
     /* The mixer. Hue, saturation, brightness and transparency rather than a
        fixed set of pens, because "a bit lighter than that red" is a thing you
@@ -1651,6 +1657,56 @@
       color: #fff; font-family: var(--num, inherit); font-size: 0.7rem;
       text-shadow: 0 1px 4px rgb(0 0 0 / 0.8);
     }
+    /* "The paper is not where you think it is" — one tap from the page it is
+       about, which is the only place that question ever comes up. */
+    .scan-edges {
+      position: absolute; bottom: 0.2rem; right: 0.25rem;
+      padding: 0.1rem 0.4rem; border-radius: 999px;
+      border: none; background: rgb(0 0 0 / 0.7); color: #fff;
+      font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.02em;
+      cursor: pointer;
+    }
+
+    /* ---- moving the edges of a page ----
+       The photograph as taken, everything outside the outline dimmed, and a
+       handle on every corner and every edge. */
+    #crop {
+      position: fixed;
+      inset: 0;
+      z-index: 95;              /* over the scanner, which is still behind it */
+      background: #000;
+      display: flex;
+      flex-direction: column;
+    }
+    #crop[hidden] { display: none; }
+    .crop-stage { position: absolute; inset: 0 0 7.5rem; }
+    #crop-picture { width: 100%; height: 100%; object-fit: contain; }
+    #crop-overlay {
+      position: absolute;
+      inset: 0;
+      touch-action: none;       /* the handles own every gesture on the picture */
+    }
+    .crop-hint {
+      position: absolute;
+      left: 0; right: 0; bottom: 4.6rem;
+      text-align: center;
+      color: rgb(255 255 255 / 0.85);
+      font-family: var(--ui);
+      font-size: 0.78rem;
+      padding: 0 1rem;
+    }
+    .crop-bar {
+      position: absolute;
+      left: 0; right: 0;
+      bottom: max(0.7rem, env(safe-area-inset-bottom, 0px));
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      padding: 0 0.6rem;
+    }
+    .crop-bar .ctl { background: rgb(255 255 255 / 0.14); color: #fff; }
+    .crop-bar .ctl.primary { background: var(--grad); color: var(--on-primary); }
     #scan-bottom {
       position: absolute;
       left: 0; right: 0;

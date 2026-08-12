@@ -25,7 +25,7 @@
 // same page while you reach for the corner.
 
 import { findPage } from '../analysis/page-edges.js';
-import { straightenCanvas, readableImage } from './straighten.js';
+import { straightenCanvas, readableImage, sizeOfImage, paperIn } from './straighten.js';
 
 let root = null;
 let video = null;
@@ -34,6 +34,10 @@ let guide = null;      // the outline drawn over the picture
 let statusLine = null;
 let stream = null;
 let pages = [];        // File objects, in the order they were taken
+// The photograph behind each of those pages, and where the paper was found in
+// it. Alongside `pages` rather than inside it because what leaves this screen
+// is a list of pages; the negatives stay here and go when the session does.
+let shots = [];        // { raw: Blob, corners: quad | null }
 let watching = null;   // the interval that runs the auto-shutter
 let armed = true;      // may the auto-shutter fire?
 // The shutter is yours. The camera finds the page and shows you it has — the
@@ -328,10 +332,14 @@ async function capture() {
   canvas.getContext('2d').drawImage(video, 0, 0);
   const number = String(pages.length + 1).padStart(2, '0');
   const name = `page-${number}.jpg`;
+  // Where the paper was, on the frame actually taken. Kept with the shot, so
+  // the edges can be moved afterwards without the corners having to be found
+  // all over again from a picture the hand has since moved on from.
+  const corners = paperIn(canvas, canvas.width, canvas.height);
   let page = canvas;
   if (cleanUp) {
     try {
-      page = straightenCanvas(canvas, canvas.width, canvas.height);
+      page = straightenCanvas(canvas, canvas.width, canvas.height, corners);
     } catch {
       page = canvas;    // the photograph as taken is still a page
     }
@@ -343,8 +351,13 @@ async function capture() {
     say('that shot did not come out — take it again');
     return;
   }
+  // The photograph as taken is kept for as long as the session lasts, because
+  // moving the edges means going back to it: the straightened page has already
+  // thrown away everything outside the outline.
+  const raw = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
   shotOf = previous ? Float32Array.from(previous) : null;
   pages.push(file);
+  shots.push({ raw, corners });
   addThumb(file, pages.length - 1);
   refreshCount();
   waiting = 0;
@@ -363,12 +376,11 @@ function refreshCount() {
   }
 }
 
-function addThumb(file, index) {
-  const wrap = document.createElement('div');
-  wrap.className = 'scan-thumb';
-  const image = document.createElement('img');
-  image.src = URL.createObjectURL(file);
-  image.alt = `Page ${index + 1}`;
+// Both buttons close over the FILE they belong to rather than over a position,
+// because positions shift as pages are thrown away — and both are rebuilt when
+// a page is taken again with new edges, so neither is left pointing at a page
+// that no longer exists.
+function dropButton(file, thumbnail, index) {
   const drop = document.createElement('button');
   drop.type = 'button';
   drop.className = 'scan-drop';
@@ -376,18 +388,79 @@ function addThumb(file, index) {
   drop.setAttribute('aria-label', `Throw away page ${index + 1}`);
   drop.addEventListener('click', () => {
     const at = pages.indexOf(file);
-    if (at >= 0) pages.splice(at, 1);
-    URL.revokeObjectURL(image.src);
-    wrap.remove();
+    if (at >= 0) { pages.splice(at, 1); shots.splice(at, 1); }
+    URL.revokeObjectURL(thumbnail.src);
+    thumbnail.parentElement?.remove();
     renumber();
     refreshCount();
   });
+  return drop;
+}
+
+// Tap the page to say where the paper really was. The badge is there because a
+// thumbnail that does something has to look like it does something.
+function edgesButton(file, thumbnail, index) {
+  const edges = document.createElement('button');
+  edges.type = 'button';
+  edges.className = 'scan-edges';
+  edges.textContent = 'Edges';
+  edges.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
+  edges.addEventListener('click', () => reshape(file, thumbnail));
+  return edges;
+}
+
+function addThumb(file, index) {
+  const wrap = document.createElement('div');
+  wrap.className = 'scan-thumb';
+  const image = document.createElement('img');
+  image.src = URL.createObjectURL(file);
+  image.alt = `Page ${index + 1}`;
   const label = document.createElement('span');
   label.className = 'scan-number';
   label.textContent = String(index + 1);
-  wrap.append(image, drop, label);
+  wrap.append(image, dropButton(file, image, index), edgesButton(file, image, index), label);
   strip.append(wrap);
   strip.scrollLeft = strip.scrollWidth;
+}
+
+// A page, taken again from its own photograph with the corners somebody moved.
+//
+// Everything is redone from the negative rather than from the page: a crop of a
+// crop loses whatever the first one cut off, and the point of this is to get
+// back what the finder took away.
+async function reshape(file, thumbnail) {
+  const at = pages.indexOf(file);
+  const shot = shots[at];
+  if (at < 0 || !shot?.raw) return;
+  const { editCorners } = await import('./crop.js');
+  const chosen = await editCorners(shot.raw, shot.corners);
+  if (!chosen) return;
+  const image = await readableImage(shot.raw);
+  if (!image) return;
+  const { w, h } = sizeOfImage(image);
+  let page;
+  try {
+    page = straightenCanvas(image, w, h, chosen.quad);
+  } catch {
+    say('those edges could not be made into a page');
+    return;
+  }
+  const fresh = await pageFrom(page, file.name);
+  if (!fresh) {
+    say('that did not come out — try the edges again');
+    return;
+  }
+  pages[at] = fresh;
+  shots[at] = { ...shot, corners: chosen.quad };
+  URL.revokeObjectURL(thumbnail.src);
+  thumbnail.src = URL.createObjectURL(fresh);
+  // The thumbnail's delete button closes over the OLD file, so it is rebuilt
+  // against the new one rather than left pointing at a page that is gone.
+  const drop = thumbnail.parentElement?.querySelector('.scan-drop');
+  const edges = thumbnail.parentElement?.querySelector('.scan-edges');
+  drop?.replaceWith(dropButton(fresh, thumbnail, at));
+  edges?.replaceWith(edgesButton(fresh, thumbnail, at));
+  say('edges changed');
 }
 
 // The numbers on the thumbnails are positions, not names, so throwing away
@@ -487,6 +560,7 @@ function finish(result) {
   strip.replaceChildren();
   const taken = result;
   pages = [];
+  shots = [];
   done?.(taken);
   done = null;
 }
@@ -498,6 +572,7 @@ function finish(result) {
 export async function openScanner() {
   build();
   pages = [];
+  shots = [];
   auto = false;
   cleanUp = true;
   armed = true;
