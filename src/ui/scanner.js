@@ -38,7 +38,7 @@ let watching = null;   // the interval that runs the auto-shutter
 let armed = true;      // may the auto-shutter fire?
 let auto = true;
 let cleanUp = true;    // pull the page square and take the shadows out, on the way in
-let paper = null;      // where the page is in the picture right now, if it is
+let paper = null;      // where the page is in the LIVE picture: for the outline only
 let done = null;       // resolve the promise openScanner returned
 
 // The sampling canvas: tiny on purpose. Nothing here needs detail, and reading
@@ -296,8 +296,14 @@ function watch() {
 
 // The shutter. What is kept is not the photograph — it is the page out of it:
 // the sheet of paper found in the frame, pulled square, with the shadows taken
-// off. The corners are the ones that were outlined in blue a moment ago, so
-// what you saw is what you get.
+// off.
+//
+// The corners are found again, here, on the frame that was actually taken —
+// NOT reused from the last tick of the outline. Up to a sixth of a second
+// passes between the outline being drawn and a finger arriving on the button,
+// and a hand moves in a sixth of a second: warping this frame by where the page
+// was in the last one shears the page by exactly that much. Finding them again
+// costs about thirty milliseconds and carries no state at all.
 async function capture() {
   if (!video?.videoWidth) return;
   const canvas = document.createElement('canvas');
@@ -307,7 +313,7 @@ async function capture() {
   let page = canvas;
   if (cleanUp) {
     try {
-      page = straightenCanvas(canvas, canvas.width, canvas.height, paper);
+      page = straightenCanvas(canvas, canvas.width, canvas.height);
     } catch {
       page = canvas;    // the photograph as taken is still a page
     }
