@@ -1,10 +1,16 @@
 // Network-first service worker: fresh deploys win when online, the cached
 // app shell keeps the whole tool working offline in the practice room.
 //
-// Bump this on a release. It has to actually change for the activate handler
-// to delete anything — pinned at one value it swept nothing, and every dead
-// asset from every past deploy stayed in the box forever.
-const CACHE = 'music-companion-v4';
+// One cache per build, and nobody has to remember to bump it.
+//
+// The app registers this script as /sw.js?v=<build>, so the version is written
+// on the worker's own URL: a deploy is a new script, a new script is a new
+// cache, and the activate handler below sweeps every older one. Pinned at a
+// constant it swept nothing — every dead asset from every past deploy stayed
+// in the box forever, and a home-screen app had no way to notice a release at
+// all.
+const BUILD = new URL(self.location.href).searchParams.get('v') || 'v4';
+const CACHE = `music-companion-${BUILD}`;
 
 self.addEventListener('install', () => self.skipWaiting());
 

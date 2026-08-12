@@ -1964,6 +1964,40 @@ initControls(document);
 
 // --- installable app: register the service worker -----------------------------
 
+// Which build this is, said out loud in Settings.
+//
+// Installed from Safari's "Add to Home Screen" there is no address bar, no
+// reload button and no console: the app holds the page it loaded for days at a
+// time, and iOS resumes it from a snapshot rather than starting it again. So
+// "it still does nothing" and "it is still running last week's code" look
+// identical from the outside, and one of them is not a bug. Now it can be read
+// off the screen.
+const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
+const buildLine = document.querySelector('#set-build');
+if (buildLine) buildLine.textContent = `Build ${BUILD}`;
+
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('/sw.js').catch(() => {});
+  // Registered under the build, so every deploy is a DIFFERENT worker script.
+  // Registering the same URL forever meant a home-screen app had nothing to
+  // notice: the worker it installed on the day it was added is the worker it
+  // keeps, and the page it loaded is the page it keeps with it.
+  navigator.serviceWorker.register(`/sw.js?v=${encodeURIComponent(BUILD)}`).then((registration) => {
+    // A standalone app is resumed, not reloaded. Coming back to it is the
+    // moment to ask whether there is a newer one.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') registration.update().catch(() => {});
+    });
+  }).catch(() => {});
+
+  // A new worker has taken over, which means there is a newer app than the one
+  // on screen. Take it — once, and never in a loop. The FIRST worker to claim
+  // an uncontrolled page is not news: nothing has changed underneath it, and
+  // reloading there would make every first visit flicker.
+  const wasControlled = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!wasControlled || reloading) return;
+    reloading = true;
+    location.reload();
+  });
 }

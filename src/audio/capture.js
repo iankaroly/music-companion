@@ -85,6 +85,16 @@ async function open() {
   // to run, which startCapture reports rather than swallowing.
   const { ctx, module } = primed ?? newCaptureContext();
   primed = null;
+  // Asked before it is used, so the answer is a sentence rather than "undefined
+  // is not an object". A page served over plain http has no microphone at all,
+  // and neither does a web app iOS has decided is not allowed one.
+  if (!navigator.mediaDevices?.getUserMedia) {
+    ctx.close().catch(() => {});
+    throw new Error(
+      'this device will not open the microphone for the app as installed'
+      + ' — open the site in Safari itself and record there, or add it to the home screen again',
+    );
+  }
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
