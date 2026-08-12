@@ -299,12 +299,29 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
 }
 
 // Reading the geometry of a scan, in the background, and remembering it.
+//
+// One pass per score at a time, and the second caller gets the first one's
+// promise rather than a second scan. Two things ask for this now — importing a
+// part, and opening one that was never finished — and at an import they ask
+// within a moment of each other, which without this is the whole part rendered
+// twice at once: double the work, double the memory, on the one device where
+// both are scarce, and two writers racing over the same rows.
+const running = new Map();
+
 export async function measurePages(scoreId, { note = null } = {}) {
+  const already = running.get(scoreId);
+  if (already) return already;
+  const pass = measureNow(scoreId, note).finally(() => running.delete(scoreId));
+  running.set(scoreId, pass);
+  return pass;
+}
+
+async function measureNow(scoreId, note) {
   const payload = await loadScorePages(scoreId);
   if (!payload) return null;
   const { layout, crops, sizes } = await readPages(payload, (page, total) => {
     status(`reading the pages… ${page + 1} of ${total}`);
-  });
+  }, (sofar) => saveScoreLayout(scoreId, sofar.layout, sofar));
   await saveScoreLayout(scoreId, layout, { crops, sizes });
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)

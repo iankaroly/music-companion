@@ -1095,6 +1095,46 @@
          two fingers zoom. Nothing here is a scroll. */
       touch-action: none;
     }
+    /* The wait before the first page.
+       A part that has never been measured has to look at every page before it
+       knows how to lay any of them out, and until this there was nothing on the
+       screen while it did — a black rectangle for as long as it took, which
+       reads as an app that has died rather than one that is working. It shows
+       only when the reader is genuinely still working: a measured part opens
+       inside a fifth of a second and this never appears at all. */
+    #reader-opening {
+      position: fixed;
+      inset: 0;
+      z-index: 3;
+      display: grid;
+      place-content: center;
+      gap: 0.5rem;
+      justify-items: center;
+      background: var(--bg);
+      color: var(--muted);
+      font-family: var(--display);
+      font-size: 0.94rem;
+      text-align: center;
+      padding: 2rem;
+      animation: reader-opening-in 0.45s ease both;
+    }
+    #reader-opening::before {
+      content: "";
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 50%;
+      border: 2px solid var(--glass-line);
+      border-top-color: var(--primary);
+      animation: reader-opening-spin 0.9s linear infinite;
+    }
+    /* Held back for a moment: a part that opens quickly should not flash a
+       "reading the pages" at you on its way in. */
+    @keyframes reader-opening-in { from { opacity: 0 } 60% { opacity: 0 } to { opacity: 1 } }
+    @keyframes reader-opening-spin { to { transform: rotate(360deg) } }
+    @media (prefers-reduced-motion: reduce) {
+      #reader-opening::before { animation: none }
+      #reader-opening { animation-duration: 0.01s }
+    }
     /* Said once, on the first score anybody opens, and then never again. */
     #reader-hint {
       position: fixed;

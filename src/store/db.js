@@ -300,6 +300,37 @@ export async function renameScore(id, name) {
 // means RENDERING every page — a twenty-one page part rendered twenty-one times
 // before the first page appeared. They cannot change once the pages are stored,
 // so they are written down here with the layout and never computed twice.
+// Two things write these now — the pass at import and the reader itself, when
+// it opens a score that pass never finished — and a whole-array assignment lets
+// whichever finishes second throw the other one's work away. Both writers are a
+// read, an await, then a write, so "second" is not a thing either can know.
+//
+// So the arrays are merged a page at a time, and the rule is that a measurement
+// already written down wins. Nothing here can change: page 4 of a stored PDF is
+// page 4 of a stored PDF, and every writer that measures it gets the same
+// answer. A gap — a null, or an array that stops short because the pass was
+// interrupted — is the only thing that can be filled.
+//
+// Which is also how a page is UNmeasured: replaceOnePage nulls that one entry,
+// and the next pass over it fills the hole without disturbing its neighbours.
+export function fillGaps(existing, incoming) {
+  if (!incoming?.length) return existing ?? null;
+  const out = Array.isArray(existing) ? existing.slice() : [];
+  // Grown to the length of what arrived even where what arrived is nothing:
+  // "these nine pages were looked at and none of them could be read" is an
+  // ANSWER, and it has to be told apart from "nobody has looked yet". Collapsed
+  // to null, as it was, a part with no readable staves on it — a scan of
+  // something that is not music, a photograph too dark to make out — was read
+  // from end to end again on every single launch, for ever, to be told the same
+  // thing.
+  while (out.length < incoming.length) out.push(null);
+  for (let i = 0; i < incoming.length; i++) {
+    if (incoming[i] == null || out[i] != null) continue;
+    out[i] = incoming[i];
+  }
+  return out.length ? out : null;
+}
+
 export async function saveScoreLayout(scoreId, layout, measurements = null) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -309,9 +340,9 @@ export async function saveScoreLayout(scoreId, layout, measurements = null) {
     req.onsuccess = () => {
       const row = req.result;
       if (!row) return;
-      row.layout = layout;
-      if (measurements?.crops) row.crops = measurements.crops;
-      if (measurements?.sizes) row.sizes = measurements.sizes;
+      row.layout = fillGaps(row.layout, layout);
+      row.crops = fillGaps(row.crops, measurements?.crops);
+      row.sizes = fillGaps(row.sizes, measurements?.sizes);
       store.put(row);
     };
     tx.oncomplete = () => resolve();

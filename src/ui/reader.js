@@ -37,7 +37,7 @@ import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
-  saveBookmarks, saveLinks,
+  saveBookmarks, saveLinks, saveScoreLayout,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -3002,6 +3002,7 @@ async function layOutPaper() {
   pageEls = [];
   const across = window.innerWidth / (spread ? 2 : 1);
   slices = await bandPages(across / window.innerHeight);
+  rememberMeasurements(payload);
   for (let i = 0; i < slices.length; i++) {
     const node = document.createElement('div');
     node.className = 'osmd-page reader-paper';
@@ -3017,6 +3018,43 @@ async function layOutPaper() {
   }
   await drawPaperPage(pageIndex);
   return null;
+}
+
+// Scores whose staves have already been sent for reading in this session. A
+// part whose pages genuinely cannot be read never gets a layout however often
+// it is asked, and asking on every open is a scan of the whole part every time.
+const reading = new Set();
+
+// Keeping what laying the part out has just cost.
+//
+// bandPages asks every page where its music sits and how big it is, and until
+// now the answers were worked out, used once, and dropped on the floor when the
+// reader closed — so a part whose measuring pass never finished measured itself
+// again on every single open, for ever. On a twenty-odd page scan that is a
+// render per page before anything appears: seconds of black screen, every time,
+// for an answer the score already had the first time it was asked.
+//
+// It costs one write of two small arrays, and only when something was missing.
+function rememberMeasurements(payload) {
+  if (!paper?.measured || score?.kind !== 'pages') return;
+  const id = score.id;
+  const measured = paper.measured();
+  const complete = (stored) => stored?.length >= paper.count
+    && stored.every((one) => one != null);
+  if (complete(payload?.crops) && complete(payload?.sizes)) return;
+  saveScoreLayout(id, payload?.layout ?? null, measured).catch(() => {
+    /* a score that will not remember its measurements is still a readable score */
+  });
+  // And where the STAVES are, which crops alone cannot bring back: a part
+  // imported before this existed, or one whose reading pass was interrupted,
+  // has no layout at all, and without it a take can never be marked onto it.
+  // Quietly, behind the page that is already on screen — nothing waits for it.
+  if (!payload?.layout && !reading.has(id)) {
+    reading.add(id);
+    import('./score.js')
+      .then(({ measurePages }) => measurePages(id))
+      .catch(() => { /* an unread scan is still a score to play from */ });
+  }
 }
 
 const drawn = new Set();
@@ -3289,13 +3327,16 @@ export async function openReader(row, {
   showFirstRunHint();
   document.documentElement.dataset.reading = 'yes';
   el('reader-title').textContent = row.name ?? '';
+  const opening = sayOpening(row);
   try {
     drawn.clear();
     await render();
   } catch (err) {
+    opening.remove();
     close();
     throw err;
   }
+  opening.remove();
   setTool(null);
   refreshBrushUI();
   refreshHistoryButtons();
@@ -3328,6 +3369,22 @@ export function close() {
   take = null;
   strokes = [];
   bars = new Map();
+}
+
+// Something to look at while the first page is being got ready.
+//
+// The reader is put on screen BEFORE it has anything to draw, deliberately —
+// the tap that opened a part should do something immediately — and what it had
+// until now was a black screen for however long the pages took. The CSS holds
+// this back for a moment, so a part that opens in a fifth of a second (which,
+// once it has been measured, every part does) never shows it at all.
+function sayOpening(row) {
+  const note = document.createElement('div');
+  note.id = 'reader-opening';
+  note.setAttribute('role', 'status');
+  note.textContent = row?.name ? `Opening ${row.name}…` : 'Opening…';
+  root.append(note);
+  return note;
 }
 
 const HINT_KEY = 'readerHinted';

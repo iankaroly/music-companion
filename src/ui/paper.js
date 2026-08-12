@@ -101,6 +101,21 @@ function scratch(width, height) {
   return canvas;
 }
 
+// What the pages in hand have worked out about themselves, as two arrays the
+// score can be asked to remember. A page nobody has looked at yet is a null,
+// which is a hole for the next pass to fill rather than an answer.
+//
+// This exists because the reader was measuring every page of a part it had
+// already measured on the last open, and throwing all of it away on close.
+function measuredSoFar(count, crops, sizes) {
+  const out = { crops: [], sizes: [] };
+  for (let i = 0; i < count; i++) {
+    out.crops.push(crops.get(i) ?? null);
+    out.sizes.push(sizes.get(i) ?? null);
+  }
+  return out;
+}
+
 let pdfLib = null;
 
 async function loadPdfLib() {
@@ -212,6 +227,7 @@ async function openPdf(data, password = null, known = {}) {
     ...(password ? { password } : {}),
   }).promise;
   const crops = new Map();
+  const sizes = new Map();
   // Where the music is on this page. Measured off a thumbnail the first time,
   // which means RENDERING the page — so if it was measured when the score came
   // in, that answer is used and nothing is rendered at all.
@@ -242,11 +258,17 @@ async function openPdf(data, password = null, known = {}) {
     },
     cropOf: cropFor,
     async sizeOf(index) {
-      if (known.sizes?.[index]) return known.sizes[index];
+      if (sizes.has(index)) return sizes.get(index);
+      if (known.sizes?.[index]) {
+        sizes.set(index, known.sizes[index]);
+        return sizes.get(index);
+      }
       const page = await doc.getPage(index + 1);
       const view = page.getViewport({ scale: 1 });
-      return { w: view.width, h: view.height };
+      sizes.set(index, { w: view.width, h: view.height });
+      return sizes.get(index);
     },
+    measured() { return measuredSoFar(doc.numPages, crops, sizes); },
     draw(index, canvas, width, height, band = null) {
       return this.drawBand(index, canvas, band
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
@@ -306,6 +328,7 @@ function missingPage(index) {
 async function openImages(blobs, known = {}) {
   const cache = new Map();
   const crops = new Map();
+  const sizes = new Map();
   // Every page is decoded through the same door as the importer, so a format
   // one of them accepts is a format the other one draws.
   const load = (index) => {
@@ -343,10 +366,16 @@ async function openImages(blobs, known = {}) {
     },
     cropOf: cropFor,
     async sizeOf(index) {
-      if (known.sizes?.[index]) return known.sizes[index];
+      if (sizes.has(index)) return sizes.get(index);
+      if (known.sizes?.[index]) {
+        sizes.set(index, known.sizes[index]);
+        return sizes.get(index);
+      }
       const page = await load(index);
-      return { w: page.w, h: page.h };
+      sizes.set(index, { w: page.w, h: page.h });
+      return sizes.get(index);
     },
+    measured() { return measuredSoFar(blobs.length, crops, sizes); },
     draw(index, canvas, width, height, band = null) {
       return this.drawBand(index, canvas, band
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
@@ -383,10 +412,23 @@ async function openImages(blobs, known = {}) {
 
 // --- bringing paper in --------------------------------------------------------
 
+// How often the pass stops to write down what it has. Small, because the cost
+// of a write is two short arrays and the cost of not having written is the
+// whole part read again.
+const SAVE_EVERY = 3;
+
 // Reading the shape of every page as it comes in: staves, bars, noteheads. It
 // happens once, at import, because it takes a second a page and because the
 // answer never changes — the photograph is the photograph.
-export async function readPages(payload, onProgress = null) {
+//
+// `onMeasured` is handed what has been read SO FAR, every few pages, and it is
+// the difference between a pass that survives being interrupted and one that
+// does not. This used to hand back everything at the end and only at the end:
+// twenty-six pages of a twenty-seven page part, and then the app was put aside,
+// meant nothing was written down at all — and nothing ever ran this again, so
+// that part measured itself from scratch on every open for the rest of its life.
+// Which is the twenty seconds of black screen this whole thing is about.
+export async function readPages(payload, onProgress = null, onMeasured = null) {
   const pages = await openPaper(payload);
   const { readPage } = await import('../analysis/scan-read.js');
   const layout = [];
@@ -421,6 +463,13 @@ export async function readPages(payload, onProgress = null) {
     } catch {
       crops.push(null);
       sizes.push(null);
+    }
+    // Written down as it goes, not at the end. A pass that gets three pages in
+    // and is then interrupted has still made the next open three pages faster.
+    if ((i + 1) % SAVE_EVERY === 0 && i + 1 < pages.count) {
+      // Never fatal: the reading is worth finishing whether or not the disk
+      // took this instalment of it.
+      await Promise.resolve(onMeasured?.({ layout, crops, sizes })).catch(() => {});
     }
   }
   pages.destroy?.();
