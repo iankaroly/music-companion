@@ -2905,6 +2905,19 @@
       </div>
     </form>
   </dialog>
+  <dialog id="pdf-password-dialog">
+    <form method="dialog">
+      <h2>This part is locked</h2>
+      <input id="pdf-password-input" type="password" placeholder="Password"
+             aria-label="PDF password" autocomplete="off" />
+      <p class="set-hint">This PDF is locked. The password stays on this device, with the part.</p>
+      <div class="row">
+        <button value="cancel" class="ctl" formnovalidate>Cancel</button>
+        <button value="save" class="ctl primary">Unlock</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="reader-text-dialog">
     <h2>Write on the page</h2>
     <form method="dialog">
@@ -3446,6 +3459,19 @@
         <button id="set-reset" type="button" class="set-wide">Restore default settings</button>
         <p class="set-hint">Puts every preference back. Your recordings, folders and
         saved presets are untouched.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label">Page pedal</span>
+        <p class="set-hint">Bluetooth page turners pair as keyboards, so any of them works
+        here with nothing to set up — pair it in iPad Settings, open a score, and press it.
+        If yours sends something this does not know, teach it below.</p>
+        <div class="row">
+          <button id="set-pedal-forward" type="button" class="ctl">Teach — next page</button>
+          <button id="set-pedal-back" type="button" class="ctl">Teach — page before</button>
+        </div>
+        <p class="set-hint" id="set-pedal-report">Built-in keys: arrows, page up and page down,
+        space and return.</p>
+        <button id="set-pedal-forget" type="button" class="set-wide">Forget the taught pedal</button>
       </div>
       <div class="set-group">
         <span class="set-label">Microphone</span>

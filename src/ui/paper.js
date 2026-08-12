@@ -105,10 +105,20 @@ let pdfLib = null;
 
 async function loadPdfLib() {
   if (pdfLib) return pdfLib;
-  const [lib, worker] = await Promise.all([
-    import('pdfjs-dist'),
-    import('pdfjs-dist/build/pdf.worker.mjs?url'),
-  ]);
+  let lib;
+  let worker;
+  try {
+    [lib, worker] = await Promise.all([
+      import('pdfjs-dist'),
+      import('pdfjs-dist/build/pdf.worker.mjs?url'),
+    ]);
+  } catch {
+    // The reader itself would not load. On an older tablet that is the whole
+    // of it — the PDF engine is written for browsers newer than this one — and
+    // there is a way round worth saying out loud.
+    throw new Error('this browser cannot open PDFs — it is too old for the reader this app uses.'
+      + ' Photograph the pages instead, or open the app in Safari on a newer device');
+  }
   // Without this the worker never starts and every page renders blank — silent,
   // and indistinguishable from a broken reader.
   lib.GlobalWorkerOptions.workerSrc = worker.default;
@@ -116,19 +126,54 @@ async function loadPdfLib() {
   return lib;
 }
 
+// What pdf.js is actually complaining about, in words a player can act on.
+//
+// This is the difference between "there was a problem" and knowing that the
+// part is locked, or that the download came down truncated. Publishers encrypt
+// PDFs as a matter of course, which makes a password prompt — not an error —
+// the right answer to the commonest failure of all.
+export function pdfTrouble(err) {
+  const name = err?.name ?? '';
+  const said = err?.message ?? String(err ?? 'something went wrong');
+  if (name === 'PasswordException') {
+    return err.code === 2
+      ? 'that password was not right for this PDF'
+      : 'this PDF is locked and needs its password';
+  }
+  if (name === 'InvalidPDFException') {
+    return 'that file is not a PDF this reader can make sense of — it may have come down'
+      + ' incomplete. Download it again, or photograph the pages instead';
+  }
+  if (name === 'MissingPDFException' || name === 'UnexpectedResponseException') {
+    return 'that PDF could not be read off the disk';
+  }
+  if (/QuotaExceeded/i.test(name) || /quota/i.test(said)) {
+    return 'there is no room left on this device for a part that size';
+  }
+  return said;
+}
+
+// Whether a PDF needs a password before anything else can be asked of it.
+export function needsPassword(err) {
+  return err?.name === 'PasswordException';
+}
+
 // How many pages, and how to draw one. Both kinds answer the same two
 // questions, so the reader never asks which it is holding.
 export async function openPaper(payload) {
-  if (payload?.source === 'pdf' && payload.data) return openPdf(payload.data);
+  if (payload?.source === 'pdf' && payload.data) return openPdf(payload.data, payload.password);
   if (payload?.pages?.length) return openImages(payload.pages);
   throw new Error('there are no pages in that score');
 }
 
-async function openPdf(data) {
+async function openPdf(data, password = null) {
   const lib = await loadPdfLib();
   // A copy, because pdf.js takes ownership of the buffer it is handed and the
   // one in the database is wanted again next time.
-  const doc = await lib.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
+  const doc = await lib.getDocument({
+    data: new Uint8Array(data.slice(0)),
+    ...(password ? { password } : {}),
+  }).promise;
   const crops = new Map();
   // Where the music is on this page, measured once off a thumbnail.
   async function cropFor(index) {
@@ -332,10 +377,27 @@ export function nameFromFile(file) {
 
 // How many pages a PDF has, without keeping the document open — the shelf wants
 // the number the moment it is imported.
-export async function pdfPageCount(data) {
+//
+// It is also where a locked part is unlocked. A publisher's PDF asks for a
+// password, and asking for it is the answer: the part opens, the password is
+// kept beside it, and every later open is silent. Refusing the file, which is
+// what happened before, is the one answer that helps nobody.
+export async function pdfPageCount(data, { askPassword = null } = {}) {
   const lib = await loadPdfLib();
-  const doc = await lib.getDocument({ data: new Uint8Array(data.slice(0)) }).promise;
-  const count = doc.numPages;
-  doc.destroy?.();
-  return count;
+  let password = null;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const doc = await lib.getDocument({
+        data: new Uint8Array(data.slice(0)),
+        ...(password ? { password } : {}),
+      }).promise;
+      const count = doc.numPages;
+      doc.destroy?.();
+      return { count, password };
+    } catch (err) {
+      if (!needsPassword(err) || !askPassword || attempt >= 3) throw err;
+      password = await askPassword(err.code === 2);
+      if (!password) throw err;
+    }
+  }
 }

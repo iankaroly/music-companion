@@ -32,6 +32,7 @@ import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { shapeFrom } from '../analysis/shape-snap.js';
+import { pageTurn } from './pedal.js';
 import { intonationTone } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
@@ -2644,14 +2645,18 @@ function build() {
       else close();
       return;
     }
-    // The keys a Bluetooth page turner sends. Every pedal on the market sends
-    // one of these pairs, so supporting the keys is supporting the pedals —
-    // no pairing screen, no driver, nothing to configure.
-    if (['ArrowRight', 'PageDown', 'ArrowDown', ' ', 'Enter'].includes(e.key)) {
+    // The keys a Bluetooth page turner sends — every pedal on the market is a
+    // keyboard, and one it has been taught wins over the built-in ones. See
+    // pedal.js for which keys and why.
+    //
+    // Held down is not turned again: a pedal somebody is standing on should
+    // not run through the movement.
+    if (e.repeat) return;
+    const turn = pageTurn(e);
+    if (turn === 'forward') {
       e.preventDefault();
       nextPage();
-    }
-    if (['ArrowLeft', 'PageUp', 'ArrowUp', 'Backspace'].includes(e.key)) {
+    } else if (turn === 'back') {
       e.preventDefault();
       previousPage();
     }

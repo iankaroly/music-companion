@@ -1,4 +1,5 @@
 import { startCapture, micIsHeld, prepareCapture, ensureMic } from './audio/capture.js';
+import { taught, teach, pressOf, pressName, forgetPedal } from './ui/pedal.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder, MAX_SECONDS } from './audio/recording.js';
@@ -1986,6 +1987,56 @@ initScoreCard({
 initControls(document);
 
 // --- installable app: register the service worker -----------------------------
+
+// --- teaching the pedal -------------------------------------------------------
+//
+// Press it, and whatever it sent is that pedal from now on. There is nothing to
+// look up, nothing to configure, and no list of supported hardware — the pedal
+// says what it says and the app writes it down.
+
+function refreshPedalReport() {
+  const report = document.querySelector('#set-pedal-report');
+  if (!report) return;
+  const { forward, back } = taught();
+  report.textContent = forward || back
+    ? `Next page: ${pressName(forward)}. Page before: ${pressName(back)}.`
+      + ' The built-in keys still work as well.'
+    : 'Built-in keys: arrows, page up and page down, space and return.';
+  report.dataset.tone = '';
+}
+
+function learnPedal(direction, button) {
+  const report = document.querySelector('#set-pedal-report');
+  const was = button.textContent;
+  button.textContent = 'Press it now…';
+  if (report) {
+    report.textContent = direction === 'forward'
+      ? 'Press the pedal you want to turn FORWARD with.'
+      : 'Press the pedal you want to go BACK with.';
+  }
+  const listen = (e) => {
+    // Escape is how you change your mind, so it can never be a pedal.
+    if (e.key !== 'Escape') {
+      e.preventDefault();
+      teach(direction, pressOf(e));
+    }
+    stop();
+  };
+  const stop = () => {
+    document.removeEventListener('keydown', listen, true);
+    button.textContent = was;
+    refreshPedalReport();
+  };
+  document.addEventListener('keydown', listen, true);
+}
+
+document.querySelector('#set-pedal-forward')?.addEventListener('click', (e) => learnPedal('forward', e.currentTarget));
+document.querySelector('#set-pedal-back')?.addEventListener('click', (e) => learnPedal('back', e.currentTarget));
+document.querySelector('#set-pedal-forget')?.addEventListener('click', () => {
+  forgetPedal();
+  refreshPedalReport();
+});
+refreshPedalReport();
 
 // --- what this device will actually do with a microphone ----------------------
 //

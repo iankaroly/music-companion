@@ -25,7 +25,7 @@ import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
   pairScoreNotation, loadScorePages, saveScoreLayout,
 } from '../store/db.js';
-import { isPdf, isImage, nameFromFile, pdfPageCount, readPages } from './paper.js';
+import { isPdf, isImage, nameFromFile, pdfPageCount, readPages, pdfTrouble } from './paper.js';
 import { openScanner } from './scanner.js';
 
 let current = null;   // { id, name, xml, partIndex, notes }
@@ -212,9 +212,23 @@ async function addPaper(files, { name: given = null } = {}) {
   let trouble = null;   // pages that could not be read, said out loud at the end
   if (isPdf(list[0])) {
     const data = await list[0].arrayBuffer();
-    const pageCount = await pdfPageCount(data);
+    let opened;
+    try {
+      opened = await pdfPageCount(data, { askPassword: askPdfPassword });
+    } catch (err) {
+      // Named, so "there was a problem" becomes something to do about it.
+      throw new Error(pdfTrouble(err));
+    }
     id = await savePagesScore({
-      name: given ?? nameFromFile(list[0]), source: 'pdf', pageCount, data,
+      name: given ?? nameFromFile(list[0]),
+      source: 'pdf',
+      pageCount: opened.count,
+      data,
+      // Kept beside the part, so a locked PDF is unlocked once rather than
+      // every time it is opened. It never leaves this device — nothing here
+      // does — and it is the difference between a part you can play from and a
+      // file you have to unlock in another app first.
+      password: opened.password,
     });
   } else {
     // Photographs come back in whatever order the picker felt like; by name is
@@ -331,6 +345,33 @@ export async function importNotationFor(paperId, file) {
   if (id == null) return null;
   await pairWithNotation(paperId, id);
   return id;
+}
+
+// A locked part. Publishers encrypt PDFs as a matter of course, and a reader
+// that answers "there was a problem" to the commonest kind of file in the shop
+// is a reader that cannot open half of what people have paid for. Resolves with
+// null if they would rather not.
+function askPdfPassword(wasWrong = false) {
+  const dialog = document.querySelector('#pdf-password-dialog');
+  const input = document.querySelector('#pdf-password-input');
+  const note = dialog?.querySelector('.set-hint');
+  if (!dialog || !input) return Promise.resolve(null);
+  input.value = '';
+  if (note) {
+    note.textContent = wasWrong
+      ? 'That was not the password for this PDF. Try again.'
+      : 'This PDF is locked. The password stays on this device, with the part.';
+    note.dataset.tone = wasWrong ? 'bad' : '';
+  }
+  return new Promise((resolve) => {
+    const done = () => {
+      dialog.removeEventListener('close', done);
+      resolve(dialog.returnValue === 'save' ? input.value : null);
+    };
+    dialog.addEventListener('close', done);
+    dialog.showModal();
+    setTimeout(() => input.focus(), 50);
+  });
 }
 
 // The name dialog, shared by scanning and by renaming. Resolves with null if

@@ -143,7 +143,7 @@ export async function saveScore({ name, xml, partIndex = 0, parts = [] }) {
 // A score that is PAPER rather than notation: a PDF, or a page per photograph.
 // It can be read, paged through and written on; it cannot be marked up against
 // a take, because nothing in a picture of a page says which note is which.
-export async function savePagesScore({ name, source, pageCount, data = null, pages = null }) {
+export async function savePagesScore({ name, source, pageCount, data = null, pages = null, password = null }) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(['scores', 'score-pages'], 'readwrite');
@@ -151,7 +151,7 @@ export async function savePagesScore({ name, source, pageCount, data = null, pag
       name, kind: 'pages', source, pageCount, date: Date.now(),
     });
     req.onsuccess = () => {
-      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages });
+      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages, password });
     };
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
