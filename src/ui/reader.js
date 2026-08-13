@@ -1038,6 +1038,7 @@ function beginStroke(e) {
   const point = anchor(at.x, at.y);
   if (!point) return;
   nibPressure(point, e);
+  lastInkAt = at;
   if (tool === 'text') { writeText(point); return; }
   if (tool === 'stamp') { placeStamp(point); return; }
   const brush = currentBrush();
@@ -1093,13 +1094,35 @@ function extendStroke(e, { quiet = false } = {}) {
     delete drawing.snapped;
     watchForHold(at);
   }
+  // Samples the hand did not make.
+  //
+  // Asking for the coalesced events is what got the whole gesture instead of a
+  // quarter of it, but a pencil sampled at 240Hz reports where it is whether or
+  // not it has gone anywhere: hold it still for a second at the end of a
+  // fingering and that is two hundred and forty points describing one spot.
+  // They are stored, they are re-anchored, and they are re-drawn on every
+  // frame for as long as the mark exists.
+  //
+  // A twentieth of a pixel apart is not a different place — no screen can show
+  // the difference and no hand meant one — so a sample that has not moved
+  // sensibly since the last one is dropped. Not simplification: nothing that
+  // was drawn is lost, only positions the device repeated. The shape tools are
+  // exempt, because their second point IS the live corner and replacing it is
+  // the whole gesture.
+  const moved = !lastInkAt || Math.hypot(at.x - lastInkAt.x, at.y - lastInkAt.y) >= INK_STEP;
+  if (drawing.type !== 'shape' && !moved) { watchForHold(at); return; }
   const point = anchor(at.x, at.y);
   if (point) nibPressure(point, e);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
-  else if (point) drawing.points.push(point);
+  else if (point) { drawing.points.push(point); lastInkAt = at; }
   if (drawing.type !== 'shape') watchForHold(at);
   if (!quiet) redraw();
 }
+
+// How far the pen has to travel before it counts as somewhere else. A third of
+// a pixel: below what any screen can draw, above what a still hand reports.
+const INK_STEP = 0.34;
+let lastInkAt = null;
 
 // How hard the pencil was pressing, kept on the point that was made.
 //
@@ -1118,6 +1141,7 @@ function nibPressure(point, e) {
 // A stroke that turned out to be the start of a pinch is not a stroke.
 function cancelStroke() {
   stopHold();
+  lastInkAt = null;
   drawing = null;
   // A lasso is a gesture too, and pinching in the middle of one used to leave
   // it half-drawn: the loop stayed on screen with nothing able to finish it,
@@ -1146,6 +1170,7 @@ const TAP_PUTS_DOWN = ['pen', 'highlighter', ...SHAPES];
 
 function endStroke() {
   stopHold();
+  lastInkAt = null;
   if (tool === 'lasso') {
     if (dragging) { dragging = null; scheduleSave(); }
     else if (lasso) { picked = strokesInside(lasso); lasso = null; refreshSelectionBar(); }

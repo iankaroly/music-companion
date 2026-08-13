@@ -215,9 +215,21 @@ async function run() {
   // are saved four hundred milliseconds after the pen lifts, so what comes back
   // is what a player would find there tomorrow.
   await new Promise((r) => setTimeout(r, 800));
-  const kept = (await loadAnnotations(ROW.id).catch(() => [])).length;
+  const saved = await loadAnnotations(ROW.id).catch(() => []);
+  const kept = saved.length;
   say(`marks on the piece afterwards: ${kept} (30 were seeded)`,
     kept > 30 ? 'ok' : 'bad');
+  // What the stroke actually cost to keep. Coalesced sampling gets the whole
+  // gesture; the question is whether it also kept the hundreds of positions a
+  // still hand reports.
+  const drawnPoints = kept > 30 ? (saved.at(-1)?.points?.length ?? 0) : 0;
+  const still = window.__benchStill ?? 0;
+  say(`points in the drawn stroke: ${drawnPoints}`
+    + `  (${STEPS} moves that went somewhere, ${still} that did not)`);
+  say(`a still hand added: ${Math.max(0, drawnPoints - STEPS - 1)} points of ${still}`,
+    drawnPoints <= STEPS + 2 ? 'ok' : 'bad');
+  const withPressure = (saved.at(-1)?.points ?? []).filter((p) => p.w !== undefined).length;
+  say(`of those, carrying pressure: ${withPressure}`);
 
   say('');
   say(`--- one stroke of ${STEPS} moves across a page carrying 30 marks ---`);
