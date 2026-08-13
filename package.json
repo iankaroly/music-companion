@@ -13,12 +13,13 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs",
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-seek-check.mjs",
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
     "reader:sweep": "node tools/reader-sweep-check.mjs",
-    "reader:lag": "node tools/reader-lag-check.mjs"
+    "reader:lag": "node tools/reader-lag-check.mjs",
+    "reader:seek": "node tools/reader-seek-check.mjs"
   },
   "keywords": [],
   "author": "",

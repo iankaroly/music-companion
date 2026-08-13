@@ -1259,6 +1259,11 @@
       font-size: 0.78rem;
       animation: pop-in 240ms var(--spring);
     }
+    /* The once-ever hint tells you how to summon the controls, so it has no
+       business being on screen while they are up — and it sat exactly where
+       the seek bar's label wants to be, covering the name of the place you
+       were scrubbing to with an instruction you were plainly not following. */
+    #reader:not(.bare) #reader-hint { display: none; }
     html[data-reading] body { overflow: hidden; }
     html[data-reading] nav[role="tablist"] { display: none; }
     /* Nothing is selectable while a part is on the stand. Anything.
@@ -2126,6 +2131,94 @@
       letter-spacing: 0.01em;
     }
     #reader-next[hidden] { display: none; }
+    /* The seek bar: a slider along the bottom for a page a long way off.
+       Comes and goes with the rest of the controls — while you are playing,
+       the point of the screen is the music. The whole strip is the target, not
+       the hairline in the middle of it: a bow-holding hand does not aim, and a
+       2px line would be unusable. */
+    #reader-seek {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 3;
+      padding: 0.55rem max(1rem, env(safe-area-inset-left, 0px))
+               calc(0.7rem + env(safe-area-inset-bottom, 0px));
+      touch-action: none;
+      --at: 0%;
+    }
+    #reader-seek[hidden] { display: none; }
+    #reader.bare #reader-seek { display: none; }
+    /* Nor while you are annotating: the bar of tools is the subject then, and
+       the page arrows on it are how you move. */
+    #reader.drawing #reader-seek { display: none; }
+    .seek-track {
+      position: relative;
+      height: 2.4rem;              /* the reachable part */
+      display: flex;
+      align-items: center;
+      cursor: pointer;
+    }
+    /* The line itself, drawn inside the tall target. */
+    .seek-track::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      right: 0;
+      height: 3px;
+      border-radius: 999px;
+      background: var(--line-strong);
+      opacity: 0.75;
+    }
+    .seek-filled {
+      position: absolute;
+      left: 0;
+      width: var(--at);
+      height: 3px;
+      border-radius: 999px;
+      background: var(--primary);
+    }
+    .seek-knob {
+      position: absolute;
+      left: var(--at);
+      width: 0.95rem;
+      height: 0.95rem;
+      margin-left: -0.475rem;
+      border-radius: 50%;
+      background: rgb(var(--sf));
+      border: 2px solid var(--primary);
+      box-shadow: 0 1px 4px rgb(0 0 0 / 0.25);
+    }
+    /* The name of the place you are passing over, above the handle — the whole
+       point of the thing. Clamped to the screen so a bookmark near either end
+       does not hang off it. */
+    .seek-label {
+      position: absolute;
+      left: clamp(4.5rem, var(--at), calc(100% - 4.5rem));
+      transform: translateX(-50%);
+      bottom: 2.1rem;
+      max-width: 9rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      text-align: center;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.95);
+      border: 1px solid var(--glass-line);
+      box-shadow: var(--shadow);
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 0.8rem;
+      pointer-events: none;
+    }
+    .seek-label[hidden] { display: none; }
+    #reader.night .seek-label {
+      background: rgb(26 28 32 / 0.95);
+      border-color: rgb(255 255 255 / 0.12);
+      color: #d6d9de;
+    }
+    #reader.night .seek-track::before { background: #3a3f47; opacity: 1; }
     /* A turn that is taking a while.
        Not a spinner over the music and not a message — the page you are reading
        is still there and still readable, and this only has to say that the tap

@@ -372,6 +372,21 @@ let spread = false;
 // which is where a hand reaching for the corner of a page actually lands.
 const TOP_REACH = 0.25;
 
+// Everything on top of the music that is a CONTROL rather than the page.
+//
+// Four separate gestures ask this same question — the turn on the way down, the
+// swipe, the tap, and the pencil arming itself — and each of them used to carry
+// its own copy of the answer. They had already drifted apart by one entry, and
+// every control added afterwards was a bug waiting in whichever list somebody
+// forgot. There is one list.
+const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
+  + ' #reader-selection, #reader-land, #reader-seek, .pick-pop, dialog';
+
+// Was this touch on the chrome rather than on the music?
+function onChrome(e) {
+  return !!e.target?.closest?.(CHROME);
+}
+
 const el = (id) => document.querySelector(`#${id}`);
 
 // Is a part on the stand right now? Asked by the document-level guards, which
@@ -1590,8 +1605,7 @@ function penIsDown() {
 function armPencil(e) {
   if (!root || root.hidden || isMenuOpen()) return false;
   // Not on the chrome: a pencil is a perfectly good way to press a button.
-  if (e.target?.closest?.('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-    + ' #reader-selection, #reader-land, .pick-pop, dialog')) return false;
+  if (onChrome(e)) return false;
   // Nor over a jump you taped down, or the one you are in the middle of taping.
   if (pendingLink) return false;
   setTool(lastInk);
@@ -2090,6 +2104,7 @@ async function showPage(index) {
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   invalidateGeometry();     // different music, in different places
   refreshUpNext();
+  refreshSeek();
   redraw();
   if (isPaper()) keepNeighboursReady(shown);
 }
@@ -2635,6 +2650,148 @@ function usePreset(index) {
 
 function bookmarksOf() {
   return score?.bookmarks ?? [];
+}
+
+// --- the seek bar -------------------------------------------------------------
+//
+// The way to a page that is a long way off.
+//
+// Tapping the edge fourteen times to reach page fourteen is not navigation, it
+// is fourteen page turns — and on a slow device it is also fourteen renders,
+// which is the one thing that makes this reader feel slow. forScore's answer is
+// not a faster render: it is a slider along the bottom of the page, so getting
+// somewhere far is one gesture rather than a sequence of the wrong one.
+//
+// The detail worth copying exactly is the LABEL. Scrubbing a concerto should
+// say "II. Adagio", not "page 14" — the name you gave the place is what you are
+// looking for, and the number is only how the file happens to be arranged. So
+// the handle carries the bookmark you are passing over, and falls back to the
+// page when there is not one.
+//
+// It comes and goes with the rest of the controls, because while you are
+// playing the point of the screen is the music.
+
+// Which screenful a bookmark lands on. Paper bookmarks already know; a bookmark
+// on notation knows its BAR, and where that bar is depends on how the music is
+// set today.
+function bookmarkScreen(mark) {
+  if (mark.page !== undefined) return mark.page;
+  return bars.get(mark.bar)?.page;
+}
+
+// The name of the place you are scrubbing over: the last bookmark at or before
+// this screenful, if there is one.
+function placeAt(index) {
+  let best = null;
+  let nearest = -1;
+  for (const mark of bookmarksOf()) {
+    const at = bookmarkScreen(mark);
+    if (at === undefined || at > index || at < nearest) continue;
+    nearest = at;
+    best = mark;
+  }
+  if (best?.label) return best.label;
+  // No bookmark: say where you are in the terms the score is kept in — the
+  // sheet of paper for a scan, the screenful for engraved music.
+  if (isPaper()) {
+    const paperPage = slices[index]?.page;
+    return paperPage === undefined ? `p. ${index + 1}` : `page ${paperPage + 1}`;
+  }
+  return `p. ${index + 1}`;
+}
+
+function buildSeekBar() {
+  const bar = document.createElement('div');
+  bar.id = 'reader-seek';
+  bar.hidden = true;
+
+  const track = document.createElement('div');
+  track.className = 'seek-track';
+  const filled = document.createElement('div');
+  filled.className = 'seek-filled';
+  const knob = document.createElement('div');
+  knob.className = 'seek-knob';
+  const label = document.createElement('div');
+  label.className = 'seek-label';
+  label.hidden = true;
+  track.append(filled, knob, label);
+  bar.append(track);
+
+  const indexAt = (clientX) => {
+    const box = track.getBoundingClientRect();
+    if (!box.width || pageEls.length < 2) return 0;
+    const t = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
+    return Math.round(t * (pageEls.length - 1));
+  };
+
+  let scrubbing = null;
+  let want = 0;
+
+  // While the finger is down the label follows it at once, and the PAGE follows
+  // as fast as the device can draw one — never faster. Asking for a render on
+  // every pixel of a drag would queue a dozen of them and arrive at the last
+  // one long after the finger had stopped; asking only when the reader is idle
+  // means the music keeps up on a fast device and simply skips ahead on a slow
+  // one, which is what scrubbing should do anyway.
+  const chase = () => {
+    if (scrubbing === null || turning > 0 || want === pageIndex) return;
+    showPage(want);
+  };
+
+  const follow = (clientX) => {
+    want = indexAt(clientX);
+    label.hidden = false;
+    label.textContent = placeAt(want);
+    paintSeek(want);
+    chase();
+  };
+
+  track.addEventListener('pointerdown', (e) => {
+    if (pageEls.length < 2) return;
+    e.preventDefault();
+    scrubbing = e.pointerId;
+    try { track.setPointerCapture(e.pointerId); } catch { /* the drag goes on */ }
+    follow(e.clientX);
+  });
+  track.addEventListener('pointermove', (e) => {
+    if (scrubbing !== e.pointerId) return;
+    follow(e.clientX);
+  });
+  for (const type of ['pointerup', 'pointercancel']) {
+    track.addEventListener(type, (e) => {
+      if (scrubbing !== e.pointerId) return;
+      scrubbing = null;
+      label.hidden = true;
+      // Wherever the finger left it, that is where you meant — even if the
+      // device never caught up on the way.
+      if (want !== pageIndex) showPage(want);
+      refreshSeek();
+    });
+  }
+  // A page drawn while scrubbing frees the reader to move again.
+  seekChase = chase;
+  return bar;
+}
+
+let seekChase = null;
+
+// Where the handle sits, and how much of the part is behind you.
+function paintSeek(index = pageIndex) {
+  const bar = el('reader-seek');
+  if (!bar) return;
+  const many = pageEls.length > 1;
+  bar.hidden = !many;
+  if (!many) return;
+  const t = index / (pageEls.length - 1);
+  bar.style.setProperty('--at', `${(t * 100).toFixed(2)}%`);
+  bar.setAttribute('aria-valuenow', String(index + 1));
+  bar.setAttribute('aria-valuemax', String(pageEls.length));
+}
+
+function refreshSeek() {
+  paintSeek(pageIndex);
+  const label = el('reader-seek')?.querySelector('.seek-label');
+  if (label && label.hidden) label.textContent = placeAt(pageIndex);
 }
 
 async function addBookmark() {
@@ -3757,7 +3914,7 @@ function build() {
   land.hidden = true;
 
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land, upNext);
+    buildSelectionBar(), menu, line, land, upNext, buildSeekBar());
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -3841,8 +3998,7 @@ function build() {
     // and a hand going up there is reaching for the controls.
     if (!tool && !isMenuOpen() && !pinching && zoom === 1
       && pointers.size <= 1 && e.pointerType !== 'pen' && !pendingLink
-      && !e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-        + ' #reader-selection, #reader-land')) {
+      && !onChrome(e)) {
       if (e.clientY < window.innerHeight * TOP_REACH) {
         // Up here is the bar, either way round — showing it if it is away, and
         // getting out of the way of a tap meant for it if it is already down.
@@ -3896,8 +4052,7 @@ function build() {
 
   function onSwipe(e, from) {
     if (tool || pendingLink || isMenuOpen() || zoom !== 1) return false;
-    if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-      + ' #reader-selection, #reader-land')) return false;
+    if (onChrome(e)) return false;
     const dx = e.clientX - from.x;
     const dy = e.clientY - from.y;
     if (Math.abs(dx) < SWIPE_FAR) return false;
@@ -3917,7 +4072,7 @@ function build() {
   });
 
   function onTap(e) {
-    if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
+    if (onChrome(e)) return;
     if (isMenuOpen()) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     // A tap on the page hides the BAR. It does not put the pen down.
@@ -4334,6 +4489,7 @@ async function drawOnePage(index) {
   // mark on it placed against the empty rectangle it had before.
   invalidateGeometry();
   dropDryInk();
+  seekChase?.();   // a scrub waiting on this page may move on
   redraw(); // the ink layer measures the page it has just been given a size for
 }
 
