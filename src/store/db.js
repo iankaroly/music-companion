@@ -351,6 +351,45 @@ export async function saveScoreLayout(scoreId, layout, measurements = null) {
   });
 }
 
+// Where the music is on ONE page, said by hand.
+//
+// This is the one write that overrules fillGaps rather than going through it.
+// Everything else that sets a crop is MEASURING — reading the page and
+// reporting what is on it — and for measurements "the answer already written
+// down wins" is right, because they all get the same answer. A crop somebody
+// has dragged the edges of is not a measurement. It is a correction, made
+// precisely because the measured answer was wrong, and merging it into the
+// wrong answer it exists to replace would be a recrop that silently did
+// nothing.
+//
+// What is read OFF the page goes with it. Where the staves are is measured in
+// the cropped page's own terms, so moving the crop makes that page's layout a
+// description of somewhere else. Nulled, exactly as replaceOnePage does it, and
+// the next reading pass fills the hole.
+export async function setPageCrop(scoreId, index, crop) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('score-pages', 'readwrite');
+    const store = tx.objectStore('score-pages');
+    const req = store.get(scoreId);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      const crops = Array.isArray(row.crops) ? row.crops.slice() : [];
+      while (crops.length <= index) crops.push(null);
+      crops[index] = crop;
+      row.crops = crops;
+      if (Array.isArray(row.layout) && row.layout[index]) {
+        row.layout = row.layout.map((page, i) => (i === index ? null : page));
+      }
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 // Pages reordered or thrown away. A scan comes off a camera in the order it was
 // shot, which is usually right and occasionally not — a page taken twice, or
 // one taken out of turn.

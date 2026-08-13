@@ -351,6 +351,26 @@ async function openPdf(data, password = null, known = {}) {
       return sizes.get(index);
     },
     measured() { return measuredSoFar(doc.numPages, crops, sizes); },
+    // The whole sheet, margins and all, with no crop applied at all.
+    //
+    // Everything else here draws the CROPPED page, which is the point of the
+    // crop. This is the one thing that must not: it is what a new crop is
+    // chosen from, and a page you can only see the inside of is a page whose
+    // margins you can never give back.
+    async drawWhole(index, canvas, width, height) {
+      const page = await doc.getPage(index + 1);
+      const base = page.getViewport({ scale: 1 });
+      const dpr = window.devicePixelRatio || 1;
+      const fit = Math.min(width / base.width, height / base.height);
+      const { context, pixels } = sizeToBand(canvas, base.width * fit, base.height * fit,
+        dpr * withinReach(base.width * fit * dpr, base.height * fit * dpr));
+      await page.render({
+        canvasContext: context,
+        viewport: page.getViewport({ scale: fit * pixels }),
+        canvas,
+        background: PAPER,
+      }).promise;
+    },
     draw(index, canvas, width, height, band = null) {
       return this.drawBand(index, canvas, band
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
@@ -511,6 +531,17 @@ async function openImages(blobs, known = {}) {
       return sizes.get(index);
     },
     measured() { return measuredSoFar(blobs.length, crops, sizes); },
+    // The whole photograph, uncropped — see the note on the PDF side.
+    async drawWhole(index, canvas, width, height) {
+      const page = await load(index);
+      const dpr = window.devicePixelRatio || 1;
+      const fit = Math.min(width / page.w, height / page.h);
+      const w = Math.max(1, Math.round(page.w * fit));
+      const h = Math.max(1, Math.round(page.h * fit));
+      const { context, pixels } = sizeToBand(canvas, w, h, dpr * withinReach(w * dpr, h * dpr));
+      context.setTransform(pixels, 0, 0, pixels, 0, 0);
+      context.drawImage(page.el, 0, 0, w, h);
+    },
     draw(index, canvas, width, height, band = null) {
       return this.drawBand(index, canvas, band
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }

@@ -127,19 +127,23 @@ function build() {
   cancel.addEventListener('click', () => finish(null));
   const whole = el('button', 'ctl');
   whole.type = 'button';
+  whole.id = 'crop-whole';
   whole.textContent = 'Whole photo';
   whole.addEventListener('click', () => { quad = WHOLE_FRAME.map((p) => [...p]); draw(); });
   const reset = el('button', 'ctl');
   reset.type = 'button';
+  reset.id = 'crop-reset';
   reset.textContent = 'What it found';
   reset.addEventListener('click', () => { quad = found.map((p) => [...p]); draw(); });
   const keep = el('button', 'ctl primary');
   keep.type = 'button';
+  keep.id = 'crop-keep';
   keep.textContent = 'Use these edges';
   keep.addEventListener('click', () => finish(quad));
   bar.append(cancel, whole, reset, keep);
 
   const hint = el('p', 'crop-hint');
+  hint.id = 'crop-hint';
   hint.textContent = 'Drag the corners onto the corners of the paper, or drag a line to move a whole edge.';
 
   root.append(stage, overlay, hint, bar);
@@ -159,8 +163,27 @@ function finish(result) {
 
 // The photograph as taken, and where the paper was thought to be. Resolves with
 // the corners the player settled on, or null if they left it alone.
-export async function editCorners(blob, corners = null) {
+// The words on the buttons.
+//
+// This editor does two jobs. On a photograph it is finding the sheet of paper
+// in a picture of a room; on a page of a PDF it is trimming the white off
+// something already rectangular. The gestures are the same and the sentences
+// are not — "Whole photo" on a downloaded part is a button describing a
+// photograph that does not exist.
+const PHOTO_WORDS = {
+  whole: 'Whole photo',
+  reset: 'What it found',
+  keep: 'Use these edges',
+  hint: 'Drag the corners onto the corners of the paper, or drag a line to move a whole edge.',
+};
+
+export async function editCorners(blob, corners = null, words = null) {
   build();
+  const say = { ...PHOTO_WORDS, ...(words ?? {}) };
+  root.querySelector('#crop-whole').textContent = say.whole;
+  root.querySelector('#crop-reset').textContent = say.reset;
+  root.querySelector('#crop-keep').textContent = say.keep;
+  root.querySelector('#crop-hint').textContent = say.hint;
   const image = await readableImage(blob);
   if (!image) return null;
   const { w, h } = sizeOfImage(image);

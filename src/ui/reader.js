@@ -2136,14 +2136,24 @@ function buildMenu(sheet) {
       onPick: () => resize(1 / ZOOM_STEP),
     });
   }
-  if (isPaper() && score?.source !== 'pdf') {
+  if (isPaper()) {
     menuGroup(sheet, 'the pages themselves');
     menuRow(sheet, {
-      label: 'Change the edges…',
-      glyph: '⛶',
-      detail: 'crop a page again, or straighten one that came out crooked',
-      onPick: openEdgesMenu,
+      label: 'Trim a page…',
+      glyph: '⌗',
+      detail: 'say where the music is, when too much white or too little shows',
+      onPick: openTrimMenu,
     });
+    // Only a photograph has edges to find: a PDF page is already a rectangle,
+    // and there is no picture behind it to re-cut.
+    if (score?.source !== 'pdf') {
+      menuRow(sheet, {
+        label: 'Change the edges…',
+        glyph: '⛶',
+        detail: 'crop a page again, or straighten one that came out crooked',
+        onPick: openEdgesMenu,
+      });
+    }
   }
   if (isPaper()) {
     menuGroup(sheet, 'what is behind it');
@@ -2280,6 +2290,80 @@ function openEdgesMenu() {
   // one piece of paper and one set of edges.
   const seen = new Set();
   const pages = rows.filter((row) => (seen.has(row.label) ? false : seen.add(row.label)));
+  actionMenu(el('reader-menu-btn'), pages);
+}
+
+// Trimming a page: saying where the music is on it, when the app got it wrong.
+//
+// Every page is measured on the way in — margins off, music to the edges — and
+// mostly that is right. When it is not, it is badly wrong: a page number read
+// as ink keeps two inches of white, a faint first system gets cut off. Until
+// now there was nothing to do about it on a PDF, which is what most parts are.
+//
+// This changes NOTHING about the file. The crop is a rectangle to draw FROM,
+// stored beside the pages; the PDF is untouched and the whole sheet is always
+// there to widen back out to. That is why it can be offered on a downloaded
+// part at all, and why it is safe to get wrong and do again.
+async function trimPage(pageNumber) {
+  if (!score || !paper?.drawWhole) return;
+  const { setPageCrop, loadScorePages } = await import('../store/db.js');
+  const { editCorners } = await import('./crop.js');
+  const sheetCanvas = document.createElement('canvas');
+  try {
+    // Big enough to place an edge by eye, and no bigger.
+    await paper.drawWhole(pageNumber, sheetCanvas, 1400, 1900);
+  } catch (err) {
+    say(`that page could not be drawn to crop — ${err.message}`);
+    return;
+  }
+  const blob = await new Promise((resolve) => sheetCanvas.toBlob(resolve, 'image/jpeg', 0.92));
+  sheetCanvas.width = 0;
+  sheetCanvas.height = 0;
+  if (!blob?.size) { say('that page could not be prepared for cropping'); return; }
+  // Starting from where the crop is NOW, so a small correction is a small drag
+  // rather than drawing the whole rectangle again.
+  const row = await loadScorePages(score.id);
+  const at = row?.crops?.[pageNumber];
+  const start = at
+    ? [[at.x, at.y], [at.x + at.w, at.y], [at.x + at.w, at.y + at.h], [at.x, at.y + at.h]]
+    : null;
+  const chosen = await editCorners(blob, start, {
+    whole: 'Whole page',
+    reset: 'What it found',
+    keep: 'Trim it here',
+    hint: 'Drag the edges to where the music starts and stops. Nothing is cut from the file —'
+      + ' this is only how much of the page is shown.',
+  });
+  if (!chosen) return;
+  // The corners move independently, because the same editor squares up a
+  // photograph taken at an angle. A page of a PDF is already square, so what is
+  // taken from it is the rectangle those corners enclose.
+  const xs = chosen.quad.map((p) => p[0]);
+  const ys = chosen.quad.map((p) => p[1]);
+  const x = Math.max(0, Math.min(...xs));
+  const y = Math.max(0, Math.min(...ys));
+  const crop = {
+    x,
+    y,
+    w: Math.min(1 - x, Math.max(0.05, Math.max(...xs) - x)),
+    h: Math.min(1 - y, Math.max(0.05, Math.max(...ys) - y)),
+  };
+  await setPageCrop(score.id, pageNumber, crop);
+  say('page trimmed');
+  // Rebuilt from the score as it now stands: the bands of that page are cut
+  // from the crop, so they are all different now.
+  drawn.clear();
+  await render();
+  showPage(Math.max(0, slices.findIndex((slice) => slice.page === pageNumber)));
+}
+
+// Which page to trim.
+function openTrimMenu() {
+  const seen = new Set();
+  const pages = pageEls
+    .map((_, i) => slices[i]?.page ?? i)
+    .filter((page) => (seen.has(page) ? false : seen.add(page)))
+    .map((page) => ({ label: `Page ${page + 1}`, onPick: () => trimPage(page) }));
   actionMenu(el('reader-menu-btn'), pages);
 }
 
