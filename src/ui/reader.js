@@ -1285,6 +1285,7 @@ function beginStroke(e) {
   if (!point) return;
   nibPressure(point, e);
   lastInkAt = at;
+  strokeTravel = 0;
   if (tool === 'text') { writeText(point); return; }
   if (tool === 'stamp') { placeStamp(point); return; }
   const brush = currentBrush();
@@ -1367,7 +1368,11 @@ function extendStroke(e, { quiet = false } = {}) {
   const point = anchor(at.x, at.y);
   if (point) nibPressure(point, e);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
-  else if (point) { drawing.points.push(point); lastInkAt = at; }
+  else if (point) {
+    strokeTravel += lastInkAt ? Math.hypot(at.x - lastInkAt.x, at.y - lastInkAt.y) : 0;
+    drawing.points.push(point);
+    lastInkAt = at;
+  }
   if (drawing.type !== 'shape') watchForHold(at);
   if (!quiet) redraw();
 }
@@ -1376,6 +1381,10 @@ function extendStroke(e, { quiet = false } = {}) {
 // a pixel: below what any screen can draw, above what a still hand reports.
 const INK_STEP = 0.34;
 let lastInkAt = null;
+// How far a stroke has travelled across the glass. Under TAP_INK it was a tap,
+// however many positions the device reported along the way — see endStroke.
+const TAP_INK = 4;
+let strokeTravel = 0;
 
 // How hard the pencil was pressing, kept on the point that was made.
 //
@@ -1430,7 +1439,19 @@ function endStroke() {
     redraw();
     return;
   }
-  if (drawing && drawing.points.length > 1) {
+  // A stroke that went nowhere was a TAP.
+  //
+  // "More than one point" was the test, and a finger cannot put one point on a
+  // sheet of glass: resting it and lifting it reports two or three positions a
+  // pixel apart, which came out as a stray speck of ink on the page. Worse, it
+  // counted as writing — so the tap that was meant to send the tool bar away
+  // was read as annotating and the bar stayed exactly where it was. That is
+  // the "sometimes tapping to get rid of the bar doesn't work" of it.
+  //
+  // Four pixels of travel is under anything a hand does on purpose and over
+  // everything it does by accident. A deliberate dot is a stamp, and there is
+  // one on the bar.
+  if (drawing && drawing.points.length > 1 && strokeTravel >= TAP_INK) {
     // The scrawl behind a snapped shape is scaffolding, not part of the mark.
     delete drawing.freehand;
     delete drawing.snapped;
@@ -1946,7 +1967,23 @@ function drawLasso(ctx) {
 // they wanted. Under half a second covers every page this renderer draws in
 // practice; past that, whatever there is goes up, and the picture arrives when
 // it arrives.
-const HOLD_PAGE = 450;
+const HOLD_PAGE = 2600;
+
+// How long a turn may take before it admits it is taking a while.
+//
+// The old rule was to hold the page you were reading for 450ms and then show
+// the next one whether or not it had been drawn — which on a slow device meant
+// the commonest turn was: your music for half a second, then a BLANK page, then
+// the music. That is the worst of both: you wait, and then you are shown
+// nothing for your trouble.
+//
+// So the page you are reading now stays until the next one is genuinely ready.
+// A page of music you can still read is the best thing to be looking at while
+// waiting, and it is never a glitch — it is the page you were on. What was
+// missing is any sign that the reader heard you, so past a third of a second a
+// quiet mark appears in the corner. A turn that is quick — which is nearly all
+// of them — never reaches it.
+const SAY_TURNING = 350;
 
 // Which pages are worth keeping drawn, either side of the one being read. Every
 // drawn page is a screenful of pixels: on a tablet, twenty of them left lying
@@ -1985,8 +2022,31 @@ async function showPage(index) {
   // look at while waiting.
   if (isPaper()) {
     const token = ++turnToken;
-    const ready = Promise.all(shownNext.map((i) => drawPaperPage(i).catch(() => {})));
-    await Promise.race([ready, new Promise((resolve) => { setTimeout(resolve, HOLD_PAGE); })]);
+    // The page you asked for goes to the front of the queue.
+    //
+    // Drawing a page is the one genuinely expensive thing this reader does, and
+    // there is one processor. A turn used to be able to arrive while the
+    // look-ahead was part-way through drawing a page two ahead of you, and then
+    // wait for THAT to finish before its own page was even started: two full
+    // renders of latency for one tap. On this laptop that is eighty
+    // milliseconds and invisible. On an iPad it is two seconds, which is the
+    // whole of "occasionally I tap and it lags".
+    //
+    // Saying a turn is in progress makes the look-ahead stand still. It cannot
+    // recall the render already running — nothing can — but it starts no more
+    // until the page in front of you is on screen.
+    turning++;
+    const slow = setTimeout(() => {
+      if (token === turnToken) root?.classList.add('waiting');
+    }, SAY_TURNING);
+    try {
+      const ready = Promise.all(shownNext.map((i) => drawPaperPage(i).catch(() => {})));
+      await Promise.race([ready, new Promise((resolve) => { setTimeout(resolve, HOLD_PAGE); })]);
+    } finally {
+      turning--;
+      clearTimeout(slow);
+      root?.classList.remove('waiting');
+    }
     // Somebody tapped again while this page was being drawn: that turn is the
     // one that matters, and this one must not undo it.
     if (token !== turnToken) return;
@@ -2120,6 +2180,13 @@ function keepNeighboursReady(shown) {
   setTimeout(async () => {
     for (const i of wanted) {
       if (mine !== lookAhead) return;
+      // Nothing is drawn ahead while somebody is waiting on a page NOW. The
+      // look-ahead exists to make turns instant; a look-ahead that delays a
+      // turn is doing the opposite of its job.
+      while (turning > 0) {
+        await new Promise((go) => { setTimeout(go, 30); });
+        if (mine !== lookAhead) return;
+      }
       await drawPaperPage(i).catch(() => {});
     }
     if (mine !== lookAhead) return;
@@ -2131,6 +2198,23 @@ function keepNeighboursReady(shown) {
 }
 
 let lookAhead = 0;
+// How many turns are waiting on a page right now. See showPage.
+let turning = 0;
+
+// Handed to the reading pass, which awaits it before every page: while a player
+// is waiting on a turn, nothing else gets the processor. The page in front of
+// them is the only thing that matters, and measuring a part is work that will
+// keep for a second.
+function standAside() {
+  if (turning <= 0) return Promise.resolve();
+  return new Promise((go) => {
+    const look = setInterval(() => {
+      if (turning > 0 && !(root?.hidden ?? true)) return;
+      clearInterval(look);
+      go();
+    }, 40);
+  });
+}
 
 // Straight to a page, for a part long enough that turning to it is a chore.
 //
@@ -3073,13 +3157,34 @@ async function trimPage(pageNumber) {
     w: Math.min(1 - x, Math.max(0.05, Math.max(...xs) - x)),
     h: Math.min(1 - y, Math.max(0.05, Math.max(...ys) - y)),
   };
-  await setPageCrop(score.id, pageNumber, crop);
+  const id = score.id;
+  await setPageCrop(id, pageNumber, crop);
   say('page trimmed');
   // Rebuilt from the score as it now stands: the bands of that page are cut
-  // from the crop, so they are all different now.
+  // from the crop, so they are all different now. This happens AT ONCE — the
+  // trim you just made is on screen before you have lifted your finger.
   drawn.clear();
   await render();
   showPage(Math.max(0, slices.findIndex((slice) => slice.page === pageNumber)));
+
+  // …and then, quietly behind it, the page is read again.
+  //
+  // Where the staves are was measured against the OLD crop, so setPageCrop
+  // throws it away — rightly, because those numbers describe a part of the
+  // page that is no longer being shown. But nothing ever put them back, and
+  // where the staves are is what lets a page be cut into screenfuls: a page
+  // with none known cannot be cut anywhere, so it is shown whole, one tall
+  // sheet shrunk to fit, with the music a fraction of the size it was.
+  //
+  // Not awaited, and deliberately. Reading a part is seconds of work and the
+  // trim is already on screen; making somebody watch "reading the pages… 4 of
+  // 21" every time they straighten a margin is its own kind of broken. The
+  // bands sharpen a moment later, on the page they are still looking at.
+  reading.delete(id);
+  import('./score.js')
+    .then(({ measurePages }) => measurePages(id, { standAside }))
+    .then(() => relayoutSameScore(id))
+    .catch(() => { reading.delete(id); /* still a page to play from */ });
 }
 
 // Which page to trim.
@@ -3242,7 +3347,13 @@ const ICONS = {
   // the same idea drawn small and thin, and at the size this bar draws icons it
   // read as a smudge — which is how a tool that has been here all along got
   // asked for as a tool that was missing.
-  eraser: '<path d="M3.8 16.6l7.6-7.6a2 2 0 0 1 2.9 0l3.3 3.3a2 2 0 0 1 0 2.9l-4.4 4.4H6.6z"/>'
+  // A rubber, drawn as the thing itself: a block held at an angle with a band
+  // across it and a line under it to say it is ON the paper. What was here was
+  // the same outline without the band or the line, which read as a luggage tag
+  // — the one tool in the bar nobody could name by looking at it.
+  eraser: '<path d="M8.6 18.4H20"/>'
+    + '<path d="M4.3 15.3l7.4-7.4a1.9 1.9 0 0 1 2.7 0l3.7 3.7a1.9 1.9 0 0 1 0 2.7l-4 4H7.2z"/>'
+    + '<path d="M9.6 10.1l6.4 6.4"/>'
     + '<path d="M9.3 11.5l5.9 5.9"/><path d="M11 20.2h9"/>',
   undo: '<path d="M9 7H5.5V3.5"/><path d="M5.8 7.2a7 7 0 1 1-1.3 6"/>',
   redo: '<path d="M15 7h3.5V3.5"/><path d="M18.2 7.2a7 7 0 1 0 1.3 6"/>',
@@ -4138,11 +4249,40 @@ function rememberMeasurements(payload) {
   if (!payload?.layout && !reading.has(id)) {
     reading.add(id);
     import('./score.js')
-      .then(({ measurePages }) => measurePages(id))
+      .then(({ measurePages }) => measurePages(id, { standAside }))
+      // …and then LAY IT OUT AGAIN, which nothing used to do.
+      //
+      // Where the staves are is what lets a page be cut into screenfuls: a
+      // page with no known staves cannot be cut anywhere, so it is shown whole
+      // — one tall sheet shrunk to fit, with the music a third the size it
+      // should be. That is exactly the state a part is in while this pass is
+      // running, and the pass finished into a reader that never asked again.
+      // So a freshly imported part read itself, wrote down every stave, and
+      // went on showing you the un-banded version until you closed it and
+      // opened it back up.
+      .then(() => relayoutSameScore(id))
       // A pass that FAILED has not answered the question, so the next open is
       // allowed to ask again. Only a pass that finished puts the score down.
       .catch(() => { reading.delete(id); /* still a score to play from */ });
   }
+}
+
+// Lay the pages out again for a score that is still the one on screen.
+//
+// Guarded on the id because everything here is asynchronous and slow: a
+// reading pass started on the part you opened four minutes ago must not
+// re-lay-out the part you are reading now, and must not touch a reader you
+// have already closed.
+async function relayoutSameScore(id) {
+  if (!root || root.hidden || score?.id !== id || !isPaper()) return;
+  const wasOn = slices[pageIndex]?.page ?? 0;
+  drawn.clear();
+  await render();
+  if (!root || root.hidden || score?.id !== id) return;
+  // Back to the same PAGE of paper, which is what the player was looking at —
+  // not the same screenful, because there are a different number of those now.
+  const at = slices.findIndex((slice) => slice.page === wasOn);
+  showPage(Math.max(0, at));
 }
 
 const drawn = new Set();
@@ -4533,6 +4673,7 @@ export function close() {
   pageIndex = 0;
   wantedPage = 0;
   turnWay = 1;
+  turning = 0;
   scanMarks = null;
   scanMarksFrom = null;
   dry = null;

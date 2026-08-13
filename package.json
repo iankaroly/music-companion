@@ -17,7 +17,8 @@
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
-    "reader:sweep": "node tools/reader-sweep-check.mjs"
+    "reader:sweep": "node tools/reader-sweep-check.mjs",
+    "reader:lag": "node tools/reader-lag-check.mjs"
   },
   "keywords": [],
   "author": "",

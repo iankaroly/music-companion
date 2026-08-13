@@ -1507,6 +1507,14 @@
       padding: 0;
     }
     .reader-swatch.on { border-color: var(--ink); transform: scale(1.15); }
+    /* Air between the tools and the colours.
+       The eraser is the last tool and the swatches begin immediately after it,
+       so when the eraser is selected its lit circle sits almost against the
+       first colour — two different questions touching, and which one you meant
+       becomes a matter of aim. The colours get a gap either side, which is what
+       a group of controls is. */
+    #reader-ink-bar [data-tool="eraser"] + .reader-swatch { margin-left: 0.5rem; }
+    #reader-ink-bar .reader-swatch + #reader-undo { margin-left: 0.5rem; }
     /* The nib: the ink you are actually holding, at the colour and roughly the
        thickness it will draw, sitting under the pen it belongs to. Tapping the
        pen again is what opens the case — there is no second button for it. */
@@ -1631,7 +1639,18 @@
        A rubber has no colour, no nib and no transparency — showing those
        greyed out beside it would be a panel mostly about a pen you are not
        holding. So the panel shows one thing or the other. */
-    #reader-eraser-sizes { display: none; justify-content: center; padding: 0.1rem 0; }
+    /* Room around the rubber's sizes.
+       The largest ring is two-thirds of an inch across, and sitting it in the
+       same tight row as everything else put its edge almost against the colour
+       swatches — two different questions touching each other, so the one you
+       meant was a matter of luck. */
+    #reader-eraser-sizes {
+      display: none;
+      justify-content: center;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.55rem 0.3rem;
+    }
     #reader-brush.rubbing #reader-eraser-sizes { display: flex; }
     #reader-brush.rubbing .brush-nibs,
     #reader-brush.rubbing .brush-paper,
@@ -2107,6 +2126,32 @@
       letter-spacing: 0.01em;
     }
     #reader-next[hidden] { display: none; }
+    /* A turn that is taking a while.
+       Not a spinner over the music and not a message — the page you are reading
+       is still there and still readable, and this only has to say that the tap
+       landed. Small, in the corner, and gone the moment the page arrives. */
+    #reader::after {
+      content: "";
+      position: fixed;
+      right: calc(0.7rem + env(safe-area-inset-right, 0px));
+      bottom: calc(0.7rem + env(safe-area-inset-bottom, 0px));
+      z-index: 3;
+      width: 0.85rem;
+      height: 0.85rem;
+      border-radius: 50%;
+      border: 2px solid var(--glass-line);
+      border-top-color: var(--primary);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 120ms linear;
+    }
+    #reader.waiting::after {
+      opacity: 0.9;
+      animation: reader-opening-spin 0.8s linear infinite;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #reader.waiting::after { animation: none; }
+    }
     #reader.night #reader-next {
       background: rgb(26 28 32 / 0.72);
       border-color: rgb(255 255 255 / 0.09);

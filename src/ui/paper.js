@@ -613,7 +613,17 @@ const SAVE_EVERY = 3;
 // meant nothing was written down at all — and nothing ever ran this again, so
 // that part measured itself from scratch on every open for the rest of its life.
 // Which is the twenty seconds of black screen this whole thing is about.
-export async function readPages(payload, onProgress = null, onMeasured = null) {
+// `standAside` is awaited before every page, and is how this pass stays out of
+// the way of somebody actually reading. Measuring a part is a second of solid
+// arithmetic per page, and until now it took that second whether or not a
+// player was tapping to turn a page at the time — so opening a part you had
+// just imported and reading from it meant every turn queueing behind a page
+// being measured. On a laptop that is invisible. On an iPad it is the
+// occasional turn that hangs for a second and then catches up, which is
+// exactly what it looked like from the stand.
+export async function readPages(
+  payload, onProgress = null, onMeasured = null, standAside = null,
+) {
   const pages = await openPaper(payload);
   const { readPage } = await import('../analysis/scan-read.js');
   const layout = [];
@@ -648,6 +658,11 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
       // the score was already saved and openable, and the only thing broken
       // was the sentence on the screen.
       await pages.draw(i, sheet, 1400 / dpr, 6000 / dpr);
+      // Again here, between the two expensive halves of a page. Drawing it and
+      // reading it are each about half a second on a tablet, and standing
+      // aside only between whole pages meant a turn could still be a full page
+      // behind. This halves the longest a tap can wait.
+      if (standAside) await standAside();
       found = readPage(sheet, sheet.width, sheet.height);
     } catch {
       found = null;   // an unreadable page is not a reason to lose the score
@@ -669,6 +684,9 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
       await Promise.resolve(onMeasured?.({ layout, crops, sizes })).catch(() => {});
     }
     await breathe();
+    // The page in front of the player comes first, always. This pass has
+    // nothing to do that will not keep.
+    if (standAside) await standAside();
   }
   release();
   pages.destroy?.();

@@ -308,20 +308,20 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
 // both are scarce, and two writers racing over the same rows.
 const running = new Map();
 
-export async function measurePages(scoreId, { note = null } = {}) {
+export async function measurePages(scoreId, { note = null, standAside = null } = {}) {
   const already = running.get(scoreId);
   if (already) return already;
-  const pass = measureNow(scoreId, note).finally(() => running.delete(scoreId));
+  const pass = measureNow(scoreId, note, standAside).finally(() => running.delete(scoreId));
   running.set(scoreId, pass);
   return pass;
 }
 
-async function measureNow(scoreId, note) {
+async function measureNow(scoreId, note, standAside = null) {
   const payload = await loadScorePages(scoreId);
   if (!payload) return null;
   const { layout, crops, sizes } = await readPages(payload, (page, total) => {
     status(`reading the pages… ${page + 1} of ${total}`);
-  }, (sofar) => saveScoreLayout(scoreId, sofar.layout, sofar));
+  }, (sofar) => saveScoreLayout(scoreId, sofar.layout, sofar), standAside);
   await saveScoreLayout(scoreId, layout, { crops, sizes });
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)
