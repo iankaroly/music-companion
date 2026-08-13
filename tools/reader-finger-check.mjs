@@ -195,6 +195,52 @@ check('the pencil writes in the moment after a pinch', (await marks()) === befor
 await page.evaluate(() => document.querySelector('#reader-reset-zoom')?.click());
 await wait(300);
 
+// ---- a resting hand must not eat your taps ---------------------------------
+// Anyone holding an iPad has a hand on it. That hand is a pointer, and asking
+// "is anything else on the glass?" threw every tap away before it began.
+{
+  const wasBare2 = await bare();
+  await cdp.send('Input.dispatchTouchEvent',
+    { type: 'touchStart', touchPoints: [{ x: W * 0.85, y: H * 0.9, id: 44, radiusX: 42, radiusY: 42 }] });
+  await wait(120);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: W * 0.85, y: H * 0.9, id: 44, radiusX: 42, radiusY: 42 },
+      { x: W * 0.5, y: MID, id: 45, radiusX: 8, radiusY: 8 },
+    ],
+  });
+  // touchEnd lists the points being RELEASED — so this lifts the finger and
+  // leaves the hand where it was, which is the whole point of the test.
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd', touchPoints: [{ x: W * 0.5, y: MID, id: 45 }],
+  });
+  await wait(380);
+  check('a tap lands with a hand already resting on the glass',
+    (await bare()) !== wasBare2, `${wasBare2} -> ${await bare()}`);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [{ x: W * 0.85, y: H * 0.9, id: 44, radiusX: 42, radiusY: 42 }],
+  });
+  await wait(200);
+}
+
+// ---- the bar must never refuse the stroke that summoned it -----------------
+// Put the bar away, then write in the TOP of the page — where the bar is about
+// to appear. The stroke has to start before the bar does.
+if (!(await bare())) {
+  await finger('mousePressed', W * 0.5, MID);
+  await finger('mouseReleased', W * 0.5, MID);
+  await wait(320);
+}
+before = await marks();
+await pen('mousePressed', W * 0.3, 150);
+for (let i = 1; i <= 14; i++) await pen('mouseMoved', W * 0.3 + i * 8, 150 + Math.sin(i / 3) * 6);
+await pen('mouseReleased', W * 0.3 + 112, 150);
+await wait(900);
+check('writing near the top still writes, bar or no bar',
+  (await marks()) === before + 1, `${before} -> ${await marks()}`);
+
 // ---- THE ONE THAT MATTERS: the pencil always writes -------------------------
 // Forty strokes in the awkward moments: straight after a turn, straight after
 // a pinch, with a palm resting. Every one has to leave a mark.

@@ -1661,6 +1661,23 @@ function penIsDown() {
   return penPointer !== null;
 }
 
+// The heel of a hand is not a fingertip.
+//
+// A tablet reports how big a contact is, and the difference between the two is
+// not subtle: a fingertip is under a centimetre, the heel of a hand resting on
+// the glass is three or four. Anyone holding an iPad has one of the latter on
+// it at all times, and counting it as a finger is what made a resting hand able
+// to look like the first half of a pinch.
+//
+// Generous, because being wrong in this direction costs a gesture and being
+// wrong in the other costs every gesture: a thumb is nowhere near this.
+const PALM_ACROSS = 45;
+
+function isPalm(e) {
+  if (e.pointerType !== 'touch') return false;
+  return e.width > PALM_ACROSS || e.height > PALM_ACROSS;
+}
+
 // --- who is allowed to draw ---------------------------------------------------
 //
 // forScore has a setting called "prevent finger drawing", and it is there
@@ -1722,12 +1739,17 @@ function refreshFingerButton() {
 
 // The pencil has landed on the music with no tool in hand.
 function armPencil(e) {
-  if (!root || root.hidden || isMenuOpen()) return false;
+  if (!root || root.hidden) return false;
   noteAPencil();
+  if (isMenuOpen()) { penRefused('a menu was open'); return false; }
   // Not on the chrome: a pencil is a perfectly good way to press a button.
-  if (onChrome(e)) return false;
+  if (onChrome(e)) {
+    const what = e.target?.id || e.target?.className || e.target?.tagName || '?';
+    penRefused(`the touch landed on the chrome (${what})`);
+    return false;
+  }
   // Nor over a jump you taped down, or the one you are in the middle of taping.
-  if (pendingLink) return false;
+  if (pendingLink) { penRefused('a jump was being taped down'); return false; }
   setTool(lastInk);
   armedByPen = true;
   if (!tool) return false;
@@ -1783,7 +1805,20 @@ const penStroke = {
   live: false,
 
   begin(e) {
-    if (!tool || onChrome(e) || pendingLink) return;
+    // EVERY way out of here says so.
+    //
+    // The refusal log used to sit below all of these, so a stroke turned away
+    // at the door left no trace whatsoever — and the panel read "nothing was
+    // refused" while the pencil visibly did not write. Three rounds were spent
+    // guessing at a bug the instrumentation could not see. A silent return is
+    // the thing that made this hard, not the bug behind it.
+    if (!tool) { penRefused('no tool was out'); return; }
+    if (onChrome(e)) {
+      const what = e.target?.id || e.target?.className || e.target?.tagName || '?';
+      penRefused(`the touch landed on the chrome (${what})`);
+      return;
+    }
+    if (pendingLink) { penRefused('a jump was being taped down'); return; }
     // A stroke still open — a lift that never arrived — is finished, not
     // thrown away: what was drawn is what you drew.
     if (this.live || drawing || drawingPointer !== null) {
@@ -1836,7 +1871,6 @@ function trackPointers(root) {
       // wrote. Touching the page with the pencil after that is the other half
       // of the same sentence — forScore calls the pair instant annotation —
       // so the bar comes back with the tool that was never put down.
-      if (tool && !chrome && !onChrome(e)) setChrome(true);
       // A hand that was already resting on the screen when the pencil arrived
       // is the same hand, and it must not be sitting in the map looking like
       // the first finger of a pinch.
@@ -1846,7 +1880,15 @@ function trackPointers(root) {
       if (!tool && armPencil(e)) return;
       // With a tool already in hand, the pencil draws — and it draws from
       // HERE, not from the ink canvas. See penStroke below for why.
-      if (tool) penStroke.begin(e);
+      //
+      // The stroke starts BEFORE the bar is shown. Showing it first meant the
+      // bar could appear over the very touch that asked for it and then be the
+      // reason that touch was refused as "a tap on the chrome" — a stroke lost
+      // to the thing it summoned.
+      if (tool) {
+        penStroke.begin(e);
+        if (!chrome && !onChrome(e)) setChrome(true);
+      }
       // A pencil is never one of the fingers of a pinch, so it is never
       // counted as one. `pointers` is the hand on the glass and nothing else;
       // the pencil is followed by penPointer, which has its own watchdog. Put
@@ -1855,12 +1897,21 @@ function trackPointers(root) {
       return;
     } else if (penIsDown() && e.pointerType === 'touch') {
       return;   // the palm
+    } else if (isPalm(e)) {
+      return;   // a palm, pencil or no pencil
     }
     pointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
     });
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
+      // ARMED, not started.
+      //
+      // Two contacts used to mean a pinch outright, and that is not what two
+      // contacts mean on a tablet you are holding: it means a hand resting and
+      // a finger doing something. So the second one only sets the pinch up, and
+      // nothing is a pinch until the two of them actually move apart or
+      // together — which is the one thing a resting hand never does.
       pinch = {
         distance: Math.hypot(a.x - b.x, a.y - b.y),
         x: (a.x + b.x) / 2,
@@ -1869,10 +1920,6 @@ function trackPointers(root) {
         panX,
         panY,
       };
-      pinching = true;
-      clearTimeout(pinchOver);   // a new pinch outranks the last one ending
-      drawingPointer = null;
-      cancelStroke();   // the first finger was drawing; it was not, it was pinching
     }
   }, true);
   root.addEventListener('pointermove', (e) => {
@@ -1888,6 +1935,15 @@ function trackPointers(root) {
     if (pointers.size !== 2 || !pinch) return;
     const [a, b] = [...pointers.values()];
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
+    // …and now it IS one. Waiting for real movement is what tells a pinch from
+    // a hand that happens to be on the glass.
+    if (!pinching) {
+      if (Math.abs(distance - pinch.distance) < PINCH_START) return;
+      pinching = true;
+      clearTimeout(pinchOver);
+      drawingPointer = null;
+      cancelStroke();   // that first finger was not drawing, it was pinching
+    }
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     zoom = Math.min(ZOOM_LIMIT, Math.max(1, pinch.zoom * (distance / (pinch.distance || 1))));
@@ -1954,6 +2010,9 @@ let pinchOver = null;
 // remembered. Backgrounding the app — where the lost pointers mostly come from
 // — drops the lot outright.
 const POINTER_STALE = 1500;
+// How far two contacts have to travel relative to one another before they are
+// a pinch rather than two things that happen to be touching the screen.
+const PINCH_START = 14;
 
 function forgetLostPointers(now) {
   // A pencil that has said nothing for a while is a pencil that has been put
@@ -4276,10 +4335,19 @@ function build() {
     // nothing at all, which is precisely the complaint. It belongs here, where
     // every gesture starts, drawing or not.
     marksAtDown = strokes.length;
-    tapFrom = pointers.size > 1 ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
+    // A second finger means a PINCH, not merely a second contact.
+    //
+    // This asked whether anything else was on the glass, and a hand resting on
+    // the iPad is something else on the glass — so with the pencil up and your
+    // hand down, which is how anyone holds a tablet, every tap was thrown away
+    // before it began. `pinching` is set the moment two fingers really are one
+    // gesture, so the original intent survives and a resting hand stops eating
+    // your taps.
+    tapFrom = pinching ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
   }, true);
   root.addEventListener('pointerup', (e) => {
-    if (penIsDown() && e.pointerType !== 'pen') return;
+    if (e.pointerType === 'pen') return;
+    if (penIsDown()) return;
     const from = tapFrom;
     tapFrom = null;
     if (!from || from.id !== e.pointerId || pinching) return;
@@ -4321,11 +4389,10 @@ function build() {
     return true;
   }
   root.addEventListener('pointercancel', (e) => {
-    // Said a third time, for the same reason. A palm whose contact the system
-    // cancels mid-stroke — which is exactly what iPadOS does to a palm it has
-    // decided is a palm — would otherwise wipe the pencil's pending tap on its
-    // way out.
-    if (penIsDown() && e.pointerType !== 'pen') return;
+    // A palm whose contact the system cancels — which is exactly what iPadOS
+    // does to a palm it has decided is a palm — must not wipe a pending tap on
+    // its way out.
+    if (e.pointerType === 'pen' || penIsDown()) return;
     tapFrom = null;
   });
 
