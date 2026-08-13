@@ -60,6 +60,16 @@ export function segmented(sel, { format } = {}) {
 }
 
 let openPop = null;
+// Shutting whatever is open, from outside.
+//
+// Every one of these popups is anchored to a button and lives in the body, so
+// a screen that goes away while one is up leaves it hanging over whatever is
+// underneath — pointing at a button that is no longer there, and closing only
+// when something else is tapped. The reader says this on its way out.
+export function closeAnyPop() {
+  closePop();
+}
+
 function closePop() {
   if (!openPop) return;
   openPop.pop.remove();

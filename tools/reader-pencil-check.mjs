@@ -145,8 +145,12 @@ await pen('mouseReleased', W * 0.9, H * 0.6);
 await wait(300);
 
 // --- 4. a finger still turns pages when no pencil is on the glass -------------
-// No Escape here: the pen is already away, and Escape with no tool out closes
-// the reader — which is the right behaviour and would make this test meaningless.
+// The tick first. A tool now stays in your hand until you say otherwise, and
+// while one is out a tap on the page is a mark rather than a page turn — the
+// turns live on the annotating bar's own arrows. So this puts the pen away the
+// way a player does, and then checks the reading gestures.
+await page.evaluate(() => document.querySelector('#reader-done')?.click());
+await wait(250);
 const open = await page.evaluate(() => {
   const r = document.querySelector('#reader');
   return !!r && !r.hidden;

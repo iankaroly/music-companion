@@ -112,12 +112,13 @@ check('a swipe with the pen out draws instead of turning',
 await page.evaluate(() => document.querySelector('#reader-done')?.click());
 await wait(250);
 
-// ---------------- 2. performance mode: turning on the way down ---------------
-await open('on');
+// ---------------- 2. the turn happens on the way down, always ----------------
+// There is no mode any more: it was one for a while and should never have
+// been, because there is no moment at which you would rather the page came
+// later. 'off' is passed deliberately — the old setting must not bring the old
+// waiting-for-the-lift behaviour back.
+await open('off');
 await hideChrome();
-const onstageClass = await page.evaluate(() =>
-  document.querySelector('#reader')?.classList.contains('onstage'));
-check('performance mode is remembered', onstageClass === true);
 
 const start = await where();
 // Finger DOWN on the right third — and not lifted.

@@ -1242,6 +1242,39 @@
     }
     html[data-reading] body { overflow: hidden; }
     html[data-reading] nav[role="tablist"] { display: none; }
+    /* Nothing is selectable while a part is on the stand. Anything.
+       Scoping this to the reader and its menus was not enough on a real iPad:
+       a long press with the pencil still turned up a blue highlight and the
+       Copy / Look Up / Select More bubble. There are too many ways to be
+       wrong one selector at a time — a node that is not inside #reader, a
+       shadow of the page behind it, a webview that reads an inherited
+       user-select as advice — and the reader is a full-screen picture of a
+       page of music where NOTHING is a word to copy.
+       So while the reader is open it is said once, of everything, with the
+       weight to survive whatever else is on the element. It costs nothing:
+       the moment the score is closed the attribute goes and the rest of the
+       app is ordinary selectable text again.
+       !important is deliberate and is the point — this has to outrank every
+       other rule in the file rather than tie with it. */
+    html[data-reading],
+    html[data-reading] * {
+      -webkit-user-select: none !important;
+      user-select: none !important;
+      -webkit-touch-callout: none !important;
+      -webkit-user-drag: none !important;
+    }
+    /* …except the one thing that exists to be typed into. */
+    html[data-reading] input,
+    html[data-reading] textarea,
+    html[data-reading] [contenteditable] {
+      -webkit-user-select: text !important;
+      user-select: text !important;
+      -webkit-touch-callout: default !important;
+    }
+    /* And if a selection is somehow made anyway, it is not painted over the
+       music. Un-scoped on purpose: a selection can belong to a node the rules
+       above never matched. */
+    html[data-reading] ::selection { background: transparent !important; }
     #reader-sheet { position: absolute; inset: 0; }
     /* The music is a picture, not a document.
        user-select:none on #reader was already there and was not enough. What
@@ -1357,6 +1390,11 @@
     #reader-ink-bar { display: none; flex-wrap: wrap; justify-content: center; }
     #reader.drawing #reader-top { display: none; }
     #reader.drawing #reader-ink-bar { display: flex; }
+    /* The two page arrows on the annotating bar: a shade quieter than the
+       tools, because they are how you get somewhere rather than what you do
+       when you are there. */
+    .reader-ink-page { font-size: 1.35rem; line-height: 1; color: var(--muted); }
+    .reader-ink-page:disabled { opacity: 0.25; }
     #reader.bare #reader-top {
       opacity: 0;
       pointer-events: none;
@@ -1570,6 +1608,45 @@
       height: 2.6rem;
     }
     .brush-sizes { display: flex; align-items: center; gap: 0.45rem; }
+    /* The rubber's row of sizes, and the two faces of the panel.
+       A rubber has no colour, no nib and no transparency — showing those
+       greyed out beside it would be a panel mostly about a pen you are not
+       holding. So the panel shows one thing or the other. */
+    #reader-eraser-sizes { display: none; justify-content: center; padding: 0.1rem 0; }
+    #reader-brush.rubbing #reader-eraser-sizes { display: flex; }
+    #reader-brush.rubbing .brush-nibs,
+    #reader-brush.rubbing .brush-paper,
+    #reader-brush.rubbing .brush-palette,
+    #reader-brush.rubbing .brush-more,
+    #reader-brush.rubbing #reader-mixer,
+    #reader-brush.rubbing #reader-overlay { display: none; }
+    .brush-eraser-label {
+      font-family: var(--display);
+      font-size: 0.78rem;
+      color: var(--muted);
+      margin-right: 0.3rem;
+    }
+    /* Drawn as a ring rather than a blob: a rubber takes ink away, and a solid
+       dot the size of the thing it removes reads as more ink.
+       Written through the panel id so it outranks .brush-dot::after, which is
+       further down the file and would otherwise fill these in with the pen's
+       own colour at equal specificity. */
+    #reader-eraser-sizes .brush-eraser-dot {
+      width: 2.1rem;
+      height: 2.1rem;
+    }
+    #reader-eraser-sizes .brush-eraser-dot::after {
+      content: "";
+      width: var(--dot);
+      height: var(--dot);
+      border-radius: 999px;
+      border: 1.5px solid var(--line-strong);
+      background: transparent;
+    }
+    #reader-eraser-sizes .brush-eraser-dot.on::after {
+      border-color: var(--primary);
+      border-width: 2.5px;
+    }
     .brush-paper .brush-dot.on { background: rgb(0 0 0 / 0.06); border-color: rgb(0 0 0 / 0.12); }
     .brush-paper #reader-size-value { color: #6b6878; }
     .brush-dot {

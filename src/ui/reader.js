@@ -34,7 +34,7 @@ import { notesInOrder } from '../analysis/scan-read.js';
 import { shapeFrom } from '../analysis/shape-snap.js';
 import { pageTurn } from './pedal.js';
 import { intonationHue } from './chart-utils.js';
-import { actionMenu } from './controls.js';
+import { actionMenu, closeAnyPop } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
   saveBookmarks, saveLinks, saveScoreLayout,
@@ -221,7 +221,7 @@ function scheduleBrushSave() {
 function rememberBrushes() {
   try {
     globalThis.localStorage?.setItem(BRUSH_KEY, JSON.stringify({
-      brushes, lastInk, layer, hidden: [...hidden], stamp: stamp?.glyph,
+      brushes, lastInk, layer, hidden: [...hidden], stamp: stamp?.glyph, eraserWidth,
     }));
   } catch { /* a pen that will not be remembered still writes */ }
 }
@@ -245,6 +245,7 @@ function recallBrushes() {
   }
   const found = STAMPS.find((s) => s.glyph === saved.stamp);
   if (found) stamp = found;
+  if (ERASER_SIZES.includes(saved.eraserWidth)) eraserWidth = saved.eraserWidth;
 }
 
 function brushCss(brush) {
@@ -361,31 +362,32 @@ let hidden = new Set();   // layers being kept out of sight
 // than halfway down the music you were reading.
 const SPREAD_KEY = 'readerSpread';
 let spread = false;
-// Playing from it, as opposed to reading it.
+// How far down the screen counts as "the top", where a tap is a reach for the
+// controls rather than a page turn.
 //
-// Off the stand, a page turn should be sure of itself: it waits for the finger
-// to leave so it can tell a tap from a swipe from the first finger of a pinch.
-// On the stand, in the middle of a phrase, the hand is already going back to
-// the string and those few tens of milliseconds are the difference between a
-// page that was there and a page that arrived. Remembered, because a player who
-// wants this wants it every time they open a part.
-const ONSTAGE_KEY = 'readerOnstage';
-let onstage = false;
-
-function setOnstage(on) {
-  onstage = on;
-  try { globalThis.localStorage?.setItem(ONSTAGE_KEY, on ? 'on' : 'off'); } catch { /* fine */ }
-  root?.classList.toggle('onstage', on);
-  // Said once and then got out of the way: this line is normally where the
-  // reader asks you for something, and a mode is not a question.
-  say(on ? 'performance mode — pages turn the instant you touch the side'
-    : 'performance mode off');
-  clearTimeout(onstageSaid);
-  onstageSaid = setTimeout(() => { if (!pendingLink) say(''); }, 2600);
-}
-let onstageSaid = null;
+// It was a sixth, and a sixth of a phone is about two finger-widths — you had
+// to aim at it, and a player holding a bow does not aim. A quarter is a strip
+// you can hit without looking, and it costs the turn zones nothing that
+// matters: the page still turns from anywhere in the lower three quarters,
+// which is where a hand reaching for the corner of a page actually lands.
+const TOP_REACH = 0.25;
 
 const el = (id) => document.querySelector(`#${id}`);
+
+// Is a part on the stand right now? Asked by the document-level guards, which
+// run for the whole app and must only bite while the reader is up.
+function isReading() {
+  return !!root && !root.hidden;
+}
+
+// Whatever the webview decided to highlight, un-highlighted. Wrapped because
+// there is no version of this that is worth throwing over.
+function dropSelection() {
+  try {
+    const chosen = getSelection();
+    if (chosen && !chosen.isCollapsed) chosen.removeAllRanges();
+  } catch { /* nothing to clear */ }
+}
 
 // --- persistence -------------------------------------------------------------
 
@@ -1100,30 +1102,91 @@ function paintInk() {
 }
 
 // Rubbing out: a stroke goes if the eraser passes within a finger's width of it.
+// Rubbing out PART of a mark, not all of it.
+//
+// The eraser used to take whole strokes: touch any of a phrase-long highlight
+// and the whole phrase went. That is not what an eraser is. On paper you rub
+// out the bit you got wrong and the rest of the line stays, which is the whole
+// reason a pencil is worth using — and it is what every drawing app on a tablet
+// does.
+//
+// So the points under the rubber are taken out and what is left on either side
+// carries on as marks in its own right, in the same ink, on the same layer,
+// anchored to the same bars. A stroke rubbed through the middle becomes two; a
+// stroke rubbed at the end becomes a shorter one; a stroke rubbed out entirely
+// simply goes.
+//
+// Three things stay whole, because there is no "part" of them to keep: a piece
+// of text, a stamp, and a shape, all of which are one thing that is either
+// there or not.
+const ERASER_SIZES = [0.7, 1.6, 3.2, 6];
+const ERASER_KEY = 'readerEraser';
+let eraserWidth = ERASER_SIZES[1];
+
 function eraseAt(px, py) {
   const scale = unitScale();
-  const reach = 3.2 * scale;
+  const reach = Math.max(3, eraserWidth * scale);
   const shown = visiblePages();
-  const gone = [];
-  strokes = strokes.filter((stroke) => {
-    if (hidden.has(stroke.layer ?? 0)) return true;  // out of sight, out of reach
-    if (!touchesScreen(stroke, shown)) return true;  // nor is a mark on another page
-    const hit = stroke.points.some((point) => {
+  const gone = [];       // marks this touch took away
+  const made = [];       // what is left of them
+  const kept = [];
+  for (const stroke of strokes) {
+    if (hidden.has(stroke.layer ?? 0) || !touchesScreen(stroke, shown)) {
+      kept.push(stroke);          // out of sight, or on another page: out of reach
+      continue;
+    }
+    const under = (point) => {
       const at = place(point);
-      return at && Math.hypot(at.x - px, at.y - py) <= reach;
-    });
-    if (hit) gone.push(stroke);
-    return !hit;
-  });
-  if (gone.length) {
-    // One sweep of the eraser is one undo, however many marks it caught: the
-    // gesture is what a hand remembers doing.
-    const last = history.at(-1);
-    if (erasing && last?.type === 'erase') last.strokes.push(...gone);
-    else remember({ type: 'erase', strokes: gone });
-    redraw();
-    scheduleSave();
+      return !!at && Math.hypot(at.x - px, at.y - py) <= reach;
+    };
+    // One thing, whole or not at all.
+    if (stroke.type === 'text' || stroke.type === 'shape' || stroke.points.length < 2) {
+      if (stroke.points.some(under)) gone.push(stroke);
+      else kept.push(stroke);
+      continue;
+    }
+    if (!stroke.points.some(under)) { kept.push(stroke); continue; }
+    gone.push(stroke);
+    // The runs the rubber did not touch. A run of one point is a dot the hand
+    // never meant — the remains of a line, not a mark — so it is dropped.
+    let run = [];
+    for (const point of stroke.points) {
+      if (under(point)) {
+        if (run.length > 1) made.push({ ...stroke, points: run });
+        run = [];
+      } else {
+        run.push(point);
+      }
+    }
+    if (run.length > 1) made.push({ ...stroke, points: run });
   }
+  if (!gone.length) return;
+  strokes = [...kept, ...made];
+  // One sweep of the eraser is one undo, however many marks it caught: the
+  // gesture is what a hand remembers doing.
+  const last = history.at(-1);
+  if (erasing && last?.type === 'erase') {
+    // A fragment this sweep made a moment ago, now rubbed out by the same
+    // sweep, was never a mark the player had: it is struck off the list of
+    // things this sweep created rather than added to the list of things it
+    // destroyed. Otherwise one undo would both put it back and take it away.
+    for (const stroke of gone) {
+      const born = last.made.indexOf(stroke);
+      if (born >= 0) last.made.splice(born, 1);
+      else last.strokes.push(stroke);
+    }
+    last.made.push(...made);
+  } else {
+    remember({ type: 'erase', strokes: gone, made });
+  }
+  redraw();
+  scheduleSave();
+}
+
+function setEraserWidth(width) {
+  eraserWidth = width;
+  try { globalThis.localStorage?.setItem(ERASER_KEY, String(width)); } catch { /* fine */ }
+  refreshBrushUI();
 }
 
 function remember(op) {
@@ -1349,15 +1412,6 @@ function cancelStroke() {
   redraw();
 }
 
-// The tools a tap should put DOWN rather than use.
-//
-// Text and the stamps ARE tapped — that is how they are placed — and a tap with
-// the eraser is a rub in one spot, and with the lasso it is how a selection is
-// put down. For the rest, a tap has never done anything at all: a stroke of one
-// point was already thrown away as "that was a tap, not a drag". So nothing is
-// taken away by giving the gesture a job.
-const TAP_PUTS_DOWN = ['pen', 'highlighter', ...SHAPES];
-
 function endStroke() {
   stopHold();
   lastInkAt = null;
@@ -1542,6 +1596,8 @@ function armPencil(e) {
 function trackPointers(root) {
   root.addEventListener('pointerdown', (e) => {
     armedByPen = false;
+    // Before anything is counted, anything that is no longer there is dropped.
+    forgetLostPointers(e.timeStamp);
     if (e.pointerType === 'pen') {
       penPointer = e.pointerId;
       // A hand that was already resting on the screen when the pencil arrived
@@ -1554,7 +1610,9 @@ function trackPointers(root) {
     } else if (penIsDown() && e.pointerType === 'touch') {
       return;   // the palm
     }
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' });
+    pointers.set(e.pointerId, {
+      x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
+    });
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       pinch = {
@@ -1572,7 +1630,10 @@ function trackPointers(root) {
   }, true);
   root.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' });
+    pointers.set(e.pointerId, {
+      x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
+    });
+    forgetLostPointers(e.timeStamp);
     if (pointers.size !== 2 || !pinch) return;
     const [a, b] = [...pointers.values()];
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1585,7 +1646,7 @@ function trackPointers(root) {
     clampPan();
     applyZoom();
   }, true);
-  for (const type of ['pointerup', 'pointercancel']) {
+  for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     root.addEventListener(type, (e) => {
       if (e.pointerId === penPointer) penPointer = null;
       pointers.delete(e.pointerId);
@@ -1597,6 +1658,55 @@ function trackPointers(root) {
       }
     }, true);
   }
+}
+
+// --- a finger that never lifted -----------------------------------------------
+//
+// This is the "sometimes the bar just stops answering" bug, and it is one line
+// of arithmetic away from every gesture in the reader.
+//
+// The reader counts the fingers on the glass, and three separate refusals hang
+// off that count: a stroke will not start while `pinching`, a tap is ignored
+// while `pinching`, and a stroke will not start with more than one pointer
+// down. All three are correct — and all three assume every pointer that goes
+// down comes back up.
+//
+// On iOS they do not. A touch swallowed by a system gesture, an app switched
+// away from mid-pinch, a pointer whose `up` is lost to the edge of the screen:
+// any of those leaves an entry in the map that will never be removed. And
+// `pinching` is only ever cleared when the map reaches EMPTY, so one orphan is
+// enough to say "a pinch is in progress" for the rest of the session. The bar
+// is still drawn, still lit, still exactly where it was — and nothing on it,
+// or on the page, does anything at all until the score is closed and reopened.
+//
+// So no pointer is believed on trust. Each one carries the time it was last
+// heard from, anything that has gone quiet for a second and a half is presumed
+// gone, and `pinching` is worked out from what is actually left rather than
+// remembered. Backgrounding the app — where the lost pointers mostly come from
+// — drops the lot outright.
+const POINTER_STALE = 1500;
+
+function forgetLostPointers(now) {
+  let dropped = false;
+  for (const [id, spot] of [...pointers]) {
+    if (now - (spot.at ?? 0) <= POINTER_STALE) continue;
+    pointers.delete(id);
+    if (id === penPointer) penPointer = null;
+    if (id === drawingPointer) { drawingPointer = null; cancelStroke(); }
+    dropped = true;
+  }
+  if (!dropped) return;
+  if (pointers.size < 2) { pinch = null; pinching = false; }
+}
+
+// Everything let go of at once: no fingers, no pencil, no pinch, no half-drawn
+// stroke. Used where the app cannot be told what happened to any of them.
+function forgetEveryPointer() {
+  pointers.clear();
+  penPointer = null;
+  pinch = null;
+  pinching = false;
+  if (drawingPointer !== null) { drawingPointer = null; cancelStroke(); }
 }
 
 // Typing on the page. The keyboard is the right tool for a word — writing
@@ -2089,7 +2199,7 @@ function setTool(next) {
   // Tapping the pen you are already holding opens the pen case — which pen,
   // how thick, what colour. It is what every drawing app does, and it is how
   // the brush gets reached without a second button to learn.
-  if (next && next === tool && (next === 'pen' || next === 'highlighter')) {
+  if (next && next === tool && (next === 'pen' || next === 'highlighter' || next === 'eraser')) {
     toggleBrush();
     return;
   }
@@ -2160,8 +2270,13 @@ function refreshHistoryButtons() {
 function undo() {
   const op = history.pop();
   if (!op) return;
-  if (op.type === 'add') strokes = strokes.filter((stroke) => stroke !== op.stroke);
-  else strokes.push(...op.strokes);
+  if (op.type === 'add') {
+    strokes = strokes.filter((stroke) => stroke !== op.stroke);
+  } else {
+    // What the eraser left behind goes, and what it took comes back.
+    if (op.made?.length) strokes = strokes.filter((stroke) => !op.made.includes(stroke));
+    strokes.push(...op.strokes);
+  }
   redoable.push(op);
   refreshHistoryButtons();
   redraw();
@@ -2171,8 +2286,12 @@ function undo() {
 function redo() {
   const op = redoable.pop();
   if (!op) return;
-  if (op.type === 'add') strokes.push(op.stroke);
-  else strokes = strokes.filter((stroke) => !op.strokes.includes(stroke));
+  if (op.type === 'add') {
+    strokes.push(op.stroke);
+  } else {
+    strokes = strokes.filter((stroke) => !op.strokes.includes(stroke));
+    if (op.made?.length) strokes.push(...op.made);
+  }
   history.push(op);
   refreshHistoryButtons();
   redraw();
@@ -2225,7 +2344,11 @@ function closeBrush() {
 function toggleBrush() {
   const panel = el('reader-brush');
   if (!panel) return;
-  if (!tool || tool === 'eraser') setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
+  // The rubber used to be bundled in with "no tool at all" here, and opening
+  // the pen case while holding it swapped it for a pen — which was fair when a
+  // rubber had nothing to configure. It has a size now, and that panel is
+  // reached the same way the pen's is: by tapping the tool already in hand.
+  if (!tool) setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
   panel.classList.toggle('open');
   hangBelowBar(panel);
   refreshBrushUI();
@@ -2283,6 +2406,12 @@ function refreshBrushUI() {
   for (const button of panel.querySelectorAll('[data-colour]')) {
     button.classList.toggle('on', button.dataset.colour.toLowerCase() === hexOf(brush));
   }
+  for (const button of panel.querySelectorAll('[data-eraser]')) {
+    button.classList.toggle('on', Math.abs(Number(button.dataset.eraser) - eraserWidth) < 0.005);
+  }
+  // The rubber has no colour and no nib, and the pen has no rubber: the panel
+  // shows one or the other rather than both greyed out.
+  panel.classList.toggle('rubbing', tool === 'eraser');
   const sizeWrap = panel.querySelector('.brush-size-wrap');
   if (sizeWrap) sizeWrap.style.setProperty('--at', `${Math.round(sizeToRail(brush.width) * 100)}%`);
   const hue = panel.querySelector('#reader-hue-rail');
@@ -2703,14 +2832,6 @@ function buildMenu(sheet) {
     menuRow(sheet, {
       label: 'Smaller', glyph: '−', detail: 'more music to a page',
       onPick: () => resize(1 / ZOOM_STEP),
-    });
-    menuRow(sheet, {
-      label: onstage ? 'Leave performance mode' : 'Performance mode',
-      glyph: '⚡',
-      detail: onstage
-        ? 'back to turning when your finger leaves the page'
-        : 'the page turns the instant you touch the side',
-      onPick: () => { setOnstage(!onstage); closeMenu(); },
     });
   }
   if (isPaper()) {
@@ -3337,6 +3458,18 @@ function buildInkBar() {
   pen.append(nib);
   bar.append(
     iconButton('reader-done', 'tick', 'Finished annotating', () => setTool(null)),
+    // The way to the next page WITHOUT putting the pen down.
+    //
+    // A tool now stays in your hand until you say otherwise, which is what a
+    // player marking fingerings through a movement wants — and it takes the
+    // page turns away, because while a tool is out a tap on the page is a
+    // mark. So the turns come back here, on the bar, where forScore puts them
+    // for the same reason: annotate this page, move on, carry on annotating,
+    // and reach for the tick only when you have actually finished.
+    iconButton('reader-ink-prev', '‹', 'Previous page', () => previousPage(),
+      { className: 'reader-tool reader-ink-page' }),
+    iconButton('reader-ink-next', '›', 'Next page', () => nextPage(),
+      { className: 'reader-tool reader-ink-page' }),
     pen,
     toolButton('highlighter', 'highlighter', 'Highlighter'),
     toolButton('text', 'text', 'Type on the page'),
@@ -3429,8 +3562,31 @@ function buildBrushPanel() {
   paper.className = 'brush-paper';
   paper.append(preview, sizes, sizeWrap);
 
-  panel.append(nibs, paper, palette, custom, mixer, overlay);
+  // The rubber's own panel. It has one question — how big — so it is one row
+  // of dots and nothing else: no nib, no colour, no mixer. Kept inside the same
+  // panel so the eraser opens the way the pen does, by tapping the tool you are
+  // already holding.
+  const rubber = document.createElement('div');
+  rubber.id = 'reader-eraser-sizes';
+  rubber.className = 'brush-sizes brush-erasers';
+  const rubberLabel = document.createElement('span');
+  rubberLabel.className = 'brush-eraser-label';
+  rubberLabel.textContent = 'Rubber';
+  rubber.append(rubberLabel, ...ERASER_SIZES.map(eraserDot));
+
+  panel.append(nibs, paper, palette, custom, mixer, overlay, rubber);
   return panel;
+}
+
+function eraserDot(width) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'brush-dot brush-eraser-dot';
+  button.dataset.eraser = String(width);
+  button.style.setProperty('--dot', `${Math.round(6 + width * 3.2)}px`);
+  button.setAttribute('aria-label', `Rubber ${width} staff spaces across`);
+  button.addEventListener('click', () => setEraserWidth(width));
+  return button;
 }
 
 function build() {
@@ -3477,17 +3633,32 @@ function build() {
   // one anyway is answered here: the attempt is cancelled, and the Copy / Look
   // Up bubble that would follow it is refused as well.
   //
-  // Scoped to the reader, and only while it is open — the rest of the app is
-  // ordinary text that people may well want to copy out of.
-  for (const type of ['selectstart', 'contextmenu']) {
-    root.addEventListener(type, (e) => {
-      // …except in the one place inside it that IS text you are typing.
+  // Listened for on the DOCUMENT, not on the reader.
+  //
+  // It was on #reader, and on a real iPad the bubble still came up: a
+  // selectstart whose target is not inside the reader — the document itself,
+  // the body, a node behind the full-screen page — never reaches a listener
+  // bound to the reader, and cancelling it is the only chance there is. There
+  // is nothing to lose by listening wider, because the guard is the reader
+  // being OPEN, and while it is open nothing on the screen is a word to copy.
+  for (const type of ['selectstart', 'contextmenu', 'dragstart']) {
+    document.addEventListener(type, (e) => {
+      if (!isReading()) return;
+      // …except in the one place that IS text you are typing.
       if (e.target?.closest?.('input, textarea, [contenteditable]')) return;
       e.preventDefault();
-    });
+    }, true);
   }
-  // And a selection that some other part of the page began, dragged across the
-  // music: cleared as the reader opens rather than left highlighted under it.
+  // And whatever got selected before any of that could stop it, dropped — on
+  // the way in, and again on every touch of the page. A selection that has
+  // already been made raises the bubble on its own; refusing new ones does
+  // nothing about one that is already there.
+  document.addEventListener('pointerdown', (e) => {
+    if (!isReading()) return;
+    if (e.target?.closest?.('input, textarea, [contenteditable]')) return;
+    dropSelection();
+  }, true);
+
   trackPointers(root);
 
   // A tap does one of four things, and where it lands decides which. The top
@@ -3512,26 +3683,37 @@ function build() {
   const TAP_TIME = 600;     // ms held still counts as a tap
   let tapFrom = null;
   root.addEventListener('pointerdown', (e) => {
-    // Performance mode: the turn happens on the way DOWN.
+    // The turn happens on the way DOWN. Always.
     //
-    // A tap is normally read on the way up, because until the finger leaves you
-    // do not know whether it was a tap, a swipe or the start of a pinch — and
-    // being sure is worth the few tens of milliseconds it costs. On a stand,
-    // mid-phrase, it is not. The hand is going back to the string and the page
-    // has to be there already; forScore has the same mode for the same reason,
-    // and it is the whole of why that app is described as instant.
+    // A tap used to be read on the way up, because until the finger leaves you
+    // cannot be certain it was a tap rather than a swipe or the first finger of
+    // a pinch — and being certain is worth the few tens of milliseconds it
+    // costs. On a stand, mid-phrase, it is not: the hand is already going back
+    // to the string and the page has to be there. This was a mode for a while
+    // and it should never have been one, because there is no moment at which
+    // you would rather the page came later.
     //
-    // Only in the turn zones, only with no tool out, only with one finger and
-    // no pencil. Everything else — the middle of the page, the chrome, the
-    // second finger of a pinch — still waits, because none of those is a page
-    // turn and guessing at them is how a mode like this becomes unusable.
-    if (onstage && !tool && !menuOpen && !pinching && zoom === 1
-      && pointers.size <= 1 && e.pointerType !== 'pen' && !chrome && !pendingLink
+    // What is given up is small and worth giving up. A swipe that begins in a
+    // turn zone now turns the page as it starts rather than as it ends — but it
+    // turns it the same way, since the near edge is the direction you are
+    // swiping from. And the tap-to-hide-the-bar in the middle of the page is
+    // untouched, because the middle is not a turn zone.
+    //
+    // The top strip is tested FIRST and is not a turn: it overlaps both zones,
+    // and a hand going up there is reaching for the controls.
+    if (!tool && !menuOpen && !pinching && zoom === 1
+      && pointers.size <= 1 && e.pointerType !== 'pen' && !pendingLink
       && !e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
         + ' #reader-selection, #reader-land')) {
-      const third = window.innerWidth / 3;
-      if (e.clientX < third) { previousPage(); tapFrom = null; return; }
-      if (e.clientX > window.innerWidth - third) { nextPage(); tapFrom = null; return; }
+      if (e.clientY < window.innerHeight * TOP_REACH) {
+        // Up here is the bar, either way round — showing it if it is away, and
+        // getting out of the way of a tap meant for it if it is already down.
+        if (!chrome) { setChrome(true); tapFrom = null; return; }
+      } else if (!chrome) {
+        const third = window.innerWidth / 3;
+        if (e.clientX < third) { previousPage(); tapFrom = null; return; }
+        if (e.clientX > window.innerWidth - third) { nextPage(); tapFrom = null; return; }
+      }
     }
     // The palm is turned away here as well as at the door.
     //
@@ -3600,31 +3782,27 @@ function build() {
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
     if (menuOpen) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
-    // The pen owns the page while it is out — but a TAP with it is you looking
-    // up from the writing. You annotate a bar, then you play, and the bar of
-    // tools sits over the music with the pen still armed; getting back to
-    // reading meant finding one small tick at the top of the screen. Anywhere
-    // on the page does it now, and the pen you were using is remembered for
-    // when you come back to it.
+    // A tap on the page hides the BAR. It does not put the pen down.
+    //
+    // It used to do both, and that was wrong in two directions at once. You
+    // would pick the highlighter, mark a phrase, tap the page to see the music
+    // — and come back to find the pen had been put away, so annotating a page
+    // meant re-arming the tool between every mark. And it only did it for the
+    // drawing tools, so with the eraser in hand a tap on the page did nothing
+    // whatsoever: the bar sat over the music and would not go.
+    //
+    // Both are the same mistake — treating "get this bar off my music" and "I
+    // have finished annotating" as one gesture. They are not. Tapping the page
+    // is the first; the tick on the bar is the second, and it is the only
+    // thing that puts a tool down.
     if (tool) {
-      // …unless the tap WROTE something. A fingering digit, a comma of a breath
-      // mark, a dot over a note: all of them are a few pixels across, all of
-      // them are inside what this reader calls a tap, and all of them are you
-      // annotating rather than finishing. Putting the pen down after each one
-      // would be the same complaint this was meant to fix, from the other end.
-      // So the question is not how far the finger moved, it is whether a mark
-      // came out of it.
-      // …and never on the gesture that PICKED the pen up. A pencil touching
-      // the page arms the last tool and starts a stroke from that same touch;
-      // a pencil that touched and lifted without leaving a mark would
-      // otherwise arm the pen and put it straight back down again, which is a
-      // tool bar that flashes on and off and a reader that never lets you
-      // write anything.
+      // …except the tap that WROTE something. A fingering digit, a comma of a
+      // breath mark, a dot over a note: all of them are a few pixels across and
+      // all of them are inside what this reader calls a tap. Hiding the bar
+      // after every one of those would be its own kind of maddening.
       if (armedByPen) { armedByPen = false; return; }
-      if (TAP_PUTS_DOWN.includes(tool) && strokes.length === marksAtDown) {
-        setTool(null);
-        setChrome(false);
-      }
+      if (strokes.length !== marksAtDown) return;
+      setChrome(!chrome);
       return;
     }
     // Taping a jump down: the first tap is where the sign is, and after that
@@ -3649,7 +3827,7 @@ function build() {
     // something that is covering the music is a rule nobody should have to
     // learn. Page turns come back the moment it is gone.
     if (chrome) { setChrome(false); return; }
-    if (e.clientY < window.innerHeight * 0.16) { setChrome(true); return; }
+    if (e.clientY < window.innerHeight * TOP_REACH) { setChrome(true); return; }
     const third = window.innerWidth / 3;
     if (e.clientX < third) previousPage();
     else if (e.clientX > window.innerWidth - third) nextPage();
@@ -3708,6 +3886,15 @@ function build() {
   // that page as a black rectangle for ever. Everything drawn is therefore
   // forgotten on the way out, and the page in front of you is drawn again on
   // the way back.
+  // Coming back to the app has no idea what became of the fingers that were on
+  // the glass when it left, and neither does anything else. Whatever they were,
+  // they are not on the glass now.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState !== 'visible') forgetEveryPointer();
+  });
+  window.addEventListener('blur', forgetEveryPointer);
+  window.addEventListener('pagehide', forgetEveryPointer);
+
   document.addEventListener('visibilitychange', () => {
     if (root.hidden || document.visibilityState !== 'visible' || !isPaper()) return;
     drawn.clear();
@@ -4242,8 +4429,6 @@ export async function openReader(row, {
   root.classList.toggle('spread', spread);
   try { night = globalThis.localStorage?.getItem(NIGHT_KEY) === 'on'; } catch { night = false; }
   root.classList.toggle('night', night);
-  try { onstage = globalThis.localStorage?.getItem(ONSTAGE_KEY) === 'on'; } catch { onstage = false; }
-  root.classList.toggle('onstage', onstage);
   menuOpen = false;
   pageIndex = 0;
   tool = null;
@@ -4263,7 +4448,7 @@ export async function openReader(row, {
   // Whatever was highlighted on the way in does not follow the music onto the
   // stand: a selection made in the library, on a title or a date, would sit
   // there in blue under a full-screen page of a part.
-  try { getSelection()?.removeAllRanges(); } catch { /* nothing to clear */ }
+  dropSelection();
   el('reader-title').textContent = row.name ?? '';
   const opening = sayOpening(row);
   try {
@@ -4291,6 +4476,10 @@ export function close() {
   root.hidden = true;
   closeMenu();
   closeBrush();
+  // The layer, stamp and page-jump popups live in the body and are anchored to
+  // buttons that are about to be hidden; left open they hang over the library.
+  closeAnyPop();
+  for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
   delete document.documentElement.dataset.reading;
   unfollow?.();
   unfollow = null;
