@@ -116,6 +116,55 @@ function measuredSoFar(count, crops, sizes) {
   return out;
 }
 
+// Paper, under everything, before anything is drawn on it.
+//
+// An empty canvas is transparent, and transparent over the reader's ground is
+// BLACK — so every moment between "this page has a size" and "this page has
+// been drawn" was a black rectangle where the music goes. Sometimes that moment
+// is long (a page still rendering), sometimes it arrives out of nowhere (iOS
+// taking the pixels back under memory pressure), and either way what you get is
+// a screen that goes black while you are playing off it.
+//
+// One fillRect makes the worst case a blank sheet of paper instead. In night
+// mode the whole sheet is inverted by CSS, so this comes out near-black there
+// without knowing anything about it.
+const PAPER = '#f6f5f2';
+
+function paperUnder(context, w, h) {
+  context.fillStyle = PAPER;
+  context.fillRect(0, 0, w, h);
+}
+
+// The most pixels one canvas is allowed to be.
+//
+// iOS will not give a canvas more than a certain number of pixels, and what it
+// does when asked for more is the dangerous part: it does not throw, it does
+// not return null, it hands back a canvas of the size you asked for with
+// NOTHING IN IT. Every draw into it succeeds and every one of them is a no-op.
+// On screen that is a page of music that is simply black, arriving for no
+// reason anybody watching could name.
+//
+// Which is exactly what pinching to look closer used to do. Zooming asks for
+// the page again at screen × zoom, that gets multiplied by the device's own
+// pixels, and on an iPad at 5× it comes to about 79 million pixels — 314MB,
+// four times over the line. The music went black, and letting go put it back.
+//
+// So every canvas here is fitted to what a device will actually hand over.
+// Past that point a page stops getting sharper, which is the right way for a
+// zoom to run out and the difference between a limit and a bug.
+const MAX_SIDE = 4096;
+const MAX_AREA = 12e6;   // ~48MB, and three times an iPad's own screen
+
+// How much to shrink a canvas of this size by, or 1 if it is already fine.
+function withinReach(w, h) {
+  let k = 1;
+  if (w > MAX_SIDE) k = Math.min(k, MAX_SIDE / w);
+  if (h > MAX_SIDE) k = Math.min(k, MAX_SIDE / h);
+  const area = (w * k) * (h * k);
+  if (area > MAX_AREA) k *= Math.sqrt(MAX_AREA / area);
+  return k;
+}
+
 let pdfLib = null;
 
 async function loadPdfLib() {
@@ -274,35 +323,62 @@ async function openPdf(data, password = null, known = {}) {
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
         : { x: 0, y: 0, w: 1, h: 1 }, width, height);
     },
+    // Only the band, and only ever the band.
+    //
+    // This used to fit the crop to the screen, render the WHOLE PAGE at that
+    // size into a canvas of its own, and copy the sliver it wanted out of it.
+    // A band is a third of a page, so the scale that makes a third of a page
+    // fill an iPad makes the whole page three iPads tall: a 15–22MB canvas,
+    // built and thrown away for every page turn, on a device with a hard
+    // ceiling on how much canvas it will hold at once. Past that ceiling iOS
+    // does not fail — it quietly takes the pixels back out of canvases that
+    // are still on screen, which is a page of music that turns black while you
+    // are reading it, and a turn that took a second and a half to do it.
+    //
+    // pdf.js will render a page anywhere on a canvas, including mostly off the
+    // edge of one, and a canvas clips. So the page is slid up and left until the
+    // band lands on the origin and the canvas is cut to the band: everything
+    // outside it is never rasterised and never allocated. Same pixels on the
+    // glass, a fraction of the memory to put them there.
+    //
+    // The slide is `transform` rather than the viewport's own offsetX/offsetY.
+    // Both exist and they are not the same thing: the viewport's offsets are
+    // applied inside a transform that has already flipped the page the right way
+    // up, so using them renders the music upside down. `transform` is applied in
+    // the canvas's own coordinates, where "up and left" means what it says.
     async drawBand(index, canvas, rect, width, height) {
       const page = await doc.getPage(index + 1);
       const base = page.getViewport({ scale: 1 });
       const dpr = window.devicePixelRatio || 1;
       const crop = region(await cropFor(index), rect);
-      // Fit the CROP to the screen, then render the whole page that much bigger
-      // and show only the part that matters.
       const cropW = base.width * crop.w;
       const cropH = base.height * crop.h;
-      const scale = Math.min(width / cropW, height / cropH);
-      const viewport = page.getViewport({ scale: scale * dpr });
-      const full = scratch(Math.round(viewport.width), Math.round(viewport.height));
-      await page.render({
-        canvasContext: full.getContext('2d'),
-        viewport,
-        canvas: full,
-      }).promise;
-      const sx = Math.round(crop.x * full.width);
-      const sy = Math.round(crop.y * full.height);
-      const sw = Math.round(crop.w * full.width);
-      const sh = Math.round(crop.h * full.height);
+      // How big the band is on the glass, and then how many real pixels it is
+      // allowed to be made of. The two are kept apart: a canvas cut down to fit
+      // the device is a canvas with fewer pixels in the SAME space, not a
+      // smaller page.
+      const fit = Math.min(width / cropW, height / cropH);
+      const pixels = dpr * withinReach(cropW * fit * dpr, cropH * fit * dpr);
+      const scale = fit * pixels;
+      const sw = Math.max(1, Math.round(cropW * scale));
+      const sh = Math.max(1, Math.round(cropH * scale));
+      const viewport = page.getViewport({ scale });
       canvas.width = sw;
       canvas.height = sh;
-      canvas.style.width = `${Math.round(sw / dpr)}px`;
-      canvas.style.height = `${Math.round(sh / dpr)}px`;
+      canvas.style.width = `${Math.round(cropW * fit)}px`;
+      canvas.style.height = `${Math.round(cropH * fit)}px`;
       const context = canvas.getContext('2d');
       context.setTransform(1, 0, 0, 1, 0, 0);
-      context.clearRect(0, 0, sw, sh);
-      context.drawImage(full, sx, sy, sw, sh, 0, 0, sw, sh);
+      paperUnder(context, sw, sh);
+      await page.render({
+        canvasContext: context,
+        viewport,
+        canvas,
+        transform: [1, 0, 0, 1,
+          -Math.round(crop.x * base.width * scale),
+          -Math.round(crop.y * base.height * scale)],
+        background: PAPER,
+      }).promise;
     },
     destroy() { doc.destroy?.(); },
   };
@@ -325,14 +401,39 @@ function missingPage(index) {
   return canvas;
 }
 
+// How many photographed pages are kept decoded at once.
+//
+// This must stay comfortably ABOVE the number of pages the reader can be
+// drawing at one moment, and that is what makes evicting safe without any
+// book-keeping about who is using what: asking for a page moves it to the front
+// of the queue, eviction always takes from the back, so a page being drawn is
+// only ever thrown out if this many OTHER pages were asked for after it. The
+// reader shows at most two pages at once (a spread) and looks two either side,
+// so six is the most that can ever be in flight. Eight leaves room to be wrong.
+const DECODED_PAGES = 8;
+
 async function openImages(blobs, known = {}) {
   const cache = new Map();
   const crops = new Map();
   const sizes = new Map();
   // Every page is decoded through the same door as the importer, so a format
   // one of them accepts is a format the other one draws.
+  //
+  // Only the last few pages looked at are kept decoded. A phone photograph of a
+  // page is twelve megapixels — around 48MB once it is pixels rather than JPEG
+  // — and this used to keep every page it had ever drawn, for as long as the
+  // score was open. Twenty pages of a scanned part is a gigabyte of decoded
+  // photographs held against a device that has nothing like that to give, and
+  // what iOS does about it is take the pixels back out of the canvases the
+  // reader is using to show them. Which is the page going black.
   const load = (index) => {
-    if (cache.has(index)) return cache.get(index);
+    if (cache.has(index)) {
+      // Looked at again: back to the front of the queue.
+      const held = cache.get(index);
+      cache.delete(index);
+      cache.set(index, held);
+      return held;
+    }
     const promise = (async () => {
       const blob = blobs[index];
       const image = blob ? await readableImage(blob) : null;
@@ -341,6 +442,16 @@ async function openImages(blobs, known = {}) {
       return { el: image, w, h, missing: false };
     })();
     cache.set(index, promise);
+    // A Map keeps its insertion order, so the oldest key is the first one.
+    while (cache.size > DECODED_PAGES) {
+      const oldest = cache.keys().next().value;
+      const going = cache.get(oldest);
+      cache.delete(oldest);
+      // close() is what hands an ImageBitmap's memory back; without it the
+      // decoded page stays alive until the collector gets round to it, which on
+      // the device that needs the memory is far too late.
+      Promise.resolve(going).then((page) => page?.el?.close?.()).catch(() => {});
+    }
     return promise;
   };
   async function cropFor(index) {
@@ -392,13 +503,16 @@ async function openImages(blobs, known = {}) {
       const scale = Math.min(width / sw, height / sh);
       const w = Math.round(sw * scale);
       const h = Math.round(sh * scale);
-      canvas.width = Math.round(w * dpr);
-      canvas.height = Math.round(h * dpr);
+      // Same space on the glass, only as many real pixels as the device will
+      // actually give — see withinReach.
+      const pixels = dpr * withinReach(w * dpr, h * dpr);
+      canvas.width = Math.max(1, Math.round(w * pixels));
+      canvas.height = Math.max(1, Math.round(h * pixels));
       canvas.style.width = `${w}px`;
       canvas.style.height = `${h}px`;
       const context = canvas.getContext('2d');
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      context.clearRect(0, 0, w, h);
+      context.setTransform(pixels, 0, 0, pixels, 0, 0);
+      paperUnder(context, w, h);
       context.drawImage(page.el, sx, sy, sw, sh, 0, 0, w, h);
     },
     destroy() {
@@ -437,11 +551,22 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
   // stops costing a render per page before anything appears.
   const crops = [];
   const sizes = [];
+  // One canvas for the whole pass, emptied after every page.
+  //
+  // A page big enough to read a staff space off is fourteen megabytes, and this
+  // used to make a new one for each of them and leave the old one to the
+  // collector. Twenty-seven pages is then twenty-seven fourteen-megabyte
+  // canvases whose moment of being freed is somebody else's decision — and on
+  // an iPad, what happens while that decision is pending is that the pages the
+  // reader is SHOWING get emptied to make room. Zero by zero is how a canvas
+  // hands its pixels back at a moment of our choosing rather than at one of the
+  // collector's.
+  const sheet = scratch(8, 8);
+  const release = () => { sheet.width = 0; sheet.height = 0; };
   for (let i = 0; i < pages.count; i++) {
     onProgress?.(i, pages.count);
     let found = null;
     try {
-      const canvas = scratch(8, 8);
       // Big enough to read a staff space, and no bigger. draw() works in device
       // pixels, so the request is divided by them — on a phone at 3× this would
       // otherwise build a 4200px canvas per page to look at 1400px of it.
@@ -451,11 +576,12 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
       // narration stopped on "reading the pages… 1 of 21" and stayed there —
       // the score was already saved and openable, and the only thing broken
       // was the sentence on the screen.
-      await pages.draw(i, canvas, 1400 / dpr, 6000 / dpr);
-      found = readPage(canvas, canvas.width, canvas.height);
+      await pages.draw(i, sheet, 1400 / dpr, 6000 / dpr);
+      found = readPage(sheet, sheet.width, sheet.height);
     } catch {
       found = null;   // an unreadable page is not a reason to lose the score
     }
+    release();
     layout.push(found);
     try {
       crops.push(await pages.cropOf(i));
@@ -471,7 +597,17 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
       // took this instalment of it.
       await Promise.resolve(onMeasured?.({ layout, crops, sizes })).catch(() => {});
     }
+    // A breath between pages. Reading one is a tenth of a second of solid
+    // arithmetic, and a run of them back to back is a tenth of a second at a
+    // time when the screen answers nothing — the app looking stuck while it is
+    // in fact working. This hands the frame back so a tap lands and the page
+    // being read from still turns.
+    await new Promise((resolve) => {
+      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
+      else setTimeout(resolve, 0);
+    });
   }
+  release();
   pages.destroy?.();
   // Three arrays, one per page, rather than properties hung off the layout: an
   // array with things attached to it loses them the moment it is stored, and

@@ -1070,11 +1070,24 @@ function redrawPaperAtZoom() {
     const canvas = node?.querySelector('canvas');
     const slice = slices[pageIndex];
     if (!canvas || !slice) return;
-    await paper.drawBand(slice.page, canvas, slice.rect,
-      window.innerWidth * zoom, window.innerHeight * zoom);
+    try {
+      await paper.drawBand(slice.page, canvas, slice.rect,
+        window.innerWidth * zoom, window.innerHeight * zoom);
+    } catch {
+      return;   // the page on screen is the page that was already there
+    }
     // Drawn big, shown at the page's own size: the transform does the rest.
-    canvas.style.width = `${Math.round(canvas.width / (window.devicePixelRatio || 1) / zoom)}px`;
-    canvas.style.height = `${Math.round(canvas.height / (window.devicePixelRatio || 1) / zoom)}px`;
+    //
+    // Taken from the size drawBand SAID the band is, not worked back out of the
+    // canvas's pixel count. Those two used to be the same number; they are not
+    // any more, because a canvas too big for the device is now given fewer
+    // pixels in the same space, and dividing that down again would draw the page
+    // at a fraction of its size on every zoom that hit the ceiling.
+    const shownW = parseFloat(canvas.style.width);
+    const shownH = parseFloat(canvas.style.height);
+    if (!(shownW > 0) || !(shownH > 0)) return;
+    canvas.style.width = `${Math.round(shownW / zoom)}px`;
+    canvas.style.height = `${Math.round(shownH / zoom)}px`;
     redraw();
   }, 220);
 }
@@ -1404,7 +1417,10 @@ function keepNeighboursReady(shown) {
   // themselves cannot get out of step with themselves.
   const forget = () => {
     for (const [i, node] of pageEls.entries()) {
-      if (near(i)) continue;
+      // Never out from under a render in progress: the pixels it is drawing
+      // into are the canvas being taken away, and what comes back is a page
+      // that stayed empty because it was emptied mid-sentence.
+      if (near(i) || beingDrawn.has(i)) continue;
       const canvas = node.querySelector('canvas');
       if (!canvas || canvas.width <= 1) continue;
       // Zero by zero is how a canvas gives its pixels back.
@@ -3060,8 +3076,26 @@ function rememberMeasurements(payload) {
 }
 
 const drawn = new Set();
+// Pages being drawn right now.
+//
+// `drawn` only records pages that have FINISHED, so two things asking for the
+// same page at once — a turn and the look-ahead it kicked off a moment earlier
+// — both got past it and both started drawing. That was survivable when each
+// render built its own canvas and the second one simply won; now that a page is
+// rendered straight into the canvas it will be shown on, two renders on one
+// canvas is something the renderer refuses outright, and the page it refuses is
+// a page that never appears. The second caller waits for the first instead.
+const beingDrawn = new Map();
 
-async function drawPaperPage(index) {
+function drawPaperPage(index) {
+  const already = beingDrawn.get(index);
+  if (already) return already;
+  const one = drawOnePage(index).finally(() => beingDrawn.delete(index));
+  beingDrawn.set(index, one);
+  return one;
+}
+
+async function drawOnePage(index) {
   const node = pageEls[index];
   const slice = slices[index];
   if (!paper || !node || !slice || drawn.has(index)) return;
