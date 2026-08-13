@@ -1284,7 +1284,16 @@ async function playSet(set, position) {
   if (!items.length) return;
   const at = Math.max(0, Math.min(items.length - 1, position));
   await openScoreFromLibrary(items[at], {
-    setlist: { id: set.id, name: set.name, items, index: at },
+    // The names travel with the programme, not just the ids: the reader says
+    // what is coming as you reach the end of a piece, and it has no way of its
+    // own to turn an id into "Sarabande".
+    setlist: {
+      id: set.id,
+      name: set.name,
+      items,
+      names: items.map((id) => scoreNames.get(id) ?? ''),
+      index: at,
+    },
   });
 }
 
