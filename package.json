@@ -13,7 +13,8 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs"
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs",
+    "reader:turns": "node tools/reader-turn-check.mjs"
   },
   "keywords": [],
   "author": "",

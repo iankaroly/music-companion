@@ -33,7 +33,7 @@ import { bandsOfPage } from './bands.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { shapeFrom } from '../analysis/shape-snap.js';
 import { pageTurn } from './pedal.js';
-import { intonationTone } from './chart-utils.js';
+import { intonationHue } from './chart-utils.js';
 import { actionMenu } from './controls.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
@@ -311,6 +311,29 @@ let hidden = new Set();   // layers being kept out of sight
 // than halfway down the music you were reading.
 const SPREAD_KEY = 'readerSpread';
 let spread = false;
+// Playing from it, as opposed to reading it.
+//
+// Off the stand, a page turn should be sure of itself: it waits for the finger
+// to leave so it can tell a tap from a swipe from the first finger of a pinch.
+// On the stand, in the middle of a phrase, the hand is already going back to
+// the string and those few tens of milliseconds are the difference between a
+// page that was there and a page that arrived. Remembered, because a player who
+// wants this wants it every time they open a part.
+const ONSTAGE_KEY = 'readerOnstage';
+let onstage = false;
+
+function setOnstage(on) {
+  onstage = on;
+  try { globalThis.localStorage?.setItem(ONSTAGE_KEY, on ? 'on' : 'off'); } catch { /* fine */ }
+  root?.classList.toggle('onstage', on);
+  // Said once and then got out of the way: this line is normally where the
+  // reader asks you for something, and a mode is not a question.
+  say(on ? 'performance mode — pages turn the instant you touch the side'
+    : 'performance mode off');
+  clearTimeout(onstageSaid);
+  onstageSaid = setTimeout(() => { if (!pendingLink) say(''); }, 2600);
+}
+let onstageSaid = null;
 
 const el = (id) => document.querySelector(`#${id}`);
 
@@ -2601,6 +2624,14 @@ function buildMenu(sheet) {
       label: 'Smaller', glyph: '−', detail: 'more music to a page',
       onPick: () => resize(1 / ZOOM_STEP),
     });
+    menuRow(sheet, {
+      label: onstage ? 'Leave performance mode' : 'Performance mode',
+      glyph: '⚡',
+      detail: onstage
+        ? 'back to turning when your finger leaves the page'
+        : 'the page turns the instant you touch the side',
+      onPick: () => { setOnstage(!onstage); closeMenu(); },
+    });
   }
   if (isPaper()) {
     menuGroup(sheet, 'the pages themselves');
@@ -3396,6 +3427,27 @@ function build() {
   const TAP_TIME = 600;     // ms held still counts as a tap
   let tapFrom = null;
   root.addEventListener('pointerdown', (e) => {
+    // Performance mode: the turn happens on the way DOWN.
+    //
+    // A tap is normally read on the way up, because until the finger leaves you
+    // do not know whether it was a tap, a swipe or the start of a pinch — and
+    // being sure is worth the few tens of milliseconds it costs. On a stand,
+    // mid-phrase, it is not. The hand is going back to the string and the page
+    // has to be there already; forScore has the same mode for the same reason,
+    // and it is the whole of why that app is described as instant.
+    //
+    // Only in the turn zones, only with no tool out, only with one finger and
+    // no pencil. Everything else — the middle of the page, the chrome, the
+    // second finger of a pinch — still waits, because none of those is a page
+    // turn and guessing at them is how a mode like this becomes unusable.
+    if (onstage && !tool && !menuOpen && !pinching && zoom === 1
+      && pointers.size <= 1 && e.pointerType !== 'pen' && !chrome && !pendingLink
+      && !e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
+        + ' #reader-selection, #reader-land')) {
+      const third = window.innerWidth / 3;
+      if (e.clientX < third) { previousPage(); tapFrom = null; return; }
+      if (e.clientX > window.innerWidth - third) { nextPage(); tapFrom = null; return; }
+    }
     // The palm is turned away here as well as at the door.
     //
     // trackPointers refuses a touch while the pencil is down, but a `return`
@@ -3412,10 +3464,44 @@ function build() {
     const from = tapFrom;
     tapFrom = null;
     if (!from || from.id !== e.pointerId || pinching) return;
+    if (onSwipe(e, from)) return;
     if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > TAP_SLIP) return;
     if (e.timeStamp - from.at > TAP_TIME) return;
     onTap(e);
   });
+
+  // Turning the page the other way people turn pages.
+  //
+  // The tap zones are exact and they are what this reader was built on, but a
+  // hand coming off a fingerboard is not an exact instrument, and every reader
+  // a player has used takes a swipe as well — forScore documents the two as
+  // equals, and swiping is the more forgiving of them precisely because it does
+  // not care where on the page you are.
+  //
+  // Nothing is DRAGGED. The page does not follow the finger and there is no
+  // rubber band; the gesture is recognised when the finger leaves, and the page
+  // it lands on arrives whole. That is the distinction this screen has always
+  // made — a page of music you can push about is a page you lose your place in
+  // — and a swipe on the right side of it.
+  //
+  // Left is forward, the way a page of a book goes.
+  const SWIPE_FAR = 55;      // px across before it is a swipe at all
+  const SWIPE_STRAIGHT = 1.4; // how much more across than down it has to be
+  const SWIPE_TIME = 700;    // ms; slower than this is a hand resting, not a turn
+
+  function onSwipe(e, from) {
+    if (tool || pendingLink || menuOpen || zoom !== 1) return false;
+    if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
+      + ' #reader-selection, #reader-land')) return false;
+    const dx = e.clientX - from.x;
+    const dy = e.clientY - from.y;
+    if (Math.abs(dx) < SWIPE_FAR) return false;
+    if (Math.abs(dx) < Math.abs(dy) * SWIPE_STRAIGHT) return false;
+    if (e.timeStamp - from.at > SWIPE_TIME) return false;
+    if (dx < 0) nextPage();
+    else previousPage();
+    return true;
+  }
   root.addEventListener('pointercancel', () => { tapFrom = null; });
 
   function onTap(e) {
@@ -3934,9 +4020,7 @@ function markedHeads() {
 
 function drawScanMarks(ctx) {
   if (!isPaper() || !take?.notes?.length || !layout) return;
-  const colours = {
-    good: '--good', off: '--off', bad: '--bad', flatOff: '--flat-off', flatBad: '--flat-bad',
-  };
+  const colours = { good: '--good', sharp: '--sharp', flat: '--flat' };
   const style = getComputedStyle(document.documentElement);
   for (const head of markedHeads()) {
     // The same page-to-screen mapping the ink uses, so a ring and a fingering
@@ -3948,10 +4032,7 @@ function drawScanMarks(ctx) {
 
 function drawOneMark(ctx, head, place, style, colours) {
   {
-    const { tier, direction } = intonationTone(head.cents);
-    const token = tier === 'good' ? colours.good
-      : direction === 'flat' ? (tier === 'off' ? colours.flatOff : colours.flatBad)
-        : (tier === 'off' ? colours.off : colours.bad);
+    const token = colours[intonationHue(head.cents)] ?? '--muted';
     ctx.save();
     ctx.strokeStyle = style.getPropertyValue(token).trim() || '#888';
     // Sized off the staff space the page reader measured, at the scale this
@@ -4065,6 +4146,8 @@ export async function openReader(row, {
   root.classList.toggle('spread', spread);
   try { night = globalThis.localStorage?.getItem(NIGHT_KEY) === 'on'; } catch { night = false; }
   root.classList.toggle('night', night);
+  try { onstage = globalThis.localStorage?.getItem(ONSTAGE_KEY) === 'on'; } catch { onstage = false; }
+  root.classList.toggle('onstage', onstage);
   menuOpen = false;
   pageIndex = 0;
   tool = null;
