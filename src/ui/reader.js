@@ -1567,7 +1567,7 @@ function penIsDown() {
 
 // The pencil has landed on the music with no tool in hand.
 function armPencil(e) {
-  if (!root || root.hidden || menuOpen) return false;
+  if (!root || root.hidden || isMenuOpen()) return false;
   // Not on the chrome: a pencil is a perfectly good way to press a button.
   if (e.target?.closest?.('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
     + ' #reader-selection, #reader-land, .pick-pop, dialog')) return false;
@@ -1624,6 +1624,7 @@ function trackPointers(root) {
         panY,
       };
       pinching = true;
+      clearTimeout(pinchOver);   // a new pinch outranks the last one ending
       drawingPointer = null;
       cancelStroke();   // the first finger was drawing; it was not, it was pinching
     }
@@ -1651,14 +1652,31 @@ function trackPointers(root) {
       if (e.pointerId === penPointer) penPointer = null;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
-      if (pointers.size === 0) {
-        // Both fingers off: only now may the pen be believed again.
-        pinching = false;
-        if (isPaper() && zoom > 1) redrawPaperAtZoom();
+      if (pointers.size < 2) {
+        // A pinch is over the moment there are not two fingers making one.
+        //
+        // This used to wait for the map to reach EMPTY, on the reasoning that
+        // lifting one finger out of a pinch must not draw a line from the
+        // other. That reasoning is right and the rule was wrong: it made
+        // "there is still a finger down" and "a pinch is still happening" the
+        // same statement, so a pinch whose second `up` was lost — which is
+        // most of them on a tablet, where two fingers rarely leave together —
+        // left the whole reader refusing strokes and taps.
+        //
+        // The intent is kept by a moment's grace instead: for a quarter of a
+        // second after the second finger goes, nothing is a stroke and nothing
+        // is a tap. That is long enough for the other hand to leave, and short
+        // enough that a reader which has lost a pointer comes back on its own
+        // before anybody reaches for it a second time.
+        clearTimeout(pinchOver);
+        pinchOver = setTimeout(() => { pinching = false; }, 250);
       }
+      if (pointers.size === 0 && isPaper() && zoom > 1) redrawPaperAtZoom();
     }, true);
   }
 }
+
+let pinchOver = null;
 
 // --- a finger that never lifted -----------------------------------------------
 //
@@ -1702,6 +1720,7 @@ function forgetLostPointers(now) {
 // Everything let go of at once: no fingers, no pencil, no pinch, no half-drawn
 // stroke. Used where the app cannot be told what happened to any of them.
 function forgetEveryPointer() {
+  clearTimeout(pinchOver);
   pointers.clear();
   penPointer = null;
   pinch = null;
@@ -2188,7 +2207,16 @@ function previousPage() {
 // on a tablet behaves and, more to the point, keeps the page turns and the pen
 // from sharing a tap.
 
-let menuOpen = false;
+// Whether the ⋯ sheet is open is a question the SHEET can answer.
+//
+// It was a variable kept alongside the class on the element, and two records of
+// one fact are one record and one liability: anything that hid the sheet
+// without going through closeMenu left the variable saying it was still open,
+// and from then on every tap on the page was swallowed as "close the menu" —
+// a reader that looks completely normal and quietly ignores you.
+function isMenuOpen() {
+  return !!el('reader-menu')?.classList.contains('open');
+}
 
 function setChrome(on) {
   chrome = on;
@@ -2750,16 +2778,15 @@ function openSend() {
 // --- the menu ----------------------------------------------------------------
 
 function closeMenu() {
-  menuOpen = false;
   el('reader-menu')?.classList.remove('open');
 }
 
 function toggleMenu() {
   const sheet = el('reader-menu');
   if (!sheet) return;
-  menuOpen = !menuOpen;
-  sheet.classList.toggle('open', menuOpen);
-  if (menuOpen) {
+  const opening = !isMenuOpen();
+  sheet.classList.toggle('open', opening);
+  if (opening) {
     setChrome(true);
     buildMenu(sheet);
     hangBelowBar(sheet);
@@ -3701,7 +3728,7 @@ function build() {
     //
     // The top strip is tested FIRST and is not a turn: it overlaps both zones,
     // and a hand going up there is reaching for the controls.
-    if (!tool && !menuOpen && !pinching && zoom === 1
+    if (!tool && !isMenuOpen() && !pinching && zoom === 1
       && pointers.size <= 1 && e.pointerType !== 'pen' && !pendingLink
       && !e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
         + ' #reader-selection, #reader-land')) {
@@ -3757,7 +3784,7 @@ function build() {
   const SWIPE_TIME = 700;    // ms; slower than this is a hand resting, not a turn
 
   function onSwipe(e, from) {
-    if (tool || pendingLink || menuOpen || zoom !== 1) return false;
+    if (tool || pendingLink || isMenuOpen() || zoom !== 1) return false;
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
       + ' #reader-selection, #reader-land')) return false;
     const dx = e.clientX - from.x;
@@ -3780,7 +3807,7 @@ function build() {
 
   function onTap(e) {
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
-    if (menuOpen) { closeMenu(); return; }
+    if (isMenuOpen()) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     // A tap on the page hides the BAR. It does not put the pen down.
     //
@@ -3911,7 +3938,7 @@ function build() {
     if (e.target?.closest?.('input, textarea, [contenteditable]')
       || document.querySelector('dialog[open]')) return;
     if (e.key === 'Escape') {
-      if (menuOpen) closeMenu();
+      if (isMenuOpen()) closeMenu();
       else if (tool) setTool(null);
       else close();
       return;
@@ -4429,7 +4456,6 @@ export async function openReader(row, {
   root.classList.toggle('spread', spread);
   try { night = globalThis.localStorage?.getItem(NIGHT_KEY) === 'on'; } catch { night = false; }
   root.classList.toggle('night', night);
-  menuOpen = false;
   pageIndex = 0;
   tool = null;
   root.classList.remove('drawing');
