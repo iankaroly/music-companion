@@ -135,6 +135,39 @@ function paperUnder(context, w, h) {
   context.fillRect(0, 0, w, h);
 }
 
+// Give a canvas a size, and find out whether the device meant it.
+//
+// MAX_AREA below is a guess about somebody else's hardware, and a guess is a
+// poor thing to hang a black screen on: too high and the ceiling it is meant to
+// keep us under is still there, too low and the music is blurrier than the
+// iPad could have drawn it. So the size is ASKED FOR and then checked. The
+// canvas is filled with paper and one pixel of it is read back: paper is
+// opaque, an allocation the device quietly refused is not, and the difference
+// costs one pixel of readback against a render of several million.
+//
+// Refused, it halves and asks again. What comes out is the sharpest page this
+// device will actually hand over, worked out on the device rather than assumed
+// about it.
+function sizeToBand(canvas, cssW, cssH, wanted) {
+  let pixels = Math.max(0.25, wanted);
+  for (let attempt = 0; ; attempt++) {
+    canvas.width = Math.max(1, Math.round(cssW * pixels));
+    canvas.height = Math.max(1, Math.round(cssH * pixels));
+    canvas.style.width = `${Math.max(1, Math.round(cssW))}px`;
+    canvas.style.height = `${Math.max(1, Math.round(cssH))}px`;
+    const context = canvas.getContext('2d');
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    paperUnder(context, canvas.width, canvas.height);
+    let took = true;
+    // A canvas that cannot be read from is not a canvas that was refused —
+    // that is a different problem, and guessing "refused" would halve the
+    // sharpness of every page for ever.
+    try { took = context.getImageData(0, 0, 1, 1).data[3] !== 0; } catch { took = true; }
+    if (took || pixels <= 0.25 || attempt >= 4) return { context, pixels };
+    pixels /= 2;
+  }
+}
+
 // The most pixels one canvas is allowed to be.
 //
 // iOS will not give a canvas more than a certain number of pixels, and what it
@@ -358,21 +391,12 @@ async function openPdf(data, password = null, known = {}) {
       // the device is a canvas with fewer pixels in the SAME space, not a
       // smaller page.
       const fit = Math.min(width / cropW, height / cropH);
-      const pixels = dpr * withinReach(cropW * fit * dpr, cropH * fit * dpr);
+      const { context, pixels } = sizeToBand(canvas, cropW * fit, cropH * fit,
+        dpr * withinReach(cropW * fit * dpr, cropH * fit * dpr));
       const scale = fit * pixels;
-      const sw = Math.max(1, Math.round(cropW * scale));
-      const sh = Math.max(1, Math.round(cropH * scale));
-      const viewport = page.getViewport({ scale });
-      canvas.width = sw;
-      canvas.height = sh;
-      canvas.style.width = `${Math.round(cropW * fit)}px`;
-      canvas.style.height = `${Math.round(cropH * fit)}px`;
-      const context = canvas.getContext('2d');
-      context.setTransform(1, 0, 0, 1, 0, 0);
-      paperUnder(context, sw, sh);
       await page.render({
         canvasContext: context,
-        viewport,
+        viewport: page.getViewport({ scale }),
         canvas,
         transform: [1, 0, 0, 1,
           -Math.round(crop.x * base.width * scale),
@@ -504,15 +528,10 @@ async function openImages(blobs, known = {}) {
       const w = Math.round(sw * scale);
       const h = Math.round(sh * scale);
       // Same space on the glass, only as many real pixels as the device will
-      // actually give — see withinReach.
-      const pixels = dpr * withinReach(w * dpr, h * dpr);
-      canvas.width = Math.max(1, Math.round(w * pixels));
-      canvas.height = Math.max(1, Math.round(h * pixels));
-      canvas.style.width = `${w}px`;
-      canvas.style.height = `${h}px`;
-      const context = canvas.getContext('2d');
+      // actually give — see sizeToBand.
+      const { context, pixels } = sizeToBand(canvas, w, h,
+        dpr * withinReach(w * dpr, h * dpr));
       context.setTransform(pixels, 0, 0, pixels, 0, 0);
-      paperUnder(context, w, h);
       context.drawImage(page.el, sx, sy, sw, sh, 0, 0, w, h);
     },
     destroy() {
@@ -525,6 +544,27 @@ async function openImages(blobs, known = {}) {
 }
 
 // --- bringing paper in --------------------------------------------------------
+
+// A breath between pages.
+//
+// Reading a page is a tenth of a second of solid arithmetic, and a run of them
+// back to back is a tenth of a second at a time when the screen answers
+// nothing — the app looking stuck while it is in fact working. Handing the
+// frame back means a tap lands and the page being read from still turns.
+//
+// A frame AND a timer, whichever comes first, and the timer is the important
+// half: a webview that has been put in the background is not painting, so
+// requestAnimationFrame there is not "soon", it is NEVER. Waiting on it alone
+// stops the pass dead the moment somebody switches apps — which is precisely
+// the moment this pass exists to survive.
+function breathe() {
+  return new Promise((resolve) => {
+    let done = false;
+    const go = () => { if (!done) { done = true; resolve(); } };
+    setTimeout(go, 40);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(go);
+  });
+}
 
 // How often the pass stops to write down what it has. Small, because the cost
 // of a write is two short arrays and the cost of not having written is the
@@ -597,15 +637,7 @@ export async function readPages(payload, onProgress = null, onMeasured = null) {
       // took this instalment of it.
       await Promise.resolve(onMeasured?.({ layout, crops, sizes })).catch(() => {});
     }
-    // A breath between pages. Reading one is a tenth of a second of solid
-    // arithmetic, and a run of them back to back is a tenth of a second at a
-    // time when the screen answers nothing — the app looking stuck while it is
-    // in fact working. This hands the frame back so a tap lands and the page
-    // being read from still turns.
-    await new Promise((resolve) => {
-      if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => resolve());
-      else setTimeout(resolve, 0);
-    });
+    await breathe();
   }
   release();
   pages.destroy?.();

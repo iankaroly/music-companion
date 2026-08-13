@@ -3007,11 +3007,28 @@ async function bandPages(target) {
   return out;
 }
 
+// Which laying-out the pages on screen belong to.
+//
+// Turning the iPad round throws every page away and builds new ones, and the
+// draws the last screen shape had in flight do not stop when it does — they
+// finish, against canvases that are no longer in the document, and then say
+// "page 7 is drawn". Page 7 by then is a different, empty canvas that nothing
+// will ever draw again, because it has been marked as done. That is a page of a
+// part that is blank until you leave the score and come back, and rotating is
+// the commonest way in the world to hit it.
+let era = 0;
+
 async function layOutPaper() {
+  const mine = ++era;
+  // Nothing that was true of the old pages is true of the new ones.
+  drawn.clear();
+  beingDrawn.clear();
   const payload = await loadScorePages(score.id);
+  if (mine !== era) return null;
   layout = payload?.layout ?? null;
   paper?.destroy?.();
   paper = await openPaper(payload);
+  if (mine !== era) return null;
   view = null;
   bars = new Map();
   sheet.replaceChildren();
@@ -3101,15 +3118,21 @@ async function drawOnePage(index) {
   if (!paper || !node || !slice || drawn.has(index)) return;
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
+  const mine = era;
   try {
     await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight);
   } catch (err) {
+    // The pages were rebuilt underneath this one — rotated, resized, a page
+    // recropped. It drew on a canvas nobody can see any more, and it has
+    // nothing to say about the pages that exist now.
+    if (mine !== era) return;
     // A page the renderer chokes on leaves a blank canvas and no explanation,
     // which reads as a score that has lost a page. Say it on the page itself:
     // the rest of the part still turns, and the reason is where the missing
     // music would have been.
     sayOnPage(canvas, `Page ${slice.page + 1} could not be drawn — ${err.message}`, across);
   }
+  if (mine !== era) return;
   drawn.add(index);
   redraw(); // the ink layer measures the page it has just been given a size for
 }
@@ -3398,7 +3421,11 @@ export function close() {
   paper?.destroy?.();
   paper = null;
   pageEls = [];
+  // Closing is a re-laying-out like any other: draws still in flight belong to
+  // a score that is no longer open, and none of them may report back.
+  era++;
   drawn.clear();
+  beingDrawn.clear();
   slices = [];
   sheet.replaceChildren();
   score = null;
