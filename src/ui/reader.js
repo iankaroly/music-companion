@@ -3285,6 +3285,29 @@ function build() {
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
     buildSelectionBar(), menu, line, land);
   document.body.append(root);
+
+  // The last word on selecting the music, said in JavaScript because CSS is
+  // advice and this is not.
+  //
+  // Both of the reader's central gestures deliberately park a finger still on
+  // the page for over half a second — a tap is allowed 600ms, and holding the
+  // pen still for 550 is how a scrawl becomes the box it was trying to be.
+  // That is exactly the gesture iOS reads as "select this word". The stylesheet
+  // now refuses selection every way it can, but a webview that decides to start
+  // one anyway is answered here: the attempt is cancelled, and the Copy / Look
+  // Up bubble that would follow it is refused as well.
+  //
+  // Scoped to the reader, and only while it is open — the rest of the app is
+  // ordinary text that people may well want to copy out of.
+  for (const type of ['selectstart', 'contextmenu']) {
+    root.addEventListener(type, (e) => {
+      // …except in the one place inside it that IS text you are typing.
+      if (e.target?.closest?.('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+    });
+  }
+  // And a selection that some other part of the page began, dragged across the
+  // music: cleared as the reader opens rather than left highlighted under it.
   trackPointers(root);
 
   // A tap does one of four things, and where it lands decides which. The top
@@ -3994,6 +4017,10 @@ export async function openReader(row, {
   root.hidden = false;
   showFirstRunHint();
   document.documentElement.dataset.reading = 'yes';
+  // Whatever was highlighted on the way in does not follow the music onto the
+  // stand: a selection made in the library, on a title or a date, would sit
+  // there in blue under a full-screen page of a part.
+  try { getSelection()?.removeAllRanges(); } catch { /* nothing to clear */ }
   el('reader-title').textContent = row.name ?? '';
   const opening = sayOpening(row);
   try {

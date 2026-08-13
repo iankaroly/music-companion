@@ -286,6 +286,36 @@
       user-select: none;
       -webkit-touch-callout: none;
     }
+    /* The rest of the places a long press can find something to select.
+       The rule above was written for controls and grew a #reader on the end,
+       which left every surface the reader OPENS outside it: the page-jump grid
+       and the layer, stamp and bookmark menus are appended to document.body,
+       and "Write on the page" and "Name this score" are <dialog>s at the end of
+       the document. All of them are one-tap surfaces on a screen where the hand
+       is holding a bow, and all of them answered a held finger by highlighting
+       their own label and offering to copy it.
+       The engraved score on the Score TAB is the same picture as the one in the
+       reader and had none of this at all — from a player's side that is the
+       same music, and the callout does not care which screen it is on. */
+    .pick-pop, dialog, #score-stage,
+    #score-stage svg, #score-stage svg * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-user-drag: none;
+    }
+    /* …but a dialog that exists to take a word still has to let you edit it. */
+    dialog input, dialog textarea, dialog [contenteditable] {
+      -webkit-user-select: text;
+      user-select: text;
+      -webkit-touch-callout: default;
+    }
+    /* Nothing on a page of music is ever painted as a selection. If one does
+       slip past everything above — a webview quirk, a future browser — it is a
+       blue block over a bar of the part that stays until it is tapped away. */
+    #reader ::selection, #score-stage ::selection, .pick-pop ::selection {
+      background: transparent;
+    }
     /* The grey box iOS paints over whatever you tapped.
        It is Safari's own tap feedback, and in a menu it arrives just AFTER the
        menu has closed — so picking "fingerings" off the layer menu left a grey
@@ -1247,7 +1277,15 @@
     /* Reading in the dark: the paper goes black and the notes go white, and the
        ink layer is left alone so a red circle stays a red circle. */
     #reader.night #reader-sheet { filter: invert(1) hue-rotate(180deg); }
-    #reader.night { background: #000; }
+    /* The whole room goes dark, not just the paper.
+       Setting only the reader's own background left everything painted with
+       --bg still light — and the one thing painted with it is the panel that
+       covers the screen while a part is being measured. On a stand in a dark
+       hall, opening a part you have not read before flashed a full-screen sheet
+       of light grey and then went black. That is the page flash, and it is
+       worse than the one it was written to prevent. */
+    #reader.night { --bg: #000; background: #000; }
+    #reader.night #reader-opening { color: #7d818a; }
     #reader-ink {
       position: fixed;
       pointer-events: none;   /* the page underneath takes the taps */
