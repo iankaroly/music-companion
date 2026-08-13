@@ -279,6 +279,19 @@ let sounding = null;  // the notehead lit right now
 let strokes = [];     // every mark on this piece
 let pageIndex = 0;
 let tool = null;      // null = reading; 'pen' | 'highlighter' | 'eraser'
+// The last thing you were writing WITH.
+//
+// Putting the bar away was putting the pen down: it came back holding a plain
+// pen every single time, so a session spent marking fingerings in the
+// highlighter meant reaching for the highlighter again after every phrase you
+// played. What you last wrote with is what you meant to go on writing with —
+// the bar closing is you looking at the music, not you changing your mind about
+// the pen.
+let lastInk = 'pen';
+// The tools this remembers. The eraser is deliberately not one of them: coming
+// back to a score holding a rubber is how you rub out the phrase you meant to
+// annotate, and nobody ever means "carry on erasing" after a page turn.
+const INKS = ['pen', 'highlighter', 'text', 'lasso', 'line', 'arrow', 'rect', 'ellipse', 'stamp'];
 let drawing = null;   // the stroke being drawn
 let chrome = true;    // is the bar showing
 let saveTimer = null;
@@ -976,6 +989,15 @@ function cancelStroke() {
   redraw();
 }
 
+// The tools a tap should put DOWN rather than use.
+//
+// Text and the stamps ARE tapped — that is how they are placed — and a tap with
+// the eraser is a rub in one spot, and with the lasso it is how a selection is
+// put down. For the rest, a tap has never done anything at all: a stroke of one
+// point was already thrown away as "that was a tap, not a drag". So nothing is
+// taken away by giving the gesture a job.
+const TAP_PUTS_DOWN = ['pen', 'highlighter', ...SHAPES];
+
 function endStroke() {
   stopHold();
   if (tool === 'lasso') {
@@ -1530,6 +1552,9 @@ function setTool(next) {
     return;
   }
   tool = tool === next ? null : next;
+  // Remembered on the way IN, not on the way out: putting a tool down leaves
+  // `tool` null, and null is not something to come back holding.
+  if (INKS.includes(tool)) lastInk = tool;
   if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
   for (const button of root.querySelectorAll('[data-tool]')) {
@@ -1638,7 +1663,7 @@ function closeBrush() {
 function toggleBrush() {
   const panel = el('reader-brush');
   if (!panel) return;
-  if (!tool || tool === 'eraser') setTool('pen');
+  if (!tool || tool === 'eraser') setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
   panel.classList.toggle('open');
   hangBelowBar(panel);
   refreshBrushUI();
@@ -1790,7 +1815,7 @@ function usePreset(index) {
   brush.s = preset.s;
   brush.l = preset.l;
   if (tool !== 'highlighter') brush.a = preset.a;
-  if (!tool || tool === 'eraser') setTool('pen');
+  if (!tool || tool === 'eraser') setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
   refreshBrushUI();
 }
 
@@ -2079,7 +2104,7 @@ function buildMenu(sheet) {
   menuGroup(sheet, 'this score');
   menuRow(sheet, {
     label: 'Annotate', glyph: '✎', detail: 'write on the page',
-    onPick: () => setTool('pen'),
+    onPick: () => setTool(lastInk),
   });
   menuRow(sheet, {
     label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
@@ -2403,7 +2428,13 @@ const ICONS = {
   text: '<path d="M5 6h14M12 6v13"/>',
   shapes: '<rect x="4.5" y="4.5" width="10" height="10" rx="1"/><circle cx="15.5" cy="15.5" r="4.5"/>',
   lasso: '<ellipse cx="12" cy="10.5" rx="7.5" ry="5.5"/><path d="M8 15.5c0 2 1 3.5 1 4.5"/>',
-  eraser: '<path d="M8 19h11"/><path d="M5.5 15.5l6-6 5.5 5.5-4.5 4.5H9z"/>',
+  // A rubber, held at the angle a hand holds one, with the seam across it that
+  // says which end has been used and a line of paper under it. The old one was
+  // the same idea drawn small and thin, and at the size this bar draws icons it
+  // read as a smudge — which is how a tool that has been here all along got
+  // asked for as a tool that was missing.
+  eraser: '<path d="M3.8 16.6l7.6-7.6a2 2 0 0 1 2.9 0l3.3 3.3a2 2 0 0 1 0 2.9l-4.4 4.4H6.6z"/>'
+    + '<path d="M9.3 11.5l5.9 5.9"/><path d="M11 20.2h9"/>',
   undo: '<path d="M9 7H5.5V3.5"/><path d="M5.8 7.2a7 7 0 1 1-1.3 6"/>',
   redo: '<path d="M15 7h3.5V3.5"/><path d="M18.2 7.2a7 7 0 1 0 1.3 6"/>',
   clear: '<rect x="4.5" y="5.5" width="15" height="13" rx="2"/><path d="M9 9.5l6 5M15 9.5l-6 5"/>',
@@ -2621,7 +2652,7 @@ function buildTopBar() {
   right.className = 'reader-bar-right';
   right.append(
     iconButton('reader-play', 'play', 'Play the take', togglePlayback),
-    iconButton('reader-annotate', 'pen', 'Annotate this page', () => setTool('pen')),
+    iconButton('reader-annotate', 'pen', 'Annotate this page', () => setTool(lastInk)),
     iconButton('reader-menu-btn', 'more', 'More', toggleMenu),
   );
 
@@ -2808,7 +2839,16 @@ function build() {
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
     if (menuOpen) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
-    if (tool) return;                        // the pen owns the page while it is out
+    // The pen owns the page while it is out — but a TAP with it is you looking
+    // up from the writing. You annotate a bar, then you play, and the bar of
+    // tools sits over the music with the pen still armed; getting back to
+    // reading meant finding one small tick at the top of the screen. Anywhere
+    // on the page does it now, and the pen you were using is remembered for
+    // when you come back to it.
+    if (tool) {
+      if (TAP_PUTS_DOWN.includes(tool)) { setTool(null); setChrome(false); }
+      return;
+    }
     // Taping a jump down: the first tap is where the sign is, and after that
     // the page turns as usual until you say where it lands.
     if (pendingLink?.stage === 'from') {
