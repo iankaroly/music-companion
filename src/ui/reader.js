@@ -619,6 +619,57 @@ function place(point) {
 // The ink a stroke was made with. Anything that looks like a colour is used as
 // it is; the old named pens still resolve, so marks made before the brush
 // existed keep the colour they were drawn in.
+// Ink, read on a black page.
+//
+// The engraving is inverted for the dark and the ink deliberately is not — a
+// red circle you drew round an accidental has to still be a red circle, and
+// running somebody's annotations through a filter to suit the room is changing
+// their notes rather than the lighting. But the commonest pen in the case is a
+// pencil, which is very nearly black, and a very nearly black line on a black
+// page is a mark you cannot find. In a pit, in the dark, that is the annotation
+// you needed most.
+//
+// So the HUE is left exactly alone and only the LIGHTNESS is lifted, and only
+// for ink too dark to see. A pencil comes up to the grey a pencil looks like on
+// white paper; a red, a blue, a green — anything already bright enough — is not
+// touched at all. The stroke itself is never altered: this is a lamp held over
+// the page, not a change to what is on it.
+const afterDarkCache = new Map();
+let colourProbe = null;
+
+function afterDark(colour) {
+  const known = afterDarkCache.get(colour);
+  if (known) return known;
+  let out = colour;
+  try {
+    // Any CSS colour, resolved to numbers by the one thing that already knows
+    // how to read all of them.
+    if (!colourProbe) colourProbe = document.createElement('canvas').getContext('2d');
+    colourProbe.fillStyle = '#000';
+    colourProbe.fillStyle = colour;
+    const [r, g, b, a] = parseColour(colourProbe.fillStyle);
+    const { h, s, l } = rgbToHsl(r, g, b);
+    if (l < 42) {
+      const lifted = Math.min(88, 62 + l * 0.5);
+      out = `hsla(${Math.round(h)} ${Math.round(Math.max(s, 6))}% ${Math.round(lifted)}% / ${a})`;
+    }
+  } catch { /* an ink the browser cannot read is an ink drawn as it was */ }
+  afterDarkCache.set(colour, out);
+  return out;
+}
+
+// The two shapes a canvas normalises a colour into.
+function parseColour(text) {
+  const hex = /^#([0-9a-f]{6})$/i.exec(text);
+  if (hex) {
+    const n = parseInt(hex[1], 16);
+    return [(n >> 16) & 255, (n >> 8) & 255, n & 255, 1];
+  }
+  const parts = text.match(/[\d.]+/g) ?? [];
+  return [Number(parts[0]) || 0, Number(parts[1]) || 0, Number(parts[2]) || 0,
+    parts[3] === undefined ? 1 : Number(parts[3])];
+}
+
 const NAMED = { pencil: 0, red: 1, blue: 2, green: 3 };
 function strokeColour(stroke) {
   const value = stroke.colour;
@@ -641,15 +692,17 @@ function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
     if (spot && point.w !== undefined) spot.w = point.w;
     return spot;
   });
+  const wash = stroke.overlay ?? stroke.tool === 'highlighter';
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
-  ctx.strokeStyle = strokeColour(stroke);
-  ctx.fillStyle = strokeColour(stroke);
+  const paint = night && !wash ? afterDark(strokeColour(stroke)) : strokeColour(stroke);
+  ctx.strokeStyle = paint;
+  ctx.fillStyle = paint;
   // A highlighter goes UNDER the notes rather than over them: multiply keeps
   // the black of the engraving showing through a wash of colour, which is what
   // a real one does to paper.
-  if (stroke.overlay ?? stroke.tool === 'highlighter') ctx.globalCompositeOperation = 'multiply';
+  if (wash) ctx.globalCompositeOperation = 'multiply';
   // A floor well under a pixel, because the thinnest pen is meant to be a
   // hairline: the canvas draws a 0.4px line as a faint one, which is exactly
   // what a sharp pencil does to paper.
@@ -2390,6 +2443,10 @@ function toggleNight() {
   night = !night;
   try { globalThis.localStorage?.setItem(NIGHT_KEY, night ? 'on' : 'off'); } catch { /* fine */ }
   root?.classList.toggle('night', night);
+  // The ink is drawn differently in the dark — see afterDark — so the page of
+  // finished marks has to be laid down again.
+  dropDryInk();
+  redraw();
 }
 
 // --- out of the app -----------------------------------------------------------
