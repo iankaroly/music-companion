@@ -1085,7 +1085,31 @@
     /* Everything here is fixed to the screen and nothing scrolls. A page turn
        is a page turn, not a scroll position, and a page of music that can be
        dragged about is a page of music you lose your place in. */
+    /* The reader is the one room in this app that is not the app.
+       Everywhere else the violet is the point — it is what the thing looks
+       like. Here it is somebody else's colour printed around your music. A part
+       on a stand should look like paper on a desk and nothing else, so inside
+       the reader the palette goes quiet: neutral grey around the page, a steel
+       blue where something has to read as "this one is selected", and no
+       gradient anywhere. Scoped to #reader, so the rest of the app keeps its
+       own face.
+       The pen COLOURS are not touched. Those are ink you chose and marks you
+       have already made, and repainting somebody's annotations to suit the
+       chrome would be changing their notes rather than the room. */
     #reader {
+      --primary: #35688f;
+      --primary-rgb: 53 104 143;
+      --primary-deep: #285474;
+      --grad: none;
+      --bg: #e7e8ea;
+      --sf: 252 252 253;
+      --sh: 28 31 38;
+      --on-surface: 32 36 44;
+      --ink: #20242c;
+      --muted: #6a7078;
+      --line: #dcdee2;
+      --line-strong: #c3c7cd;
+      --glass-line: rgb(0 0 0 / 0.08);
       position: fixed;
       inset: 0;
       z-index: 80;
@@ -1094,6 +1118,20 @@
       /* The reader owns every gesture on it: taps turn pages, one finger draws,
          two fingers zoom. Nothing here is a scroll. */
       touch-action: none;
+    }
+    :root[data-theme="dark"] #reader {
+      --primary: #6ea8d8;
+      --primary-rgb: 110 168 216;
+      --primary-deep: #558cbb;
+      --bg: #16181c;
+      --sf: 38 41 47;
+      --sh: 0 0 0;
+      --on-surface: 226 229 234;
+      --ink: #e2e5ea;
+      --muted: #949aa3;
+      --line: #2a2e35;
+      --line-strong: #3c414a;
+      --glass-line: rgb(255 255 255 / 0.10);
     }
     /* The wait before the first page.
        A part that has never been measured has to look at every page before it
