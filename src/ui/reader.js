@@ -899,6 +899,7 @@ function paintInk() {
   // same length for every stroke on screen, and working it out means walking
   // the bars.
   const scale = unitScale();
+  const shown = visiblePages();
   for (const stroke of strokes) {
     if (hidden.has(stroke.layer ?? 0)) continue;
     // A part is one list of marks from the first bar to the last, and all but
@@ -906,7 +907,7 @@ function paintInk() {
     // of the others where it is — bar by bar, point by point — only to find
     // out it is not here is the cost of a whole score, paid on every frame of
     // every stroke.
-    if (!touchesScreen(stroke)) continue;
+    if (!touchesScreen(stroke, shown)) continue;
     drawStroke(ctx, stroke, { scale });
   }
   if (drawing) drawStroke(ctx, drawing, { scale });
@@ -919,10 +920,11 @@ function paintInk() {
 function eraseAt(px, py) {
   const scale = unitScale();
   const reach = 3.2 * scale;
+  const shown = visiblePages();
   const gone = [];
   strokes = strokes.filter((stroke) => {
     if (hidden.has(stroke.layer ?? 0)) return true;  // out of sight, out of reach
-    if (!touchesScreen(stroke)) return true;         // nor is a mark on another page
+    if (!touchesScreen(stroke, shown)) return true;  // nor is a mark on another page
     const hit = stroke.points.some((point) => {
       const at = place(point);
       return at && Math.hypot(at.x - px, at.y - py) <= reach;
@@ -1117,6 +1119,19 @@ function nibPressure(point, e) {
 function cancelStroke() {
   stopHold();
   drawing = null;
+  // A lasso is a gesture too, and pinching in the middle of one used to leave
+  // it half-drawn: the loop stayed on screen with nothing able to finish it,
+  // because every path back through the ink layer is gated on a pointer that
+  // has been given up. A drag is worse — moveSelection has already moved the
+  // marks, in place, and only endStroke would ever have written that down, so
+  // an interrupted drag left the ink somewhere it would not be tomorrow.
+  if (dragging) scheduleSave();
+  dragging = null;
+  lasso = null;
+  erasing = false;
+  // What was PICKED stays picked. Pinching in to look closer at a selection is
+  // a reasonable thing to do to one, and losing it for that would be its own
+  // small betrayal.
   redraw();
 }
 
@@ -1896,8 +1911,7 @@ function redo() {
 // because a mark drawn along a line of music is anchored to several bars and a
 // re-engraving is free to put the far end of it on the next page — a highlight
 // that started overleaf still has to be drawn where it now continues.
-function touchesScreen(stroke) {
-  const shown = visiblePages();
+function touchesScreen(stroke, shown = visiblePages()) {
   if (isPaper()) {
     return stroke.points.some((point) => shown.some((index) => {
       const slice = slices[index];
@@ -3179,9 +3193,19 @@ function build() {
   const TAP_TIME = 600;     // ms held still counts as a tap
   let tapFrom = null;
   root.addEventListener('pointerdown', (e) => {
+    // The palm is turned away here as well as at the door.
+    //
+    // trackPointers refuses a touch while the pencil is down, but a `return`
+    // only leaves the listener it is in — and this is a second listener on the
+    // same element. Without saying so again here, a hand settling on the iPad
+    // halfway through a fingering would land in `tapFrom`, lift with the pen,
+    // read as a tap on the music, and put the pen away mid-annotation. The
+    // pencil's own entry is left exactly as it was.
+    if (penIsDown() && e.pointerType !== 'pen') return;
     tapFrom = pointers.size > 1 ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
   }, true);
   root.addEventListener('pointerup', (e) => {
+    if (penIsDown() && e.pointerType !== 'pen') return;
     const from = tapFrom;
     tapFrom = null;
     if (!from || from.id !== e.pointerId || pinching) return;
@@ -3665,12 +3689,37 @@ function scanHeads() {
 // avoid. Play half the page and half the page is marked; play it twice through
 // and the second pass marks over the first. It is the order you played in, and
 // nothing cleverer is claimed for it.
+// Worked out once, then kept until one of the two things it is made of
+// changes.
+//
+// This list is the same list on every frame — the noteheads of the whole score
+// paired off against the notes of one take — and it was being rebuilt inside
+// the paint, which is to say on every frame of every pen stroke on a scanned
+// part with a take loaded. Rebuilding it walks every page of the reading, spans
+// every note of every page, and allocates a fresh object for each: a hundred
+// times a second, to arrive at the same answer.
+//
+// Held against the IDENTITY of its two inputs rather than cleared by hand at
+// the places that change them. A cache that has to be remembered about is a
+// cache that will be forgotten about — and this one would go stale silently,
+// as rings drawn round the notes of a take that is no longer on screen.
+let scanMarks = null;
+let scanMarksFrom = null;
+
 function markedHeads() {
-  const heads = scanHeads();
   const played = take?.notes ?? [];
-  if (!heads.length || !played.length) return [];
+  if (scanMarks && scanMarksFrom?.layout === layout && scanMarksFrom?.notes === played) {
+    return scanMarks;
+  }
+  scanMarksFrom = { layout, notes: played };
+  const heads = scanHeads();
+  if (!heads.length || !played.length) {
+    scanMarks = [];
+    return scanMarks;
+  }
   const count = Math.min(heads.length, played.length);
-  return heads.slice(0, count).map((head, i) => ({ ...head, cents: played[i]?.cents ?? 0 }));
+  scanMarks = heads.slice(0, count).map((head, i) => ({ ...head, cents: played[i]?.cents ?? 0 }));
+  return scanMarks;
 }
 
 function drawScanMarks(ctx) {
@@ -3873,6 +3922,8 @@ export function close() {
   pageIndex = 0;
   wantedPage = 0;
   turnWay = 1;
+  scanMarks = null;
+  scanMarksFrom = null;
   penPointer = null;
   armedByPen = false;
   stopHold();
