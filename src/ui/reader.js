@@ -1048,6 +1048,9 @@ const pointers = new Map();
 let pinch = null;         // { distance, x, y } at the moment the second finger landed
 let pinching = false;     // a pinch is in progress, or has only just ended
 let drawingPointer = null;
+// How many marks were on the page when this gesture started. A gesture that
+// added one was WRITING, however small it was — see onTap.
+let marksAtDown = 0;
 
 function applyZoom() {
   if (!sheet) return;
@@ -2930,7 +2933,17 @@ function build() {
     // on the page does it now, and the pen you were using is remembered for
     // when you come back to it.
     if (tool) {
-      if (TAP_PUTS_DOWN.includes(tool)) { setTool(null); setChrome(false); }
+      // …unless the tap WROTE something. A fingering digit, a comma of a breath
+      // mark, a dot over a note: all of them are a few pixels across, all of
+      // them are inside what this reader calls a tap, and all of them are you
+      // annotating rather than finishing. Putting the pen down after each one
+      // would be the same complaint this was meant to fix, from the other end.
+      // So the question is not how far the finger moved, it is whether a mark
+      // came out of it.
+      if (TAP_PUTS_DOWN.includes(tool) && strokes.length === marksAtDown) {
+        setTool(null);
+        setChrome(false);
+      }
       return;
     }
     // Taping a jump down: the first tap is where the sign is, and after that
@@ -2971,6 +2984,7 @@ function build() {
     if (!tool || pointers.size > 1 || pinching) return;
     ink.setPointerCapture(e.pointerId);
     drawingPointer = e.pointerId;
+    marksAtDown = strokes.length;
     beginStroke(e);
   });
   ink.addEventListener('pointermove', (e) => {
