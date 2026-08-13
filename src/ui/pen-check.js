@@ -178,6 +178,23 @@ function verdict(seen) {
   return lines;
 }
 
+// What the reader itself has to say about strokes that did not happen. It
+// counts them as they occur, so this is a record of the whole session rather
+// than of the four seconds just drawn.
+async function readerTrouble() {
+  try {
+    const { inkReport } = await import('./reader.js');
+    const report = inkReport?.();
+    if (!report) return [];
+    return report.total
+      ? [`The reader refused ${report.total} pencil touch(es) this session:`,
+        ...report.reasons.map((r) => `  · ${r}`)]
+      : ['The reader has refused no pencil touch this session.'];
+  } catch {
+    return [];
+  }
+}
+
 export function initPenCheck() {
   const button = document.querySelector('#set-pen-check');
   const report = document.querySelector('#set-pen-report');
@@ -200,7 +217,7 @@ export function initPenCheck() {
       button.disabled = false;
       return;
     }
-    const lines = verdict(seen);
+    const lines = [...verdict(seen), '', ...(await readerTrouble())];
     report.textContent = lines.join('\n');
     report.dataset.tone = lines.some((l) => /NOT|SELECTION:/.test(l)) ? 'bad' : '';
     button.disabled = false;

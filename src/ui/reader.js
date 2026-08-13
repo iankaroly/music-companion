@@ -1619,6 +1619,39 @@ function redrawPaperAtZoom() {
 // through a fingering. So touches are simply not admitted while the pencil is
 // down. They start no pinch, they end no stroke, they are not there.
 let penPointer = null;
+// When the pencil was last heard from. It is deliberately NOT kept in the
+// pointer map — arming a tool from a pencil touch returns before anything is
+// counted — which meant the sweep that forgets abandoned fingers could never
+// forget an abandoned PENCIL. One missed lift and the reader believed a pencil
+// was on the glass for the rest of the session: every finger turned away at the
+// door, every finger tap ignored, the bar refusing to go. This is how it is
+// noticed instead.
+let penSeenAt = 0;
+
+// --- when the pencil does not write -------------------------------------------
+//
+// Every path that can refuse a pencil is now either fixed or impossible, and
+// that sentence has been true before. Installed from the home screen there is
+// no console, so a stroke that fails on a real iPad and not on any machine here
+// leaves nothing behind to look at — which is why "sometimes it doesn't work"
+// has been so hard to pin down.
+//
+// So the reader keeps count. Every pencil touch that should have made a mark
+// and did not is recorded with the reason, and Settings can show the tally. A
+// number is worth more than a memory of it happening.
+const inkTrouble = [];
+
+function penRefused(why) {
+  inkTrouble.push(why);
+  if (inkTrouble.length > 40) inkTrouble.shift();
+}
+
+// What the pencil has been refused for, since the app started.
+export function inkReport() {
+  const tally = new Map();
+  for (const why of inkTrouble) tally.set(why, (tally.get(why) ?? 0) + 1);
+  return { total: inkTrouble.length, reasons: [...tally].map(([why, n]) => `${why} x${n}`) };
+}
 // The gesture that picked the pen up must not also be the gesture that puts it
 // down again — see onTap, which normally reads a tap that made no mark as "I
 // have finished writing".
@@ -1722,7 +1755,16 @@ function trackPointers(root) {
     forgetLostPointers(e.timeStamp);
     if (e.pointerType === 'pen') {
       penPointer = e.pointerId;
+      penSeenAt = e.timeStamp;
       noteAPencil();
+      // Picking the pencil up again is going back to annotating.
+      //
+      // A tap with a finger takes the bar away and leaves the tool in your
+      // hand, which is what you want while you are reading what you just
+      // wrote. Touching the page with the pencil after that is the other half
+      // of the same sentence — forScore calls the pair instant annotation —
+      // so the bar comes back with the tool that was never put down.
+      if (tool && !chrome && !onChrome(e)) setChrome(true);
       // A hand that was already resting on the screen when the pencil arrived
       // is the same hand, and it must not be sitting in the map looking like
       // the first finger of a pinch.
@@ -1753,6 +1795,7 @@ function trackPointers(root) {
     }
   }, true);
   root.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'pen') penSeenAt = e.timeStamp;
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
@@ -1828,6 +1871,12 @@ let pinchOver = null;
 const POINTER_STALE = 1500;
 
 function forgetLostPointers(now) {
+  // A pencil that has said nothing for a while is a pencil that has been put
+  // down, whatever became of its lift.
+  if (penPointer !== null && now - penSeenAt > POINTER_STALE) {
+    penPointer = null;
+    if (drawingPointer !== null) { drawingPointer = null; endStroke(); }
+  }
   let dropped = false;
   for (const [id, spot] of [...pointers]) {
     if (now - (spot.at ?? 0) <= POINTER_STALE) continue;
@@ -4240,8 +4289,8 @@ function build() {
   // left — otherwise lifting one finger out of a pinch draws a line from
   // wherever the other one happens to be resting.
   ink.addEventListener('pointerdown', (e) => {
-    if (!tool) return;
     const isPen = e.pointerType === 'pen';
+    if (!tool) { if (isPen) penRefused('no tool was out'); return; }
     // A pencil is never one of the fingers of a pinch, so `pinching` — which
     // exists to stop a finger LIFTING out of a pinch from drawing a line —
     // has nothing to say about it. It used to refuse the pen too, which meant
@@ -4252,12 +4301,33 @@ function build() {
     if (!isPen && !canFingerDraw()) return;
     // A second FINGER is a pinch. A palm while the pencil is writing is not a
     // second anything — it has already been turned away at the door.
-    if (pointers.size > 1 && !penIsDown()) return;
+    if (pointers.size > 1 && !penIsDown()) {
+      if (isPen) penRefused('more than one pointer was down');
+      return;
+    }
     if (penIsDown() && !isPen) return;
+    // A stroke still open when the next one starts.
+    //
+    // iOS drops a pointerup now and then — it is why everything here has a
+    // watchdog — and when it dropped the one that ended a stroke, the next
+    // touch replaced the half-finished mark with a fresh one and what you had
+    // written vanished as you began writing again. Two letters in a row, one
+    // letter on the page. It is FINISHED here rather than abandoned: whatever
+    // was drawn is what you drew, and it is kept.
+    if (drawing || drawingPointer !== null) {
+      drawingPointer = null;
+      endStroke();
+    }
     try { ink.setPointerCapture(e.pointerId); } catch { /* the stroke goes on */ }
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
     beginStroke(e);
+    // The tools that make a MARK should have one under way by now. If not, the
+    // page could not say where the touch was — which is the failure this was
+    // all chasing, and it no longer passes without being written down.
+    if (isPen && !drawing && !['eraser', 'lasso', 'text', 'stamp'].includes(tool)) {
+      penRefused('the page could not place the touch');
+    }
   });
   ink.addEventListener('pointermove', (e) => {
     if (!tool || pinching || e.pointerId !== drawingPointer) return;

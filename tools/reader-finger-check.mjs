@@ -131,6 +131,34 @@ const stillDrawing = await page.evaluate(() =>
   document.querySelector('#reader')?.classList.contains('drawing'));
 check('…and the tool is still in hand', stillDrawing === true);
 
+// ---- the pencil brings the bar back, and a lost lift loses no ink ----------
+// Put the bar away with a finger, then write: forScore's instant annotation
+// says picking the pencil up is going back to annotating.
+if (!(await bare())) {
+  await finger('mousePressed', W * 0.5, MID);
+  await finger('mouseReleased', W * 0.5, MID);
+  await wait(320);
+}
+check('the bar is away before the pencil comes back', (await bare()) === true);
+before = await marks();
+await draw(pen, MID + 40);
+await wait(700);
+check('the pencil wrote with the bar away', (await marks()) === before + 1);
+check('…and picking the pencil up brought the bar back', (await bare()) === false,
+  `bare=${await bare()}`);
+
+// A stroke whose lift never arrives must still be kept when the next begins.
+before = await marks();
+await pen('mousePressed', W * 0.25, MID + 80);
+for (let i = 1; i <= 12; i++) await pen('mouseMoved', W * 0.25 + i * 10, MID + 80);
+// …no mouseReleased at all. Straight into the next stroke.
+await pen('mousePressed', W * 0.25, MID + 130);
+for (let i = 1; i <= 12; i++) await pen('mouseMoved', W * 0.25 + i * 10, MID + 130);
+await pen('mouseReleased', W * 0.25 + 120, MID + 130);
+await wait(900);
+check('a stroke whose lift was lost is still kept', (await marks()) === before + 2,
+  `${before} -> ${await marks()}`);
+
 // ---- the button turns it back on -------------------------------------------
 await page.evaluate(() => document.querySelector('#reader-finger')?.click());
 await wait(250);
