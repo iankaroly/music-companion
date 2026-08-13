@@ -19,6 +19,7 @@ import {
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { initPenCheck } from './ui/pen-check.js';
+import { feedReading } from './ui/score-aids.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import {
@@ -222,6 +223,9 @@ function handleNote(note) {
 function feed(analyzer, segmenter, chunk, onNote = handleNote, readings = null, chord = null) {
   for (const reading of analyzer.push(chunk)) {
     tuner.update(reading);
+    // The same readings the dial on the tuner tab is fed, so a tuner opened on
+    // a page of music is the same tuner rather than a second one listening.
+    feedReading(reading);
     readings?.push(reading);
     for (const note of segmenter.push(reading)) onNote(note);
     if (chord) {
@@ -404,7 +408,7 @@ async function startTuner() {
     tunerStarting = false;
   }
   // the user may have left the tab while the mic was being granted
-  if (capture?.listen && tabs.current !== 'tuner') stopEverything();
+  if (capture?.listen && tabs.current !== 'tuner' && !scoreWantsEars) stopEverything();
 }
 
 async function autoStartTuner() {
@@ -417,8 +421,29 @@ async function autoStartTuner() {
 }
 
 function autoStopTuner() {
+  // …unless a score is holding it. A tuner opened on a page of music is being
+  // used by somebody who is not on the tuner tab and never will be while they
+  // are playing from that page.
+  if (scoreWantsEars) return;
   if (capture?.listen) stopEverything();
 }
+
+// A tuner opened over a page of music, asking for the microphone out loud —
+// see score-aids.js. It is said this way round so there is still exactly one
+// piece of code that starts and stops a capture: two would leave a stream open
+// the first time they disagreed.
+let scoreWantsEars = false;
+document.addEventListener('score-tuner', (e) => {
+  const want = !!e.detail?.on;
+  if (want === scoreWantsEars) return;
+  scoreWantsEars = want;
+  if (want) {
+    prepareCapture();
+    autoStartTuner();
+  } else if (capture?.listen && tabs.current !== 'tuner') {
+    stopEverything();
+  }
+});
 
 // prepareCapture must run in the tap itself, before startTuner's first await
 listenBtn.addEventListener('click', () => { prepareCapture(); startTuner(); });

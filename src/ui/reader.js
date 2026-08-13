@@ -35,6 +35,7 @@ import { shapeFrom } from '../analysis/shape-snap.js';
 import { pageTurn } from './pedal.js';
 import { intonationHue } from './chart-utils.js';
 import { actionMenu, closeAnyPop } from './controls.js';
+import { aidsElement, showAids, hideAids, aidsShowing, stopAids } from './score-aids.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
   saveBookmarks, saveLinks, saveScoreLayout,
@@ -381,7 +382,7 @@ const TOP_REACH = 0.25;
 // every control added afterwards was a bug waiting in whichever list somebody
 // forgot. There is one list.
 const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-seek, .pick-pop, dialog';
+  + ' #reader-selection, #reader-land, #reader-seek, #reader-aids, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -3432,13 +3433,24 @@ function buildMenu(sheet) {
     });
   }
   menuGroup(sheet, 'while you play');
+  // Both of these used to CLOSE the score and take you to a tab, which is a
+  // metronome you use before you start playing and never again. They open on
+  // the page now, over the foot of it, and the music stays where it is.
   menuRow(sheet, {
-    label: 'Metronome', glyph: '𝅘𝅥', detail: 'the click, without leaving the page',
-    onPick: () => { close(); document.querySelector('.tab-btn[data-tab="metronome"]')?.click(); },
+    label: 'Metronome', glyph: '𝅘𝅥',
+    detail: aidsShowing() === 'metronome' ? 'put the click away' : 'the click, on the page',
+    onPick: () => {
+      if (aidsShowing() === 'metronome') hideAids(); else showAids('metronome');
+      closeMenu();
+    },
   });
   menuRow(sheet, {
-    label: 'Tuner', glyph: '♪', detail: 'tune up and come back',
-    onPick: () => { close(); document.querySelector('.tab-btn[data-tab="tuner"]')?.click(); },
+    label: 'Tuner', glyph: '♪',
+    detail: aidsShowing() === 'tuner' ? 'put the tuner away' : 'tune without leaving the page',
+    onPick: () => {
+      if (aidsShowing() === 'tuner') hideAids(); else showAids('tuner');
+      closeMenu();
+    },
   });
   menuRow(sheet, {
     label: 'Record a take', glyph: '●', detail: 'against this piece',
@@ -4221,7 +4233,8 @@ function build() {
   land.hidden = true;
 
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land, upNext, buildSeekBar());
+    buildSelectionBar(), menu, line, land, upNext, buildSeekBar(),
+    aidsElement(() => refreshSeek()));
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -5264,6 +5277,7 @@ export function close() {
   // The layer, stamp and page-jump popups live in the body and are anchored to
   // buttons that are about to be hidden; left open they hang over the library.
   closeAnyPop();
+  stopAids();     // no click and no microphone left running behind a shut score
   for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
   delete document.documentElement.dataset.reading;
   unfollow?.();

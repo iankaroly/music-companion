@@ -2132,6 +2132,128 @@
       letter-spacing: 0.01em;
     }
     #reader-next[hidden] { display: none; }
+    /* The click and the pitch, over the foot of the page.
+       Sits above the seek bar rather than replacing it — you may well want to
+       scrub while the click runs — and never over the music itself, because
+       the whole reason it is here is that you are reading from that music. */
+    #reader-aids {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(3.2rem + env(safe-area-inset-bottom, 0px));
+      z-index: 4;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      max-width: min(30rem, 94vw);
+      padding: 0.4rem 0.5rem 0.4rem 0.7rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.94);
+      -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-line);
+      box-shadow: var(--shadow);
+      font-family: var(--display);
+      touch-action: none;
+    }
+    #reader-aids[hidden] { display: none; }
+    /* One of the two at a time: the strip is small and a metronome is not a
+       tuner. Which one is decided by the menu row you tapped. */
+    #reader-aids .aid-row { display: none; align-items: center; gap: 0.45rem; }
+    #reader-aids[data-showing="metronome"] [data-aid="metronome"],
+    #reader-aids[data-showing="tuner"] [data-aid="tuner"] { display: flex; }
+    .aid-chip {
+      flex: none;
+      min-width: 2rem;
+      height: 2rem;
+      padding: 0 0.5rem;
+      border-radius: 999px;
+      border: 1px solid var(--glass-line);
+      background: var(--fill);
+      color: var(--ink);
+      font-size: 0.95rem;
+      line-height: 1;
+      cursor: pointer;
+    }
+    .aid-play { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+    .aid-shut { margin-left: auto; background: none; border-color: transparent; color: var(--muted); }
+    .aid-bpm {
+      min-width: 2.4rem;
+      text-align: center;
+      font-size: 1.05rem;
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+      color: var(--ink);
+    }
+    .aid-tempo-name { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+    /* The beat, seen as well as heard — with the click turned down on a stand,
+       this is what keeps a slow movement honest. */
+    .aid-beat {
+      width: 0.65rem;
+      height: 0.65rem;
+      border-radius: 50%;
+      background: var(--line-strong);
+      flex: none;
+    }
+    .aid-beat.tick { animation: aid-tick 140ms ease-out; }
+    .aid-beat.tick.on-one { animation: aid-tick-one 160ms ease-out; }
+    @keyframes aid-tick { from { background: var(--primary); transform: scale(1.5) } }
+    @keyframes aid-tick-one { from { background: var(--good); transform: scale(1.9) } }
+    @media (prefers-reduced-motion: reduce) {
+      .aid-beat.tick, .aid-beat.tick.on-one { animation: none; }
+    }
+    .aid-note {
+      min-width: 2.6rem;
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: var(--ink);
+      font-variant-numeric: tabular-nums;
+    }
+    .aid-cents {
+      min-width: 3.4rem;
+      text-align: right;
+      font-size: 0.82rem;
+      color: var(--muted);
+      font-variant-numeric: tabular-nums;
+    }
+    /* A strip rather than a dial: there is a dial on the tuner tab and it is
+       the size of a dial. This has to say in-tune-or-not at a glance from a
+       music stand, which is one line and a mark on it. */
+    .aid-meter {
+      position: relative;
+      flex: 1;
+      min-width: 5rem;
+      height: 0.4rem;
+      border-radius: 999px;
+      background: var(--fill);
+      overflow: hidden;
+    }
+    .aid-meter::before {
+      content: "";
+      position: absolute;
+      left: 50%;
+      top: 0;
+      bottom: 0;
+      width: 1px;
+      background: var(--line-strong);
+    }
+    .aid-needle {
+      position: absolute;
+      left: var(--at, 50%);
+      top: 0;
+      bottom: 0;
+      width: 0.28rem;
+      margin-left: -0.14rem;
+      border-radius: 999px;
+      background: var(--muted);
+      transition: left 90ms linear;
+    }
+    .aid-needle[data-tone="good"] { background: var(--good); }
+    .aid-needle[data-tone="sharp"] { background: var(--sharp, var(--off)); }
+    .aid-needle[data-tone="flat"] { background: var(--flat, var(--off)); }
+    #reader.night #reader-aids {
+      background: rgb(26 28 32 / 0.94);
+      border-color: rgb(255 255 255 / 0.10);
+    }
     /* The seek bar: a slider along the bottom for a page a long way off.
        Comes and goes with the rest of the controls — while you are playing,
        the point of the screen is the music. The whole strip is the target, not
