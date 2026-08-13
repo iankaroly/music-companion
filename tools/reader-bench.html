@@ -72,6 +72,18 @@ Element.prototype.getBoundingClientRect = function patched(...args) {
   return realRect.apply(this, args);
 };
 
+// And the other half of a frame: how much ink is actually laid down. Every
+// committed mark being re-rasterised behind one moving line is invisible to a
+// rect count but is most of what a frame costs, so the canvas is counted too.
+let paints = 0;
+for (const name of ['stroke', 'fill', 'fillText']) {
+  const real = CanvasRenderingContext2D.prototype[name];
+  CanvasRenderingContext2D.prototype[name] = function patched(...args) {
+    if (counting) paints++;
+    return real.apply(this, args);
+  };
+}
+
 // --- a score with enough music on it to be worth measuring --------------------
 function scoreXml(bars = 48) {
   const measures = [];
@@ -202,13 +214,14 @@ async function run() {
   // Handed to the driver, which does the input for real and turns the counter
   // on around it.
   const STEPS = 60;
-  window.__benchCount = (on) => { counting = on; if (on) rects = 0; };
+  window.__benchCount = (on) => { counting = on; if (on) { rects = 0; paints = 0; } };
   window.__benchRects = () => rects;
   window.__benchArmed = { armed, barUp };
   window.__benchReadyToStroke = { steps: STEPS, w, h };
   say('waiting for the driver to draw a real stroke…');
   await new Promise((resolve) => { window.__benchStrokeDone = resolve; });
   const rectsInStroke = rects;
+  const paintsInStroke = paints;
   const ms = window.__benchStrokeMs ?? 0;
   rects = rectsInStroke;
   // Asked of the STORE rather than of a hook poked into the reader: the marks
@@ -235,6 +248,8 @@ async function run() {
   say(`--- one stroke of ${STEPS} moves across a page carrying 30 marks ---`);
   say(`getBoundingClientRect calls : ${rects}`);
   say(`per move                    : ${(rects / STEPS).toFixed(1)}`);
+  say(`canvas stroke/fill calls    : ${paintsInStroke}`);
+  say(`per move                    : ${(paintsInStroke / STEPS).toFixed(1)}`);
   // Not a performance number: the driver is talking to the browser down a pipe
   // and most of this is the pipe. The rect count above is the figure that means
   // the same thing on every machine.
@@ -294,6 +309,7 @@ async function run() {
   window.__benchDone = {
     rectsPerMove: rects / STEPS, msPerMove: ms / STEPS, msPerTurn: turnMs / TURNS,
     armed, pointerEvents: pe, userSelect: us, page,
+    paintsPerMove: paintsInStroke / STEPS,
   };
   say('');
   say('done.', 'ok');

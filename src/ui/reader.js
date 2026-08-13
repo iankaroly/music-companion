@@ -317,6 +317,7 @@ const el = (id) => document.querySelector(`#${id}`);
 // --- persistence -------------------------------------------------------------
 
 function scheduleSave() {
+  dropDryInk();   // the marks changed; the picture of them is out of date
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     if (score) saveAnnotations(score.id, strokes).catch(() => { /* nothing to say */ });
@@ -876,6 +877,43 @@ function redrawNow() {
   paintInk();
 }
 
+// --- dry ink and wet ink ------------------------------------------------------
+//
+// The marks already on the page are not going to change while you draw the next
+// one, and re-drawing them sixty times a second to find that out is most of
+// what a frame was spent on: every committed stroke re-placed against its bar,
+// re-broken at its system, and re-rasterised with whatever nib it was made
+// with — a pencil being four passes of that — so that a single wet line can be
+// laid on top.
+//
+// So the page of finished marks is painted ONCE, onto a canvas of its own, and
+// each frame copies it across in a single blit before drawing the one stroke
+// that is actually moving. It is what every drawing app does, and it is the
+// difference between a frame that costs a page of ink and a frame that costs
+// one line.
+//
+// The dry layer is thrown away by anything that could change what is on it:
+// another mark finished, one rubbed out, an undo, a layer hidden, a page
+// turned, a pinch. Which is the same list the geometry cache keeps, plus the
+// marks themselves — so it hangs off that.
+let dry = null;          // an offscreen canvas holding the finished marks
+let dryKey = null;       // what it is a picture OF
+
+// Everything about the page that would make the dry layer wrong.
+function dryStamp(scale, shown) {
+  return `${strokes.length}|${scale}|${shown.join(',')}|${[...hidden].join(',')}`
+    + `|${zoom}|${panX}|${panY}|${painted ? 1 : 0}|${take ? 1 : 0}|${linksOf().length}`;
+}
+
+// The stamp catches a page that has changed shape or gained a mark. It cannot
+// catch a mark that was MOVED, recoloured, or swapped back by an undo — the
+// list is the same length and the page is the same page. Every one of those
+// goes through scheduleSave, so that is where this is said, once, rather than
+// at a dozen call sites one of which would eventually be missed.
+function dropDryInk() {
+  dryKey = null;
+}
+
 function paintInk() {
   // Measurements are only trusted through the middle of a stroke, where the
   // page is guaranteed to be still. Any other frame re-measures.
@@ -887,6 +925,7 @@ function paintInk() {
   if (ink.width !== Math.round(w * dpr) || ink.height !== Math.round(h * dpr)) {
     ink.width = Math.round(w * dpr);
     ink.height = Math.round(h * dpr);
+    dropDryInk();     // a canvas that has just been resized has been emptied
   }
   ink.style.width = `${w}px`;
   ink.style.height = `${h}px`;
@@ -900,19 +939,37 @@ function paintInk() {
   // the bars.
   const scale = unitScale();
   const shown = visiblePages();
-  for (const stroke of strokes) {
-    if (hidden.has(stroke.layer ?? 0)) continue;
-    // A part is one list of marks from the first bar to the last, and all but
-    // the handful on the page in front of you are somewhere else. Asking each
-    // of the others where it is — bar by bar, point by point — only to find
-    // out it is not here is the cost of a whole score, paid on every frame of
-    // every stroke.
-    if (!touchesScreen(stroke, shown)) continue;
-    drawStroke(ctx, stroke, { scale });
+
+  const stamp = dryStamp(scale, shown);
+  if (dryKey !== stamp || !dry || dry.width !== ink.width || dry.height !== ink.height) {
+    if (!dry) dry = document.createElement('canvas');
+    if (dry.width !== ink.width || dry.height !== ink.height) {
+      dry.width = ink.width;
+      dry.height = ink.height;
+    }
+    const dctx = dry.getContext('2d');
+    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    dctx.clearRect(0, 0, w, h);
+    for (const stroke of strokes) {
+      if (hidden.has(stroke.layer ?? 0)) continue;
+      // A part is one list of marks from the first bar to the last, and all but
+      // the handful on the page in front of you are somewhere else. Asking each
+      // of the others where it is — bar by bar, point by point — only to find
+      // out it is not here is the cost of a whole score.
+      if (!touchesScreen(stroke, shown)) continue;
+      drawStroke(dctx, stroke, { scale });
+    }
+    if (painted) drawScanMarks(dctx);
+    drawLinks(dctx);
+    dryKey = stamp;
   }
+  // One copy of everything that was already there…
+  ctx.save();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.drawImage(dry, 0, 0);
+  ctx.restore();
+  // …and then the only thing that is moving.
   if (drawing) drawStroke(ctx, drawing, { scale });
-  if (painted) drawScanMarks(ctx);
-  drawLinks(ctx);
   drawLasso(ctx);
 }
 
@@ -1071,7 +1128,15 @@ function beginStroke(e) {
 function extendStroke(e, { quiet = false } = {}) {
   const at = pointerPosition(e);
   if (!at) return;
-  if (tool === 'eraser') { eraseAt(at.x, at.y); return; }
+  // Said before the tools branch, so the eraser gets it too. A sweep of the
+  // rubber tests every mark on the page against the point it is over; running
+  // that four times for four samples of one place is four times the work for
+  // the same marks removed.
+  const stirred = !lastInkAt || Math.hypot(at.x - lastInkAt.x, at.y - lastInkAt.y) >= INK_STEP;
+  if (tool === 'eraser') {
+    if (stirred) { lastInkAt = at; eraseAt(at.x, at.y); }
+    return;
+  }
   if (tool === 'lasso') {
     if (dragging) {
       moveSelection(at.x - dragging.x, at.y - dragging.y);
@@ -1103,14 +1168,13 @@ function extendStroke(e, { quiet = false } = {}) {
   // They are stored, they are re-anchored, and they are re-drawn on every
   // frame for as long as the mark exists.
   //
-  // A twentieth of a pixel apart is not a different place — no screen can show
-  // the difference and no hand meant one — so a sample that has not moved
-  // sensibly since the last one is dropped. Not simplification: nothing that
-  // was drawn is lost, only positions the device repeated. The shape tools are
-  // exempt, because their second point IS the live corner and replacing it is
-  // the whole gesture.
-  const moved = !lastInkAt || Math.hypot(at.x - lastInkAt.x, at.y - lastInkAt.y) >= INK_STEP;
-  if (drawing.type !== 'shape' && !moved) { watchForHold(at); return; }
+  // A third of a pixel apart is not a different place — no screen can show the
+  // difference and no hand meant one — so a sample that has not moved sensibly
+  // since the last one is dropped. Not simplification: nothing that was drawn
+  // is lost, only positions the device repeated. The shape tools are exempt,
+  // because their second point IS the live corner and replacing it is the whole
+  // gesture.
+  if (drawing.type !== 'shape' && !stirred) { watchForHold(at); return; }
   const point = anchor(at.x, at.y);
   if (point) nibPressure(point, e);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
@@ -1672,8 +1736,15 @@ async function showPage(index) {
   if (moved && zoom !== 1) { zoom = 1; panX = 0; panY = 0; applyZoom(); }
   const shown = visiblePages();
   for (const [i, node] of pageEls.entries()) {
-    node.hidden = !shown.includes(i);
+    const wantHidden = !shown.includes(i);
     const side = shown.length > 1 && shown.includes(i) ? (i === shown[0] ? 'left' : 'right') : '';
+    // Only the pages whose state actually changes are written to. A twenty-one
+    // page part was having every one of its containers assigned a hidden flag,
+    // a data attribute and four inline styles on every turn — eighty-odd writes
+    // to say that nineteen pages are still exactly where they were, each one a
+    // reason for the browser to think about the layout again.
+    if (node.hidden === wantHidden && node.dataset.side === side) continue;
+    node.hidden = wantHidden;
     node.dataset.side = side;
     // Laid out from here rather than from the stylesheet: the engraver puts
     // `position: relative` inline on every page container it makes, and an
@@ -1743,14 +1814,34 @@ function keepNeighboursReady(shown) {
     for (let i = last + 1; i <= last + ahead && i < pageEls.length; i++) wanted.push(i);
   }
   forget();
+  // A look-ahead belongs to the turn that started it, and only to that one.
+  //
+  // The pages are fetched one after another because two at once is two page
+  // renders competing for the same processor. But that queue used to have no
+  // way of being told it was obsolete: turn four pages quickly and the fourth
+  // turn's look-ahead — the pages you are actually about to want — sat behind
+  // up to twelve renders of pages nobody is going anywhere near. The turn
+  // itself then waited on a page nothing had got round to drawing, which is
+  // the pause that arrives out of nowhere after a run of instant turns.
+  //
+  // Each turn now stakes a claim, and a look-ahead that finds it has been
+  // superseded stops where it is. The renders already in flight finish — they
+  // cannot be recalled — but nothing further is asked for.
+  const mine = ++lookAhead;
   setTimeout(async () => {
-    for (const i of wanted) await drawPaperPage(i).catch(() => {});
+    for (const i of wanted) {
+      if (mine !== lookAhead) return;
+      await drawPaperPage(i).catch(() => {});
+    }
+    if (mine !== lookAhead) return;
     // Again afterwards: a page drawn by the LAST turn's look-ahead finishes
     // after this turn has already swept, and without a second sweep those
     // stragglers are what a long part accumulates.
     forget();
   }, 0);
 }
+
+let lookAhead = 0;
 
 // Straight to a page, for a part long enough that turning to it is a chore.
 //
@@ -3617,6 +3708,13 @@ async function drawOnePage(index) {
   }
   if (mine !== era) return;
   drawn.add(index);
+  // The canvas has just been given a size, which means the box the ink is
+  // placed against has just changed — and on the paper path that box IS the
+  // canvas. Nothing else invalidates it: a page drawn while the pen is down
+  // (coming back to the app, a neighbour landing) would otherwise leave every
+  // mark on it placed against the empty rectangle it had before.
+  invalidateGeometry();
+  dropDryInk();
   redraw(); // the ink layer measures the page it has just been given a size for
 }
 
@@ -3863,6 +3961,9 @@ export async function openReader(row, {
   pendingLink = null;
   strokes = (await loadAnnotations(row.id).catch(() => []))
     .map((stroke) => ({ ...stroke, points: stroke.points.map(onPaperNow) }));
+  dropDryInk();     // a different piece, with different marks on it
+  scanMarks = null;
+  scanMarksFrom = null;
   history = [];
   redoable = [];
   layer = 0;
@@ -3949,6 +4050,9 @@ export function close() {
   turnWay = 1;
   scanMarks = null;
   scanMarksFrom = null;
+  dry = null;
+  dryKey = null;
+  lastInkAt = null;
   penPointer = null;
   armedByPen = false;
   stopHold();
