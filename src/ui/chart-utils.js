@@ -54,11 +54,7 @@ export function intonationStatus(cents) {
 // The same tiers, plus which WAY the note missed.
 //
 // How far off answers "how bad"; which way is the thing a player can act on —
-// you fix a flat note and a sharp note with opposite hands. The graph and the
-// note tiles deliberately do not use this: they colour by size alone and have
-// meant that everywhere in the app for months. The score is where direction
-// earns its keep, because a whole page of noteheads can show a habit leaning
-// one way at a glance.
+// you fix a flat note and a sharp note with opposite hands.
 //
 // A note inside the band has no direction worth naming — calling a note 2¢
 // sharp invites chasing a number that is closer than the ear can hear.
@@ -66,4 +62,20 @@ export function intonationTone(cents) {
   if (!Number.isFinite(cents)) return { tier: 'none', direction: 'none' };
   const tier = intonationStatus(cents);
   return { tier, direction: tier === 'good' ? 'centred' : cents > 0 ? 'sharp' : 'flat' };
+}
+
+// What COLOUR a note gets, everywhere: in tune, sharp, or flat. Three, and
+// only three.
+//
+// Colour used to encode size — green / amber / red by how many cents off —
+// and direction was a score-only refinement. That put the loudest visual
+// signal on the axis a player can do least with: you already know a note was
+// badly out, and the graph, the tiles and the numbers all say how far.
+// Which way is what your hand acts on, and it is the same answer whether the
+// miss was 9¢ or 90¢. So size is left to geometry and to figures, and the one
+// thing colour says is the one thing colour is good at saying at a glance.
+export function intonationHue(cents) {
+  if (!Number.isFinite(cents)) return 'none';
+  if (Math.abs(cents) < goodWithin) return 'good';
+  return cents > 0 ? 'sharp' : 'flat';
 }

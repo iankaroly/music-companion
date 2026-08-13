@@ -13,7 +13,7 @@
 // feature they don't open.
 
 import { palette } from './theme.js';
-import { intonationTone } from './chart-utils.js';
+import { intonationHue, intonationTone } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { reconcile } from '../analysis/score-map.js';
 
@@ -60,9 +60,10 @@ function engravedNotes(osmd, instrument) {
   return out;
 }
 
-// Warm for sharp, cool for flat, green for in tune. Size decides the tier,
-// direction decides the family, so a page leaning one way is visible before a
-// single number is read.
+// Warm for sharp, cool for flat, green for in tune — one colour each, so a
+// page leaning one way is visible before a single number is read. How far off
+// a note was is not in the colour anywhere in the app; the review's numbers
+// and charts carry that.
 function verdictColour(attempt, colours) {
   if (!attempt) return null;
   if (attempt.verdict === 'missed') return colours.muted;
@@ -72,10 +73,8 @@ function verdictColour(attempt, colours) {
   // having: the colour says how close to a pitch centre you were, the ✕ says it
   // was not the written pitch. A wrong note played dead in tune comes out green
   // with a cross, which is exactly what happened.
-  const { tier, direction } = intonationTone(attempt.played.cents);
-  if (tier === 'good') return colours.good;
-  if (direction === 'flat') return tier === 'off' ? colours.flatOff : colours.flatBad;
-  return tier === 'off' ? colours.off : colours.bad;
+  const { good, sharp, flat } = colours;
+  return { good, sharp, flat, none: colours.muted }[intonationHue(attempt.played.cents)];
 }
 
 // Spoken form, because a coloured notehead says nothing to a screen reader.

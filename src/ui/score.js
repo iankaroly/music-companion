@@ -561,18 +561,16 @@ function summarise(aligned, timing) {
 function legend(sheet) {
   const row = document.createElement('div');
   row.id = 'score-legend';
-  // The colours ARE the cents, so the legend says cents. "A little sharp" is a
-  // word for a number the app already knows, and the number is the thing you
-  // can check against the tuner. The boundaries come from the live setting, so
-  // changing the in-tune tolerance changes what the legend claims.
-  const { good, badly } = intonationBounds();
+  // Three colours, so three swatches. The colour says only which way a note
+  // missed — how far is on the tiles and the chart, in cents, which is more
+  // exact than a shade could ever be. The in-tune door is the live setting, so
+  // changing the tolerance changes what the legend claims.
+  const { good } = intonationBounds();
   const swatch = (token, label) => `<span><b style="color:var(${token})">■</b> ${label}</span>`;
   row.innerHTML = [
-    swatch('--good', `within ${good}¢`),
-    swatch('--off', `${good}–${badly}¢ sharp`),
-    swatch('--bad', `over ${badly}¢ sharp`),
-    swatch('--flat-off', `${good}–${badly}¢ flat`),
-    swatch('--flat-bad', `over ${badly}¢ flat`),
+    swatch('--good', `in tune (within ${good}¢)`),
+    swatch('--sharp', 'sharp'),
+    swatch('--flat', 'flat'),
     swatch('--muted', 'never sounded'),
     '<span><b style="color:var(--bad)">✕</b> a different note</span>',
     '<span><b style="color:var(--bad)">›</b> late in</span>',

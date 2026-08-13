@@ -5,7 +5,7 @@ import {
 } from '../analysis/coach.js';
 import { passageProgress } from '../analysis/passages.js';
 import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
-import { intonationStatus } from './chart-utils.js';
+import { intonationHue } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
 import { instrument } from '../analysis/instruments.js';
 
@@ -16,7 +16,7 @@ import { instrument } from '../analysis/instruments.js';
 const BAR_MAX_CENTS = 30; // a bar at full half-width = 30¢ mean error
 const TREND_DAYS = 14;
 
-const STATUS_VAR = { good: 'var(--good)', off: 'var(--off)', bad: 'var(--bad)' };
+const STATUS_VAR = { good: 'var(--good)', sharp: 'var(--sharp)', flat: 'var(--flat)' };
 
 function currentA4() {
   const v = Number(localStorage.getItem('a4'));
@@ -314,7 +314,7 @@ function renderTendencies(container, tendencies) {
     const frac = Math.min(1, Math.abs(t.meanCents) / BAR_MAX_CENTS) * 50;
     bar.style.width = `${Math.max(1.5, frac)}%`;
     bar.style[t.meanCents >= 0 ? 'left' : 'right'] = '50%';
-    bar.style.background = STATUS_VAR[intonationStatus(t.meanCents)];
+    bar.style.background = STATUS_VAR[intonationHue(t.meanCents)];
     track.append(center, bar);
     const val = document.createElement('span');
     val.className = 'tend-val';

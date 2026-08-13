@@ -154,15 +154,19 @@
       --good: #17b578;
       --off: #f29b38;
       --bad: #ef5c73;
-      /* Sharp reads warm and flat reads cool, so a page of noteheads shows
-         which way a habit leans without reading a single number. --off and
-         --bad ARE the sharp pair; these are their opposites. Score only —
-         the graph and the tiles still colour by size alone. */
-      --flat-off: #3aa6e0;
-      --flat-bad: #6a5ae0;
+      /* Intonation is three colours everywhere — in tune, sharp, flat. Sharp
+         reads warm and flat reads cool, so a page of noteheads or a whole
+         take's trace shows which way a habit leans without reading a single
+         number; how FAR off is left to the geometry and the figures, which
+         say it more precisely than a colour ever did. --off/--bad are not
+         part of this: they carry timing, landing tiers and danger. */
+      --sharp: #d9612c;
+      --flat: #2b74c9;
       --good-soft: #d9f4e8;
       --off-soft: #fdeeda;
       --bad-soft: #fde3e8;
+      --sharp-soft: #fae3d6;
+      --flat-soft: #dde7f8;
       --fill: rgb(var(--on-surface) / 0.06);
       --fill-2: rgb(var(--on-surface) / 0.12);
       --glass: rgb(var(--sf) / 0.55);
@@ -178,9 +182,11 @@
       /* canvas-only colours (read by src/ui/theme.js) */
       --chart-grid: #e6e0f6;
       --chart-tick-minor: #cfc6ec;
+      /* The span tints behind the trace. Same hexes as the line colours above
+         at low alpha, so a note's block and its line are one colour. */
       --chart-good-fill: rgb(23 181 120 / 0.12);
-      --chart-off-fill: rgb(242 155 56 / 0.15);
-      --chart-bad-fill: rgb(239 92 115 / 0.13);
+      --chart-sharp-fill: rgb(217 97 44 / 0.14);
+      --chart-flat-fill: rgb(43 116 201 / 0.14);
       --chart-wave: rgb(var(--on-surface) / 0.05);
       --display: "Fredoka", ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", sans-serif;
       --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
@@ -216,11 +222,13 @@
       --good: #35d295;
       --off: #ffb257;
       --bad: #ff7d90;
-      --flat-off: #62c4f5;
-      --flat-bad: #9c8dff;
+      --sharp: #ff9a5e;
+      --flat: #64b5ff;
       --good-soft: #16362b;
       --off-soft: #3a2d18;
       --bad-soft: #3d1f27;
+      --sharp-soft: #3b2517;
+      --flat-soft: #172b42;
       --glass: rgb(var(--sf) / 0.42);
       --glass-line: rgb(255 255 255 / 0.1);
       --surface-solid: #3b3f5e;
@@ -233,8 +241,8 @@
       --chart-grid: #302e48;
       --chart-tick-minor: #4a4770;
       --chart-good-fill: rgb(53 210 149 / 0.16);
-      --chart-off-fill: rgb(255 178 87 / 0.18);
-      --chart-bad-fill: rgb(255 125 144 / 0.16);
+      --chart-sharp-fill: rgb(255 154 94 / 0.18);
+      --chart-flat-fill: rgb(100 181 255 / 0.18);
       --chart-wave: rgb(var(--on-surface) / 0.08);
       --shadow: 0 2px 4px rgb(var(--sh) / 0.3), 0 12px 32px rgb(var(--sh) / 0.45);
     }
@@ -899,8 +907,8 @@
     /* the dial's parts, painted from the palette so the theme carries them */
     .g-zone { opacity: 0.55; }
     .g-zone.g-good { stroke: var(--good); }
-    .g-zone.g-off { stroke: var(--off); }
-    .g-zone.g-bad { stroke: var(--bad); }
+    .g-zone.g-sharp { stroke: var(--sharp); }
+    .g-zone.g-flat { stroke: var(--flat); }
     .g-tick { stroke: var(--chart-tick-minor); }
     .g-tick-major { stroke: var(--ink); }
     .g-label { fill: var(--muted); }
@@ -922,7 +930,8 @@
       pointer-events: none;
     }
     #note[data-state="good"] { color: var(--good); }
-    #note[data-state="off"] { color: var(--off); }
+    #note[data-state="sharp"] { color: var(--sharp); }
+    #note[data-state="flat"] { color: var(--flat); }
     #note[data-state="idle"] { color: var(--muted); }
     #tuner-listen { margin-top: 0.2rem; }
     /* the explanation belongs with the button and goes when it does */
@@ -1977,6 +1986,39 @@
       z-index: 4;
     }
     #reader-land[hidden] { display: none; }
+    /* What is overleaf, on the last page of a piece in a programme. Deliberately
+       quiet and deliberately not a button: it is the pencilled note on the
+       corner of an orchestral part that tells you the Menuet is next, not
+       another thing to aim at while holding a bow. */
+    #reader-next {
+      position: fixed;
+      left: 50%;
+      transform: translateX(-50%);
+      bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+      z-index: 3;
+      pointer-events: none;
+      max-width: min(22rem, 80vw);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      padding: 0.2rem 0.7rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.7);
+      border: 1px solid var(--glass-line);
+      color: var(--muted);
+      font-family: var(--display);
+      font-size: 0.7rem;
+      letter-spacing: 0.01em;
+    }
+    #reader-next[hidden] { display: none; }
+    #reader.night #reader-next {
+      background: rgb(26 28 32 / 0.72);
+      border-color: rgb(255 255 255 / 0.09);
+      color: #8d919a;
+    }
+    /* While the bar is down it is one more thing over the music, and the bar
+       already says where you are. */
+    #reader:not(.bare) #reader-next { display: none; }
 
     /* Marks picked up with the lasso, and what can be done to them. */
     #reader-selection {
@@ -2200,10 +2242,10 @@
     .degree b { display: block; font-family: var(--display); font-weight: 500; font-size: 0.98rem; }
     .degree[data-state="good"] { background: var(--good-soft); }
     .degree[data-state="good"] b { color: var(--good); }
-    .degree[data-state="off"] { background: var(--off-soft); }
-    .degree[data-state="off"] b { color: var(--off); }
-    .degree[data-state="bad"] { background: var(--bad-soft); }
-    .degree[data-state="bad"] b { color: var(--bad); }
+    .degree[data-state="sharp"] { background: var(--sharp-soft); }
+    .degree[data-state="sharp"] b { color: var(--sharp); }
+    .degree[data-state="flat"] { background: var(--flat-soft); }
+    .degree[data-state="flat"] b { color: var(--flat); }
     .degree[data-state="missed"] { opacity: 0.45; }
     .degree.peek { border-color: var(--ink); }
     .degree.chord { border: 1px dashed var(--line-strong); }
@@ -2362,9 +2404,14 @@
       padding: 0.3rem 0.9rem;
       border-radius: 999px;
     }
-    #landing-verdict[data-verdict="clean"] { background: var(--good-soft); color: var(--good); }
-    #landing-verdict[data-verdict="mixed"] { background: var(--off-soft); color: var(--off); }
-    #landing-verdict[data-verdict="scooping"] { background: var(--bad-soft); color: var(--bad); }
+    /* Landing asks whether a note SPOKE in tune — a different question from
+       which way it missed — so its tiers are one weight ramp rather than a
+       second set of colours. Warm and cool belong to sharp and flat now, and
+       a coral "scooping" pill sitting under an orange chart read as though the
+       two were saying the same thing. The bad end is louder by weight. */
+    #landing-verdict[data-verdict="clean"] { background: rgb(var(--primary-rgb) / 0.14); color: var(--primary); }
+    #landing-verdict[data-verdict="mixed"] { background: var(--fill-2); color: var(--ink); }
+    #landing-verdict[data-verdict="scooping"] { background: rgb(var(--on-surface) / 0.2); color: var(--ink); font-weight: 600; }
     #landing-summary { font-size: 0.95rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
     #landing-hint { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
     #landing-bars { display: grid; gap: 0.6rem; }
@@ -2391,9 +2438,12 @@
       border-radius: 999px;
       overflow: hidden;
     }
-    .ld-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--good); }
-    .ld-fill[data-tier="mixed"] { background: var(--off); }
-    .ld-fill[data-tier="poor"] { background: var(--bad); }
+    /* Same ramp: the bar's LENGTH is the number, so the fill only has to say
+       how much of one thing there is. A faint short bar and a solid long one
+       are the same fact told twice, which is what a bar chart is for. */
+    .ld-fill { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--primary); }
+    .ld-fill[data-tier="mixed"] { background: rgb(var(--primary-rgb) / 0.55); }
+    .ld-fill[data-tier="poor"] { background: rgb(var(--primary-rgb) / 0.32); }
     .ld-val {
       width: 6.6rem;
       flex-shrink: 0;
@@ -2430,8 +2480,8 @@
       transition: background 150ms, color 150ms;
     }
     .ld-chip:hover { background: var(--fill-2); color: var(--primary); }
-    .ld-chip.flat { color: var(--sky); }
-    .ld-chip.sharp { color: var(--off); }
+    .ld-chip.flat { color: var(--flat); }
+    .ld-chip.sharp { color: var(--sharp); }
     /* the same rows again inside the coach card, which is centre-aligned */
     #landing-card #week-tiles { margin-bottom: 0.9rem; }
     #landing-band-rows { display: grid; gap: 0.5rem; text-align: left; }

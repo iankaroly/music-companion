@@ -1,7 +1,7 @@
 import { freqToNote, midiToName } from '../analysis/note-utils.js';
 import { PitchCenterTracker } from '../analysis/vibrato.js';
 import { temperamentOffsetCents } from '../analysis/temperaments.js';
-import { intonationTolerance } from './chart-utils.js';
+import { intonationHue, intonationTolerance } from './chart-utils.js';
 
 const CONFIDENCE_FLOOR = 0.6;
 const RMS_FLOOR = 0.005;
@@ -13,14 +13,17 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // stylesheet — and therefore the theme — is the single source of truth. The
 // green band is exactly the in-tune tolerance from settings, so the dial and
 // the note colour can never disagree about what counts as in tune.
+//
+// Three bands, not five: the flat side is one colour, the sharp side another.
+// The needle's angle already says how far off you are, in the same units as
+// the ticks it points at, so a second band change partway out only competed
+// with it.
 function zones() {
   const t = intonationTolerance();
   return [
-    [-50, -25, 'g-bad'],
-    [-25, -t, 'g-off'],
+    [-50, -t, 'g-flat'],
     [-t, t, 'g-good'],
-    [t, 25, 'g-off'],
-    [25, 50, 'g-bad'],
+    [t, 50, 'g-sharp'],
   ];
 }
 
@@ -155,7 +158,7 @@ export class Tuner {
       - temperamentOffsetCents(this.temperament, this.temperamentRoot, midi);
 
     this.noteEl.textContent = midiToName(midi + this.transpose);
-    this.noteEl.dataset.state = Math.abs(cents) < intonationTolerance() ? 'good' : 'off';
+    this.noteEl.dataset.state = intonationHue(cents);
     const centsText = `${cents >= 0 ? '+' : ''}${cents.toFixed(1)} cents`;
     this.centsEl.textContent = vibrato
       ? `${centsText} · vibrato ±${vibrato.widthCents.toFixed(0)}¢ @ ${vibrato.rateHz.toFixed(1)} Hz`

@@ -197,6 +197,56 @@ const brushes = {
   highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true, nib: 'marker' },
 };
 
+// …and the pen case survives being put away.
+//
+// "The pen you put down is the pen you pick up" was already true within a
+// session, and stopped being true the moment the app was closed: the brushes,
+// the tool you were holding and the layers you had hidden are module state, so
+// a reload handed back a factory-fresh dark ballpoint. A player who spent an
+// evening marking bowings in green comes back the next day and re-mixes green.
+// The size and the night setting were already remembered next door; this is the
+// rest of the same idea.
+const BRUSH_KEY = 'readerBrushes';
+
+// Written a moment after the last change rather than on each one: dragging the
+// size rail is a hundred calls to setBrush, and a hundred writes to storage for
+// one decision about how thick a pencil is.
+let brushSaveTimer = null;
+
+function scheduleBrushSave() {
+  clearTimeout(brushSaveTimer);
+  brushSaveTimer = setTimeout(rememberBrushes, 300);
+}
+
+function rememberBrushes() {
+  try {
+    globalThis.localStorage?.setItem(BRUSH_KEY, JSON.stringify({
+      brushes, lastInk, layer, hidden: [...hidden], stamp: stamp?.glyph,
+    }));
+  } catch { /* a pen that will not be remembered still writes */ }
+}
+
+function recallBrushes() {
+  let saved = null;
+  try { saved = JSON.parse(globalThis.localStorage?.getItem(BRUSH_KEY) ?? 'null'); } catch { saved = null; }
+  if (!saved) return;
+  // Merged onto the defaults rather than trusted wholesale: a half-written or
+  // out-of-date entry should cost you a colour, not the ability to draw.
+  for (const key of ['pen', 'highlighter']) {
+    const one = saved.brushes?.[key];
+    if (one && typeof one === 'object') Object.assign(brushes[key], one);
+  }
+  if (INKS.includes(saved.lastInk)) lastInk = saved.lastInk;
+  if (Number.isInteger(saved.layer) && saved.layer >= 0 && saved.layer < LAYER_NAMES.length) {
+    layer = saved.layer;
+  }
+  if (Array.isArray(saved.hidden)) {
+    hidden = new Set(saved.hidden.filter((i) => Number.isInteger(i) && i < LAYER_NAMES.length));
+  }
+  const found = STAMPS.find((s) => s.glyph === saved.stamp);
+  if (found) stamp = found;
+}
+
 function brushCss(brush) {
   return `hsla(${Math.round(brush.h)} ${Math.round(brush.s)}% ${Math.round(brush.l)}% / ${brush.a.toFixed(2)})`;
 }
@@ -1850,8 +1900,35 @@ async function showPage(index) {
   const count = el('reader-count');
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   invalidateGeometry();     // different music, in different places
+  refreshUpNext();
   redraw();
   if (isPaper()) keepNeighboursReady(shown);
+}
+
+// What you are about to turn into.
+//
+// Past the last page of a piece in a programme is the first page of the next
+// one, and that has worked for a while — but it happened without warning, so
+// the last page of a movement was a small cliff: turn once more and you are
+// somewhere else, and you find out which piece by reading it. A recital is
+// exactly where you least want that.
+//
+// So the last page says what is coming. It is not a control and does not want
+// to be tapped; it is the label on the corner of an orchestral part that tells
+// you the Menuet is overleaf.
+function refreshUpNext() {
+  const chip = el('reader-next');
+  if (!chip) return;
+  const last = visiblePages().at(-1) ?? 0;
+  const onLastPage = last >= pageEls.length - 1;
+  const next = setlist && setlist.index + 1 < (setlist.items?.length ?? 0)
+    ? (setlist.names?.[setlist.index + 1] ?? '')
+    : '';
+  // Only with the music in front of you — while the chrome is up it is one more
+  // thing over the page, and the bar already says where you are.
+  const show = onLastPage && !!next && !!setlist && pageEls.length > 0;
+  chip.hidden = !show;
+  if (show) chip.textContent = `next: ${next}`;
 }
 
 // The pages either side, drawn while nobody is waiting, and the ones far behind
@@ -2164,6 +2241,9 @@ function hangBelowBar(panel) {
 }
 
 function refreshBrushUI() {
+  // Everything that changes the pen, the layer or the stamp ends here, which
+  // makes this the one place worth saying it from.
+  scheduleBrushSave();
   const brush = currentBrush();
   const panel = el('reader-brush');
   for (const button of root.querySelectorAll('[data-preset]')) {
@@ -3371,6 +3451,11 @@ function build() {
   const line = document.createElement('div');
   line.id = 'reader-say';
   line.hidden = true;
+  const upNext = document.createElement('div');
+  upNext.id = 'reader-next';
+  upNext.hidden = true;
+  upNext.setAttribute('aria-live', 'polite');
+
   const land = iconButton('reader-land', 'Land it', 'Land the jump here', () => {
     if (pendingLink?.stage === 'to') finishLink(pageIndex);
     refreshLandButton();
@@ -3378,7 +3463,7 @@ function build() {
   land.hidden = true;
 
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land);
+    buildSelectionBar(), menu, line, land, upNext);
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -3502,7 +3587,14 @@ function build() {
     else previousPage();
     return true;
   }
-  root.addEventListener('pointercancel', () => { tapFrom = null; });
+  root.addEventListener('pointercancel', (e) => {
+    // Said a third time, for the same reason. A palm whose contact the system
+    // cancels mid-stroke — which is exactly what iPadOS does to a palm it has
+    // decided is a palm — would otherwise wipe the pencil's pending tap on its
+    // way out.
+    if (penIsDown() && e.pointerType !== 'pen') return;
+    tapFrom = null;
+  });
 
   function onTap(e) {
     if (e.target.closest('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush')) return;
@@ -4134,8 +4226,12 @@ export async function openReader(row, {
   scanMarksFrom = null;
   history = [];
   redoable = [];
+  // The pen case, the sheet you were writing on and the sheets you had put out
+  // of sight, as you left them — see recallBrushes. What is NOT carried over is
+  // the undo history, which belongs to a piece and to an evening.
   layer = 0;
   hidden = new Set();
+  recallBrushes();
   picked = [];
   lasso = null;
   // A take opened with a scan arrives already marked: you came here from a

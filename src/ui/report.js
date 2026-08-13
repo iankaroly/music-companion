@@ -2,7 +2,7 @@ import { audioContext, masterOut, holdAudio, releaseAudio, warmAudio } from '../
 import { findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
-import { intonationStatus, findNoteAt } from './chart-utils.js';
+import { intonationStatus, intonationHue, findNoteAt } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
 import { renderLanding, hideLanding } from './landing.js';
@@ -637,7 +637,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   const selected = root.querySelector('#selected-note');
   selected.hidden = false;
   selected.className = note.chord ? 'degree chord' : 'degree';
-  selected.dataset.state = intonationStatus(note.cents);
+  selected.dataset.state = intonationHue(note.cents);
   selected.innerHTML = `<b>${note.chord ? '+' : ''}${name}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
 
   // Reused by retuneCursorDrones below, which rewrites this box on every move
@@ -699,7 +699,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
     const mf = 69 + 12 * Math.log2(f / a4);
     const m = Math.round(mf);
     const cents = (mf - m) * 100;
-    selected.dataset.state = intonationStatus(cents);
+    selected.dataset.state = intonationHue(cents);
     cursorName.textContent = midiToName(m);
     cursorCents.textContent = centsLabel(cents);
     if (selected.firstChild !== cursorName) selected.replaceChildren(cursorName, cursorCents);
@@ -854,7 +854,7 @@ function wireSpeedButtons(root) {
 
 function degreeState(d) {
   if (!d.played) return 'missed';
-  return intonationStatus(d.played.cents);
+  return intonationHue(d.played.cents);
 }
 
 // Renders the intonation report from a bestAlignment() result. The full-
@@ -896,7 +896,8 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     const cents = Math.round(d.played.cents);
     const how = cents === 0 ? 'exactly in tune'
       : `${Math.abs(cents)} cents ${cents > 0 ? 'sharp' : 'flat'}`;
-    const tier = { good: 'in tune', off: 'slightly off', bad: 'badly off' }[degreeState(d)];
+    // The tile is coloured in tune / sharp / flat, so that is what it says.
+    const tier = { good: 'in tune', sharp: 'sharp', flat: 'flat' }[degreeState(d)];
     return `${d.name}, ${how}, ${tier}${d.played.chord ? ', chord note' : ''}`;
   };
 
@@ -931,13 +932,15 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   // screen reader, so it carries a summary of what it draws.
   const chartEl = root.querySelector('#pitch-chart');
   if (chartEl && allNotes.length) {
-    const tally = { good: 0, off: 0, bad: 0 };
-    for (const n of allNotes) tally[intonationStatus(n.cents)]++;
+    // Named the way the chart is coloured, so the spoken summary and the
+    // picture are the same three groups.
+    const tally = { good: 0, sharp: 0, flat: 0 };
+    for (const n of allNotes) tally[intonationHue(n.cents)]++;
     const span = allNotes.at(-1).end - allNotes[0].start;
     chartEl.setAttribute('role', 'img');
     chartEl.setAttribute('aria-label',
       `Pitch over ${Math.round(span)} seconds. ${allNotes.length} notes: `
-      + `${tally.good} in tune, ${tally.off} slightly off, ${tally.bad} badly off. `
+      + `${tally.good} in tune, ${tally.sharp} sharp, ${tally.flat} flat. `
       + 'The note list above has each one.');
   }
 

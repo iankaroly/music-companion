@@ -1,5 +1,5 @@
 import { midiToName } from '../analysis/note-utils.js';
-import { findNoteAt, intonationStatus } from './chart-utils.js';
+import { findNoteAt, intonationHue } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
 
 // Two synced views: the session overview (pitch contour, notes tinted by
@@ -9,13 +9,16 @@ import { palette, onThemeChange } from './theme.js';
 // A canvas can't see CSS variables, so every colour comes from the theme's
 // palette at draw time. C() is cached and invalidated on a theme switch.
 const C = palette;
+// Three colours: in tune, sharp, flat. How far off is already in the picture —
+// it is the height of the trace above or below the note's line — so colour is
+// spent on the direction instead of saying the same thing twice.
 const STATUS_LINE = () => {
   const p = C();
-  return { good: p.good, off: p.off, bad: p.bad };
+  return { good: p.good, sharp: p.sharp, flat: p.flat };
 };
 const STATUS_SPAN = () => {
   const p = C();
-  return { good: p.goodFill, off: p.offFill, bad: p.badFill };
+  return { good: p.goodFill, sharp: p.sharpFill, flat: p.flatFill };
 };
 // The note-name gutter used to be a fixed 44px, which is a tenth of a phone
 // screen spent on labels. Trimming it to a guess was worse: "C#4" is wider
@@ -254,11 +257,11 @@ function drawLiveCents(ctx, canvas, pts, playhead, x, y, cssW, cssH) {
   const by = Math.max(PAD.top + 2, Math.min(y(p.mf) - hBox / 2, cssH - PAD.bottom - hBox - 2));
 
   const c = C();
-  ctx.fillStyle = STATUS_SPAN()[intonationStatus(cents)];
+  ctx.fillStyle = STATUS_SPAN()[intonationHue(cents)];
   ctx.beginPath();
   ctx.roundRect(bx, by, w, hBox, 999);
   ctx.fill();
-  ctx.strokeStyle = STATUS_LINE()[intonationStatus(cents)];
+  ctx.strokeStyle = STATUS_LINE()[intonationHue(cents)];
   ctx.lineWidth = 1.2;
   ctx.stroke();
   ctx.fillStyle = c.ink;
@@ -390,7 +393,7 @@ export function renderOverviewChart(canvas, {
     if (mf < yMin - 0.5 || mf > yMax + 0.5) { pts.push({ time: r.time, mf: null }); continue; }
     // the trace wears the intonation verdict of the note it belongs to
     const note = findNoteAt(notes, r.time, 0);
-    pts.push({ time: r.time, mf, status: note ? intonationStatus(note.cents) : null });
+    pts.push({ time: r.time, mf, status: note ? intonationHue(note.cents) : null });
   }
   // Notes are drawn per screenful too, so they get the same bisection.
   const noteStarts = notes.map((n) => ({ time: n.start, n }));
@@ -418,7 +421,7 @@ export function renderOverviewChart(canvas, {
     for (const n of notes) {
       if (n.end < tVis0 || n.start > tVis1) continue;
       const spanW = Math.max(2, x(n.end) - x(n.start));
-      ctx.fillStyle = STATUS_SPAN()[intonationStatus(n.cents)];
+      ctx.fillStyle = STATUS_SPAN()[intonationHue(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, spanW, h);
       if (highlight.has(n)) {
         ctx.strokeStyle = C().ink;
@@ -440,7 +443,7 @@ export function renderOverviewChart(canvas, {
         for (let b = b0; b <= b1; b++) if (wave.peaks[b] > amp) amp = wave.peaks[b];
         if (amp <= 0) continue;
         const note = findNoteAt(notes, (ta + tb) / 2, 0);
-        ctx.fillStyle = note ? STATUS_LINE()[intonationStatus(note.cents)] : C().muted;
+        ctx.fillStyle = note ? STATUS_LINE()[intonationHue(note.cents)] : C().muted;
         const barH = Math.max(0.6, amp * 0.92 * (h / 2 - 2));
         ctx.fillRect(px, mid - barH, 1, barH * 2);
       }
@@ -646,6 +649,8 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     const dev = Math.max(-CLAMP, Math.min(CLAMP, (toMidiFloat(r, a4) - note.midi) * 100));
     pts.push({ time: r.time, dev, inTarget: r.time >= note.start && r.time <= note.end });
   }
+  // Read at draw time so a theme switch repaints in the new palette.
+  const noteColour = () => STATUS_LINE()[intonationHue(note.cents)] ?? C().muted;
 
   const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead) => {
     const ctx = cv.getContext('2d');
@@ -680,10 +685,13 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     for (const p of pts) {
       if (p.dev === null) { prev = null; continue; }
       if (prev) {
-        // inside the note, each moment wears its own in-tune color
-        ctx.strokeStyle = p.inTarget && prev.inTarget
-          ? STATUS_LINE()[intonationStatus(p.dev)]
-          : C().muted;
+        // The whole note wears one colour — the note's own, the same one the
+        // overview and its tile show. Colouring each MOMENT by direction would
+        // strobe: vibrato crosses the centre line about ten times a second, so
+        // the trace would flip warm-green-cool-green twice a cycle. The height
+        // of the line against the dashed centre already says every moment's
+        // deviation, and says it exactly.
+        ctx.strokeStyle = p.inTarget && prev.inTarget ? noteColour() : C().muted;
         ctx.beginPath();
         ctx.moveTo(x(prev.time), y(prev.dev));
         ctx.lineTo(x(p.time), y(p.dev));
