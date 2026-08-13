@@ -1195,6 +1195,37 @@
     html[data-reading] body { overflow: hidden; }
     html[data-reading] nav[role="tablist"] { display: none; }
     #reader-sheet { position: absolute; inset: 0; }
+    /* The music is a picture, not a document.
+       user-select:none on #reader was already there and was not enough. What
+       the engraver draws is an <svg> full of <text> — the bar numbers, the
+       dynamics, the tempo mark — and WebKit does not treat an inherited
+       user-select as a reason to call off the long-press selection gesture
+       inside one. So resting a hand on the page, or holding the pen still over
+       a bar for the moment that turns a scrawl into a box, would highlight
+       "Allegro" in blue and raise the Copy / Look Up / Share bubble over the
+       music. That is the "it randomly selects text to copy".
+       The cure is to make the page untargetable rather than merely unselectable:
+       nothing in here is ever the target of anything. Every gesture the reader
+       has is worked out from coordinates — the page turns, the taped-down
+       jumps, the pen — and the two things that DO want a target, the chrome and
+       the ink canvas, are siblings of this and keep theirs. Long-press on the
+       canvas is stopped for the same reason: iOS offers to save it as an image.
+       The overlay divs (the analysis rings) go with it; they are decoration and
+       are marked aria-hidden already. */
+    #reader-sheet,
+    #reader-sheet *,
+    #reader-ink {
+      pointer-events: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-user-drag: none;
+    }
+    /* Belt to that brace: if anything ever does get selected in here — a stray
+       label, a title mid-rename — it is not to be painted as a selection over
+       the music. */
+    #reader ::selection { background: transparent; }
+    #reader ::-moz-selection { background: transparent; }
     #reader-sheet .score-page { width: 100%; }
     /* Two pages side by side: each engraved to half the screen, laid out as a
        spread. The gutter is the app's background showing through, which is what

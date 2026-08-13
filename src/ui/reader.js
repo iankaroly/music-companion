@@ -362,6 +362,13 @@ function visiblePages(at = pageIndex) {
 // music that is the page container; for paper it is the drawn page inside it,
 // which is centred with margins either side.
 function boxOfPage(index) {
+  if (boxCache.has(index)) return boxCache.get(index);
+  const box = measurePageBox(index);
+  boxCache.set(index, box);
+  return box;
+}
+
+function measurePageBox(index) {
   const node = pageEls[index];
   if (!node) return null;
   const target = isPaper() ? node.querySelector('canvas') : node;
@@ -417,7 +424,41 @@ function indexBars() {
 // and they do not move when the music above them does — unlike the bar's outline,
 // which grows upwards the moment somebody writes a high note and would take
 // every mark in the bar with it.
+// --- geometry, measured once a frame rather than once a point -----------------
+//
+// Everything drawn on the page is placed by asking a BAR where it is, and a bar
+// answers by measuring five staff lines with getBoundingClientRect. Each of
+// those is a forced layout — the browser stops and re-computes the page before
+// it will give you a number — and the reader was asking for one per staff line,
+// per point, per stroke, on every frame of a pen stroke. A page carrying thirty
+// marks of forty points each came to twelve thousand forced layouts between one
+// movement of the hand and the next. That is the whole of "the pen lags", "the
+// page turn hangs", and most of "it feels slow".
+//
+// Nothing about the page moves while you are writing on it, so the answers are
+// worth keeping. They are thrown away wholesale whenever something that CAN
+// move them happens — a turn, a pinch, a re-engraving, a rotation — and, as a
+// belt to that brace, at the start of every frame painted while the hand is NOT
+// on the glass. So the cache is only ever trusted across the one interval where
+// it cannot go stale: the middle of a stroke.
+const frameCache = new Map();
+const boxCache = new Map();
+let unitCache = null;
+
+function invalidateGeometry() {
+  frameCache.clear();
+  boxCache.clear();
+  unitCache = null;
+}
+
 function barFrame(bar) {
+  if (frameCache.has(bar)) return frameCache.get(bar);
+  const frame = measureBar(bar);
+  frameCache.set(bar, frame);
+  return frame;
+}
+
+function measureBar(bar) {
   const entry = bars.get(bar);
   if (!entry || !visiblePages().includes(entry.page)) return null;
   const lines = [...entry.node.children]
@@ -449,6 +490,11 @@ function barFrame(bar) {
 // page — about a staff space on a printed part, and in any case a constant
 // fraction of the paper, so a pen looks the same on a phone and an iPad.
 function unitScale() {
+  if (unitCache === null) unitCache = measureUnit();
+  return unitCache;
+}
+
+function measureUnit() {
   if (isPaper()) {
     const box = pageBox();
     // The box is a BAND of the page, not the page: divide it back out, or a pen
@@ -587,7 +633,13 @@ function strokeColour(stroke) {
 // being read; on an export it is the page being written into a file. Same ink,
 // same code, so what you send is what you saw.
 function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
-  const points = stroke.points.map(at);
+  // The pressure travels with the point. `at` only knows about where a mark is,
+  // and how hard it was pressed is the other half of what a nib needs.
+  const points = stroke.points.map((point) => {
+    const spot = at(point);
+    if (spot && point.w !== undefined) spot.w = point.w;
+    return spot;
+  });
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -712,14 +764,19 @@ function inkRun(ctx, points, stroke, width) {
     return;
   }
   if (nib === 'fountain') {
-    // Width from speed: the hand slows into a turn and the line swells there,
-    // which is most of what makes handwriting look written rather than plotted.
+    // Width from speed, and from the hand: the hand slows into a turn and the
+    // line swells there, which is most of what makes handwriting look written
+    // rather than plotted — and where a real pencil was pressing is known
+    // outright, so a stroke made with one is drawn from that instead of
+    // guessed at.
     let carried = width;
     for (let i = 1; i < points.length; i++) {
       const a = points[i - 1];
       const b = points[i];
       const gone = Math.hypot(b.x - a.x, b.y - a.y);
-      const want = width * Math.max(0.35, Math.min(1.5, 1.5 - gone / 26));
+      const want = width * (b.w !== undefined
+        ? Math.max(0.35, Math.min(1.5, 0.45 + b.w * 1.3))
+        : Math.max(0.35, Math.min(1.5, 1.5 - gone / 26)));
       carried += (want - carried) * 0.35;   // no sudden steps between segments
       ctx.lineWidth = carried;
       ctx.beginPath();
@@ -734,9 +791,24 @@ function inkRun(ctx, points, stroke, width) {
     // Graphite: a soft core with a scattering of grain either side of it, and
     // never quite opaque, so what is underneath still shows through.
     const alpha = ctx.globalAlpha;
-    ctx.globalAlpha = alpha * 0.55;
     ctx.lineWidth = width;
-    polyline(ctx, points);
+    // A pencil pressed harder is a darker pencil. Where the hand's pressure was
+    // recorded the core is laid down segment by segment at the darkness each
+    // one was drawn with, which is how a written 3 comes out with a light lead
+    // in and a firm downstroke instead of one flat grey cable.
+    if (points.some((p) => p.w !== undefined)) {
+      for (let i = 1; i < points.length; i++) {
+        const force = points[i].w ?? points[i - 1].w ?? 0.5;
+        ctx.globalAlpha = alpha * Math.max(0.18, Math.min(0.75, 0.2 + force * 0.7));
+        ctx.beginPath();
+        ctx.moveTo(points[i - 1].x, points[i - 1].y);
+        ctx.lineTo(points[i].x, points[i].y);
+        ctx.stroke();
+      }
+    } else {
+      ctx.globalAlpha = alpha * 0.55;
+      polyline(ctx, points);
+    }
     ctx.globalAlpha = alpha * 0.3;
     ctx.lineWidth = Math.max(0.3, width * 0.55);
     for (const side of [-1, 1]) {
@@ -775,7 +847,39 @@ function inkRun(ctx, points, stroke, width) {
 // size is a canvas four times the size, most of it off-screen, all of it in
 // memory. One screen-sized canvas with the origin shifted to the page's corner
 // draws the same picture and costs the same however far in you go.
+// Asked for as often as you like, done once a frame.
+//
+// A pen stroke arrives as a shower of pointermove events — on an iPad, well
+// over one every frame — and each of them used to repaint the entire page of
+// ink synchronously, inside the event handler. The browser cannot show any of
+// those paints but the last one, so all the work between them was thrown away,
+// and the handler was still running when the next event wanted to be delivered:
+// the events queue up behind the painting and the line falls further and
+// further behind the nib.
+//
+// So a redraw is now a REQUEST. Ask twenty times between two frames and the
+// page is painted once, at the moment the screen is actually going to show it.
+let painting = 0;
+
 function redraw() {
+  if (painting) return;
+  painting = requestAnimationFrame(() => {
+    painting = 0;
+    paintInk();
+  });
+}
+
+// The same thing, but now, for the few places that need the ink on screen
+// before they go on — an export, a page that has just been swapped underneath.
+function redrawNow() {
+  if (painting) { cancelAnimationFrame(painting); painting = 0; }
+  paintInk();
+}
+
+function paintInk() {
+  // Measurements are only trusted through the middle of a stroke, where the
+  // page is guaranteed to be still. Any other frame re-measures.
+  if (drawingPointer === null) invalidateGeometry();
   if (!ink || !pageBox()) return;
   const dpr = window.devicePixelRatio || 1;
   const w = window.innerWidth;
@@ -791,11 +895,21 @@ function redraw() {
   const ctx = ink.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, w, h);
+  // Measured once for the whole page rather than re-derived per mark: it is the
+  // same length for every stroke on screen, and working it out means walking
+  // the bars.
+  const scale = unitScale();
   for (const stroke of strokes) {
     if (hidden.has(stroke.layer ?? 0)) continue;
-    drawStroke(ctx, stroke);
+    // A part is one list of marks from the first bar to the last, and all but
+    // the handful on the page in front of you are somewhere else. Asking each
+    // of the others where it is — bar by bar, point by point — only to find
+    // out it is not here is the cost of a whole score, paid on every frame of
+    // every stroke.
+    if (!touchesScreen(stroke)) continue;
+    drawStroke(ctx, stroke, { scale });
   }
-  if (drawing) drawStroke(ctx, drawing);
+  if (drawing) drawStroke(ctx, drawing, { scale });
   if (painted) drawScanMarks(ctx);
   drawLinks(ctx);
   drawLasso(ctx);
@@ -808,6 +922,7 @@ function eraseAt(px, py) {
   const gone = [];
   strokes = strokes.filter((stroke) => {
     if (hidden.has(stroke.layer ?? 0)) return true;  // out of sight, out of reach
+    if (!touchesScreen(stroke)) return true;         // nor is a mark on another page
     const hit = stroke.points.some((point) => {
       const at = place(point);
       return at && Math.hypot(at.x - px, at.y - py) <= reach;
@@ -920,6 +1035,7 @@ function beginStroke(e) {
   }
   const point = anchor(at.x, at.y);
   if (!point) return;
+  nibPressure(point, e);
   if (tool === 'text') { writeText(point); return; }
   if (tool === 'stamp') { placeStamp(point); return; }
   const brush = currentBrush();
@@ -949,7 +1065,7 @@ function beginStroke(e) {
   }
 }
 
-function extendStroke(e) {
+function extendStroke(e, { quiet = false } = {}) {
   const at = pointerPosition(e);
   if (!at) return;
   if (tool === 'eraser') { eraseAt(at.x, at.y); return; }
@@ -960,7 +1076,7 @@ function extendStroke(e) {
     } else if (lasso) {
       lasso.push(at);
     }
-    redraw();
+    if (!quiet) redraw();
     return;
   }
   if (!drawing) return;
@@ -976,10 +1092,25 @@ function extendStroke(e) {
     watchForHold(at);
   }
   const point = anchor(at.x, at.y);
+  if (point) nibPressure(point, e);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
   else if (point) drawing.points.push(point);
   if (drawing.type !== 'shape') watchForHold(at);
-  redraw();
+  if (!quiet) redraw();
+}
+
+// How hard the pencil was pressing, kept on the point that was made.
+//
+// Only ever recorded for a real pen. A finger and a mouse report a flat 0.5 or
+// a flat 1 depending on the browser, and a line that swells to a number the
+// device invented is worse than a line of one width honestly drawn — so a
+// stroke made with anything but a pencil carries no pressure at all, and the
+// nibs fall back to the shape they had before.
+function nibPressure(point, e) {
+  if (e.pointerType !== 'pen') return;
+  const force = e.pressure;
+  if (!Number.isFinite(force) || force <= 0) return;
+  point.w = Math.round(Math.min(1, force) * 100) / 100;
 }
 
 // A stroke that turned out to be the start of a pinch is not a stroke.
@@ -1060,6 +1191,11 @@ function applyZoom() {
     : `translate(${panX}px, ${panY}px) scale(${zoom})`;
   const reset = el('reader-reset-zoom');
   if (reset) reset.hidden = zoom === 1;
+  // The page just moved under the ink: nothing measured before this is true of
+  // it any more. Said here rather than left to the next paint, because a pen
+  // that lands between the pinch and the frame would otherwise anchor its first
+  // point against where the music used to be.
+  invalidateGeometry();
   redraw();
 }
 
@@ -1117,9 +1253,78 @@ function redrawPaperAtZoom() {
   }, 220);
 }
 
+// --- the pencil ---------------------------------------------------------------
+//
+// An Apple Pencil is not a finger and must never be treated as one.
+//
+// Two things follow from that, and both are what makes a reader feel like it
+// was written for the iPad rather than ported onto it.
+//
+// Touching the page with the pencil IS reaching for the pen. Nobody puts a
+// pencil on paper meaning to turn the page. So the pen you last wrote with is
+// picked back up, the bar of tools comes down, and the stroke starts from that
+// same touch — not the next one, or the first mark of every annotation is the
+// one that got away.
+//
+// And while the pencil is on the glass, the hand holding it is on the glass
+// too. A palm is a touch pointer, and a reader that counts pointers sees a
+// second one land and decides you are pinching: the line stops dead halfway
+// through a fingering. So touches are simply not admitted while the pencil is
+// down. They start no pinch, they end no stroke, they are not there.
+let penPointer = null;
+// The gesture that picked the pen up must not also be the gesture that puts it
+// down again — see onTap, which normally reads a tap that made no mark as "I
+// have finished writing".
+let armedByPen = false;
+
+function penIsDown() {
+  return penPointer !== null;
+}
+
+// The pencil has landed on the music with no tool in hand.
+function armPencil(e) {
+  if (!root || root.hidden || menuOpen) return false;
+  // Not on the chrome: a pencil is a perfectly good way to press a button.
+  if (e.target?.closest?.('#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
+    + ' #reader-selection, #reader-land, .pick-pop, dialog')) return false;
+  // Nor over a jump you taped down, or the one you are in the middle of taping.
+  if (pendingLink) return false;
+  setTool(lastInk);
+  armedByPen = true;
+  if (!tool) return false;
+  // The tools that place a thing where you tap — a fingering, a stamp — are
+  // armed and left to the NEXT touch. Opening a keyboard because a pencil
+  // brushed the page is not picking a pen up, it is an accident.
+  if (tool === 'text' || tool === 'stamp') return true;
+  // Capture is what routes the rest of this stroke to the ink layer, which the
+  // pen has only just been given the right to touch — but a pointer that has
+  // already been released, or captured elsewhere, makes it throw, and a throw
+  // here would take the whole stroke down with it. The mark is worth more than
+  // the routing: without capture the moves still arrive, they just stop if the
+  // pen leaves the canvas.
+  try { ink.setPointerCapture(e.pointerId); } catch { /* the stroke goes on */ }
+  drawingPointer = e.pointerId;
+  marksAtDown = strokes.length;
+  beginStroke(e);
+  return true;
+}
+
 function trackPointers(root) {
   root.addEventListener('pointerdown', (e) => {
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    armedByPen = false;
+    if (e.pointerType === 'pen') {
+      penPointer = e.pointerId;
+      // A hand that was already resting on the screen when the pencil arrived
+      // is the same hand, and it must not be sitting in the map looking like
+      // the first finger of a pinch.
+      for (const [id, spot] of [...pointers]) if (spot.touch) pointers.delete(id);
+      pinch = null;
+      pinching = false;
+      if (!tool && armPencil(e)) return;
+    } else if (penIsDown() && e.pointerType === 'touch') {
+      return;   // the palm
+    }
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' });
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
       pinch = {
@@ -1137,7 +1342,7 @@ function trackPointers(root) {
   }, true);
   root.addEventListener('pointermove', (e) => {
     if (!pointers.has(e.pointerId)) return;
-    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch' });
     if (pointers.size !== 2 || !pinch) return;
     const [a, b] = [...pointers.values()];
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
@@ -1152,6 +1357,7 @@ function trackPointers(root) {
   }, true);
   for (const type of ['pointerup', 'pointercancel']) {
     root.addEventListener(type, (e) => {
+      if (e.pointerId === penPointer) penPointer = null;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
       if (pointers.size === 0) {
@@ -1368,18 +1574,45 @@ function drawLasso(ctx) {
 // than that — the music you are still reading stays on screen — but not
 // forever, so a page that is taking an unreasonable time is shown blank rather
 // than leaving the turn stuck.
-const HOLD_PAGE = 1200;
+// Shorter than it was, and deliberately. Twelve hundred milliseconds is over a
+// second of a screen that does not answer, which does not read as "drawing" —
+// it reads as "broken", and a player who taps again gets the page after the one
+// they wanted. Under half a second covers every page this renderer draws in
+// practice; past that, whatever there is goes up, and the picture arrives when
+// it arrives.
+const HOLD_PAGE = 450;
 
 // Which pages are worth keeping drawn, either side of the one being read. Every
 // drawn page is a screenful of pixels: on a tablet, twenty of them left lying
 // about is how a long part turns into a renderer that gives up.
-const KEEP_NEAR = 2;
+//
+// Split by direction, because reading is not symmetric. You go forwards through
+// a part all evening and backwards twice; spending the same budget both ways
+// means half of it is kept for pages nobody is going to ask for, and the pages
+// they ARE going to ask for run out two turns into a fast movement. Three ahead
+// and one behind is the same amount of memory, pointed where the music is
+// going.
+const KEEP_AHEAD = 3;
+const KEEP_BEHIND = 1;
 
 let turnToken = 0;
+// Which way the last turn went, so the look-ahead knows which way to look.
+let turnWay = 1;
+// Where the reader is HEADING, as opposed to what it is showing.
+//
+// A turn on paper waits for the next page to be drawn, and a tap that lands
+// during that wait used to be computed from the page still on screen: two quick
+// taps at the edge advanced one page, because the second one asked for "the
+// page after the one I can see" — which was the page the first tap had already
+// gone to fetch. Three taps advanced one page. That is the whole of "sometimes
+// it doesn't register". Turns are counted from where the reader is going.
+let wantedPage = 0;
 
 async function showPage(index) {
   if (!pageEls.length) return;
   const next = Math.max(0, Math.min(pageEls.length - 1, index));
+  if (next !== wantedPage) turnWay = next > wantedPage ? 1 : -1;
+  wantedPage = next;
   const shownNext = visiblePages(next);
   // Drawn BEFORE anything on screen changes. A turn that has to wait shows the
   // page you were reading for a moment longer, which is the right thing to
@@ -1422,6 +1655,7 @@ async function showPage(index) {
   }
   const count = el('reader-count');
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
+  invalidateGeometry();     // different music, in different places
   redraw();
   if (isPaper()) keepNeighboursReady(shown);
 }
@@ -1433,7 +1667,9 @@ async function showPage(index) {
 function keepNeighboursReady(shown) {
   const first = shown[0];
   const last = shown.at(-1);
-  const near = (i) => i >= first - KEEP_NEAR && i <= last + KEEP_NEAR;
+  const ahead = turnWay >= 0 ? KEEP_AHEAD : KEEP_BEHIND;
+  const behind = turnWay >= 0 ? KEEP_BEHIND : KEEP_AHEAD;
+  const near = (i) => i >= first - behind && i <= last + ahead;
   // Swept by looking at the PAGES rather than at the list of what has been
   // drawn. That list is cleared in several places — a resize, a re-layout,
   // coming back to the app — and every time it is, the canvases it was
@@ -1454,9 +1690,18 @@ function keepNeighboursReady(shown) {
       drawn.delete(i);
     }
   };
+  // The page you are about to ask for is drawn FIRST — the one immediately the
+  // way you are already going — and the rest afterwards. Drawn in the wrong
+  // order, a look-ahead that is busy fetching the page behind you is a look-
+  // ahead that loses the race to the next tap.
   const wanted = [];
-  for (let i = last + 1; i <= last + KEEP_NEAR && i < pageEls.length; i++) wanted.push(i);
-  for (let i = first - 1; i >= first - KEEP_NEAR && i >= 0; i--) wanted.push(i);
+  if (turnWay >= 0) {
+    for (let i = last + 1; i <= last + ahead && i < pageEls.length; i++) wanted.push(i);
+    for (let i = first - 1; i >= first - behind && i >= 0; i--) wanted.push(i);
+  } else {
+    for (let i = first - 1; i >= first - behind && i >= 0; i--) wanted.push(i);
+    for (let i = last + 1; i <= last + ahead && i < pageEls.length; i++) wanted.push(i);
+  }
   forget();
   setTimeout(async () => {
     for (const i of wanted) await drawPaperPage(i).catch(() => {});
@@ -1509,22 +1754,25 @@ const step = () => (spread ? 2 : 1);
 // The page after the last one is the next piece in the programme, and the page
 // before the first is the end of the one before it. Without a programme they
 // are simply the ends of the score.
+// Counted from where the reader is HEADING, never from what is currently on the
+// glass — see wantedPage. Two taps is two pages even if the first one is still
+// being drawn.
 function nextPage() {
-  if (pageIndex + step() >= pageEls.length && setlist && moveSet) {
+  if (wantedPage + step() >= pageEls.length && setlist && moveSet) {
     if (setlist.index + 1 < setlist.items.length) {
       moveSet(setlist, setlist.index + 1);
       return;
     }
   }
-  showPage(pageIndex + step());
+  showPage(wantedPage + step());
 }
 
 function previousPage() {
-  if (pageIndex === 0 && setlist && moveSet && setlist.index > 0) {
+  if (wantedPage === 0 && setlist && moveSet && setlist.index > 0) {
     moveSet(setlist, setlist.index - 1);
     return;
   }
-  showPage(pageIndex - step());
+  showPage(wantedPage - step());
 }
 
 // --- chrome ------------------------------------------------------------------
@@ -1638,6 +1886,27 @@ function redo() {
   refreshHistoryButtons();
   redraw();
   scheduleSave();
+}
+
+// Is any of this mark on the screen at all?
+//
+// Deliberately answered WITHOUT measuring anything: bars know which page they
+// are on and bands know which strip of paper they show, and both are lookups in
+// something already in memory. Every point is asked rather than only the first,
+// because a mark drawn along a line of music is anchored to several bars and a
+// re-engraving is free to put the far end of it on the next page — a highlight
+// that started overleaf still has to be drawn where it now continues.
+function touchesScreen(stroke) {
+  const shown = visiblePages();
+  if (isPaper()) {
+    return stroke.points.some((point) => shown.some((index) => {
+      const slice = slices[index];
+      if (!slice || slice.page !== point.p) return false;
+      const air = slice.rect.h * 0.04;      // the same tolerance placeOnPaper allows
+      return point.y >= slice.rect.y - air && point.y <= slice.rect.y + slice.rect.h + air;
+    }));
+  }
+  return stroke.points.some((point) => shown.includes(bars.get(point.m)?.page));
 }
 
 function onThisPage(stroke) {
@@ -2940,6 +3209,13 @@ function build() {
       // would be the same complaint this was meant to fix, from the other end.
       // So the question is not how far the finger moved, it is whether a mark
       // came out of it.
+      // …and never on the gesture that PICKED the pen up. A pencil touching
+      // the page arms the last tool and starts a stroke from that same touch;
+      // a pencil that touched and lifted without leaving a mark would
+      // otherwise arm the pen and put it straight back down again, which is a
+      // tool bar that flashes on and off and a reader that never lets you
+      // write anything.
+      if (armedByPen) { armedByPen = false; return; }
       if (TAP_PUTS_DOWN.includes(tool) && strokes.length === marksAtDown) {
         setTool(null);
         setChrome(false);
@@ -2981,8 +3257,12 @@ function build() {
   // left — otherwise lifting one finger out of a pinch draws a line from
   // wherever the other one happens to be resting.
   ink.addEventListener('pointerdown', (e) => {
-    if (!tool || pointers.size > 1 || pinching) return;
-    ink.setPointerCapture(e.pointerId);
+    if (!tool || pinching) return;
+    // A second FINGER is a pinch. A palm while the pencil is writing is not a
+    // second anything — it has already been turned away at the door.
+    if (pointers.size > 1 && !penIsDown()) return;
+    if (penIsDown() && e.pointerType !== 'pen') return;
+    try { ink.setPointerCapture(e.pointerId); } catch { /* the stroke goes on */ }
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
     beginStroke(e);
@@ -2990,7 +3270,21 @@ function build() {
   ink.addEventListener('pointermove', (e) => {
     if (!tool || pinching || e.pointerId !== drawingPointer) return;
     if (e.buttons === 0 && e.pointerType === 'mouse') return;
-    extendStroke(e);
+    // Every position the device actually sampled, not just the one it got round
+    // to telling us about.
+    //
+    // iPadOS samples an Apple Pencil at 240Hz and the screen redraws at 120 at
+    // best, so it hands over one pointermove carrying the several positions
+    // that happened since the last one. Reading only the event itself throws
+    // three points in four away: a fast stroke comes out as a chain of straight
+    // segments with visible corners, and a flicked accent comes out as one
+    // line. Asking for the coalesced events costs nothing and gets the whole
+    // gesture, which is the difference between ink that was recorded and ink
+    // that was sampled.
+    const moves = e.getCoalescedEvents?.() ?? null;
+    if (moves && moves.length > 1) for (const move of moves) extendStroke(move, { quiet: true });
+    else extendStroke(e, { quiet: true });
+    redraw();
   });
   for (const type of ['pointerup', 'pointercancel']) {
     ink.addEventListener(type, (e) => {
@@ -3119,8 +3413,10 @@ function pageFormat() {
 
 // One door, two kinds of score behind it.
 async function render() {
-  if (score.kind === 'pages') return layOutPaper();
-  return engrave();
+  invalidateGeometry();     // new pages; every measurement of the old ones is void
+  const out = score.kind === 'pages' ? await layOutPaper() : await engrave();
+  invalidateGeometry();
+  return out;
 }
 
 // Paper: a container per page with a canvas in it, drawn to fit the screen the
@@ -3570,6 +3866,24 @@ export function close() {
   take = null;
   strokes = [];
   bars = new Map();
+  // A frame asked for on the way out would paint a score that is gone against
+  // measurements of pages that no longer exist.
+  if (painting) { cancelAnimationFrame(painting); painting = 0; }
+  invalidateGeometry();
+  pageIndex = 0;
+  wantedPage = 0;
+  turnWay = 1;
+  penPointer = null;
+  armedByPen = false;
+  stopHold();
+  drawingPointer = null;
+  drawing = null;
+  lasso = null;
+  picked = [];
+  dragging = null;
+  pointers.clear();
+  pinch = null;
+  pinching = false;
 }
 
 // Something to look at while the first page is being got ready.

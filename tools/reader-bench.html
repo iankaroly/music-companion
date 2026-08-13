@@ -1,0 +1,292 @@
+<!doctype html>
+<!--
+  A bench for the one thing unit tests cannot reach about the reader: what it
+  COSTS to draw on a page of music.
+
+  Every mark in the reader is placed by asking its bar where it is, and a bar
+  answers by measuring staff lines — a forced layout each time. The number that
+  matters is therefore not milliseconds on this machine, it is how many of those
+  measurements happen per frame of a pen stroke, because that is the number that
+  is the same on a phone, an iPad and a laptop.
+
+  It engraves a real score, lays a plausible number of marks on it, then drives
+  a stroke across the page the way a hand does and counts.
+
+  Run the dev server and open /tools/reader-bench.html — or let the Playwright
+  pass drive it, which is what the numbers in the commit came from.
+-->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>reader bench</title>
+<style>
+  :root {
+    --ink: #2a2149; --muted: #6b6785; --primary: #6d4ef6; --bg: #fff;
+    --display: system-ui, sans-serif; --ui: system-ui, sans-serif;
+    --good: #17b578; --off: #f29b38; --bad: #ef5c73;
+    --flat-off: #f29b38; --flat-bad: #ef5c73;
+    --sf: 255 255 255; --sh: 0 0 0; --line: #ddd; --fill: #eee;
+    --glass-line: rgb(0 0 0 / 0.08); --spring: cubic-bezier(.2,.9,.3,1.2);
+    --on-primary: #fff; --line-strong: #ccc; --on-surface: 40 40 40;
+  }
+  body { font: 13px/1.5 ui-monospace, monospace; margin: 0; background: #fff; color: #222; }
+  #out { position: fixed; z-index: 999; right: 0; top: 0; width: 26rem; max-height: 100vh;
+         overflow: auto; background: #fffe; padding: 1rem; white-space: pre-wrap;
+         border-left: 1px solid #ddd; }
+  .score-overlay { position: absolute; inset: 0; pointer-events: none; }
+  .ok { color: #17805a; } .bad { color: #c8384a; }
+</style>
+<div id="out">running…</div>
+
+<script type="module">
+// The app's own stylesheet, borrowed. It lives inline in index.html, and half
+// of what this bench is checking IS the stylesheet — whether the engraving can
+// still be selected, whether it can still be tapped. A bench with its own CSS
+// would be measuring a reader nobody uses.
+const appHtml = await (await fetch('/index.html')).text();
+for (const block of appHtml.matchAll(/<style>([\s\S]*?)<\/style>/g)) {
+  const style = document.createElement('style');
+  style.textContent = block[1];
+  document.head.append(style);
+}
+
+const { openReader, close } = await import('/src/ui/reader.js');
+const { saveAnnotations, loadAnnotations } = await import('/src/store/db.js');
+
+const out = document.querySelector('#out');
+const lines = [];
+const say = (text, cls = '') => {
+  lines.push(cls ? `<span class="${cls}">${text}</span>` : text);
+  out.innerHTML = lines.join('\n');
+};
+
+// --- counting the expensive thing --------------------------------------------
+//
+// getBoundingClientRect is where a forced layout comes from, and the reader
+// calls it through barFrame, boxOfPage and unitScale. Counting the calls rather
+// than timing them is what makes this bench mean the same thing on any machine.
+let rects = 0;
+let counting = false;
+const realRect = Element.prototype.getBoundingClientRect;
+Element.prototype.getBoundingClientRect = function patched(...args) {
+  if (counting) rects++;
+  return realRect.apply(this, args);
+};
+
+// --- a score with enough music on it to be worth measuring --------------------
+function scoreXml(bars = 48) {
+  const measures = [];
+  const pitches = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+  for (let m = 1; m <= bars; m++) {
+    const notes = [];
+    for (let n = 0; n < 4; n++) {
+      const step = pitches[(m + n) % 7];
+      notes.push(`<note><pitch><step>${step}</step><octave>3</octave></pitch>`
+        + '<duration>1</duration><type>quarter</type></note>');
+    }
+    measures.push(`<measure number="${m}">`
+      + (m === 1
+        ? '<attributes><divisions>1</divisions><key><fifths>0</fifths></key>'
+          + '<time><beats>4</beats><beat-type>4</beat-type></time>'
+          + '<clef><sign>F</sign><line>4</line></clef></attributes>'
+        : '')
+      + notes.join('') + '</measure>');
+  }
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" '
+    + '"http://www.musicxml.org/dtds/partwise.dtd">'
+    + '<score-partwise version="3.1"><part-list><score-part id="P1">'
+    + '<part-name>Cello</part-name></score-part></part-list>'
+    + `<part id="P1">${measures.join('')}</part></score-partwise>`;
+}
+
+// A hand's worth of marks: strokes of forty-odd points, spread over the bars
+// the first page is going to hold.
+function inventStrokes(count, perStroke, topBar) {
+  const made = [];
+  for (let s = 0; s < count; s++) {
+    const bar = 1 + (s % topBar);
+    const points = [];
+    for (let i = 0; i < perStroke; i++) {
+      points.push({ m: bar, u: 0.4 + i * 0.05, v: -1.2 + Math.sin(i / 4) * 0.4 });
+    }
+    made.push({
+      tool: 'pen', layer: 0, colour: '#1c1b22', width: 0.28,
+      overlay: false, nib: 'ballpoint', points,
+    });
+  }
+  return made;
+}
+
+const frame = () => new Promise((r) => requestAnimationFrame(() => r()));
+const settle = async (n = 4) => { for (let i = 0; i < n; i++) await frame(); };
+
+function penEvent(type, x, y, id = 7) {
+  return new PointerEvent(type, {
+    pointerId: id, pointerType: 'pen', isPrimary: true, bubbles: true, cancelable: true,
+    clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1, pressure: 0.55,
+  });
+}
+
+function fingerEvent(type, x, y, id = 1) {
+  return new PointerEvent(type, {
+    pointerId: id, pointerType: 'touch', isPrimary: true, bubbles: true, cancelable: true,
+    clientX: x, clientY: y, buttons: type === 'pointerup' ? 0 : 1, pressure: 0.5,
+  });
+}
+
+const ROW = { id: 'bench-score', name: 'Bench', xml: scoreXml(48), kind: 'notation' };
+
+async function run() {
+  // The marks go into the store first, because that is where the reader looks
+  // for them: a bench that pushed them into the module's own list would be
+  // measuring a code path nothing else uses. Bars 1–8 are on page one of any
+  // engraving of this, in any orientation.
+  say('seeding 30 marks of 40 points…');
+  await saveAnnotations(ROW.id, inventStrokes(30, 40, 8));
+
+  say('engraving…');
+  const t0 = performance.now();
+  await openReader(ROW);
+  await settle(6);
+  say(`engraved in ${Math.round(performance.now() - t0)}ms`);
+
+  const reader = document.querySelector('#reader');
+  const ink = document.querySelector('#reader-ink');
+  if (!reader || !ink) { say('no reader on screen — bench cannot run', 'bad'); return; }
+  await new Promise((r) => setTimeout(r, 200));
+
+  // --- a stroke, driven the way a hand draws one -----------------------------
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  // Arm the pen the way an Apple Pencil does: touch the page with no tool out.
+  reader.dispatchEvent(penEvent('pointerdown', w * 0.5, h * 0.5));
+  await settle(2);
+  const armed = reader.classList.contains('drawing');
+  say(`pencil armed the pen on touch: ${armed ? 'yes' : 'no'}`, armed ? 'ok' : 'bad');
+  const bar = document.querySelector('#reader-ink-bar');
+  const barUp = !!bar && getComputedStyle(bar).display !== 'none';
+  say(`tool bar came down with it: ${barUp ? 'yes' : 'no'}`, barUp ? 'ok' : 'bad');
+  say(`the pen it picked up: ${document.querySelector('#reader-ink-bar .reader-tool.on')
+    ?.dataset.tool ?? 'none'}`);
+
+  // A reader that does not arm on a pencil touch still has to be measured
+  // drawing, or the two runs are not comparing the same thing. So the pen is
+  // reached for the long way — the button — and the stroke goes ahead.
+  if (!armed) {
+    say('(no auto-arm: reaching for the pen button instead, so the stroke below'
+      + ' still measures a stroke)');
+    document.querySelector('#reader-annotate, [data-tool="pen"]')?.click();
+    await settle(2);
+    if (!reader.classList.contains('drawing')) {
+      document.querySelector('#reader-ink-bar [data-tool="pen"]')?.click();
+      await settle(2);
+    }
+    ink.dispatchEvent(penEvent('pointerdown', w * 0.3, h * 0.5));
+    await settle(1);
+  }
+
+  // Let go of the synthetic touch: the stroke that gets MEASURED is driven from
+  // outside, as real input, because a hand-made PointerEvent cannot be given
+  // pointer capture and a stroke without capture is not the stroke the reader
+  // actually runs.
+  ink.dispatchEvent(penEvent('pointerup', w * 0.5, h * 0.5));
+  reader.dispatchEvent(penEvent('pointerup', w * 0.5, h * 0.5));
+  await settle(2);
+  // The pen has to be out for the driver's stroke to be a stroke. Whatever the
+  // pencil armed (or the button did), keep it.
+  if (!reader.classList.contains('drawing')) {
+    document.querySelector('#reader-annotate')?.click();
+    await settle(2);
+  }
+
+  // Handed to the driver, which does the input for real and turns the counter
+  // on around it.
+  const STEPS = 60;
+  window.__benchCount = (on) => { counting = on; if (on) rects = 0; };
+  window.__benchRects = () => rects;
+  window.__benchArmed = { armed, barUp };
+  window.__benchReadyToStroke = { steps: STEPS, w, h };
+  say('waiting for the driver to draw a real stroke…');
+  await new Promise((resolve) => { window.__benchStrokeDone = resolve; });
+  const rectsInStroke = rects;
+  const ms = window.__benchStrokeMs ?? 0;
+  rects = rectsInStroke;
+  // Asked of the STORE rather than of a hook poked into the reader: the marks
+  // are saved four hundred milliseconds after the pen lifts, so what comes back
+  // is what a player would find there tomorrow.
+  await new Promise((r) => setTimeout(r, 800));
+  const kept = (await loadAnnotations(ROW.id).catch(() => [])).length;
+  say(`marks on the piece afterwards: ${kept} (30 were seeded)`,
+    kept > 30 ? 'ok' : 'bad');
+
+  say('');
+  say(`--- one stroke of ${STEPS} moves across a page carrying 30 marks ---`);
+  say(`getBoundingClientRect calls : ${rects}`);
+  say(`per move                    : ${(rects / STEPS).toFixed(1)}`);
+  // Not a performance number: the driver is talking to the browser down a pipe
+  // and most of this is the pipe. The rect count above is the figure that means
+  // the same thing on every machine.
+  say(`(driver wall clock, mostly pipe: ${Math.round(ms)}ms)`);
+  const verdict = rects / STEPS < 20;
+  say(`verdict: ${verdict ? 'measurements are cached' : 'measuring per point — the slow path'}`,
+    verdict ? 'ok' : 'bad');
+
+  // --- 3. page turns ----------------------------------------------------------
+  say('');
+  say('--- page turns ---');
+  // The pen goes away first, or every tap is a mark rather than a turn.
+  document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  await settle(2);
+  say(`pen put away: ${!reader.classList.contains('drawing') ? 'yes' : 'no'}`,
+    reader.classList.contains('drawing') ? 'bad' : 'ok');
+  const pages = Number((document.querySelector('#reader-count')?.textContent ?? '')
+    .match(/of (\d+)/)?.[1] ?? 0);
+  say(`the part is ${pages} pages`);
+
+  const tap = (x, y, id) => {
+    document.querySelector('#reader').dispatchEvent(fingerEvent('pointerdown', x, y, id));
+    document.querySelector('#reader').dispatchEvent(fingerEvent('pointerup', x, y, id));
+  };
+  // The chrome is up after a tool was put away; one tap in the middle sends it
+  // back, and only then does the right-hand third mean "next page".
+  tap(w * 0.5, h * 0.5, 20);
+  await settle(2);
+
+  counting = true;
+  rects = 0;
+  const turnStart = performance.now();
+  const TURNS = Math.max(1, Math.min(8, pages - 1));
+  for (let i = 0; i < TURNS; i++) {
+    tap(w * 0.9, h * 0.6, 30 + i);
+    await settle(3);
+  }
+  counting = false;
+  const turnMs = performance.now() - turnStart;
+  const page = document.querySelector('#reader-count')?.textContent ?? '?';
+  const landed = Number((page.match(/p\. (\d+)/) ?? [])[1] ?? 0);
+  say(`${TURNS} taps in ${Math.round(turnMs)}ms  (${(turnMs / TURNS).toFixed(1)}ms each)`);
+  say(`getBoundingClientRect calls : ${rects}  (${(rects / TURNS).toFixed(0)} a turn)`);
+  say(`landed on ${page}`, landed === TURNS + 1 ? 'ok' : 'bad');
+  say(`every tap turned a page: ${landed === TURNS + 1 ? 'yes' : `no — ${landed - 1} of ${TURNS}`}`,
+    landed === TURNS + 1 ? 'ok' : 'bad');
+
+  // --- 4. selection ------------------------------------------------------------
+  say('');
+  say('--- selection ---');
+  const svg = document.querySelector('#reader-sheet svg');
+  const pe = svg ? getComputedStyle(svg).pointerEvents : 'no svg';
+  const us = svg ? (getComputedStyle(svg).webkitUserSelect || getComputedStyle(svg).userSelect) : '-';
+  say(`sheet svg pointer-events: ${pe}`, pe === 'none' ? 'ok' : 'bad');
+  say(`sheet svg user-select   : ${us}`, us === 'none' ? 'ok' : 'bad');
+
+  window.__benchDone = {
+    rectsPerMove: rects / STEPS, msPerMove: ms / STEPS, msPerTurn: turnMs / TURNS,
+    armed, pointerEvents: pe, userSelect: us, page,
+  };
+  say('');
+  say('done.', 'ok');
+  close();
+}
+
+run().catch((err) => { say(`bench failed: ${err.message}\n${err.stack}`, 'bad'); });
+</script>
