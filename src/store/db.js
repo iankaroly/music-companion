@@ -872,6 +872,32 @@ export async function setRecordingFolder(id, folderId) {
   });
 }
 
+// The same thing for a piece of music.
+//
+// Scores and takes share one set of folders on purpose. "Bach" is one folder
+// whether what you are filing in it is the suites or last Tuesday's attempt at
+// them, and two parallel sets of folders with the same names in both would be a
+// filing system to keep in step by hand. A folder simply shows up on whichever
+// shelf has something in it.
+export async function setScoreFolder(id, folderId) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      if (folderId === null || folderId === undefined) delete row.folderId;
+      else row.folderId = folderId;
+      store.put(row);
+    };
+    tx.oncomplete = resolve;
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 // --- passages --------------------------------------------------------------
 
 export async function savePassage({ name, recordingId, startSec, endSec, stats, date }) {

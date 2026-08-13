@@ -7,7 +7,7 @@ import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
-  createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder,
+  createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder, setScoreFolder,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
   listSetlists, saveSetlist, deleteSetlist, replacePages,
 } from './store/db.js';
@@ -1059,7 +1059,7 @@ function scoreRow(score, takes) {
   more.textContent = '⋯';
   more.setAttribute('aria-haspopup', 'menu');
   more.setAttribute('aria-label', `More actions for ${score.name}`);
-  more.addEventListener('click', () => actionMenu(more, scoreActions(score)));
+  more.addEventListener('click', () => actionMenu(more, scoreActions(score, more)));
 
   li.append(open, more);
   return li;
@@ -1082,6 +1082,9 @@ let scoreFilter = '';
 // order they happen, and the shelf shows one thing at a time — pieces, or
 // programmes, or the inside of one of either.
 let showingSets = false;
+// Which folder of PIECES is open, or null for the top of the shelf. The same
+// folders the takes use — see setScoreFolder — looked at from the other side.
+let openScoreFolder = null;
 let openSet = null;      // the setlist being looked at
 let sets = [];
 const scoreBrowserTitle = document.querySelector('#score-browser-title');
@@ -1313,7 +1316,95 @@ async function addToSet(score) {
 
 // What a piece offers besides opening: the things you reach for once a shelf
 // has more than three things on it.
-function scoreActions(score) {
+// A folder on the score shelf. The library's own folder row, wearing the count
+// that means something here: pieces, not takes.
+function scoreFolderRow(folder, count) {
+  const li = document.createElement('li');
+  li.className = 'lib-item';
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'lib-open';
+  const icon = document.createElement('span');
+  icon.className = 'lib-folder';
+  icon.setAttribute('aria-hidden', 'true');
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.2h9A1.5 1.5 0 0 1 21 9.7v8.8A1.5 1.5 0 0'
+    + ' 1 19.5 20h-15A1.5 1.5 0 0 1 3 18.5z"/></svg>';
+  const text = document.createElement('span');
+  text.className = 'lib-text';
+  const name = document.createElement('span');
+  name.className = 'lib-name';
+  name.textContent = folder.name;
+  const sub = document.createElement('span');
+  sub.className = 'lib-sub';
+  sub.textContent = `${count} ${count === 1 ? 'piece' : 'pieces'}`;
+  text.append(name, sub);
+  const chev = document.createElement('span');
+  chev.className = 'lib-chev';
+  chev.setAttribute('aria-hidden', 'true');
+  chev.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"'
+    + ' stroke-linecap="round" stroke-linejoin="round"><path d="M9 5l7 7-7 7"/></svg>';
+  open.append(icon, text, chev);
+  open.addEventListener('click', () => { openScoreFolder = folder.id; refreshScoreTab(); });
+
+  const more = document.createElement('button');
+  more.type = 'button';
+  more.className = 'lib-more';
+  more.textContent = '⋯';
+  more.setAttribute('aria-haspopup', 'menu');
+  more.setAttribute('aria-label', `More actions for the folder ${folder.name}`);
+  more.addEventListener('click', () => actionMenu(more, [
+    {
+      label: 'Rename…',
+      onPick: () => askFolderName('rename', { id: folder.id, current: folder.name }),
+    },
+    {
+      label: 'Delete folder',
+      danger: true,
+      onPick: async () => {
+        // The folder goes; the music does not. Everything in it comes back to
+        // the top of the shelf, which is the only forgiving way to delete a
+        // container somebody has filed their part in.
+        await deleteFolder(folder.id);
+        if (openScoreFolder === folder.id) openScoreFolder = null;
+        refreshLibrary();
+      },
+    },
+  ]));
+  li.append(open, more);
+  return li;
+}
+
+// Which folder a piece lives in.
+//
+// Same folders as the takes use, and deliberately so: "Bach" is one folder
+// whether what you are filing in it is the suites or Tuesday's attempt at them.
+// Two parallel sets with the same names in both would be a filing system to
+// keep in step by hand.
+function moveScoreToFolder(button, score) {
+  const rows = folders
+    .filter((f) => f.id !== score.folderId)
+    .map((f) => ({
+      label: f.name,
+      onPick: async () => { await setScoreFolder(score.id, f.id); refreshLibrary(); },
+    }));
+  rows.push({
+    label: '＋ New folder…',
+    onPick: () => askFolderName('create', {
+      then: (id) => setScoreFolder(score.id, id),
+    }),
+  });
+  if (score.folderId !== undefined && score.folderId !== null) {
+    rows.unshift({
+      label: 'Take out of the folder',
+      onPick: async () => { await setScoreFolder(score.id, null); refreshLibrary(); },
+    });
+  }
+  actionMenu(button, rows);
+}
+
+function scoreActions(score, anchor = null) {
   const rows = [
     { label: 'Open', onPick: () => openScoreFromLibrary(score.id) },
     {
@@ -1341,6 +1432,7 @@ function scoreActions(score) {
       onPick: async () => { await measurePages(score.id); refreshLibrary(); },
     });
   }
+  rows.push({ label: 'Move to a folder…', onPick: () => moveScoreToFolder(anchor, score) });
   rows.push({ label: 'Add to a setlist…', onPick: () => addToSet(score) });
   rows.push({
     label: 'Delete',
@@ -1481,7 +1573,13 @@ async function pairFromShelf(score) {
 async function refreshScoreTab() {
   if (!scoreList) return;
   try {
-    const [scores, recordings] = await Promise.all([listScores(), listRecordings()]);
+    // The folders too, rather than trusting whatever the library last left in
+    // the variable: a folder made from THIS shelf, to put this piece in, does
+    // not exist as far as the library is concerned until the library refreshes.
+    const [scores, recordings, allFolders] = await Promise.all([
+      listScores(), listRecordings(), listFolders(),
+    ]);
+    folders = allFolders;
     scoreNames.clear();
     for (const score of scores) scoreNames.set(score.id, score.name);
     if (openScore !== null && !scoreNames.has(openScore)) openScore = null;
@@ -1496,13 +1594,19 @@ async function refreshScoreTab() {
     const inSet = openSet !== null;
     const set = inSet ? sets.find((s) => s.id === openSet) : null;
     const inScore = openScore !== null;
-    scoreBrowserBack.hidden = !(inScore || inSet);
+    if (openScoreFolder !== null && !folders.some((f) => f.id === openScoreFolder)) {
+      openScoreFolder = null;   // the folder was deleted from the other shelf
+    }
+    const inFolder = openScoreFolder !== null && !inScore && !inSet && !showingSets;
+    scoreBrowserBack.hidden = !(inScore || inSet || inFolder);
     scoreBrowserTitle.textContent = inSet ? set.name
       : inScore ? scoreNames.get(openScore)
-        : showingSets ? 'Setlists' : 'Scores';
+        : showingSets ? 'Setlists'
+          : inFolder ? (folders.find((f) => f.id === openScoreFolder)?.name ?? 'Scores')
+            : 'Scores';
     const setsButton = document.querySelector('#score-sets');
     if (setsButton) {
-      setsButton.hidden = inScore || inSet;
+      setsButton.hidden = inScore || inSet || inFolder;
       setsButton.textContent = showingSets ? 'Scores' : 'Setlists';
     }
 
@@ -1524,10 +1628,36 @@ async function refreshScoreTab() {
       }
     } else {
       const needle = scoreFilter.trim().toLowerCase();
-      const shown = needle
+      // Searching looks through the whole shelf, folders and all. Being made to
+      // remember which folder you filed a piece in before you may look for it
+      // is the thing a search box exists to spare you.
+      const matches = needle
         ? scores.filter((score) => score.name.toLowerCase().includes(needle))
         : scores;
-      for (const score of shown) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
+      if (needle) {
+        for (const score of matches) scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
+      } else {
+        const here = (score) => (openScoreFolder === null
+          ? score.folderId === undefined || score.folderId === null
+          : score.folderId === openScoreFolder);
+        if (openScoreFolder === null) {
+          const inside = new Map();
+          for (const score of scores) {
+            if (score.folderId === undefined || score.folderId === null) continue;
+            inside.set(score.folderId, (inside.get(score.folderId) ?? 0) + 1);
+          }
+          // Only folders with music in them. The same folders hold takes, and a
+          // shelf of pieces listing every folder you ever made for a recording
+          // is a shelf of empty rooms.
+          for (const folder of folders) {
+            if (!inside.has(folder.id)) continue;
+            scoreList.append(scoreFolderRow(folder, inside.get(folder.id)));
+          }
+        }
+        for (const score of matches.filter(here)) {
+          scoreList.append(scoreRow(score, counts.get(score.id) ?? 0));
+        }
+      }
     }
     if (scoreSearch) scoreSearch.hidden = inScore || inSet || showingSets || scoreNames.size < 6;
     scoreListEmpty.style.display = scoreList.children.length ? 'none' : 'block';
@@ -1575,13 +1705,17 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
 
 scoreSearch?.addEventListener('input', () => { scoreFilter = scoreSearch.value; refreshScoreTab(); });
 scoreBrowserBack?.addEventListener('click', () => {
+  // Out of the innermost thing you are inside, one layer at a time: a piece
+  // opened from inside a folder goes back to the folder, not to the top.
   if (openSet !== null) openSet = null;
-  else openScore = null;
+  else if (openScore !== null) openScore = null;
+  else openScoreFolder = null;
   refreshScoreTab();
 });
 document.querySelector('#score-sets')?.addEventListener('click', () => {
   showingSets = !showingSets;
   openScore = null;
+  openScoreFolder = null;
   refreshScoreTab();
 });
 // Stepping out of a review puts the shelf back up, and the shelf has to be
