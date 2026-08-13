@@ -439,7 +439,12 @@ document.addEventListener('score-tuner', (e) => {
   scoreWantsEars = want;
   if (want) {
     prepareCapture();
-    autoStartTuner();
+    // Tapped, so this IS the gesture and the microphone may be asked for
+    // outright. Opened from a menu it is not, and the permission check that
+    // autoStartTuner does first would end the gesture before getUserMedia was
+    // ever called — which is why the strip has a Listen button of its own.
+    if (e.detail?.tap) startTuner();
+    else autoStartTuner();
   } else if (capture?.listen && tabs.current !== 'tuner') {
     stopEverything();
   }

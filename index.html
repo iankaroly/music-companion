@@ -2145,9 +2145,9 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
-      max-width: min(30rem, 94vw);
-      padding: 0.4rem 0.5rem 0.4rem 0.7rem;
-      border-radius: 999px;
+      max-width: min(34rem, 96vw);
+      padding: 0.4rem 2.3rem 0.4rem 0.5rem;
+      border-radius: 1.3rem;
       background: rgb(var(--sf) / 0.94);
       -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
       border: 1px solid var(--glass-line);
@@ -2158,14 +2158,28 @@
     #reader-aids[hidden] { display: none; }
     /* One of the two at a time: the strip is small and a metronome is not a
        tuner. Which one is decided by the menu row you tapped. */
-    #reader-aids .aid-row { display: none; align-items: center; gap: 0.45rem; }
+    /* Nine controls do not fit across a phone, and a control you cannot reach
+       is not a control — the tap button and the close button were off the edge.
+       So the row wraps, and the tempo NAME is the first thing to go: it is the
+       one part that says nothing the number beside it does not. */
+    #reader-aids .aid-row {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      width: 100%;
+    }
+    @media (max-width: 620px) {
+      .aid-tempo-name { display: none; }
+    }
     #reader-aids[data-showing="metronome"] [data-aid="metronome"],
     #reader-aids[data-showing="tuner"] [data-aid="tuner"] { display: flex; }
     .aid-chip {
       flex: none;
-      min-width: 2rem;
-      height: 2rem;
-      padding: 0 0.5rem;
+      min-width: 1.9rem;
+      height: 1.9rem;
+      padding: 0 0.42rem;
       border-radius: 999px;
       border: 1px solid var(--glass-line);
       background: var(--fill);
@@ -2175,9 +2189,22 @@
       cursor: pointer;
     }
     .aid-play { background: var(--primary); color: var(--on-primary); border-color: transparent; }
-    .aid-shut { margin-left: auto; background: none; border-color: transparent; color: var(--muted); }
+    /* Pinned rather than placed: once the row wraps, a close button in the
+       flow ends up stranded in the middle of the block. */
+    .aid-shut {
+      position: absolute;
+      right: 0.35rem;
+      top: 50%;
+      transform: translateY(-50%);
+      min-width: 1.7rem;
+      height: 1.7rem;
+      padding: 0;
+      background: none;
+      border-color: transparent;
+      color: var(--muted);
+    }
     .aid-bpm {
-      min-width: 2.4rem;
+      min-width: 2.1rem;
       text-align: center;
       font-size: 1.05rem;
       font-weight: 600;
@@ -2185,6 +2212,20 @@
       color: var(--ink);
     }
     .aid-tempo-name { font-size: 0.74rem; color: var(--muted); white-space: nowrap; }
+    /* Time signature and subdivision, small because they are set once a
+       movement and then left alone. */
+    .aid-select {
+      flex: none;
+      height: 1.9rem;
+      padding: 0 0.15rem;
+      max-width: 4.2rem;
+      border-radius: 8px;
+      border: 1px solid var(--glass-line);
+      background: var(--fill);
+      color: var(--ink);
+      font-family: var(--display);
+      font-size: 0.82rem;
+    }
     /* The beat, seen as well as heard — with the click turned down on a stand,
        this is what keeps a slow movement honest. */
     .aid-beat {
@@ -2201,6 +2242,8 @@
     @media (prefers-reduced-motion: reduce) {
       .aid-beat.tick, .aid-beat.tick.on-one { animation: none; }
     }
+    .aid-listen { background: var(--primary); color: var(--on-primary); border-color: transparent; }
+    .aid-listen[hidden] { display: none; }
     .aid-note {
       min-width: 2.6rem;
       font-size: 1.05rem;

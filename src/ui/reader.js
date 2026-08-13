@@ -1830,10 +1830,20 @@ const penStroke = {
     this.live = true;
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
-    beginStroke(e);
+    try {
+      beginStroke(e);
+    } catch (err) {
+      penRefused(`the stroke could not be started (${err.name}: ${err.message})`);
+    }
     if (!drawing && !['eraser', 'lasso', 'text', 'stamp'].includes(tool)) {
       penRefused('the page could not place the touch');
     }
+  },
+
+  // What the last stroke came to. Read by the diagnostic, so "it did not
+  // write" stops being a thing only the player can see.
+  report() {
+    return { live: this.live, points: drawing?.points?.length ?? 0 };
   },
 
   extend(e) {
@@ -1841,9 +1851,32 @@ const penStroke = {
     // Every position the device actually sampled, not just the one it got
     // round to telling us about — iPadOS gathers a pencil at 240Hz and hands
     // the extra ones over in a single move.
-    const moves = e.getCoalescedEvents?.() ?? null;
-    if (moves && moves.length > 1) for (const move of moves) extendStroke(move, { quiet: true });
-    else extendStroke(e, { quiet: true });
+    //
+    // Wrapped, and the wrapping is the point. A throw anywhere in here — a
+    // getCoalescedEvents that WebKit refuses on an event it no longer
+    // considers current, a coalesced entry with no coordinates, anything —
+    // leaves the stroke alive but never extended again: it collects one point
+    // and is thrown away on the lift as a tap. Which is precisely the shape of
+    // the bug that has survived three attempts to fix it. A stroke may now
+    // fail, but it may not fail QUIETLY.
+    let moves = null;
+    try {
+      moves = e.getCoalescedEvents?.() ?? null;
+    } catch (err) {
+      penRefused(`the device refused its own samples (${err.name})`);
+      moves = null;
+    }
+    try {
+      if (moves && moves.length > 1) {
+        for (const move of moves) extendStroke(move, { quiet: true });
+      } else {
+        extendStroke(e, { quiet: true });
+      }
+    } catch (err) {
+      // Fall back to the plain event rather than losing the movement.
+      penRefused(`a sample could not be drawn (${err.name}: ${err.message})`);
+      try { extendStroke(e, { quiet: true }); } catch { /* the stroke is what it is */ }
+    }
     redraw();
   },
 
@@ -1851,7 +1884,17 @@ const penStroke = {
     if (!this.live) return;
     this.live = false;
     drawingPointer = null;
-    endStroke();
+    // A stroke that arrives here having collected almost nothing did not fail
+    // at the door — it failed while being drawn, which is a different place to
+    // look and has never been visible from outside.
+    const points = drawing?.points?.length ?? 0;
+    const wasMarking = !!drawing;
+    try {
+      endStroke();
+    } catch (err) {
+      penRefused(`the stroke could not be finished (${err.name}: ${err.message})`);
+    }
+    if (wasMarking && points <= 1) penRefused('the stroke began but received no movement');
   },
 };
 

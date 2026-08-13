@@ -19,7 +19,7 @@ import { Metronome, tempoName } from '../audio/metronome.js';
 import { freqToNote, midiToName } from '../analysis/note-utils.js';
 import { intonationTolerance } from './chart-utils.js';
 
-const BPM_KEY = 'readerBpm';
+const CLICK_KEY = 'readerClick';
 const MIN_BPM = 30;
 const MAX_BPM = 260;
 
@@ -38,13 +38,44 @@ function askForEars(on) {
   document.dispatchEvent(new CustomEvent('score-tuner', { detail: { on } }));
 }
 
-function savedBpm() {
-  const stored = Number(globalThis.localStorage?.getItem(BPM_KEY));
-  return Number.isFinite(stored) && stored >= MIN_BPM && stored <= MAX_BPM ? stored : 80;
+// The click as you last set it: tempo, time signature, subdivision. A player
+// who sets 6/8 at 52 for a movement wants 6/8 at 52 the next time they open it.
+function savedClick() {
+  try {
+    const kept = JSON.parse(globalThis.localStorage?.getItem(CLICK_KEY) ?? 'null');
+    if (kept && typeof kept === 'object') return kept;
+  } catch { /* a click that will not be remembered still clicks */ }
+  return {};
 }
 
-function rememberBpm(bpm) {
-  try { globalThis.localStorage?.setItem(BPM_KEY, String(bpm)); } catch { /* fine */ }
+function remember() {
+  if (!metro) return;
+  try {
+    globalThis.localStorage?.setItem(CLICK_KEY, JSON.stringify({
+      bpm: metro.bpm, beatsPerBar: metro.beatsPerBar, subdivision: metro.subdivision,
+    }));
+  } catch { /* fine */ }
+}
+
+// Four taps say a tempo better than a number does. Anything slower than a bar
+// apart is a new attempt rather than the next beat of this one.
+const TAP_GIVE_UP = 2500;
+let taps = [];
+
+function tapTempo() {
+  const now = Date.now();
+  if (taps.length && now - taps.at(-1) > TAP_GIVE_UP) taps = [];
+  taps.push(now);
+  if (taps.length > 5) taps.shift();
+  if (taps.length < 2) return;
+  const gaps = [];
+  for (let i = 1; i < taps.length; i++) gaps.push(taps[i] - taps[i - 1]);
+  const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
+  const bpm = Math.round(60000 / mean);
+  if (bpm < MIN_BPM || bpm > MAX_BPM) return;
+  metro.bpm = bpm;
+  remember();
+  paintTempo();
 }
 
 function chip(label, title, onClick, className = 'aid-chip') {
@@ -78,6 +109,46 @@ function build() {
   const named = document.createElement('span');
   named.className = 'aid-tempo-name';
 
+  // How many beats to the bar, which is the one thing a metronome on a page of
+  // music can know that a metronome on a tab cannot: you are looking at the
+  // time signature while you set it.
+  const meter = document.createElement('select');
+  meter.className = 'aid-select';
+  meter.title = 'Beats in a bar';
+  meter.setAttribute('aria-label', 'Beats in a bar');
+  for (const n of [2, 3, 4, 5, 6, 7, 9, 12]) {
+    const option = document.createElement('option');
+    option.value = String(n);
+    option.textContent = `${n}/4`;
+    meter.append(option);
+  }
+  meter.addEventListener('change', () => {
+    metro.beatsPerBar = Number(meter.value);
+    remember();
+  });
+
+  // Subdivisions, because half the reason to put a click on is that the passage
+  // is in semiquavers and the beat alone is not enough to hold it together.
+  const subs = document.createElement('select');
+  subs.className = 'aid-select';
+  subs.title = 'Subdivision';
+  subs.setAttribute('aria-label', 'Subdivision');
+  for (const [value, label] of [['quarter', '♩'], ['eighth', '♪♪'],
+    ['triplet', '♪♪♪'], ['sixteenth', '♬♬']]) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    subs.append(option);
+  }
+  subs.addEventListener('change', () => {
+    metro.subdivision = subs.value;
+    remember();
+  });
+
+  // Tapped, because the tempo you want is usually one you can already feel and
+  // not one you can name.
+  const tap = chip('tap', 'Tap the tempo', () => tapTempo());
+
   metroRow.append(
     play,
     beat,
@@ -85,7 +156,12 @@ function build() {
     bpmOut,
     chip('+', 'Faster', () => nudge(2)),
     named,
+    meter,
+    subs,
+    tap,
   );
+  strip.__meter = meter;
+  strip.__subs = subs;
 
   // --- the pitch ---
   const tuneRow = document.createElement('div');
@@ -97,17 +173,32 @@ function build() {
   const centsOut = document.createElement('span');
   centsOut.className = 'aid-cents';
   centsOut.textContent = 'listening…';
-  const meter = document.createElement('div');
-  meter.className = 'aid-meter';
+  const dial = document.createElement('div');
+  dial.className = 'aid-meter';
   const needle = document.createElement('div');
   needle.className = 'aid-needle';
-  meter.append(needle);
-  tuneRow.append(noteOut, meter, centsOut);
+  dial.append(needle);
+  tuneRow.append(noteOut, dial, centsOut);
+
+  // The way to actually get a microphone.
+  //
+  // Asking for one has to happen inside the tap that asked, or iOS refuses it:
+  // the permission check the app does first is a promise, and awaiting it ends
+  // the gesture. Opening the tuner from a MENU row therefore cannot reliably
+  // start listening — and when it failed, the only thing that said so was a
+  // button on the tuner tab, which is not a screen you can see from here. So
+  // there is one on the strip, and tapping it is the gesture.
+  const listen = chip('Listen', 'Ask for the microphone', () => {
+    document.dispatchEvent(new CustomEvent('score-tuner', { detail: { on: true, tap: true } }));
+    listen.hidden = true;
+    strip.__parts.centsOut.textContent = 'listening…';
+  }, 'aid-chip aid-listen');
+  tuneRow.append(listen);
 
   const shut = chip('✕', 'Put it away', () => hideAids(), 'aid-chip aid-shut');
   strip.append(metroRow, tuneRow, shut);
 
-  strip.__parts = { play, beat, bpmOut, named, noteOut, centsOut, needle };
+  strip.__parts = { play, beat, bpmOut, named, noteOut, centsOut, needle, listen };
   return strip;
 }
 
@@ -120,7 +211,7 @@ function paintTempo() {
 function nudge(by) {
   if (!metro) return;
   metro.bpm = Math.max(MIN_BPM, Math.min(MAX_BPM, metro.bpm + by));
-  rememberBpm(metro.bpm);
+  remember();
   paintTempo();
 }
 
@@ -158,8 +249,13 @@ export function aidsElement(closeHandler) {
   const node = build();
   if (!metro) {
     metro = new Metronome(flash);
-    metro.bpm = savedBpm();
-    metro.onTempo = () => { rememberBpm(metro.bpm); paintTempo(); };
+    const kept = savedClick();
+    if (Number.isFinite(kept.bpm) && kept.bpm >= MIN_BPM && kept.bpm <= MAX_BPM) metro.bpm = kept.bpm;
+    if (Number.isFinite(kept.beatsPerBar)) metro.beatsPerBar = kept.beatsPerBar;
+    if (typeof kept.subdivision === 'string') metro.subdivision = kept.subdivision;
+    metro.onTempo = () => { remember(); paintTempo(); };
+    if (strip.__meter) strip.__meter.value = String(metro.beatsPerBar);
+    if (strip.__subs) strip.__subs.value = metro.subdivision;
     paintTempo();
   }
   return node;
@@ -170,9 +266,23 @@ export function showAids(which) {
   showing = which;
   strip.hidden = false;
   strip.dataset.showing = which;
-  if (which === 'tuner') askForEars(true);
-  else askForEars(false);
+  if (which !== 'tuner') { askForEars(false); return; }
+  heardAnything = false;
+  strip.__parts.listen.hidden = true;
+  strip.__parts.centsOut.textContent = 'listening…';
+  askForEars(true);
+  // If nothing has been heard shortly, the microphone was never opened — say
+  // so, and offer the tap that can actually open it.
+  clearTimeout(silence);
+  silence = setTimeout(() => {
+    if (showing !== 'tuner' || heardAnything) return;
+    strip.__parts.centsOut.textContent = 'no microphone yet';
+    strip.__parts.listen.hidden = false;
+  }, 2200);
 }
+
+let heardAnything = false;
+let silence = null;
 
 export function hideAids() {
   if (!strip) return;
@@ -191,6 +301,11 @@ export function aidsShowing() {
 // and nothing else is listening.
 export function feedReading(reading) {
   if (showing !== 'tuner' || !strip) return;
+  if (!heardAnything) {
+    heardAnything = true;
+    clearTimeout(silence);
+    strip.__parts.listen.hidden = true;
+  }
   const { noteOut, centsOut, needle } = strip.__parts;
   const heard = reading?.frequency && reading.confidence >= 0.6 && reading.rms >= 0.005;
   if (!heard) {
