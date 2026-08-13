@@ -1661,6 +1661,13 @@ function moveSelection(dx, dy) {
       }
     }
   }
+  // These marks are FINISHED marks, so they live on the dry layer — the one
+  // that is only re-drawn when something about it changes. This is that
+  // something, and it is the one mutation that does not go through
+  // scheduleSave: a drag says so only when it ends. Without this the loop and
+  // its outline slide across the page while the ink inside them stays exactly
+  // where it was and snaps into place when the finger lifts.
+  dropDryInk();
 }
 
 function recolourSelection() {
