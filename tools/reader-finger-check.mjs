@@ -171,6 +171,30 @@ check('and it writes', (await marks()) === before + 1, `${before} -> ${await mar
 await page.evaluate(() => document.querySelector('#reader-finger')?.click());
 await wait(250);
 
+// ---- the stroke-loser: writing in the moment after the page was moved -------
+// A pinch does not end the instant a finger leaves — there is a quarter-second
+// of grace so that lifting one finger out of one cannot draw a line. The touch
+// that BEGINS a stroke was allowed through it if it was a pencil, but the
+// handler that does the actual drawing was not: the stroke began, was recorded
+// as begun, and then every position of it was dropped. One point, no line, and
+// endStroke threw it away as a tap. Nothing refused, nothing logged — the pen
+// simply did not write that once.
+before = await marks();
+await touchAt([{ x: W * 0.35, y: MID, id: 51 }, { x: W * 0.65, y: MID, id: 52 }]);
+for (let i = 1; i <= 5; i++) {
+  await touchMove([{ x: W * 0.35 - i * 5, y: MID, id: 51 }, { x: W * 0.65 + i * 5, y: MID, id: 52 }]);
+}
+await touchAt([{ x: W * 0.65 + 25, y: MID, id: 52 }]);
+await touchAt([]);
+// …and straight away, inside the grace, write.
+await wait(30);
+await draw(pen, MID + 60);
+await wait(1000);
+check('the pencil writes in the moment after a pinch', (await marks()) === before + 1,
+  `${before} -> ${await marks()}`);
+await page.evaluate(() => document.querySelector('#reader-reset-zoom')?.click());
+await wait(300);
+
 // ---- THE ONE THAT MATTERS: the pencil always writes -------------------------
 // Forty strokes in the awkward moments: straight after a turn, straight after
 // a pinch, with a palm resting. Every one has to leave a mark.

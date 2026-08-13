@@ -1741,16 +1741,88 @@ function armPencil(e) {
   // here would take the whole stroke down with it. The mark is worth more than
   // the routing: without capture the moves still arrive, they just stop if the
   // pen leaves the canvas.
-  try { ink.setPointerCapture(e.pointerId); } catch { /* the stroke goes on */ }
+  // No capture, no canvas: the pencil is followed from the root like every
+  // other pencil event. See penStroke.
+  penStroke.live = true;
   drawingPointer = e.pointerId;
   marksAtDown = strokes.length;
   beginStroke(e);
   return true;
 }
 
+// --- the pencil, on a road of its own -----------------------------------------
+//
+// Everything else in this reader is worked out from the pointers on the glass:
+// how many there are, which one owns the stroke, whether two of them are a
+// pinch. That machinery exists for FINGERS, which are ambiguous — a finger
+// might be turning a page, or pinching, or writing — and it has to be, because
+// the only way to tell is to watch what the finger does next.
+//
+// A pencil is not ambiguous. There is one of them, it is only ever writing, and
+// no amount of watching will reveal otherwise. Routing it through the finger
+// machinery meant it inherited every one of that machinery's ways of going
+// wrong, and each of them ended the same way: a stroke that began, was recorded
+// as begun, and then quietly received none of its own movement. One point, no
+// line, thrown away as a tap. Nothing refused, nothing logged, and no way to
+// tell from the outside except that the pen did not write that once.
+//
+// So it has its own road. Handled at the top, before anything is counted, on
+// the element that sees every event whatever the page underneath it is doing:
+//
+//   it does not depend on which element was under the tip, so a canvas that has
+//   not been drawn yet cannot swallow it;
+//   it does not depend on pointer capture, so a capture that is refused or lost
+//   cannot strand it;
+//   it does not depend on the id matching, so a contact iOS renumbers mid-
+//   stroke cannot orphan it;
+//   and it is not counted among the fingers, so it can neither cause a pinch
+//   nor be stopped by one.
+//
+// There is one pencil. While it is down it is drawing. That is the whole rule.
+const penStroke = {
+  live: false,
+
+  begin(e) {
+    if (!tool || onChrome(e) || pendingLink) return;
+    // A stroke still open — a lift that never arrived — is finished, not
+    // thrown away: what was drawn is what you drew.
+    if (this.live || drawing || drawingPointer !== null) {
+      this.live = false;
+      drawingPointer = null;
+      endStroke();
+    }
+    this.live = true;
+    drawingPointer = e.pointerId;
+    marksAtDown = strokes.length;
+    beginStroke(e);
+    if (!drawing && !['eraser', 'lasso', 'text', 'stamp'].includes(tool)) {
+      penRefused('the page could not place the touch');
+    }
+  },
+
+  extend(e) {
+    if (!this.live || !tool) return;
+    // Every position the device actually sampled, not just the one it got
+    // round to telling us about — iPadOS gathers a pencil at 240Hz and hands
+    // the extra ones over in a single move.
+    const moves = e.getCoalescedEvents?.() ?? null;
+    if (moves && moves.length > 1) for (const move of moves) extendStroke(move, { quiet: true });
+    else extendStroke(e, { quiet: true });
+    redraw();
+  },
+
+  end() {
+    if (!this.live) return;
+    this.live = false;
+    drawingPointer = null;
+    endStroke();
+  },
+};
+
 function trackPointers(root) {
   root.addEventListener('pointerdown', (e) => {
     armedByPen = false;
+    usedNow();
     // Before anything is counted, anything that is no longer there is dropped.
     forgetLostPointers(e.timeStamp);
     if (e.pointerType === 'pen') {
@@ -1772,6 +1844,15 @@ function trackPointers(root) {
       pinch = null;
       pinching = false;
       if (!tool && armPencil(e)) return;
+      // With a tool already in hand, the pencil draws — and it draws from
+      // HERE, not from the ink canvas. See penStroke below for why.
+      if (tool) penStroke.begin(e);
+      // A pencil is never one of the fingers of a pinch, so it is never
+      // counted as one. `pointers` is the hand on the glass and nothing else;
+      // the pencil is followed by penPointer, which has its own watchdog. Put
+      // in here, a pencil whose lift went missing made the NEXT touch look
+      // like the second finger of a pinch — and a pinch stops the drawing.
+      return;
     } else if (penIsDown() && e.pointerType === 'touch') {
       return;   // the palm
     }
@@ -1795,7 +1876,10 @@ function trackPointers(root) {
     }
   }, true);
   root.addEventListener('pointermove', (e) => {
-    if (e.pointerType === 'pen') penSeenAt = e.timeStamp;
+    if (e.pointerType === 'pen') {
+      penSeenAt = e.timeStamp;
+      penStroke.extend(e);
+    }
     if (!pointers.has(e.pointerId)) return;
     pointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
@@ -1815,6 +1899,7 @@ function trackPointers(root) {
   }, true);
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
     root.addEventListener(type, (e) => {
+      if (e.pointerType === 'pen' && type !== 'lostpointercapture') penStroke.end();
       if (e.pointerId === penPointer) penPointer = null;
       pointers.delete(e.pointerId);
       if (pointers.size < 2) pinch = null;
@@ -2163,6 +2248,7 @@ let turnWay = 1;
 let wantedPage = 0;
 
 async function showPage(index) {
+  usedNow();
   if (!pageEls.length) return;
   const next = Math.max(0, Math.min(pageEls.length - 1, index));
   if (next !== wantedPage) turnWay = next > wantedPage ? 1 : -1;
@@ -2191,7 +2277,11 @@ async function showPage(index) {
       if (token === turnToken) root?.classList.add('waiting');
     }, SAY_TURNING);
     try {
-      const ready = Promise.all(shownNext.map((i) => drawPaperPage(i).catch(() => {})));
+      // Rough first for a page that is not there yet — somebody is waiting on
+      // this one. A page already drawn is untouched.
+      const ready = Promise.all(shownNext.map(
+        (i) => drawPaperPage(i, { quick: !drawn.has(i) }).catch(() => {}),
+      ));
       await Promise.race([ready, new Promise((resolve) => { setTimeout(resolve, HOLD_PAGE); })]);
     } finally {
       turning--;
@@ -2300,6 +2390,7 @@ function keepNeighboursReady(shown) {
       canvas.width = 0;
       canvas.height = 0;
       drawn.delete(i);
+      rough.delete(i);
     }
   };
   // The page you are about to ask for is drawn FIRST — the one immediately the
@@ -2353,18 +2444,34 @@ let lookAhead = 0;
 // How many turns are waiting on a page right now. See showPage.
 let turning = 0;
 
-// Handed to the reading pass, which awaits it before every page: while a player
-// is waiting on a turn, nothing else gets the processor. The page in front of
-// them is the only thing that matters, and measuring a part is work that will
-// keep for a second.
+// When the reader was last touched at all.
+//
+// Waiting only for a turn IN PROGRESS was not enough. Reading one page of a PDF
+// is seconds of work that cannot be interrupted once it has begun, so a pass
+// that checks between pages and then starts another the instant the turn ends
+// simply collides with the NEXT turn — and the first half-dozen turns after
+// opening a part each waited whole seconds while it did.
+//
+// So it does not wait for a gap between turns. It waits for the player to stop:
+// no turn, no stroke, no tap for a couple of seconds, which is the difference
+// between somebody hunting for their place and somebody who has found it and is
+// playing. A part measures itself in the rests.
+let lastUsed = 0;
+const IDLE_ENOUGH = 2500;
+
+function usedNow() {
+  lastUsed = Date.now();
+}
+
 function standAside() {
-  if (turning <= 0) return Promise.resolve();
+  const clear = () => (root?.hidden ?? true) || (turning <= 0 && Date.now() - lastUsed > IDLE_ENOUGH);
+  if (clear()) return Promise.resolve();
   return new Promise((go) => {
     const look = setInterval(() => {
-      if (turning > 0 && !(root?.hidden ?? true)) return;
+      if (!clear()) return;
       clearInterval(look);
       go();
-    }, 40);
+    }, 120);
   });
 }
 
@@ -4289,8 +4396,10 @@ function build() {
   // left — otherwise lifting one finger out of a pinch draws a line from
   // wherever the other one happens to be resting.
   ink.addEventListener('pointerdown', (e) => {
-    const isPen = e.pointerType === 'pen';
-    if (!tool) { if (isPen) penRefused('no tool was out'); return; }
+    // The pencil came in by another road — see penStroke.
+    if (e.pointerType === 'pen') return;
+    const isPen = false;
+    if (!tool) return;
     // A pencil is never one of the fingers of a pinch, so `pinching` — which
     // exists to stop a finger LIFTING out of a pinch from drawing a line —
     // has nothing to say about it. It used to refuse the pen too, which meant
@@ -4330,7 +4439,22 @@ function build() {
     }
   });
   ink.addEventListener('pointermove', (e) => {
-    if (!tool || pinching || e.pointerId !== drawingPointer) return;
+    if (e.pointerType === 'pen') return;
+    if (!tool || e.pointerId !== drawingPointer) return;
+    // THE one that was losing strokes.
+    //
+    // The touch that begins a stroke is allowed through while `pinching` if it
+    // is a pencil — a pencil is never one of the fingers of a pinch — but this,
+    // the handler that does the actual drawing, still refused it. So the stroke
+    // began, was recorded as begun, and then every single position of it was
+    // dropped on the floor: one point, no line, and endStroke threw the mark
+    // away as "that was a tap". No error, nothing refused, nothing to see in
+    // any diagnostic — the pen simply did not write that once.
+    //
+    // Which pinch? A stale one. A pointerup that iOS never delivered left the
+    // previous contact in the map, so the next touch made two, and two is a
+    // pinch. That is why it was the SECOND stroke.
+    if (pinching && e.pointerType !== 'pen') return;
     if (e.buttons === 0 && e.pointerType === 'mouse') return;
     // Every position the device actually sampled, not just the one it got round
     // to telling us about.
@@ -4350,6 +4474,11 @@ function build() {
   });
   for (const type of ['pointerup', 'pointercancel']) {
     ink.addEventListener(type, (e) => {
+      // There is only ever one pencil, so a pencil lifting ends the stroke a
+      // pencil was drawing — whatever id it arrives under. Insisting the two
+      // match is how a stroke stays open for ever when iOS renumbers a
+      // contact, and a stroke that stays open is one the next touch inherits.
+      if (e.pointerType === 'pen') return;
       if (e.pointerId !== drawingPointer) return;
       drawingPointer = null;
       endStroke();
@@ -4589,7 +4718,21 @@ function rememberMeasurements(payload) {
   // Quietly, behind the page that is already on screen — nothing waits for it.
   if (!payload?.layout && !reading.has(id)) {
     reading.add(id);
-    import('./score.js')
+    // …but not YET.
+    //
+    // Reading a part is seconds of solid arithmetic and it starts the moment
+    // the part is opened, which is exactly the moment the look-ahead is trying
+    // to get a page or two in front of you. They compete, the look-ahead loses,
+    // and the first handful of turns after opening a new part each wait about a
+    // second — then it all comes right, which is precisely how it feels: fast,
+    // except at the beginning.
+    //
+    // Standing aside for a turn already in progress was not enough, because
+    // between two turns there is nothing to stand aside FOR: the pass simply
+    // takes the processor back and the look-ahead never gets ahead. So it waits
+    // until the pages either side of you are drawn before it begins at all.
+    whenPagesReady()
+      .then(() => import('./score.js'))
       .then(({ measurePages }) => measurePages(id, { standAside }))
       // …and then LAY IT OUT AGAIN, which nothing used to do.
       //
@@ -4606,6 +4749,27 @@ function rememberMeasurements(payload) {
       // allowed to ask again. Only a pass that finished puts the score down.
       .catch(() => { reading.delete(id); /* still a score to play from */ });
   }
+}
+
+// Until the pages around the one on screen have been drawn.
+//
+// Capped, because this must never be the reason a part goes unread: a score
+// whose pages will not draw at all would otherwise wait for ever, and the
+// reading pass is what makes a take markable onto it.
+function whenPagesReady(cap = 8000) {
+  return new Promise((go) => {
+    const from = Date.now();
+    const look = setInterval(() => {
+      const done = () => { clearInterval(look); go(); };
+      if (!root || root.hidden || !isPaper()) return done();
+      if (Date.now() - from > cap) return done();
+      const last = visiblePages().at(-1) ?? 0;
+      for (let i = last + 1; i <= last + KEEP_AHEAD && i < pageEls.length; i++) {
+        if (!drawn.has(i)) return undefined;
+      }
+      return done();
+    }, 140);
+  });
 }
 
 // Lay the pages out again for a score that is still the one on screen.
@@ -4638,23 +4802,44 @@ const drawn = new Set();
 // a page that never appears. The second caller waits for the first instead.
 const beingDrawn = new Map();
 
-function drawPaperPage(index) {
+// Pages drawn ROUGHLY, because somebody is waiting for them.
+//
+// A page costs what its pixels cost, and there is one processor. Turn faster
+// than the device can render — which is what anyone does on the first taps of a
+// part, hunting for where they left off — and every turn waits for a whole page
+// to be built at the sharpness you would want to read music at.
+//
+// You do not need that sharpness to know you are on the wrong page. So a page
+// somebody is WAITING for is drawn first at a third of the density, which is
+// about a ninth of the work, and the proper one is laid over it a moment later.
+// Riffling shows soft pages that keep up; stopping on one sharpens it within a
+// breath.
+//
+// Only ever for a page being waited on. The look-ahead has nobody waiting, so
+// it draws properly the first time and there is no second pass to pay for.
+const ROUGH = 0.34;
+const rough = new Set();
+
+function drawPaperPage(index, { quick = false } = {}) {
   const already = beingDrawn.get(index);
   if (already) return already;
-  const one = drawOnePage(index).finally(() => beingDrawn.delete(index));
+  const one = drawOnePage(index, quick).finally(() => beingDrawn.delete(index));
   beingDrawn.set(index, one);
   return one;
 }
 
-async function drawOnePage(index) {
+async function drawOnePage(index, quick = false) {
   const node = pageEls[index];
   const slice = slices[index];
-  if (!paper || !node || !slice || drawn.has(index)) return;
+  if (!paper || !node || !slice) return;
+  // Already there, and already as sharp as it is going to be.
+  if (drawn.has(index) && !(!quick && rough.has(index))) return;
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
   const mine = era;
   try {
-    await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight);
+    await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight,
+      quick ? ROUGH : 1);
   } catch (err) {
     // The pages were rebuilt underneath this one — rotated, resized, a page
     // recropped. It drew on a canvas nobody can see any more, and it has
@@ -4668,6 +4853,8 @@ async function drawOnePage(index) {
   }
   if (mine !== era) return;
   drawn.add(index);
+  if (quick) rough.add(index);
+  else rough.delete(index);
   // The canvas has just been given a size, which means the box the ink is
   // placed against has just changed — and on the paper path that box IS the
   // canvas. Nothing else invalidates it: a page drawn while the pen is down
@@ -4677,6 +4864,26 @@ async function drawOnePage(index) {
   dropDryInk();
   seekChase?.();   // a scrub waiting on this page may move on
   redraw(); // the ink layer measures the page it has just been given a size for
+  // …and then the same page properly, once nobody is waiting on anything.
+  if (quick) sharpenSoon(index);
+}
+
+// The proper draw, after the rough one. Held back until the turns have stopped:
+// sharpening a page while somebody is still turning past it is the look-ahead's
+// mistake all over again.
+let sharpening = null;
+
+function sharpenSoon(index) {
+  clearTimeout(sharpening);
+  sharpening = setTimeout(async () => {
+    if (!root || root.hidden || !isPaper()) return;
+    for (const i of visiblePages()) {
+      if (!rough.has(i)) continue;
+      if (turning > 0) return sharpenSoon(i);
+      await drawPaperPage(i).catch(() => {});
+    }
+  }, 220);
+  return undefined;
 }
 
 // A sentence where a page should have been.
@@ -5025,6 +5232,7 @@ export function close() {
   dryKey = null;
   lastInkAt = null;
   penPointer = null;
+  penStroke.live = false;
   armedByPen = false;
   stopHold();
   drawingPointer = null;

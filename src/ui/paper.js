@@ -399,7 +399,7 @@ async function openPdf(data, password = null, known = {}) {
     // applied inside a transform that has already flipped the page the right way
     // up, so using them renders the music upside down. `transform` is applied in
     // the canvas's own coordinates, where "up and left" means what it says.
-    async drawBand(index, canvas, rect, width, height) {
+    async drawBand(index, canvas, rect, width, height, density = 1) {
       const page = await doc.getPage(index + 1);
       const base = page.getViewport({ scale: 1 });
       const dpr = window.devicePixelRatio || 1;
@@ -412,7 +412,7 @@ async function openPdf(data, password = null, known = {}) {
       // smaller page.
       const fit = Math.min(width / cropW, height / cropH);
       const { context, pixels } = sizeToBand(canvas, cropW * fit, cropH * fit,
-        dpr * withinReach(cropW * fit * dpr, cropH * fit * dpr));
+        density * dpr * withinReach(cropW * fit * dpr, cropH * fit * dpr));
       const scale = fit * pixels;
       await page.render({
         canvasContext: context,
@@ -547,7 +547,7 @@ async function openImages(blobs, known = {}) {
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
         : { x: 0, y: 0, w: 1, h: 1 }, width, height);
     },
-    async drawBand(index, canvas, rect, width, height) {
+    async drawBand(index, canvas, rect, width, height, density = 1) {
       const page = await load(index);
       const dpr = window.devicePixelRatio || 1;
       const crop = region(await cropFor(index), rect);
@@ -561,7 +561,7 @@ async function openImages(blobs, known = {}) {
       // Same space on the glass, only as many real pixels as the device will
       // actually give — see sizeToBand.
       const { context, pixels } = sizeToBand(canvas, w, h,
-        dpr * withinReach(w * dpr, h * dpr));
+        density * dpr * withinReach(w * dpr, h * dpr));
       context.setTransform(pixels, 0, 0, pixels, 0, 0);
       context.drawImage(page.el, sx, sy, sw, sh, 0, 0, w, h);
     },
