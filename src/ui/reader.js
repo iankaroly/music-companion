@@ -221,7 +221,7 @@ function scheduleBrushSave() {
 function rememberBrushes() {
   try {
     globalThis.localStorage?.setItem(BRUSH_KEY, JSON.stringify({
-      brushes, lastInk, layer, hidden: [...hidden], stamp: stamp?.glyph, eraserWidth,
+      brushes, lastInk, layer, hidden: [...hidden], stamp: stamp?.glyph, eraserWidth, fingerInk,
     }));
   } catch { /* a pen that will not be remembered still writes */ }
 }
@@ -246,6 +246,7 @@ function recallBrushes() {
   const found = STAMPS.find((s) => s.glyph === saved.stamp);
   if (found) stamp = found;
   if (ERASER_SIZES.includes(saved.eraserWidth)) eraserWidth = saved.eraserWidth;
+  if (['auto', 'on', 'off'].includes(saved.fingerInk)) fingerInk = saved.fingerInk;
 }
 
 function brushCss(brush) {
@@ -463,7 +464,15 @@ function measurePageBox(index) {
   const node = pageEls[index];
   if (!node) return null;
   const target = isPaper() ? node.querySelector('canvas') : node;
-  return target?.getBoundingClientRect() ?? null;
+  const box = target?.getBoundingClientRect() ?? null;
+  // A canvas with no size is a page whose pixels iOS has taken back, or one
+  // that has not been drawn yet. Its rectangle is a point, and a point is not
+  // somewhere a mark can be placed — so everything measured against it comes
+  // back as nothing and the pen quietly stops working on that page. The
+  // container is where the page WILL be, which is near enough to write on
+  // while the picture catches up.
+  if (box && box.width > 0 && box.height > 0) return box;
+  return node.getBoundingClientRect();
 }
 
 // Which of the visible pages a point is over — with two pages up, the left half
@@ -1296,7 +1305,25 @@ function beginStroke(e) {
     redraw();
     return;
   }
-  const point = anchor(at.x, at.y);
+  // Where on the music this is — and if the answer is "nowhere", ASK AGAIN.
+  //
+  // This is the "sometimes I write and nothing happens". A mark is held against
+  // the bar it was drawn over, and working out which bar means measuring the
+  // page; if that measurement comes back empty the stroke was silently dropped
+  // — no ink, no error, nothing to notice except that the pen did not work that
+  // one time.
+  //
+  // It comes back empty for one reason: the measurements were taken before the
+  // page they describe was ready. Every page turn and every re-engraving throws
+  // them away and they are re-taken on the next frame, so a pen that lands in
+  // the gap between the two — which is exactly what writing straight after a
+  // turn does — asks a cache that has nothing in it yet. Measuring again on the
+  // spot costs a frame and answers every time.
+  let point = anchor(at.x, at.y);
+  if (!point) {
+    invalidateGeometry();
+    point = anchor(at.x, at.y);
+  }
   if (!point) return;
   nibPressure(point, e);
   lastInkAt = at;
@@ -1601,9 +1628,69 @@ function penIsDown() {
   return penPointer !== null;
 }
 
+// --- who is allowed to draw ---------------------------------------------------
+//
+// forScore has a setting called "prevent finger drawing", and it is there
+// because on a tablet a finger is two things at once: the thing that works the
+// app, and — if you let it — the thing that writes on the music. Every touch
+// then has to be guessed at, and the guess is sometimes wrong: a fingertip
+// steadying the iPad leaves a comma across a bar, a tap meant for the tool bar
+// comes out as a dot.
+//
+// With the pencil doing all the writing, none of that has to be guessed. A
+// finger becomes unambiguous — it turns pages, it works the bar, it never
+// marks the page — and the pencil becomes unambiguous too, which is most of
+// why writing "just works" once this is on.
+//
+// Three states rather than two, because a phone has no pencil and must still
+// be able to annotate. Left alone it decides for itself: the moment an Apple
+// Pencil touches this device, fingers stop writing. Say otherwise with the
+// button and it is remembered.
+const PENCIL_SEEN_KEY = 'readerPencilSeen';
+let fingerInk = 'auto';        // 'auto' | 'on' | 'off'
+let pencilSeen = false;
+
+function canFingerDraw() {
+  if (fingerInk === 'on') return true;
+  if (fingerInk === 'off') return false;
+  return !pencilSeen;
+}
+
+function noteAPencil() {
+  if (pencilSeen) return;
+  pencilSeen = true;
+  try { globalThis.localStorage?.setItem(PENCIL_SEEN_KEY, 'yes'); } catch { /* fine */ }
+  refreshFingerButton();
+}
+
+function toggleFingerInk() {
+  fingerInk = canFingerDraw() ? 'off' : 'on';
+  refreshFingerButton();
+  scheduleBrushSave();
+  say(canFingerDraw()
+    ? 'your finger can write on the page'
+    : 'only the pencil writes — your finger works the app');
+  clearTimeout(fingerSaid);
+  fingerSaid = setTimeout(() => { if (!pendingLink) say(''); }, 2400);
+}
+let fingerSaid = null;
+
+function refreshFingerButton() {
+  const button = el('reader-finger');
+  if (!button) return;
+  const on = canFingerDraw();
+  button.classList.toggle('on', on);
+  button.setAttribute('aria-pressed', String(on));
+  button.title = on
+    ? 'Your finger can write — tap to let only the pencil write'
+    : 'Only the pencil writes — tap to let your finger write too';
+  button.setAttribute('aria-label', button.title);
+}
+
 // The pencil has landed on the music with no tool in hand.
 function armPencil(e) {
   if (!root || root.hidden || isMenuOpen()) return false;
+  noteAPencil();
   // Not on the chrome: a pencil is a perfectly good way to press a button.
   if (onChrome(e)) return false;
   // Nor over a jump you taped down, or the one you are in the middle of taping.
@@ -1635,6 +1722,7 @@ function trackPointers(root) {
     forgetLostPointers(e.timeStamp);
     if (e.pointerType === 'pen') {
       penPointer = e.pointerId;
+      noteAPencil();
       // A hand that was already resting on the screen when the pencil arrived
       // is the same hand, and it must not be sitting in the map looking like
       // the first finger of a pinch.
@@ -2508,11 +2596,6 @@ function refreshBrushUI() {
     layers.setAttribute('aria-label', layers.title);
     layers.classList.toggle('on', hidden.size > 0);
   }
-  const nib = el('reader-nib');
-  if (nib) {
-    nib.style.setProperty('--nib', brushCss(brush));
-    nib.style.setProperty('--nib-size', `${Math.min(1.4, 0.25 + brush.width * 0.45)}rem`);
-  }
   if (!panel) return;
   // Named apart from the app's own --ink on purpose: setting that here would
   // repaint every label inside the panel in whatever colour the pen happens to
@@ -2539,6 +2622,7 @@ function refreshBrushUI() {
   // The rubber has no colour and no nib, and the pen has no rubber: the panel
   // shows one or the other rather than both greyed out.
   panel.classList.toggle('rubbing', tool === 'eraser');
+  refreshFingerButton();
   const sizeWrap = panel.querySelector('.brush-size-wrap');
   if (sizeWrap) sizeWrap.style.setProperty('--at', `${Math.round(sizeToRail(brush.width) * 100)}%`);
   const hue = panel.querySelector('#reader-hue-rail');
@@ -3504,13 +3588,19 @@ const ICONS = {
   // the same idea drawn small and thin, and at the size this bar draws icons it
   // read as a smudge — which is how a tool that has been here all along got
   // asked for as a tool that was missing.
-  // A rubber, drawn as the thing itself: a block held at an angle with a band
-  // across it and a line under it to say it is ON the paper. What was here was
-  // the same outline without the band or the line, which read as a luggage tag
-  // — the one tool in the bar nobody could name by looking at it.
-  eraser: '<path d="M8.6 18.4H20"/>'
-    + '<path d="M4.3 15.3l7.4-7.4a1.9 1.9 0 0 1 2.7 0l3.7 3.7a1.9 1.9 0 0 1 0 2.7l-4 4H7.2z"/>'
-    + '<path d="M9.6 10.1l6.4 6.4"/>'
+  // A rubber, the way every drawing app draws one: a block leaning to the
+  // right, divided across the middle so the worn end reads as the end that
+  // rubs. Nothing under it — the baseline and the band together looked like
+  // two stray lines rather than an object.
+  // A hand with one finger out: the thing that either writes on the page or
+  // does not, which is what the button beside it decides.
+  finger: '<path d="M10 11.5V5.4a1.6 1.6 0 0 1 3.2 0v6.1"/>'
+    + '<path d="M13.2 11.2V9.6a1.5 1.5 0 0 1 3 0v1.9"/>'
+    + '<path d="M16.2 11.5v-1a1.5 1.5 0 0 1 3 0v5.1a5.4 5.4 0 0 1-5.4 5.4h-1.3'
+    + 'a5 5 0 0 1-3.6-1.5l-3.4-3.5a1.6 1.6 0 0 1 2.3-2.2L10 15.4"/>',
+  eraser: '<path d="M9.9 20.2 3.9 14.2a2.1 2.1 0 0 1 0-3L11.6 3.6a2.1 2.1 0 0 1 3 0l5.5 5.5'
+    + 'a2.1 2.1 0 0 1 0 3l-8.1 8.1z"/>'
+    + '<path d="M7.4 10.7 14 17.3"/>'
     + '<path d="M9.3 11.5l5.9 5.9"/><path d="M11 20.2h9"/>',
   undo: '<path d="M9 7H5.5V3.5"/><path d="M5.8 7.2a7 7 0 1 1-1.3 6"/>',
   redo: '<path d="M15 7h3.5V3.5"/><path d="M18.2 7.2a7 7 0 1 0 1.3 6"/>',
@@ -3743,14 +3833,14 @@ function buildInkBar() {
   // The ink you are holding, shown ON the pen rather than on a button of its
   // own. There used to be a brush button here, and everything behind it is
   // already one tap on the pen you are already holding — so it was a second
-  // door into the same room, taking up space in a bar that has none. What it
-  // was worth keeping was the nib: the colour and rough thickness of the mark
-  // you are about to make, which now sits on the tool itself.
+  // door into the same room, taking up space in a bar that has none.
+  //
+  // There was also a little bar of colour under the pen showing the ink you
+  // were holding. The colours are on the bar three inches away and the pen
+  // case is one tap behind the pen itself, so it was a third place to be told
+  // the same thing — and at that size it read as a smudge on the button rather
+  // than as ink.
   const pen = toolButton('pen', 'pen', 'Pen');
-  const nib = document.createElement('span');
-  nib.id = 'reader-nib';
-  nib.setAttribute('aria-hidden', 'true');
-  pen.append(nib);
   bar.append(
     iconButton('reader-done', 'tick', 'Finished annotating', () => setTool(null)),
     // The way to the next page WITHOUT putting the pen down.
@@ -3772,6 +3862,8 @@ function buildInkBar() {
     iconButton('reader-stamps', STAMPS[0].glyph, 'Stamp a sign on the page', openStampMenu),
     toolButton('lasso', 'lasso', 'Pick up marks'),
     toolButton('eraser', 'eraser', 'Rub out'),
+    // Whether a finger writes on the music or only works the app.
+    iconButton('reader-finger', 'finger', 'Let your finger write', toggleFingerInk),
     ...PRESETS.map((_, i) => presetSwatch(i)),
     iconButton('reader-undo', 'undo', 'Undo', undo),
     iconButton('reader-redo', 'redo', 'Redo', redo),
@@ -4018,6 +4110,16 @@ function build() {
     // read as a tap on the music, and put the pen away mid-annotation. The
     // pencil's own entry is left exactly as it was.
     if (penIsDown() && e.pointerType !== 'pen') return;
+    // How many marks were on the piece when this gesture began.
+    //
+    // It used to be recorded by the ink layer, which only sees the touches it
+    // is going to DRAW with. So once a finger stopped being allowed to draw,
+    // the number stayed at whatever the last pencil stroke left it — and onTap,
+    // comparing against it to ask "did this tap write something?", got a yes
+    // every time and refused to put the bar away. A tap with the finger did
+    // nothing at all, which is precisely the complaint. It belongs here, where
+    // every gesture starts, drawing or not.
+    marksAtDown = strokes.length;
     tapFrom = pointers.size > 1 ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
   }, true);
   root.addEventListener('pointerup', (e) => {
@@ -4095,6 +4197,11 @@ function build() {
       // after every one of those would be its own kind of maddening.
       if (armedByPen) { armedByPen = false; return; }
       if (strokes.length !== marksAtDown) return;
+      // With a FINGER, not with the pencil. The pencil is for writing; a tap
+      // with it that made no mark is a tap that was going to make one, and
+      // taking the bar away underneath it is the reader second-guessing the
+      // hand. A finger has nothing else to be doing.
+      if (e.pointerType === 'pen') return;
       setChrome(!chrome);
       return;
     }
@@ -4133,11 +4240,20 @@ function build() {
   // left — otherwise lifting one finger out of a pinch draws a line from
   // wherever the other one happens to be resting.
   ink.addEventListener('pointerdown', (e) => {
-    if (!tool || pinching) return;
+    if (!tool) return;
+    const isPen = e.pointerType === 'pen';
+    // A pencil is never one of the fingers of a pinch, so `pinching` — which
+    // exists to stop a finger LIFTING out of a pinch from drawing a line —
+    // has nothing to say about it. It used to refuse the pen too, which meant
+    // that writing in the quarter-second after you moved the page put down no
+    // ink at all: the commonest "I wrote and nothing happened" there is.
+    if (pinching && !isPen) return;
+    // And a finger only writes if it has been given permission to.
+    if (!isPen && !canFingerDraw()) return;
     // A second FINGER is a pinch. A palm while the pencil is writing is not a
     // second anything — it has already been turned away at the door.
     if (pointers.size > 1 && !penIsDown()) return;
-    if (penIsDown() && e.pointerType !== 'pen') return;
+    if (penIsDown() && !isPen) return;
     try { ink.setPointerCapture(e.pointerId); } catch { /* the stroke goes on */ }
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
@@ -4750,6 +4866,9 @@ export async function openReader(row, {
   painted = row.kind === 'pages' && !!analysed?.notes?.length;
   spread = wantsSpread();
   root.classList.toggle('spread', spread);
+  try {
+    pencilSeen = globalThis.localStorage?.getItem(PENCIL_SEEN_KEY) === 'yes';
+  } catch { pencilSeen = false; }
   try { night = globalThis.localStorage?.getItem(NIGHT_KEY) === 'on'; } catch { night = false; }
   root.classList.toggle('night', night);
   pageIndex = 0;

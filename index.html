@@ -1518,25 +1518,26 @@
        first colour — two different questions touching, and which one you meant
        becomes a matter of aim. The colours get a gap either side, which is what
        a group of controls is. */
+    /* The finger button reads as OFF by default — a struck-through hand — and
+       lights up only when a finger is allowed to write. It is the one control
+       on the bar that is normally dark, because normally only the pencil
+       writes and that is the state worth being able to see at a glance. */
+    #reader-finger { position: relative; }
+    #reader-finger:not(.on)::after {
+      content: "";
+      position: absolute;
+      left: 22%;
+      right: 22%;
+      top: 50%;
+      height: 1.7px;
+      border-radius: 2px;
+      background: currentColor;
+      transform: rotate(-45deg);
+      opacity: 0.85;
+    }
+    #reader-ink-bar #reader-finger + .reader-swatch { margin-left: 0.5rem; }
     #reader-ink-bar [data-tool="eraser"] + .reader-swatch { margin-left: 0.5rem; }
     #reader-ink-bar .reader-swatch + #reader-undo { margin-left: 0.5rem; }
-    /* The nib: the ink you are actually holding, at the colour and roughly the
-       thickness it will draw, sitting under the pen it belongs to. Tapping the
-       pen again is what opens the case — there is no second button for it. */
-    #reader-ink-bar [data-tool="pen"] { position: relative; }
-    #reader-nib {
-      position: absolute;
-      left: 50%;
-      bottom: 0.12rem;
-      transform: translateX(-50%);
-      width: var(--nib-size, 0.5rem);
-      height: 0.22rem;
-      max-width: 1.4rem;
-      border-radius: 999px;
-      background: var(--nib, var(--ink));
-      box-shadow: 0 0 0 1px rgb(var(--sh) / 0.18);
-      pointer-events: none;
-    }
 
     /* The mixer. Hue, saturation, brightness and transparency rather than a
        fixed set of pens, because "a bit lighter than that red" is a thing you
