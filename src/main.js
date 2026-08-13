@@ -18,6 +18,7 @@ import {
   notationScores, pairWithNotation, importNotationFor, measurePages, scoreStatus,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
+import { initPenCheck } from './ui/pen-check.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
 import {
@@ -2289,6 +2290,7 @@ async function checkMicrophone() {
 }
 
 document.querySelector('#set-mic-check')?.addEventListener('click', checkMicrophone);
+initPenCheck();
 
 // Which build this is, said out loud in Settings.
 //

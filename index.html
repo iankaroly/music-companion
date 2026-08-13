@@ -448,6 +448,25 @@
     }
     .set-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
     .set-hint { color: var(--muted); font-size: 0.75rem; line-height: 1.45; margin-top: 0.45rem; }
+    /* A report is a list of findings, one per line, and the lines matter. */
+    #set-pen-report, #set-mic-report { white-space: pre-wrap; }
+    #set-pen-report[data-tone="bad"], #set-mic-report[data-tone="bad"] { color: var(--bad); }
+    /* Somewhere to draw. Owns every gesture on it, and refuses selection the
+       way the reader does — this box is checking for exactly that. */
+    #set-pen-box {
+      display: block;
+      width: 100%;
+      height: 8rem;
+      margin-top: 0.5rem;
+      border: 1px dashed var(--line-strong);
+      border-radius: 12px;
+      background: rgb(var(--sf) / 0.6);
+      touch-action: none;
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+    }
+    #set-pen-box[hidden] { display: none; }
     /* the sheet is a scroll now that it holds more than two choices */
     #settings-dialog form { max-height: 78vh; overflow-y: auto; padding-right: 0.2rem; }
     #settings-dialog h2:focus { outline: none; }
@@ -3862,6 +3881,16 @@
         <p class="set-hint" id="set-pedal-report">Built-in keys: arrows, page up and page down,
         space and return.</p>
         <button id="set-pedal-forget" type="button" class="set-wide">Forget the taught pedal</button>
+      </div>
+      <!-- The four things about the pencil that cannot be measured from a
+           laptop, asked of the device itself. See pen-check.js. -->
+      <div class="set-group">
+        <span class="set-label">Apple Pencil</span>
+        <button id="set-pen-check" type="button" class="set-wide">Check the pencil</button>
+        <canvas id="set-pen-box" hidden aria-label="Draw here"></canvas>
+        <p class="set-hint" id="set-pen-report">Draws with the pencil for four seconds and says
+        what this device reported — pressure, tilt, whether the fast samples arrive, whether a
+        resting palm is turned away, and whether anything on the page got highlighted.</p>
       </div>
       <div class="set-group">
         <span class="set-label">Microphone</span>
