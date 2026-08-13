@@ -1111,6 +1111,15 @@
     #score-stage .sounding, #reader .sounding {
       filter: drop-shadow(0 0 3px var(--primary)) drop-shadow(0 0 7px var(--primary));
     }
+    /* The light that follows the playback keeps its colour in the dark.
+       Night mode inverts the whole sheet to get white notes on black, and the
+       lit notehead is IN the sheet, so its blue glow came out the complement of
+       blue — orange — on the one screen where the colour is the message. Its
+       own inversion cancels the page's, and the glow reads as itself again. */
+    #reader.night .sounding {
+      filter: invert(1) hue-rotate(180deg)
+        drop-shadow(0 0 3px var(--primary)) drop-shadow(0 0 7px var(--primary));
+    }
     /* --- the reader: the part, full screen, to play from ------------------ */
     /* Everything here is fixed to the screen and nothing scrolls. A page turn
        is a page turn, not a scroll position, and a page of music that can be
@@ -1861,6 +1870,15 @@
       flex-direction: column;
     }
     #crop[hidden] { display: none; }
+    /* Holding a corner is the whole of this screen, and holding a picture is
+       what iOS answers with a Save Image / Copy sheet. The hint underneath it
+       goes the same way — it is a sentence to read once, not one to quote. */
+    #crop, #crop * {
+      -webkit-user-select: none;
+      user-select: none;
+      -webkit-touch-callout: none;
+      -webkit-user-drag: none;
+    }
     .crop-stage { position: absolute; inset: 0 0 7.5rem; }
     #crop-picture { width: 100%; height: 100%; object-fit: contain; }
     #crop-overlay {
