@@ -1,7 +1,7 @@
 {
   "name": "music-companion",
   "version": "1.0.0",
-  "description": "A practice companion for anyone who plays a pitch — strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
+  "description": "A practice companion for anyone who plays a pitch \u2014 strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "ios": "npm run build && npx cap sync ios && npx cap open ios",
-    "ios:sync": "npm run build && npx cap sync ios"
+    "ios:sync": "npm run build && npx cap sync ios",
+    "reader:bench": "node tools/reader-bench-run.mjs",
+    "reader:pencil": "node tools/reader-pencil-check.mjs"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +21,7 @@
     "@capacitor/cli": "^8.5.0",
     "@capacitor/core": "^8.5.0",
     "@capacitor/ios": "^8.5.0",
+    "puppeteer-core": "^25.6.0",
     "vite": "^8.1.5",
     "vitest": "^4.1.10"
   },
