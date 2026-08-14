@@ -382,7 +382,7 @@ const TOP_REACH = 0.25;
 // every control added afterwards was a bug waiting in whichever list somebody
 // forgot. There is one list.
 const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-seek, #reader-aids, .pick-pop, dialog';
+  + ' #reader-selection, #reader-land, #reader-aids, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -1293,6 +1293,7 @@ let erasing = false;
 let lasso = null;        // the loop being drawn, in screen points
 let picked = [];         // the strokes inside it
 let dragging = null;     // { x, y } while the selection is being moved
+let pendingStamp = null; // a sign this gesture will leave, if it turns out to be a tap
 
 function beginStroke(e) {
   const at = pointerPosition(e);
@@ -1330,7 +1331,18 @@ function beginStroke(e) {
   lastInkAt = at;
   strokeTravel = 0;
   if (tool === 'text') { writeText(point); return; }
-  if (tool === 'stamp') { placeStamp(point); return; }
+  // A sign is placed when the finger LIFTS, not when it lands.
+  //
+  // At the moment a contact arrives there is no way to tell whether a second
+  // one is on its way: there is one entry in `pointers`, `pinch` is null, and
+  // the first finger of a pinch is indistinguishable from a tap. So placing on
+  // the way down meant every pinch made with the stamp tool in hand dropped a
+  // sharp on the page before it began — and since a freshly placed sign is
+  // held, what the pinch then resized was the accident rather than the sign
+  // you had reached for. This is what you MIGHT have meant; endStroke decides
+  // that you did, and cancelStroke throws it away the moment the gesture turns
+  // out to have been a pinch.
+  if (tool === 'stamp') { pendingStamp = point; return; }
   const brush = currentBrush();
   drawing = {
     tool,
@@ -1466,6 +1478,10 @@ function cancelStroke() {
   dragging = null;
   lasso = null;
   erasing = false;
+  // The sign that was never placed. This is the whole point of holding it back:
+  // the finger that was about to stamp turned out to be half of a pinch, and a
+  // pinch is a request to resize what is already there, never to add to it.
+  pendingStamp = null;
   // What was PICKED stays picked. Pinching in to look closer at a selection is
   // a reasonable thing to do to one, and losing it for that would be its own
   // small betrayal.
@@ -1475,6 +1491,14 @@ function cancelStroke() {
 function endStroke() {
   stopHold();
   lastInkAt = null;
+  // A sign that survived the gesture: one finger went down and the same finger
+  // came up, so it was a tap and it meant what it said.
+  if (pendingStamp) {
+    const where = pendingStamp;
+    pendingStamp = null;
+    placeStamp(where);
+    return;
+  }
   if (tool === 'lasso') {
     if (dragging) { dragging = null; scheduleSave(); }
     else if (lasso) { picked = strokesInside(lasso); lasso = null; refreshSelectionBar(); }
@@ -2070,6 +2094,11 @@ function trackPointers(root) {
       clearTimeout(pinchOver);
       drawingPointer = null;
       cancelStroke();   // that first finger was not drawing, it was pinching
+      // And the chips go away for the duration. `pinching` is what hides them,
+      // but nothing repaints on its own between here and the end of the pinch:
+      // said only in refreshSelectionBar, the bar raised by the sign you are
+      // about to resize would simply stay up under your fingers.
+      refreshSelectionBar();
     }
     // With marks picked up, a pinch means those marks rather than the page. It
     // is the only thing it could mean: you have said which marks you are
@@ -2112,7 +2141,15 @@ function trackPointers(root) {
         // enough that a reader which has lost a pointer comes back on its own
         // before anybody reaches for it a second time.
         clearTimeout(pinchOver);
-        pinchOver = setTimeout(() => { pinching = false; }, 250);
+        pinchOver = setTimeout(() => {
+          pinching = false;
+          // And the selection comes back out. It was hidden for the duration
+          // of the pinch and this is the only place that knows the pinch is
+          // over, so without saying so here the chips and the box stay gone
+          // until something unrelated happens to repaint them.
+          refreshSelectionBar();
+          redraw();
+        }, 250);
       }
       if (pointers.size === 0 && isPaper() && zoom > 1) redrawPaperAtZoom();
     }, true);
@@ -2166,7 +2203,7 @@ function forgetLostPointers(now) {
     dropped = true;
   }
   if (!dropped) return;
-  if (pointers.size < 2) { pinch = null; pinching = false; }
+  if (pointers.size < 2) { pinch = null; pinching = false; refreshSelectionBar(); }
 }
 
 // Everything let go of at once: no fingers, no pencil, no pinch, no half-drawn
@@ -2177,6 +2214,8 @@ function forgetEveryPointer() {
   penPointer = null;
   pinch = null;
   pinching = false;
+  pendingStamp = null;
+  refreshSelectionBar();
   if (drawingPointer !== null) { drawingPointer = null; cancelStroke(); }
 }
 
@@ -2401,7 +2440,16 @@ function clearSelection() {
 function refreshSelectionBar() {
   const bar = el('reader-selection');
   if (!bar) return;
-  bar.hidden = picked.length === 0;
+  // Never while a pinch is under way.
+  //
+  // A pinch on a mark you are holding means one thing — bigger, or smaller —
+  // and it is a gesture you make while looking at the mark. A bar of chips
+  // sliding in under your fingers and a dashed box drawn round the very thing
+  // you are watching change size is the app answering a question nobody asked,
+  // and on a small sign the box is most of what you can see. Both come back
+  // when the fingers are off; the grace timer in the pinch handler is what puts
+  // them there, because nothing else would.
+  bar.hidden = picked.length === 0 || pinching;
   const count = bar.querySelector('.reader-selection-count');
   if (count) count.textContent = `${picked.length} ${picked.length === 1 ? 'mark' : 'marks'}`;
 }
@@ -2420,7 +2468,9 @@ function drawLasso(ctx) {
     ctx.stroke();
     ctx.restore();
   }
-  const box = picked.length ? selectionBounds() : null;
+  // …and out of the way of a pinch, for the same reason the chips are — see
+  // refreshSelectionBar.
+  const box = picked.length && !pinching ? selectionBounds() : null;
   if (box) {
     ctx.save();
     ctx.setLineDash([4, 4]);
@@ -2557,7 +2607,6 @@ async function showPage(index) {
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   invalidateGeometry();     // different music, in different places
   refreshUpNext();
-  refreshSeek();
   redraw();
   if (!isPaper()) return;
 
@@ -3138,148 +3187,6 @@ function usePreset(index) {
 
 function bookmarksOf() {
   return score?.bookmarks ?? [];
-}
-
-// --- the seek bar -------------------------------------------------------------
-//
-// The way to a page that is a long way off.
-//
-// Tapping the edge fourteen times to reach page fourteen is not navigation, it
-// is fourteen page turns — and on a slow device it is also fourteen renders,
-// which is the one thing that makes this reader feel slow. forScore's answer is
-// not a faster render: it is a slider along the bottom of the page, so getting
-// somewhere far is one gesture rather than a sequence of the wrong one.
-//
-// The detail worth copying exactly is the LABEL. Scrubbing a concerto should
-// say "II. Adagio", not "page 14" — the name you gave the place is what you are
-// looking for, and the number is only how the file happens to be arranged. So
-// the handle carries the bookmark you are passing over, and falls back to the
-// page when there is not one.
-//
-// It comes and goes with the rest of the controls, because while you are
-// playing the point of the screen is the music.
-
-// Which screenful a bookmark lands on. Paper bookmarks already know; a bookmark
-// on notation knows its BAR, and where that bar is depends on how the music is
-// set today.
-function bookmarkScreen(mark) {
-  if (mark.page !== undefined) return mark.page;
-  return bars.get(mark.bar)?.page;
-}
-
-// The name of the place you are scrubbing over: the last bookmark at or before
-// this screenful, if there is one.
-function placeAt(index) {
-  let best = null;
-  let nearest = -1;
-  for (const mark of bookmarksOf()) {
-    const at = bookmarkScreen(mark);
-    if (at === undefined || at > index || at < nearest) continue;
-    nearest = at;
-    best = mark;
-  }
-  if (best?.label) return best.label;
-  // No bookmark: say where you are in the terms the score is kept in — the
-  // sheet of paper for a scan, the screenful for engraved music.
-  if (isPaper()) {
-    const paperPage = slices[index]?.page;
-    return paperPage === undefined ? `p. ${index + 1}` : `page ${paperPage + 1}`;
-  }
-  return `p. ${index + 1}`;
-}
-
-function buildSeekBar() {
-  const bar = document.createElement('div');
-  bar.id = 'reader-seek';
-  bar.hidden = true;
-
-  const track = document.createElement('div');
-  track.className = 'seek-track';
-  const filled = document.createElement('div');
-  filled.className = 'seek-filled';
-  const knob = document.createElement('div');
-  knob.className = 'seek-knob';
-  const label = document.createElement('div');
-  label.className = 'seek-label';
-  label.hidden = true;
-  track.append(filled, knob, label);
-  bar.append(track);
-
-  const indexAt = (clientX) => {
-    const box = track.getBoundingClientRect();
-    if (!box.width || pageEls.length < 2) return 0;
-    const t = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
-    return Math.round(t * (pageEls.length - 1));
-  };
-
-  let scrubbing = null;
-  let want = 0;
-
-  // While the finger is down the label follows it at once, and the PAGE follows
-  // as fast as the device can draw one — never faster. Asking for a render on
-  // every pixel of a drag would queue a dozen of them and arrive at the last
-  // one long after the finger had stopped; asking only when the reader is idle
-  // means the music keeps up on a fast device and simply skips ahead on a slow
-  // one, which is what scrubbing should do anyway.
-  const chase = () => {
-    if (scrubbing === null || turning > 0 || want === pageIndex) return;
-    showPage(want);
-  };
-
-  const follow = (clientX) => {
-    want = indexAt(clientX);
-    label.hidden = false;
-    label.textContent = placeAt(want);
-    paintSeek(want);
-    chase();
-  };
-
-  track.addEventListener('pointerdown', (e) => {
-    if (pageEls.length < 2) return;
-    e.preventDefault();
-    scrubbing = e.pointerId;
-    try { track.setPointerCapture(e.pointerId); } catch { /* the drag goes on */ }
-    follow(e.clientX);
-  });
-  track.addEventListener('pointermove', (e) => {
-    if (scrubbing !== e.pointerId) return;
-    follow(e.clientX);
-  });
-  for (const type of ['pointerup', 'pointercancel']) {
-    track.addEventListener(type, (e) => {
-      if (scrubbing !== e.pointerId) return;
-      scrubbing = null;
-      label.hidden = true;
-      // Wherever the finger left it, that is where you meant — even if the
-      // device never caught up on the way.
-      if (want !== pageIndex) showPage(want);
-      refreshSeek();
-    });
-  }
-  // A page drawn while scrubbing frees the reader to move again.
-  seekChase = chase;
-  return bar;
-}
-
-let seekChase = null;
-
-// Where the handle sits, and how much of the part is behind you.
-function paintSeek(index = pageIndex) {
-  const bar = el('reader-seek');
-  if (!bar) return;
-  const many = pageEls.length > 1;
-  bar.hidden = !many;
-  if (!many) return;
-  const t = index / (pageEls.length - 1);
-  bar.style.setProperty('--at', `${(t * 100).toFixed(2)}%`);
-  bar.setAttribute('aria-valuenow', String(index + 1));
-  bar.setAttribute('aria-valuemax', String(pageEls.length));
-}
-
-function refreshSeek() {
-  paintSeek(pageIndex);
-  const label = el('reader-seek')?.querySelector('.seek-label');
-  if (label && label.hidden) label.textContent = placeAt(pageIndex);
 }
 
 async function addBookmark() {
@@ -4425,8 +4332,7 @@ function build() {
   land.hidden = true;
 
   root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land, upNext, buildSeekBar(),
-    aidsElement(() => refreshSeek()));
+    buildSelectionBar(), menu, line, land, upNext, aidsElement());
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -5165,7 +5071,6 @@ async function drawOnePage(index, quick = false) {
   // mark on it placed against the empty rectangle it had before.
   invalidateGeometry();
   dropDryInk();
-  seekChase?.();   // a scrub waiting on this page may move on
   redraw(); // the ink layer measures the page it has just been given a size for
   // …and then the same page properly, once nobody is waiting on anything.
   if (quick) sharpenSoon(index);
