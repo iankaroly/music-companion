@@ -149,6 +149,22 @@ function build() {
   // not one you can name.
   const tap = chip('tap', 'Tap the tempo', () => tapTempo());
 
+  // Small by default, and the rest a tap away.
+  //
+  // Everything a metronome can do does not need to be on the music. What is
+  // wanted while playing is start, stop, and a shade faster or slower; the
+  // time signature and the subdivision are set once at the beginning of a
+  // movement and then left alone for an hour. So those live behind one button
+  // and the strip stays the size of the thing you actually reach for.
+  const extras = document.createElement('span');
+  extras.className = 'aid-extras';
+  extras.hidden = true;
+  extras.append(meter, subs, tap);
+  const more = chip('⋯', 'More of the metronome', () => {
+    extras.hidden = !extras.hidden;
+    more.classList.toggle('on', !extras.hidden);
+  });
+
   metroRow.append(
     play,
     beat,
@@ -156,9 +172,8 @@ function build() {
     bpmOut,
     chip('+', 'Faster', () => nudge(2)),
     named,
-    meter,
-    subs,
-    tap,
+    more,
+    extras,
   );
   strip.__meter = meter;
   strip.__subs = subs;
@@ -196,10 +211,91 @@ function build() {
   tuneRow.append(listen);
 
   const shut = chip('✕', 'Put it away', () => hideAids(), 'aid-chip aid-shut');
-  strip.append(metroRow, tuneRow, shut);
+
+  // Somewhere to take hold of it.
+  //
+  // Where this sits is a matter of what the music is doing: over the last
+  // system it is in the way, in a corner it is not, and which corner depends on
+  // the page and on which hand is free. So it is draggable anywhere, and it
+  // stays where it was put.
+  const grip = document.createElement('span');
+  grip.className = 'aid-grip';
+  grip.setAttribute('aria-hidden', 'true');
+  makeDraggable(strip, grip);
+
+  strip.append(grip, metroRow, tuneRow, shut);
 
   strip.__parts = { play, beat, bpmOut, named, noteOut, centsOut, needle, listen };
   return strip;
+}
+
+// --- moving it -----------------------------------------------------------
+
+const WHERE_KEY = 'readerAidsAt';
+
+function placeStrip(at) {
+  if (!strip || !at) return;
+  // Kept on the glass: a strip dragged half off the screen, on a device with no
+  // way to scroll to it, would be gone for good.
+  const box = strip.getBoundingClientRect();
+  const w = box.width || 260;
+  const h = box.height || 48;
+  const x = Math.max(6, Math.min(window.innerWidth - w - 6, at.x));
+  const y = Math.max(6, Math.min(window.innerHeight - h - 6, at.y));
+  strip.style.left = `${Math.round(x)}px`;
+  strip.style.top = `${Math.round(y)}px`;
+  strip.style.right = 'auto';
+  strip.style.bottom = 'auto';
+  strip.style.transform = 'none';
+}
+
+function rememberWhere(at) {
+  try { globalThis.localStorage?.setItem(WHERE_KEY, JSON.stringify(at)); } catch { /* fine */ }
+}
+
+function recallWhere() {
+  try {
+    const kept = JSON.parse(globalThis.localStorage?.getItem(WHERE_KEY) ?? 'null');
+    if (kept && Number.isFinite(kept.x) && Number.isFinite(kept.y)) return kept;
+  } catch { /* it can sit where it starts */ }
+  return null;
+}
+
+function makeDraggable(node, handle) {
+  let from = null;
+
+  // The moves are listened for on the WINDOW, not on the grip.
+  //
+  // A grip is a centimetre across and a drag leaves it immediately, so a
+  // listener bound to the grip stops hearing about the drag one pixel in.
+  // Pointer capture is supposed to solve that and does not always take — it
+  // throws on a pointer the browser has already reassigned, and then the drag
+  // dies silently. The window hears everything, always.
+  const move = (e) => {
+    if (!from || from.id !== e.pointerId) return;
+    placeStrip({ x: e.clientX - from.dx, y: e.clientY - from.dy });
+    if (e.cancelable) e.preventDefault();
+  };
+  const done = (e) => {
+    if (!from || from.id !== e.pointerId) return;
+    from = null;
+    node.classList.remove('moving');
+    window.removeEventListener('pointermove', move, true);
+    window.removeEventListener('pointerup', done, true);
+    window.removeEventListener('pointercancel', done, true);
+    const box = node.getBoundingClientRect();
+    rememberWhere({ x: box.left, y: box.top });
+  };
+
+  handle.addEventListener('pointerdown', (e) => {
+    const box = node.getBoundingClientRect();
+    from = { dx: e.clientX - box.left, dy: e.clientY - box.top, id: e.pointerId };
+    node.classList.add('moving');
+    window.addEventListener('pointermove', move, true);
+    window.addEventListener('pointerup', done, true);
+    window.addEventListener('pointercancel', done, true);
+    if (e.cancelable) e.preventDefault();
+  });
 }
 
 function paintTempo() {
@@ -266,6 +362,10 @@ export function showAids(which) {
   showing = which;
   strip.hidden = false;
   strip.dataset.showing = which;
+  // Wherever it was left. Measured after it is on screen, because a hidden
+  // element has no size to clamp against.
+  const where = recallWhere();
+  if (where) requestAnimationFrame(() => placeStrip(where));
   if (which !== 'tuner') { askForEars(false); return; }
   // One at a time. Holding the microphone puts iOS into a record-capable audio
   // session, which drops the output level for as long as it is held — so a

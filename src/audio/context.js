@@ -38,6 +38,23 @@ let sessionType = null;
 let idleTimer = null;
 const holds = new Set();
 
+// What the audio is actually doing, for the one place it can be read on a
+// device with no console. See pen-check.js's neighbour in Settings.
+export function audioState() {
+  const ctx = audioContext.ctx;
+  return {
+    made: !!ctx,
+    state: ctx?.state ?? 'not made yet',
+    sampleRate: ctx?.sampleRate ?? 0,
+    session: sessionType,
+    holds: [...holds],
+    micHeld: micIsHeld(),
+    volume: getVolume(),
+    click: clickLevel(),
+    routed: !!masterGain,
+  };
+}
+
 export function setAudioSessionType(type) {
   // Re-assigning the same type still re-activates the session on iOS, and this
   // used to run on every single audioContext() call. Assign only on a change.

@@ -449,8 +449,9 @@
     .set-row { display: flex; align-items: center; justify-content: space-between; gap: 0.8rem; }
     .set-hint { color: var(--muted); font-size: 0.75rem; line-height: 1.45; margin-top: 0.45rem; }
     /* A report is a list of findings, one per line, and the lines matter. */
-    #set-pen-report, #set-mic-report { white-space: pre-wrap; }
-    #set-pen-report[data-tone="bad"], #set-mic-report[data-tone="bad"] { color: var(--bad); }
+    #set-pen-report, #set-mic-report, #set-sound-report { white-space: pre-wrap; }
+    #set-pen-report[data-tone="bad"], #set-mic-report[data-tone="bad"],
+    #set-sound-report[data-tone="bad"] { color: var(--bad); }
     /* Somewhere to draw. Owns every gesture on it, and refuses selection the
        way the reader does — this box is checking for exactly that. */
     #set-pen-box {
@@ -2162,6 +2163,31 @@
        is not a control — the tap button and the close button were off the edge.
        So the row wraps, and the tempo NAME is the first thing to go: it is the
        one part that says nothing the number beside it does not. */
+    /* The grip: where you take hold of it to move it. Deliberately a grip and
+       not the whole strip — dragging from a button is how you press a button by
+       accident. Where this sits is a matter of what the music is doing: over
+       the last system it is in the way, in a corner it is not, and which corner
+       depends on the page and on which hand is free. */
+    .aid-grip {
+      flex: none;
+      width: 0.9rem;
+      height: 1.7rem;
+      margin-right: 0.15rem;
+      border-radius: 3px;
+      cursor: grab;
+      touch-action: none;
+      background:
+        radial-gradient(circle, var(--line-strong) 1.1px, transparent 1.2px) 0 0 / 4px 5px;
+      opacity: 0.9;
+    }
+    #reader-aids.moving { box-shadow: 0 10px 28px rgb(0 0 0 / 0.3); }
+    #reader-aids.moving .aid-grip { cursor: grabbing; }
+    /* Set once at the start of a movement and then left alone, so behind a
+       button: what is wanted while playing is start, stop, and a shade faster
+       or slower. */
+    .aid-extras { display: flex; align-items: center; gap: 0.35rem; }
+    .aid-extras[hidden] { display: none; }
+    .aid-chip.on { background: var(--primary); color: var(--on-primary); border-color: transparent; }
     #reader-aids .aid-row {
       display: none;
       align-items: center;
@@ -4195,6 +4221,12 @@
         <p class="set-hint" id="set-pen-report">Draws with the pencil for four seconds and says
         what this device reported — pressure, tilt, whether the fast samples arrive, whether a
         resting palm is turned away, and whether anything on the page got highlighted.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label">Sound</span>
+        <button id="set-sound-check" type="button" class="set-wide">Check the sound</button>
+        <p class="set-hint" id="set-sound-report">Plays four clicks and says what this device did
+        with them — whether the audio is awake, which route it is on, and where the levels are.</p>
       </div>
       <div class="set-group">
         <span class="set-label">Microphone</span>

@@ -13,7 +13,7 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-seek-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs",
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-seek-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs",
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
@@ -22,7 +22,8 @@
     "reader:seek": "node tools/reader-seek-check.mjs",
     "reader:finger": "node tools/reader-finger-check.mjs",
     "reader:aids": "node tools/reader-aids-check.mjs",
-    "reader:rescue": "node tools/reader-rescue-check.mjs"
+    "reader:rescue": "node tools/reader-rescue-check.mjs",
+    "reader:drag": "node tools/reader-drag-check.mjs"
   },
   "keywords": [],
   "author": "",

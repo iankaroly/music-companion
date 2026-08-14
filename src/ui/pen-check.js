@@ -195,7 +195,58 @@ async function readerTrouble() {
   }
 }
 
+// --- and whether anything can be heard ---------------------------------------
+//
+// "I cannot hear the metronome" has three or four possible causes on an iPad
+// and no way at all to tell them apart from the outside: a context the system
+// left suspended, an audio session pinned to the recording category (which iOS
+// routes quietly), a master volume somebody set to nothing, or a click level
+// at zero. So the device is asked, and then made to click.
+async function initSoundCheck() {
+  const button = document.querySelector('#set-sound-check');
+  const report = document.querySelector('#set-sound-report');
+  if (!button || !report) return;
+  button.addEventListener('click', async () => {
+    button.disabled = true;
+    report.dataset.tone = '';
+    report.textContent = 'clicking…';
+    try {
+      const { audioState, wakeAudio, holdAudio, releaseAudio } = await import('../audio/context.js');
+      const { scheduleClick } = await import('../audio/metronome.js');
+      // Held for the length of the test, so nothing puts the context back to
+      // sleep underneath it.
+      holdAudio('sound-check');
+      const ctx = wakeAudio();
+      for (let i = 0; i < 4; i++) {
+        scheduleClick(ctx, ctx.currentTime + 0.12 + i * 0.28, i === 0 ? 'accent' : 'beat');
+      }
+      await new Promise((go) => { setTimeout(go, 1400); });
+      const now = audioState();
+      releaseAudio('sound-check');
+      const lines = [
+        `Four clicks were just played. ${now.state === 'running' ? '' : 'Probably not audibly — '}`
+          + `the audio is "${now.state}".`,
+        `Output route: ${now.session}${now.session === 'play-and-record'
+          ? '  ← iOS plays this one QUIETLY. Something is holding the microphone.' : ''}`,
+        `Volume: ${now.volume.toFixed(2)}${now.volume < 0.2 ? '  ← this is nearly off' : ''}`,
+        `Click level: ${now.click.toFixed(2)}${now.click < 0.2 ? '  ← this is nearly off' : ''}`,
+        `Microphone held: ${now.micHeld ? 'yes' : 'no'}`,
+        `Holding audio: ${now.holds.length ? now.holds.join(', ') : 'nothing'}`,
+        `Sample rate: ${now.sampleRate || 'unknown'}`,
+      ];
+      report.textContent = lines.join('\n');
+      report.dataset.tone = (now.state !== 'running' || now.session === 'play-and-record'
+        || now.volume < 0.2 || now.click < 0.2) ? 'bad' : '';
+    } catch (err) {
+      report.textContent = `The check itself failed: ${err.message}`;
+      report.dataset.tone = 'bad';
+    }
+    button.disabled = false;
+  });
+}
+
 export function initPenCheck() {
+  initSoundCheck();
   const button = document.querySelector('#set-pen-check');
   const report = document.querySelector('#set-pen-report');
   const box = document.querySelector('#set-pen-box');

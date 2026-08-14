@@ -1662,22 +1662,20 @@ function penIsDown() {
   return penPointer !== null;
 }
 
-// The heel of a hand is not a fingertip.
+// Nothing is judged by how big it is any more.
 //
-// A tablet reports how big a contact is, and the difference between the two is
-// not subtle: a fingertip is under a centimetre, the heel of a hand resting on
-// the glass is three or four. Anyone holding an iPad has one of the latter on
-// it at all times, and counting it as a finger is what made a resting hand able
-// to look like the first half of a pinch.
+// There WAS a rule here that a contact wider than 45px is the heel of a hand
+// rather than a fingertip, and it was wrong about a real iPad. A synthetic
+// touch reports a tidy 16px; a fingertip actually pressed against glass
+// reports its whole contact ellipse, which on a thumb is easily past that —
+// so both fingers of a pinch were being read as palms and thrown away, and
+// pinching to zoom stopped working altogether.
 //
-// Generous, because being wrong in this direction costs a gesture and being
-// wrong in the other costs every gesture: a thumb is nowhere near this.
-const PALM_ACROSS = 45;
-
-function isPalm(e) {
-  if (e.pointerType !== 'touch') return false;
-  return e.width > PALM_ACROSS || e.height > PALM_ACROSS;
-}
+// It is not needed. What it was for — a resting hand making the reader believe
+// a pinch was under way, and eating every tap — is fixed by the rule below
+// instead: a pinch is two contacts MOVING relative to one another, which is
+// the one thing a hand resting on a tablet never does. Judging a gesture by
+// what it does beats judging it by how fat it is.
 
 // --- who is allowed to draw ---------------------------------------------------
 //
@@ -1971,8 +1969,6 @@ function trackPointers(root) {
       return;
     } else if (penIsDown() && e.pointerType === 'touch') {
       return;   // the palm
-    } else if (isPalm(e)) {
-      return;   // a palm, pencil or no pencil
     }
     pointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
