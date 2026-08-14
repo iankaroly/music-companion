@@ -5075,6 +5075,19 @@ async function layOutPaper() {
     sheet.append(node);
     pageEls.push(node);
   }
+  // The light follows on a photograph too.
+  //
+  // This was hung off `take.aligned` over in the engraved path, and a take
+  // against a scan has no alignment — there is no written pitch to align it
+  // to. So the subscription was never made, and "Play the take" on a scan did
+  // exactly what it said and no more: the audio ran, the rings sat still, and
+  // the page you were on stayed the page you were on for four minutes. What a
+  // scan HAS is the pairing in markedHeads — the notes you played against the
+  // noteheads the page reader found — and that is all a light needs.
+  //
+  // Safe to say on every re-layout: followTake drops its previous subscription
+  // before making a new one, so a rotation does not leave two.
+  if (take?.notes?.length && layout) followTake();
   await drawPaperPage(pageIndex);
   return null;
 }
@@ -5417,15 +5430,15 @@ function drawScanMarks(ctx) {
   if (!isPaper() || !take?.notes?.length || !layout) return;
   const colours = { good: '--good', sharp: '--sharp', flat: '--flat' };
   const style = getComputedStyle(document.documentElement);
-  for (const head of markedHeads()) {
+  for (const [i, head] of markedHeads().entries()) {
     // The same page-to-screen mapping the ink uses, so a ring and a fingering
     // written on the same note stay on the same note.
     const place = pageToScreen(head.page, head.x, head.y);
-    if (place) drawOneMark(ctx, head, place, style, colours);
+    if (place) drawOneMark(ctx, head, place, style, colours, i === soundingMark);
   }
 }
 
-function drawOneMark(ctx, head, place, style, colours) {
+function drawOneMark(ctx, head, place, style, colours, lit = false) {
   {
     const token = colours[intonationHue(head.cents)] ?? '--muted';
     ctx.save();
@@ -5435,6 +5448,23 @@ function drawOneMark(ctx, head, place, style, colours) {
     const { x, y } = place;
     const r = Math.max(3, head.space * place.unit * 0.62);
     ctx.lineWidth = Math.max(1, r * 0.26);
+    // The one being heard, right now.
+    //
+    // Told apart by WEIGHT rather than by colour, because colour is already
+    // saying something here — how the note landed — and a light that recoloured
+    // it would be two facts fighting over one ring. A halo and a thicker line
+    // read as "this one" at a stand, from further away than a hue change does,
+    // and they leave the intonation reading exactly as it was.
+    if (lit) {
+      ctx.save();
+      ctx.globalAlpha = 0.28;
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath();
+      ctx.ellipse(x, y, r * 2.05, r * 1.7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+      ctx.lineWidth = Math.max(1.5, r * 0.42);
+    }
     ctx.beginPath();
     ctx.ellipse(x, y, r * 1.25, r * 0.95, 0, 0, Math.PI * 2);
     ctx.stroke();
@@ -5453,11 +5483,53 @@ function clearSounding() {
   sounding = null;
 }
 
+// Which mark the playback is inside, on a scanned part. An index into
+// markedHeads rather than the head itself, so it survives the list being
+// rebuilt underneath it.
+let soundingMark = -1;
+
+// The light, on a photograph.
+//
+// The engraved path finds a notehead ELEMENT and puts a class on it, which is
+// the whole trick — and it is a trick a scan cannot borrow, because a scan has
+// no elements. The music is pixels on a canvas and the noteheads are places
+// the page reader measured, so being lit is not something a notehead can be
+// told to do; it is something the ring around it has to be drawn as.
+//
+// Without this the reader offered "Play the take" on a scan and then played it
+// with nothing moving: the audio ran, the rings sat there, and the one thing
+// the page can do that a graph cannot — say WHICH note you are hearing —
+// simply did not happen.
+function followOnPaper(note) {
+  const marks = markedHeads();
+  const played = take?.notes ?? [];
+  // Identity first, and the time as a fallback: the note handed over is the
+  // one the spans were built from, which is normally the very object in this
+  // list, but a take that has been round the store and back is a copy.
+  let index = note ? played.indexOf(note) : -1;
+  if (index < 0 && note && Number.isFinite(note.start)) {
+    index = played.findIndex((n) => n.start === note.start);
+  }
+  const next = index >= 0 && index < marks.length ? index : -1;
+  if (next === soundingMark) return;
+  soundingMark = next;
+  // The page the note is on comes to the front, so a part plays through
+  // without a finger on it — the same promise the engraved side makes.
+  const mark = next >= 0 ? marks[next] : null;
+  if (mark) {
+    const screenful = slices.findIndex((slice) => slice?.page === mark.page);
+    if (screenful >= 0 && screenful !== pageIndex) showPage(screenful);
+  }
+  redraw();
+}
+
 function followTake() {
   unfollow?.();
   clearSounding();
+  soundingMark = -1;
   unfollow = followPlayback((note) => {
     refreshPlayButton();
+    if (isPaper()) { followOnPaper(note); return; }
     const next = note && view?.noteheadFor ? view.noteheadFor(note) : null;
     if (next === sounding) return;
     clearSounding();
@@ -5603,6 +5675,7 @@ export function close() {
   unfollow?.();
   unfollow = null;
   clearSounding();
+  soundingMark = -1;   // …and the lit ring on a scan, which is not an element
   view?.destroy?.();
   view = null;
   paper?.destroy?.();

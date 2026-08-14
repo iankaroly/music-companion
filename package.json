@@ -13,7 +13,7 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/a11y-prefs-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/scan-playback-check.mjs && node tools/a11y-prefs-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
@@ -31,7 +31,8 @@
     "score:probe": "node tools/scan-probe.mjs",
     "reader:targets": "node tools/reader-targets-check.mjs",
     "score:scan": "node tools/scan-analysis-check.mjs",
-    "reader:turns:cold": "node tools/reader-cold-turns.mjs"
+    "reader:turns:cold": "node tools/reader-cold-turns.mjs",
+    "score:playback": "node tools/scan-playback-check.mjs"
   },
   "keywords": [],
   "author": "",
