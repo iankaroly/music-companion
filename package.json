@@ -26,7 +26,9 @@
     "reader:drag": "node tools/reader-drag-check.mjs",
     "audio:route": "node tools/audio-route-check.mjs",
     "reader:stamp": "node tools/reader-stamp-check.mjs",
-    "reader:taps": "node tools/reader-taps-check.mjs"
+    "reader:taps": "node tools/reader-taps-check.mjs",
+    "score:flow": "node tools/score-flow-check.mjs",
+    "score:probe": "node tools/scan-probe.mjs"
   },
   "keywords": [],
   "author": "",
