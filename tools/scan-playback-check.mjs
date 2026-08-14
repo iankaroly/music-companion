@@ -73,12 +73,15 @@ const built = await page.evaluate(async () => {
         g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);
       }
     }
-    return c.toDataURL('image/png');
+    // A Blob, not a data URL. readableImage decodes Blobs; handed a string it
+    // falls through to the missing-page placeholder, and every page then reads
+    // as blank grey — which is a harness testing a fiction, not the app.
+    return new Promise((done) => c.toBlob(done, 'image/png'));
   };
   const { savePagesScore, saveRecording, setRecordingScore } = await import('/src/store/db.js');
   const scoreId = await savePagesScore({
     name: 'Played scan', source: 'images', pageCount: 3,
-    pages: [draw(0), draw(1), draw(2)],
+    pages: [await draw(0), await draw(1), await draw(2)],
   });
 
   // Enough notes to run well past the first page's noteheads, spread over a
@@ -112,37 +115,11 @@ const opened = await page.evaluate(async ({ scoreId, recId }) => {
   await selectScore(scoreId);
   const data = await loadRecording(recId);
   await annotateTake(data.notes, { readings: data.readings, a4: data.a4, recordingId: recId });
-  // The reading of the pages is GIVEN rather than performed.
-  //
-  // What is under test is what the reader does with a set of noteheads — pair
-  // them off against a take, light the one being heard, turn to its page — and
-  // that is a different question from whether the page reader can find them in
-  // a photograph. Performing the read here would make this check fail for two
-  // unrelated reasons and never say which. So the layout is written straight
-  // in, at the places the pages were drawn, and the reader is handed a part it
-  // has already been told about.
-  const { saveScoreLayout } = await import('/src/store/db.js');
-  const SYSTEMS = 5;
-  const HEADS = 8;
-  const layout = [0, 1, 2].map(() => ({
-    space: 13 / 1500,
-    staves: Array.from({ length: SYSTEMS }, (_, sys) => {
-      const top = (180 + sys * 260) / 1500;
-      const space = 13 / 1500;
-      return {
-        lines: Array.from({ length: 5 }, (_, l) => [top + l * space, top + l * space]),
-        space,
-        top: top - space * 0.5,
-        bottom: top + space * 4.5,
-        bars: [100 / 1100, 400 / 1100, 700 / 1100, 1000 / 1100],
-        heads: Array.from({ length: HEADS }, (_, i) => ({
-          x: (160 + i * 105) / 1100,
-          y: top + ((i % 5) * space) / 2 + space,
-        })),
-      };
-    }),
-  }));
-  await saveScoreLayout(scoreId, layout, null);
+  // The pages are READ for real — noteheads found in the pixels, not handed in.
+  // Now that they are stored as Blobs the pass has something to look at, and
+  // this is the pipeline a player actually gets.
+  const { measurePages } = await import('/src/ui/score.js');
+  await measurePages(scoreId);
   await readCurrentScore();
   await new Promise((r) => setTimeout(r, 1200));
   const { loadScorePages } = await import('/src/store/db.js');

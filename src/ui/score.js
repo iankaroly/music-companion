@@ -15,6 +15,7 @@ import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { rhythmReport } from '../analysis/rhythm.js';
 import { showScore, paint } from './score-view.js';
+import { showScanScore } from './scan-view.js';
 import { openReader } from './reader.js';
 import { intonationBounds } from './chart-utils.js';
 import { takeStats } from '../analysis/score-history.js';
@@ -692,17 +693,47 @@ function showScanReview(analysis) {
   // #score-sheet, which is in the Record card an inch under the hint. So this
   // does the same thing, and keeps the Score tab's copy for the player who
   // arrives from that side.
+  // The Record card keeps a way through to the review, on the same screen as
+  // the sentence about it — see the note on that bug below. What it is NOT any
+  // more is the way to the full-screen reader: being thrown onto a music stand
+  // the moment you stop recording is the app deciding you have finished
+  // thinking about the take. The page is in the review now, under the
+  // transport, with the graph beside it; the stand is a second choice for when
+  // you want to play FROM it.
+  //
+  // (The bug that put this here: #score-hint, the line telling you to open the
+  // score, lives in the Record tab's card, where you are standing when you
+  // press Stop. The only button that did it lived in the Score tab's review
+  // card, a tab switch away with nothing to suggest it had anything on it.)
   const sheet = el('score-sheet');
   if (sheet) {
-    sheet.replaceChildren(openScoreButton(), scanGapNote());
+    sheet.replaceChildren(reviewButton(), fullScreenLink(), scanGapNote());
     sheet.hidden = false;
   }
-  const stage = el('score-stage');
-  if (stage) stage.replaceChildren(openScoreButton(), scanGapNote());
 
   const tempo = el('score-tempo-row');
   if (tempo) tempo.hidden = true;    // there is no written tempo to play against
   showReviewCard(true);
+}
+
+// Through to the review, which is where the page now is.
+function reviewButton() {
+  const button = document.createElement('button');
+  button.className = 'ctl primary';
+  button.type = 'button';
+  button.textContent = 'See it on the score →';
+  button.addEventListener('click', () => openTab?.());
+  return button;
+}
+
+// …and the stand, for playing from rather than looking at.
+function fullScreenLink() {
+  const button = document.createElement('button');
+  button.className = 'ctl';
+  button.type = 'button';
+  button.textContent = 'Full screen';
+  button.addEventListener('click', () => readCurrentScore());
+  return button;
 }
 
 // Called on Stop, and when a saved take is reopened.
@@ -733,7 +764,14 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
       takeDate: Date.now(),
     };
     showScanReview(analysis);
-    status(`${current.name} — ${scanSummary(analysis)} Open the score to see it on the page.`);
+    status(`${current.name} — ${scanSummary(analysis)}`);
+    // Drawn now if the player is already on the Score tab, exactly as a take
+    // against notation is: waiting for a tab switch that may never come leaves
+    // somebody looking at last week's page.
+    if (scoreTabIsShowing()) {
+      borrowPanel();
+      await renderScoreTab();
+    }
     return { plain: true, annotated: true };
   }
   const sheet = el('score-sheet');
@@ -797,18 +835,119 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   return { aligned, timing, annotated: true };
 }
 
+// The scanned page, in the review, with everything on it live.
+//
+// Everything the engraved review does, done against a photograph: the note
+// being heard lights up, any note can be pressed for the drone and the
+// close-up, and the transport and the zoomed graph are the same borrowed
+// controls sitting under it. The one thing it cannot say is whether a note was
+// the note that was WRITTEN, which is the only half of this that ever needed
+// the notation.
+async function renderScanTab() {
+  // Finish reading the pages FIRST, because this is the moment to.
+  //
+  // This is the "it only marked five of my hundred notes" bug. The reading
+  // pass stands aside whenever the player is doing anything — which is right,
+  // a page turn must never wait on it — and importing a part and recording
+  // straight away is doing something continuously. So the pass gets a page or
+  // two in and then politely waits, and the take is paired against the handful
+  // of noteheads that happened to be found: `Math.min(heads, played)` quietly
+  // throws the rest of the take away and nothing anywhere says so.
+  //
+  // A review is the one moment nobody is playing. Nothing is standing aside
+  // for here, so the reading is finished now, at full speed, and the take is
+  // paired against the whole part rather than against however much of it the
+  // pass had managed between page turns.
+  let payload = await loadScorePages(current.id).catch(() => null);
+  if (!payload) return null;
+  const pageCount = payload.layout?.length ?? payload.pages?.length ?? payload.pageCount ?? 0;
+  const readSoFar = (payload.layout ?? []).filter(Boolean).length;
+  if (pageCount && readSoFar < pageCount) {
+    // No `standAside` handed over on purpose: that argument is the reader's,
+    // for keeping a page turn instant, and there are no page turns here. The
+    // pass narrates its own progress.
+    await measurePages(current.id).catch(() => {});
+    payload = await loadScorePages(current.id).catch(() => payload);
+    status(`${current.name} — ${ready.summary}`);
+  }
+  const page = document.createElement('div');
+  const stage = mountScore(page, ready.summary);
+  if (!stage) return null;
+
+  try {
+    view = await showScanScore(page, {
+      payload,
+      layout: payload.layout,
+      notes: ready.played,
+      // The same one path the engraved page uses — see the note there about
+      // running the whole selection twice.
+      onPickNote: (note) => onPick?.(note),
+    });
+  } catch (err) {
+    view = null;
+    stage.replaceChildren();
+    status(`could not lay the pages out: ${err.message}`, 'bad');
+    return null;
+  }
+  if (!view) {
+    // No noteheads means the pages have not been read yet, or could not be.
+    // Said plainly, with the thing that fixes it, rather than an empty box.
+    stage.replaceChildren(scanUnreadNote(payload));
+    return null;
+  }
+
+  // How much of the take actually landed on a notehead. Never silent: with a
+  // drone and a close-up behind every ring, a pairing that has slipped is
+  // making specific claims about specific notes.
+  const { pairing } = view;
+  if (pairing.unmarked > 0 || pairing.spare > 0) {
+    const line = el('score-tab-summary');
+    if (line) {
+      const extra = document.createElement('small');
+      extra.className = 'scan-pairing';
+      extra.textContent = pairing.unmarked > 0
+        ? ` ${pairing.played} notes played, ${pairing.heads} noteheads found on the pages read`
+          + ` — the last ${pairing.unmarked} are not on the page.`
+        : ` ${pairing.played} notes played onto ${pairing.heads} noteheads, in the order you played them.`;
+      line.append(extra);
+    }
+  }
+
+  follow(view.noteheadFor);
+  // The dock holds the transport and the close-up, and it hides itself when
+  // there is no take to control. A scan take is a take: without this the page
+  // came up with every note clickable and nothing to play them with.
+  syncDockVisibility();
+  return view;
+}
+
+// Why there is nothing to press, and what to do about it.
+function scanUnreadNote(payload) {
+  const read = (payload?.layout ?? []).filter(Boolean).length;
+  const total = payload?.layout?.length ?? payload?.pages?.length ?? 0;
+  const note = document.createElement('p');
+  note.className = 'score-scan-gap';
+  note.textContent = read === 0
+    ? 'The pages have not been read yet — that happens in the background while'
+      + ' the score is open and idle, so open it once and leave it a moment.'
+    : `Only ${read} of ${total} pages have been read so far, and no noteheads`
+      + ' were found on them. Opening the score and leaving it idle lets the'
+      + ' reading finish.';
+  return note;
+}
+
 // Engrave and mark up the page. Called the first time the Score tab is shown,
 // because only then does its panel have a width to lay the music out to.
 export async function renderScoreTab() {
   if (!current || !ready) return null;
-  // A scan is not engraved and never will be: what it has is a photograph, and
-  // the take goes onto that photograph in the reader rather than onto a page
-  // this function would have to draw. There is no MusicXML behind it to draw
-  // one FROM — `current.parsed` is not there — so this is not a degraded
-  // rendering, it is the wrong function for the job. The card's own button is
-  // what leads to the page.
-  if (ready.plain) return null;
   if (view) return view; // already drawn for this take
+  // A scan gets the photograph, with the same things live on it.
+  //
+  // Drawn HERE rather than when the take arrives, for the reason this whole
+  // function exists: an inactive tab panel is display:none, so anything
+  // measured inside one measures zero and the page lays itself out to a width
+  // that does not exist.
+  if (ready.plain) return renderScanTab();
 
   const page = document.createElement('div');
   const stage = mountScore(page, ready.summary);

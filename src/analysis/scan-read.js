@@ -374,9 +374,32 @@ function findHeads(ink, w, h, staff, space) {
   const hw = Math.max(2, Math.round(space * 0.62));
   const hh = Math.max(2, Math.round(space * 0.45));
   const inside = [];
+  // …and the two halves of that same ellipse, for the OTHER kind of notehead.
+  //
+  // A minim and a semibreve are rings. The test below asks for an ellipse that
+  // is 86% inked, which a ring is not — it is ink around a hole — so every
+  // white notehead on the page scored zero and was never a candidate. On a
+  // slow movement that is not a few notes missed, it is ALL of them: a page of
+  // minims read as a page with no notes on it, and a take against it paired
+  // with nothing.
+  //
+  // So a head is now either solid or a ring: ink around the rim, paper in the
+  // middle. The rim is generous (the stroke of an engraved head is thin and a
+  // photograph blurs it) and the middle is strict, because "dark rim, dark
+  // centre" is a solid head and already has a test of its own.
+  const rim = [];
+  const core = [];
   for (let dy = -hh; dy <= hh; dy++) {
     for (let dx = -hw; dx <= hw; dx++) {
-      if ((dx / hw) ** 2 + (dy / hh) ** 2 <= 1) inside.push([dx, dy]);
+      const d = (dx / hw) ** 2 + (dy / hh) ** 2;
+      if (d <= 1) inside.push([dx, dy]);
+      // The band the DRAWN LINE of a ring actually occupies, which straddles
+      // the ellipse rather than sitting inside it: a stroke is centred on the
+      // path, so half of it lies outside d = 1. Sampling only within the head
+      // meant most of the band was the paper inside the ring, the rim scored
+      // about a third, and no minim ever passed.
+      if (d >= 0.62 && d <= 1.3) rim.push([dx, dy]);
+      if (d <= 0.25) core.push([dx, dy]);
     }
   }
   const ring = [];
@@ -390,11 +413,42 @@ function findHeads(ink, w, h, staff, space) {
   const scored = [];
   for (let y = top; y <= bottom; y++) {
     for (let x = hw + 1; x < w - hw - 1; x++) {
-      if (!ink[y * w + x]) continue;
+      // Where a head could be centred.
+      //
+      // This asked only whether the pixel itself was inked, which is the one
+      // thing that is never true of a ring: the middle of a minim is paper.
+      // So a hollow head was rejected before any test of it ran, and no
+      // widening of those tests could ever have found one.
+      //
+      // Two more lookups let a clear pixel stay in the running — ink to the
+      // left AND to the right at the head's own width, which is what the
+      // inside of a ring looks like and what almost nothing else does. It is
+      // two array reads on the pixels that used to be skipped outright, and it
+      // is the whole of the extra cost.
+      const solidCentre = ink[y * w + x];
+      if (!solidCentre && !(ink[y * w + x - hw] && ink[y * w + x + hw])) continue;
       let filled = 0;
       for (const [dx, dy] of inside) filled += ink[(y + dy) * w + x + dx];
       const fill = filled / inside.length;
-      if (fill < 0.86) continue;
+      // Solid, or a ring. A ring wants ink round the rim and paper inside it;
+      // the centre test is what keeps this from accepting a solid head twice
+      // and, more importantly, from accepting the inside of a slur or the gap
+      // in a beam, which are dark all through or light all through.
+      let solid = fill >= 0.86;
+      let hollow = false;
+      if (!solid && fill >= 0.3 && fill <= 0.82) {
+        let rimInk = 0;
+        for (const [dx, dy] of rim) rimInk += ink[(y + dy) * w + x + dx];
+        let coreInk = 0;
+        for (const [dx, dy] of core) coreInk += ink[(y + dy) * w + x + dx];
+        // The centre is allowed to be a little inky, because half the minims
+        // on any page sit ON a line and that line runs straight through the
+        // middle of them. A staff line is thin, so it costs the core a small
+        // fraction; a solid head fills it completely and is caught by the
+        // solid test long before this one.
+        hollow = (rimInk / rim.length) >= 0.68 && (coreInk / core.length) <= 0.42;
+      }
+      if (!solid && !hollow) continue;
       let clear = 0;
       for (const [dx, dy] of ring) {
         const yy = y + dy;
@@ -402,7 +456,12 @@ function findHeads(ink, w, h, staff, space) {
       }
       const open = clear / ring.length;
       if (open < 0.45) continue;
-      scored.push({ x, y, score: fill + open });
+      // A solid head keeps its old score exactly, so nothing about which
+      // solid candidate wins a cluster changes. A ring is scored by how well
+      // it IS a ring rather than by how dark it is, or a fat one would always
+      // lose to the smudge beside it.
+      const quality = solid ? fill : 0.86;
+      scored.push({ x, y, score: quality + open, hollow });
     }
   }
   scored.sort((a, b) => b.score - a.score);

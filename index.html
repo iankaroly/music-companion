@@ -1174,6 +1174,61 @@
     #score-stage .sounding, #reader .sounding {
       filter: drop-shadow(0 0 3px var(--primary)) drop-shadow(0 0 7px var(--primary));
     }
+
+    /* --- a photograph, with every note on it live -------------------------
+       The engraved review hands out SVG noteheads: elements, so they can be
+       clicked, lit and scrolled to. A scan has none — it is pixels — so the
+       page reader's positions are turned into real buttons laid over the
+       picture. From here down the rest of the app cannot tell the difference,
+       which is the point: follow(), .sounding, the note options and the
+       borrowed transport all work without knowing which kind of score they
+       are looking at. */
+    .scan-score { display: grid; gap: 0.8rem; }
+    .scan-page {
+      position: relative;
+      line-height: 0;                 /* no gap under the canvas */
+      border-radius: 0.6rem;
+      overflow: hidden;
+      background: #fff;
+      box-shadow: 0 1px 3px rgb(var(--sh) / 0.12);
+    }
+    .scan-page canvas { width: 100%; height: auto; display: block; }
+    /* The marks sit in the same box as the picture and are placed in
+       fractions of it, so they cannot drift from the music at any width. */
+    .scan-marks { position: absolute; inset: 0; }
+    .scan-note {
+      position: absolute;
+      --ring: 3%;
+      width: var(--ring);
+      aspect-ratio: 1.3;
+      transform: translate(-50%, -50%);
+      /* At least a finger, whatever the page is being shown at: a notehead on
+         a page scaled to a phone is two millimetres across, and this is a
+         control. The ring you SEE is the border; the target is the box. */
+      min-width: 22px;
+      min-height: 22px;
+      padding: 0;
+      border-radius: 50%;
+      border: 2px solid currentColor;
+      background: none;
+      cursor: pointer;
+      color: var(--muted);
+      transition: background 120ms, color 120ms;
+    }
+    .scan-note[data-tone="good"] { color: var(--good); }
+    .scan-note[data-tone="sharp"] { color: var(--sharp); }
+    .scan-note[data-tone="flat"] { color: var(--flat); }
+    .scan-note:hover, .scan-note:focus-visible { background: rgb(var(--on-surface) / 0.08); }
+    .scan-note:active { transform: translate(-50%, -50%) scale(0.92); }
+    /* Lit by WEIGHT and a halo rather than by colour: the ring is already
+       saying how the note landed, and a light that recoloured it would be two
+       facts fighting over one mark. */
+    .scan-note.sounding {
+      border-width: 3px;
+      background: color-mix(in srgb, currentColor 22%, transparent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 28%, transparent);
+    }
+    .scan-pairing { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 0.25rem; }
     /* The light that follows the playback keeps its colour in the dark.
        Night mode inverts the whole sheet to get white notes on black, and the
        lit notehead is IN the sheet, so its blue glow came out the complement of

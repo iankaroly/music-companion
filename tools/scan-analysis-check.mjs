@@ -71,12 +71,15 @@ const built = await page.evaluate(async () => {
         g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);   // a stem
       }
     }
-    return c.toDataURL('image/png');
+    // A Blob, not a data URL. readableImage decodes Blobs; handed a string it
+    // falls through to the missing-page placeholder, and every page then reads
+    // as blank grey — which is a harness testing a fiction, not the app.
+    return new Promise((done) => c.toBlob(done, 'image/png'));
   };
 
   const { savePagesScore, saveRecording, setRecordingScore, listScores } = await import('/src/store/db.js');
   const scoreId = await savePagesScore({
-    name: 'Scanned part', source: 'images', pageCount: 1, pages: [draw()],
+    name: 'Scanned part', source: 'images', pageCount: 1, pages: [await draw()],
   });
 
   // A take: eight notes with pitch and timing, the shape the app stores.
@@ -136,7 +139,7 @@ const reopened = await page.evaluate(async (recId) => {
     // hidden ancestor, which is what "there is no option to open it" means
     // from the outside.
     ways: [...document.querySelectorAll('button')]
-      .filter((b) => /open the score/i.test(b.textContent ?? ''))
+      .filter((b) => /see it on the score|full screen/i.test(b.textContent ?? ''))
       .map((b) => ({
         shown: b.offsetParent !== null && b.getBoundingClientRect().height > 0,
         // Which card it is in — the Record tab's score card, or the Score
@@ -147,7 +150,7 @@ const reopened = await page.evaluate(async (recId) => {
     // The instruction itself, and where it is.
     hintShown: (() => {
       const h = document.querySelector('#score-hint');
-      return !!h && h.offsetParent !== null && /open the score/i.test(h.textContent ?? '');
+      return !!h && h.offsetParent !== null && h.textContent.trim().length > 0;
     })(),
   };
 }, built.recId);
@@ -178,7 +181,7 @@ const onRecordTab = await page.evaluate(async () => {
   document.querySelector('.tab-btn[data-tab="analyze"]')?.click();
   await new Promise((r) => setTimeout(r, 700));
   const seen = [...document.querySelectorAll('button')]
-    .filter((b) => /open the score/i.test(b.textContent ?? ''))
+    .filter((b) => /see it on the score|full screen/i.test(b.textContent ?? ''))
     .map((b) => ({
       shown: b.offsetParent !== null && b.getBoundingClientRect().height > 0,
       where: b.closest('#score-sheet') ? 'record-card'
@@ -187,7 +190,7 @@ const onRecordTab = await page.evaluate(async () => {
   const hint = document.querySelector('#score-hint');
   return {
     ways: seen,
-    hintShown: !!hint && hint.offsetParent !== null && /open the score/i.test(hint.textContent ?? ''),
+    hintShown: !!hint && hint.offsetParent !== null && hint.textContent.trim().length > 0,
   };
 });
 reopened.ways = onRecordTab.ways;
