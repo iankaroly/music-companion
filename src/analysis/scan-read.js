@@ -140,6 +140,63 @@ export function combPeaks(profile, pitch, { floor = 0.3, apart = 4.2 } = {}) {
   return kept.sort((a, b) => a.y0 - b.y0);
 }
 
+// Link the per-strip combs across the page into staves.
+//
+// A stave moves slowly: a photographed page sags a few pixels from edge to
+// edge, never a few pixels from one strip to the next. So each curve claims the
+// nearest comb in the next strip, and is allowed to go missing for three strips
+// before it is given up on — a beamed run can hide a stave's lines for that
+// long, and the curve should survive it rather than start again as a second
+// stave a third of the way across.
+//
+// Crossing half the page is what a stave has to do that a chance answer in one
+// corner does not. Gaps are then filled by interpolating between the strips
+// that did answer, so every stave has a value everywhere and nothing
+// downstream has to ask whether this strip was measured or inferred.
+export function trackCombs(perStrip, pitch, { drift = 0.6, cross = 0.5 } = {}) {
+  const strips = perStrip.length;
+  const curves = [];
+  for (let s = 0; s < strips; s++) {
+    const taken = new Set();
+    for (const curve of curves) {
+      if (curve.last < s - 3) continue;
+      let best = null;
+      let gap = Math.max(2, pitch * drift);
+      for (const c of perStrip[s]) {
+        if (taken.has(c)) continue;
+        const d = Math.abs(c.y0 - curve.y0);
+        if (d < gap) { gap = d; best = c; }
+      }
+      if (!best) continue;
+      taken.add(best);
+      curve.points.push([s, best.y0, best.step]);
+      curve.y0 = best.y0;
+      curve.last = s;
+    }
+    for (const c of perStrip[s]) {
+      if (taken.has(c)) continue;
+      curves.push({ points: [[s, c.y0, c.step]], y0: c.y0, last: s });
+    }
+  }
+  return curves
+    .filter((c) => c.points.length >= strips * cross)
+    .map((c) => {
+      const y0 = new Float32Array(strips);
+      const step = new Float32Array(strips);
+      let k = 0;
+      for (let s = 0; s < strips; s++) {
+        while (k + 1 < c.points.length && c.points[k + 1][0] <= s) k++;
+        const [sa, ya, sta] = c.points[k];
+        const next = c.points[k + 1];
+        const t = next ? (s - sa) / (next[0] - sa) : 0;
+        y0[s] = next ? ya + (next[1] - ya) * t : ya;
+        step[s] = next ? sta + (next[2] - sta) * t : sta;
+      }
+      return { y0, step };
+    })
+    .sort((a, b) => a.y0[0] - b.y0[0]);
+}
+
 function stripPeaks(ink, w, h, strip, stripW, thickness) {
   const x0 = strip * stripW;
   const x1 = Math.min(w, x0 + stripW);

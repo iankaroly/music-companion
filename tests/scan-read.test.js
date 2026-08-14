@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { combScore, combPeaks } from '../src/analysis/scan-read.js';
+import { combScore, combPeaks, trackCombs } from '../src/analysis/scan-read.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
 // are inked. A stave is five inked rows with clear gaps between them.
@@ -89,5 +89,46 @@ describe('combPeaks', () => {
     // different place in every strip — which is why trackCombs makes a stave
     // cross half the page before it believes in it.
     for (const c of combPeaks(noise(0.6), 12)) expect(c.score).toBeLessThan(0.6);
+  });
+});
+
+// One stave, sagging gently across the page the way a photographed one does.
+function sagging(strips = 40, from = 100, drop = 8) {
+  return Array.from({ length: strips }, (_, s) => [
+    { y0: from + (drop * s) / strips, step: 12, score: 1 },
+  ]);
+}
+
+describe('trackCombs', () => {
+  test('a stave that crosses the page is one stave, sampled per strip', () => {
+    const staves = trackCombs(sagging(), 12);
+    expect(staves).toHaveLength(1);
+    expect(staves[0].y0).toHaveLength(40);
+    expect(staves[0].y0[0]).toBeCloseTo(100, 1);
+    expect(staves[0].y0[39]).toBeCloseTo(107.8, 1);
+  });
+
+  test('a gap of a few strips is carried across, not a second stave', () => {
+    const perStrip = sagging();
+    perStrip[10] = [];
+    perStrip[11] = [];
+    const staves = trackCombs(perStrip, 12);
+    expect(staves).toHaveLength(1);
+    expect(staves[0].y0[10]).toBeGreaterThan(100);
+    expect(staves[0].y0[10]).toBeLessThan(108);
+  });
+
+  test('something that answers in a corner only is not a stave', () => {
+    const perStrip = sagging();
+    for (let s = 0; s < 5; s++) perStrip[s] = [...perStrip[s], { y0: 300, step: 12, score: 1 }];
+    const staves = trackCombs(perStrip, 12);
+    expect(staves).toHaveLength(1);
+  });
+
+  test('two staves stay two staves, top first', () => {
+    const perStrip = sagging().map((c, s) => [...c, { y0: 300 + s * 0.1, step: 12, score: 1 }]);
+    const staves = trackCombs(perStrip, 12);
+    expect(staves).toHaveLength(2);
+    expect(staves[0].y0[0]).toBeLessThan(staves[1].y0[0]);
   });
 });
