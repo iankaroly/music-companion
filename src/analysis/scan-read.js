@@ -85,6 +85,30 @@ function pageScale(ink, w, h) {
   return { thickness, space, pitch: space + thickness };
 }
 
+// How much like a stave is this?
+//
+// The first reader hunted each of the five lines on its own — "is more than
+// half this strip inked at this row" — and on a photographed book page one line
+// in five routinely fails that test. Four lines is not a stave, so whole
+// systems vanished: on the page this was rebuilt against it found two of ten.
+//
+// A comb asks a different question. It scores the five rows a stave would
+// occupy MINUS the four rows halfway between them, so it answers only where
+// there is a five-line GRID and not merely ink. The four lines that are clear
+// vote for the one that is faint, and the negative lobes are what stop a beam,
+// a black chord or the edge of the page from answering at all.
+export function combScore(profile, y0, step) {
+  let on = 0;
+  let off = 0;
+  for (let k = 0; k < 5; k++) {
+    const y = Math.round(y0 + k * step);
+    if (y < 0 || y >= profile.length) return -1;
+    on += profile[y];
+    if (k < 4) off += profile[Math.round(y0 + (k + 0.5) * step)];
+  }
+  return on / 5 - off / 4;
+}
+
 function stripPeaks(ink, w, h, strip, stripW, thickness) {
   const x0 = strip * stripW;
   const x1 = Math.min(w, x0 + stripW);
