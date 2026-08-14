@@ -109,6 +109,37 @@ export function combScore(profile, y0, step) {
   return on / 5 - off / 4;
 }
 
+// Every stave in one vertical strip of the page.
+//
+// The spacing is refined per peak rather than taken from the page average: a
+// photographed page is not flat, and a system at the foot of it can sit a
+// fraction of a pixel per line wider than one at the top.
+//
+// `apart` is deliberately wider than a stave is tall. A comb will happily lock
+// onto four real lines plus a ledger line a few spaces below and report a
+// second stave that does not exist; suppressing anything within four pitches
+// of a stronger answer is what stopped that on the page this was built against
+// — twenty staves found where there are ten.
+export function combPeaks(profile, pitch, { floor = 0.3, apart = 4.2 } = {}) {
+  const found = [];
+  for (let y0 = 0; y0 + 4 * pitch < profile.length; y0++) {
+    let best = -1;
+    let bestStep = pitch;
+    for (let step = pitch - 1.5; step <= pitch + 1.5; step += 0.25) {
+      const v = combScore(profile, y0, step);
+      if (v > best) { best = v; bestStep = step; }
+    }
+    if (best >= floor) found.push({ y0, step: bestStep, score: best });
+  }
+  found.sort((a, b) => b.score - a.score);
+  const kept = [];
+  for (const c of found) {
+    if (kept.some((k) => Math.abs(k.y0 - c.y0) < pitch * apart)) continue;
+    kept.push(c);
+  }
+  return kept.sort((a, b) => a.y0 - b.y0);
+}
+
 function stripPeaks(ink, w, h, strip, stripW, thickness) {
   const x0 = strip * stripW;
   const x1 = Math.min(w, x0 + stripW);
