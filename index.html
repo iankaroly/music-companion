@@ -1110,6 +1110,31 @@
       justify-content: center;
       gap: 0.5rem;
     }
+    /* The half of the analysis a photograph cannot do, said next to the thing
+       that would fix it. Quiet — it is a footnote on a take that mostly worked,
+       not a warning about one that did not. */
+    .score-scan-gap {
+      max-width: 30rem;
+      margin: 0.9rem auto 0;
+      color: var(--muted);
+      font-size: 0.8rem;
+      line-height: 1.55;
+      text-align: center;
+      text-wrap: pretty;
+    }
+    .linkish {
+      appearance: none;
+      border: 0;
+      padding: 0;
+      background: none;
+      font: inherit;
+      color: var(--primary);
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+    .linkish:active { opacity: 0.6; }
     #score-expand {
       flex: none;
       display: grid;

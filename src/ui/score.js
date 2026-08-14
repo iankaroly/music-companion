@@ -13,6 +13,7 @@ import { readScoreFile } from '../analysis/mxl.js';
 import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
+import { rhythmReport } from '../analysis/rhythm.js';
 import { showScore, paint } from './score-view.js';
 import { openReader } from './reader.js';
 import { intonationBounds } from './chart-utils.js';
@@ -161,13 +162,18 @@ async function chooseScore(id) {
       // the notes come from the notation paired with it.
       const notation = row.notationId != null ? await loadScore(row.notationId) : null;
       if (!notation?.xml) {
-        // A scan with no notation behind it is no longer a dead end. It cannot
-        // be told which note is WRITTEN — that is optical music recognition and
-        // it does not run in a browser — but the page has been read for where
-        // its noteheads are, and how in tune you played comes from the audio.
-        // So the take attaches to the piece and is marked onto the photograph;
-        // only "you played the wrong note" is missing, and the offer to add
-        // notation and get that too stays on the card.
+        // A scan with no notation behind it is not a dead end. The page IS
+        // read — staves, bars and where every notehead sits — which is what
+        // marks a take onto the photograph. What is not read is what those
+        // noteheads SAY: that needs clefs, key signatures and accidentals off
+        // the paper, and none of that is attempted here. (The older note in
+        // this spot said optical music recognition "does not run in a browser".
+        // Half of it does now, in analysis/scan-read.js; it is the pitch half
+        // that is missing, which is a different and more honest sentence.)
+        //
+        // So the take gets everything the SOUND can support — see
+        // analyseScanTake — and only "you played the wrong note" is absent,
+        // with the offer to add notation and get that too on the card.
         current = { ...row, paper: row, notes: [], plain: true };
         unpaired = row;
         showReviewCard(false);
@@ -582,20 +588,67 @@ function legend(sheet) {
 
 // The review for a scanned score: no marked-up engraving, because there is no
 // engraving — a sentence about the take, and the page it belongs on.
-function showScanReview(notes) {
-  const played = notes ?? [];
+// What a take against a scan can honestly be told about itself.
+//
+// Everything here comes out of the AUDIO. Nothing in it needs to know which
+// note was written, which is the whole reason it can exist for a photograph of
+// a page: how far from centre each note sat, how each one spoke as it started,
+// and whether your own pulse held. `rhythmReport` infers the beat from the
+// onsets you actually played rather than from a written tempo, and `noteLanding`
+// reads the shape of a single note out of the raw pitch trace.
+//
+// The one thing missing is the one thing that genuinely needs the notation:
+// whether the note you played is the note that was printed. The page reader
+// finds where the noteheads ARE — that is what marks a take onto the scan — but
+// not what they say, which needs clefs, key signatures and accidentals read off
+// the paper. So it is stated rather than quietly left out. A report with a
+// silent hole in it reads as broken; one that says what it does not know reads
+// as honest, and the way to fill the hole is one row away.
+function analyseScanTake(notes, readings, a4) {
+  const played = (notes ?? []).filter((n) => Number.isFinite(n?.midi));
+  if (!played.length) return null;
+
+  const landings = new Map();
+  if (readings?.length) {
+    for (const [i, note] of played.entries()) {
+      const landing = noteLanding(note, readings, a4);
+      if (landing) landings.set(i, landing);
+    }
+  }
+
+  const cents = played.map((n) => Math.abs(n.cents ?? 0));
+  const off = cents.reduce((sum, c) => sum + c, 0) / cents.length;
+  const tight = cents.filter((c) => c <= intonationBounds().good).length;
+
+  // The pulse you kept, worked out from your own onsets. A scan has no written
+  // tempo to be judged against, and that is not the same as having no timing:
+  // evenness is a property of the playing.
+  let rhythm = null;
+  try { rhythm = rhythmReport(played); } catch { /* a take with no usable pulse */ }
+
+  return { played, landings, rhythm, off, tight, count: played.length };
+}
+
+function scanSummary(analysis) {
+  if (!analysis) return 'Nothing was heard in that take.';
+  const { count, off, tight, rhythm } = analysis;
+  const parts = [`${tight} of ${count} ${count === 1 ? 'note' : 'notes'} landed in tune`];
+  parts.push(`${off.toFixed(1)}¢ from centre on average`);
+  if (Number.isFinite(rhythm?.bpm)) {
+    parts.push(`your own pulse ran about ${Math.round(rhythm.bpm)}`);
+  }
+  if (Number.isFinite(rhythm?.evenness)) {
+    parts.push(`${Math.round(rhythm.evenness * 100)}% even`);
+  }
+  return `${parts.join(', ')}.`;
+}
+
+function showScanReview(analysis) {
   const title = el('score-review-title');
   if (title) title.textContent = current.name ?? '';
   const summary = el('score-tab-summary');
-  if (summary) {
-    const off = played.length
-      ? played.reduce((sum, n) => sum + Math.abs(n.cents ?? 0), 0) / played.length
-      : 0;
-    summary.textContent = played.length
-      ? `${played.length} ${played.length === 1 ? 'note' : 'notes'}, `
-        + `${off.toFixed(1)}¢ from centre on average. Open the score to see them on the page.`
-      : 'Nothing was heard in that take.';
-  }
+  if (summary) summary.textContent = scanSummary(analysis);
+
   const stage = el('score-stage');
   if (stage) {
     const open = document.createElement('button');
@@ -603,7 +656,23 @@ function showScanReview(notes) {
     open.type = 'button';
     open.textContent = 'Open the score →';
     open.addEventListener('click', () => readCurrentScore());
-    stage.replaceChildren(open);
+
+    // Said out loud, and next to the thing that would fix it. This is the only
+    // part of the analysis a scan cannot do, and a player who does not know
+    // that is a player who thinks the app looked at their notes and had no
+    // opinion about them.
+    const gap = document.createElement('p');
+    gap.className = 'score-scan-gap';
+    gap.textContent = 'Read from the sound: intonation, how each note spoke, and'
+      + ' your own pulse. Whether you played the written note needs the notation —';
+    const add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'linkish';
+    add.textContent = 'add its MusicXML';
+    add.addEventListener('click', () => el('score-pair')?.click());
+    gap.append(' ', add, '.');
+
+    stage.replaceChildren(open, gap);
   }
   const tempo = el('score-tempo-row');
   if (tempo) tempo.hidden = true;    // there is no written tempo to play against
@@ -618,12 +687,28 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   // is aligned. The take is remembered, and the reader draws what the audio
   // proved onto the noteheads the page reader found.
   if (current.plain) {
-    // A scan has nothing to line the take up against, but it does have a page
-    // with noteheads on it — so the Score tab says what was played and offers
-    // the page, rather than leaving the take looking like it went nowhere.
-    showScanReview(notes);
-    status(`${current.name} — open the score to see your playing on the page.`);
-    return null;
+    // A scan has nothing to line the take up AGAINST, and for a long time that
+    // was taken to mean it had nothing to say about the take at all — a note
+    // count and an average, and the rest of the analysis simply absent.
+    //
+    // But almost none of that analysis was ever about the notation. Intonation
+    // is the audio. How a note spoke is the audio. Whether your pulse held is
+    // the audio. Only "that was the wrong note" needs to know what was printed.
+    // So the take gets everything the sound can support, it is stamped like any
+    // other take so it can be reopened tomorrow, and the single missing half is
+    // named on the card rather than left as a hole.
+    const analysis = analyseScanTake(notes, readings, a4);
+    ready = {
+      plain: true,
+      played: analysis?.played ?? [],
+      landings: analysis?.landings ?? new Map(),
+      rhythm: analysis?.rhythm ?? null,
+      summary: scanSummary(analysis),
+      takeDate: Date.now(),
+    };
+    showScanReview(analysis);
+    status(`${current.name} — ${scanSummary(analysis)} Open the score to see it on the page.`);
+    return { plain: true, annotated: true };
   }
   const sheet = el('score-sheet');
   if (!sheet) return null;
@@ -690,6 +775,13 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
 // because only then does its panel have a width to lay the music out to.
 export async function renderScoreTab() {
   if (!current || !ready) return null;
+  // A scan is not engraved and never will be: what it has is a photograph, and
+  // the take goes onto that photograph in the reader rather than onto a page
+  // this function would have to draw. There is no MusicXML behind it to draw
+  // one FROM — `current.parsed` is not there — so this is not a degraded
+  // rendering, it is the wrong function for the job. The card's own button is
+  // what leads to the page.
+  if (ready.plain) return null;
   if (view) return view; // already drawn for this take
 
   const page = document.createElement('div');
