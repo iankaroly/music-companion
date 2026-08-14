@@ -36,6 +36,7 @@ import { pageTurn } from './pedal.js';
 import { intonationHue } from './chart-utils.js';
 import { actionMenu, closeAnyPop } from './controls.js';
 import { aidsElement, showAids, hideAids, aidsShowing, stopAids } from './score-aids.js';
+import { tap, readyHaptics } from './haptics.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
   saveBookmarks, saveLinks, saveScoreLayout,
@@ -1281,8 +1282,11 @@ function snapDrawing() {
   drawing.freehand = drawing.points;
   drawing.points = anchored;
   drawing.snapped = true;
-  // A hold that has done its work should feel like it did.
-  navigator.vibrate?.(8);
+  // A hold that has done its work should feel like it did. Said through the
+  // one door now — this used to be a bare navigator.vibrate, which iOS has
+  // never implemented, so the single place the reader answered a gesture with
+  // a feeling was answering it everywhere except on the hardware it is for.
+  tap('snap');
   redraw();
 }
 
@@ -1583,19 +1587,101 @@ function applyZoom() {
   redraw();
 }
 
-// Keep the page overlapping the screen: at any zoom you can push a corner to
-// the middle, and no further. Losing the page off the edge with no way to
-// scroll it back would be a dead end.
-function clampPan() {
+// How far past a boundary a thing follows before it stops following.
+//
+// A hard stop is the one thing in this reader that could be mistaken for the
+// app having crashed: the page freezes under two fingers that are still moving,
+// and there is nothing on screen to say whether that is a limit or a hang.
+// Every other surface on an iPad answers this the same way — it keeps moving,
+// less and less — and that reads as "still listening, nothing more this way",
+// which is a different sentence entirely.
+//
+// Apple's own curve. The `constant` is how quickly the give runs out.
+function rubberband(past, span, constant = 0.55) {
+  if (!span) return 0;
+  return (past * span * constant) / (span + constant * Math.abs(past));
+}
+
+// How far the page may be pushed at this zoom before it is out of bounds. The
+// rule itself has not changed: at any zoom you can push a corner to the middle
+// and no further, or a page could be lost off the edge with no way back.
+function panBounds() {
   const box = currentPage()?.getBoundingClientRect();
-  if (!box) return;
-  const slackX = Math.max(0, (box.width - window.innerWidth) / 2 + window.innerWidth * 0.25);
-  const slackY = Math.max(0, (box.height - window.innerHeight) / 2 + window.innerHeight * 0.25);
-  panX = Math.min(slackX, Math.max(-slackX, panX));
-  panY = Math.min(slackY, Math.max(-slackY, panY));
+  if (!box) return null;
+  return {
+    x: Math.max(0, (box.width - window.innerWidth) / 2 + window.innerWidth * 0.25),
+    y: Math.max(0, (box.height - window.innerHeight) / 2 + window.innerHeight * 0.25),
+  };
+}
+
+function clampPan() {
+  const bound = panBounds();
+  if (!bound) return;
+  panX = Math.min(bound.x, Math.max(-bound.x, panX));
+  panY = Math.min(bound.y, Math.max(-bound.y, panY));
+}
+
+// The same, but with give — used only while two fingers are actually down.
+// The moment they leave, settleZoom takes it back to the real boundary.
+function bandPan() {
+  const bound = panBounds();
+  if (!bound) return;
+  const give = Math.max(120, window.innerWidth * 0.35);
+  if (panX > bound.x) panX = bound.x + rubberband(panX - bound.x, give);
+  else if (panX < -bound.x) panX = -bound.x - rubberband(-bound.x - panX, give);
+  if (panY > bound.y) panY = bound.y + rubberband(panY - bound.y, give);
+  else if (panY < -bound.y) panY = -bound.y - rubberband(-bound.y - panY, give);
+}
+
+// Out of bounds is a state the page may be in only while it is being held.
+//
+// Animated back rather than snapped, and from wherever it actually is rather
+// than from where the pinch thought it was — so a second pinch landing during
+// the settle takes over from the picture on screen instead of fighting it.
+// Interruptible is the whole point: cancelled outright the moment two fingers
+// arm a new pinch.
+let settling = null;
+
+function stopSettle() {
+  if (settling) cancelAnimationFrame(settling);
+  settling = null;
+}
+
+function settleZoom() {
+  stopSettle();
+  const bound = panBounds();
+  const wantZoom = Math.min(ZOOM_LIMIT, Math.max(1, zoom));
+  const wantX = wantZoom === 1 ? 0 : Math.min(bound?.x ?? 0, Math.max(-(bound?.x ?? 0), panX));
+  const wantY = wantZoom === 1 ? 0 : Math.min(bound?.y ?? 0, Math.max(-(bound?.y ?? 0), panY));
+  if (zoom === wantZoom && panX === wantX && panY === wantY) return;
+  const fromZoom = zoom;
+  const fromX = panX;
+  const fromY = panY;
+  const began = performance.now();
+  const RUN = 280;
+  const step = (now) => {
+    const t = Math.min(1, (now - began) / RUN);
+    // Critically damped in feel: fast out of the overshoot, no bounce coming
+    // back. A page of music that springs past its own edge twice is a page
+    // playing with you, and you are trying to read it.
+    const e = 1 - (1 - t) ** 3;
+    zoom = fromZoom + (wantZoom - fromZoom) * e;
+    panX = fromX + (wantX - fromX) * e;
+    panY = fromY + (wantY - fromY) * e;
+    applyZoom();
+    if (t < 1) { settling = requestAnimationFrame(step); return; }
+    settling = null;
+    zoom = wantZoom; panX = wantX; panY = wantY;
+    applyZoom();
+    if (isPaper() && zoom > 1) redrawPaperAtZoom();
+  };
+  settling = requestAnimationFrame(step);
 }
 
 function resetZoom() {
+  // Anything animating its way back to a boundary is answering a gesture that
+  // has just been overruled by a button.
+  stopSettle();
   zoom = 1;
   panX = 0;
   panY = 0;
@@ -2104,6 +2190,10 @@ function trackPointers(root) {
       if (Math.abs(distance - pinch.distance) < PINCH_START) return;
       pinching = true;
       clearTimeout(pinchOver);
+      // A settle still running belongs to the LAST pinch, and this one has the
+      // page now. Cancelled rather than allowed to finish, or the two of them
+      // write to the same transform on alternate frames.
+      stopSettle();
       drawingPointer = null;
       cancelStroke();   // that first finger was not drawing, it was pinching
       // And the chips go away for the duration. `pinching` is what hides them,
@@ -2123,7 +2213,24 @@ function trackPointers(root) {
     }
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
-    zoom = Math.min(ZOOM_LIMIT, Math.max(1, pinch.zoom * (distance / (pinch.distance || 1))));
+    // Past either limit the page keeps growing, less and less, instead of
+    // stopping dead under fingers that are still moving. Done in zoom itself
+    // rather than in pixels, so the give is the same fraction of a page at
+    // both ends. Said ONCE per crossing — the tap is "you have arrived at the
+    // edge", and a tap on every frame of sitting there is a rattle.
+    const asked = pinch.zoom * (distance / (pinch.distance || 1));
+    const wasEdged = pinch.edged ?? false;
+    if (asked > ZOOM_LIMIT) {
+      zoom = ZOOM_LIMIT + rubberband(asked - ZOOM_LIMIT, ZOOM_LIMIT * 0.6);
+      pinch.edged = true;
+    } else if (asked < 1) {
+      zoom = Math.max(0.55, 1 - rubberband(1 - asked, 0.9));
+      pinch.edged = true;
+    } else {
+      zoom = asked;
+      pinch.edged = false;
+    }
+    if (pinch.edged && !wasEdged) tap('edge');
     // The music stays under the fingers.
     //
     // The pan used to follow only how far the midpoint had TRAVELLED — pan +
@@ -2146,7 +2253,7 @@ function trackPointers(root) {
     panX = x - pinch.cx - grew * (pinch.x - pinch.cx - pinch.panX);
     panY = y - pinch.cy - grew * (pinch.y - pinch.cy - pinch.panY);
     if (zoom === 1) { panX = 0; panY = 0; }
-    clampPan();
+    bandPan();
     applyZoom();
   }, true);
   for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
@@ -2154,7 +2261,14 @@ function trackPointers(root) {
       if (e.pointerType === 'pen' && type !== 'lostpointercapture') penStroke.end();
       if (e.pointerId === penPointer) penPointer = null;
       pointers.delete(e.pointerId);
-      if (pointers.size < 2) pinch = null;
+      if (pointers.size < 2 && pinch) {
+        // The fingers that were holding it past its edge have gone, so the
+        // page goes back to where it is allowed to be. Only after a real
+        // pinch — a second finger that armed one and never moved leaves
+        // nothing out of bounds to put back.
+        pinch = null;
+        settleZoom();
+      }
       if (pointers.size < 2) {
         // A pinch is over the moment there are not two fingers making one.
         //
@@ -2241,6 +2355,12 @@ function forgetLostPointers(now) {
 // stroke. Used where the app cannot be told what happened to any of them.
 function forgetEveryPointer() {
   clearTimeout(pinchOver);
+  stopSettle();
+  // Everything let go of includes a page left past its own edge: with no
+  // fingers to explain it, out of bounds is just wrong.
+  clampPan();
+  zoom = Math.min(ZOOM_LIMIT, Math.max(1, zoom));
+  applyZoom();
   pointers.clear();
   penPointer = null;
   pinch = null;
@@ -2298,6 +2418,7 @@ function placeStamp(point) {
     points: [point],
   };
   strokes.push(mark);
+  tap('place');
   remember({ type: 'add', stroke: mark });
   // Held, so it can be sized straight away: pinch it bigger or smaller, or use
   // the two chips that appear with it. Placing the next one lets this one go.
@@ -2577,6 +2698,10 @@ async function showPage(index) {
   if (!pageEls.length) return;
   const next = Math.max(0, Math.min(pageEls.length - 1, index));
   if (next !== wantedPage) turnWay = next > wantedPage ? 1 : -1;
+  // Said here rather than in nextPage, because this is where a turn is a turn:
+  // a tap at the last page asks for one and does not get one, and a detent for
+  // a page that did not move is the reader lying about what it did.
+  if (next !== wantedPage) tap('turn');
   wantedPage = next;
   const token = ++turnToken;
 

@@ -31,6 +31,8 @@ import { Metronome, tempoName, scheduleClick } from './audio/metronome.js';
 import { nameToMidi } from './analysis/note-utils.js';
 import { initLiquidTabs } from './ui/liquid-tabs.js';
 import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/controls.js';
+import { followTextSize } from './ui/text-size.js';
+import { readyHaptics } from './ui/haptics.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
@@ -2169,6 +2171,13 @@ initScoreCard({
 // --- custom pickers replace every native select --------------------------------
 
 initControls(document);
+
+// --- the text size the reader already asked the device for ---------------------
+
+followTextSize();
+// Resolved now, at a moment nobody is waiting on anything, so the first mark of
+// a session is not the one that pays for finding the native side.
+readyHaptics();
 
 // --- installable app: register the service worker -----------------------------
 

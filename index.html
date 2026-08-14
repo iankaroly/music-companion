@@ -332,6 +332,15 @@
        system rectangle is only ever a smudge on top of the answer. */
     html {
       -webkit-tap-highlight-color: transparent;
+      /* The text size is followed deliberately — see src/ui/text-size.js, which
+         reads what the device asked for and moves the ROOT, so the whole
+         interface grows together. What this turns off is the browser doing it
+         on its own: iOS inflates individual blocks it decides are too small,
+         one at a time, which is the same intention arrived at by guesswork and
+         it fights the version that knows what it is doing. Both spellings,
+         because the unprefixed one is what Chrome listens to. */
+      -webkit-text-size-adjust: 100%;
+      text-size-adjust: 100%;
     }
     :focus-visible { outline: 2.5px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
     /* Where the thing above puts what it has to say. Above everything, because
@@ -1393,6 +1402,13 @@
       gap: 0.15rem;
       padding: max(0.4rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-left, 0px))
                0.4rem max(0.5rem, env(safe-area-inset-right, 0px));
+      /* Tall enough to hold a 44-point target.
+         The bar came to 41px on a phone, and the ink layer starts the pixel
+         after it — so a hit area reaching for 44 was simply cut off by the
+         page, and the three missing points went to the drawing surface rather
+         than to the button. Three pixels of music is a cheap price for a tool
+         a bow hand can actually hit; the buttons themselves are unchanged. */
+      min-height: 46px;
       background: rgb(var(--sf) / 0.94);
       -webkit-backdrop-filter: blur(26px) saturate(1.8);
       backdrop-filter: blur(26px) saturate(1.8);
@@ -1495,6 +1511,40 @@
       transition: background 140ms, color 140ms;
     }
     .reader-tool svg { width: 1.3rem; height: 1.3rem; }
+    /* ---- 44 points, whatever the button looks like ------------------------
+       A tool is 2.2rem across, and 1.85rem on a phone. Apple's floor for
+       anything a finger aims at is 44×44pt, and the gap matters more here
+       than in most apps: the hand doing the aiming is coming off a
+       fingerboard or is holding a bow, and the thing it misses by four
+       millimetres is the eraser when it wanted the pencil.
+
+       The buttons do NOT get bigger. Six 44px circles across the top of a
+       phone is most of the first system of music, and the whole argument of
+       this reader is that the music gets the screen. What gets bigger is the
+       part that answers a touch, which nobody can see.
+
+       Vertically it takes the room it needs — the bar has padding and there
+       is nothing above or below to collide with. Horizontally it grows only
+       into half the gap on either side, so neighbours TILE: every pixel
+       between two tools belongs to the nearer one, and no pixel belongs to
+       both. Overlapping hit areas would be worse than small ones — the tool
+       you get would depend on which is later in the document. */
+    .reader-tool, .reader-chip, .aid-chip {
+      position: relative;
+      touch-action: manipulation;
+    }
+    .reader-tool::after, .reader-chip::after, .aid-chip::after {
+      content: "";
+      position: absolute;
+      left: -0.075rem;            /* half the 0.15rem gap between tools */
+      right: -0.075rem;
+      top: 50%;
+      height: 44px;
+      transform: translateY(-50%);
+      /* A pseudo-element is part of its originating element for hit testing,
+         so a touch that lands here is a touch on the button — no listener and
+         no markup to add. It draws nothing. */
+    }
     .reader-tool.on {
       background: rgb(var(--primary-rgb, 109 78 246) / 0.16);
       border-color: rgb(var(--primary-rgb, 109 78 246) / 0.35);

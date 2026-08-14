@@ -100,6 +100,43 @@ check('more contrast: surfaces have a border you can find',
   !!card && parseFloat(card['border-top-width']) >= 1,
   `border: ${card?.['border-top-width']} ${card?.['border-top-color']}`);
 
+// --- 4. the device's own text size -------------------------------------------
+// The gate is the whole point here. -apple-system-body resolves on macOS too,
+// to thirteen pixels, so an ungated version silently shrinks the desktop app by
+// a fifth. Checked on a pointer:fine machine (must not follow) and on emulated
+// touch hardware (must be willing to).
+// A page of its own, because the one above is emulating a tablet — asking it
+// whether it behaves like a desktop would only ever have got one answer.
+const desk = await browser.newPage();
+await desk.setViewport({ width: 1440, height: 900, deviceScaleFactor: 2, hasTouch: false, isMobile: false });
+await desk.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+await new Promise((r) => setTimeout(r, 1600));
+const desktop = await desk.evaluate(async () => {
+  const { textSizeNow } = await import('/src/ui/text-size.js');
+  return textSizeNow();
+});
+await desk.close();
+check('text size: a pointer device is left alone',
+  desktop.following === false && Math.abs(desktop.root - 16) < 0.5,
+  `following=${desktop.following} root=${desktop.root}px`);
+
+// …and the same page told it is a touch device.
+const touch = await browser.newPage();
+await touch.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+await touch.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
+await new Promise((r) => setTimeout(r, 1600));
+const phone = await touch.evaluate(async () => {
+  const { textSizeNow } = await import('/src/ui/text-size.js');
+  return textSizeNow();
+});
+// Chrome does not implement -apple-system-body, so `body` is null here and the
+// root must be untouched. That is the correct answer for this browser, and the
+// check that matters is that it did not guess at one anyway.
+check('text size: touch hardware is willing to follow, and never guesses',
+  phone.following === true && (phone.body === null ? Math.abs(phone.root - 16) < 0.5 : phone.root >= 15),
+  `following=${phone.following} body=${phone.body} root=${phone.root}px`);
+await touch.close();
+
 const failed = results.filter((r) => !r.pass);
 console.log(failed.length ? `\n${failed.length} FAILED` : '\nALL PASS');
 await browser.close();
