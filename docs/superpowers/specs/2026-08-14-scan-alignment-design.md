@@ -58,17 +58,18 @@ reader wants, so resolution is not the problem.
 
 | | staves found | heads |
 |---|---|---|
-| shipped `readPage()` | 2 of 10 | 153 |
+| `readPage()` before this work | 2 of 10 | 153 |
 | thresholds loosened | 6 of 10 | 461 |
 | comb + predicted systems | **10 of 10** | — |
-| …with beams wiped | 10 of 10 | 403 (uneven: 6 to 64 per system) |
+| first beam wipe (fixed thickness cut) | 10 of 10 | 403 (uneven: 6 to 64 per system) |
+| **shipped, after phase 1** | **10 of 10** | **338** (25–39 per system, except one at 51) |
 
 Two findings, and they set the order of the work.
 
-**Staff finding was the bottleneck, and it is solved.** The shipped reader hunts
+**Staff finding was the bottleneck, and it is solved.** The reader used to hunt
 each line alone — "is more than half this strip inked at this row" — and on a
 photographed book page one line in five fails that test. Four lines is not a
-stave, so whole systems vanished. Two changes fix it:
+stave, so whole systems vanished. Two changes fixed it:
 
 1. **Comb correlation.** Score a five-line *grid* at the page's measured
    spacing, with negative lobes in the gaps, instead of picking peaks one at a
@@ -81,28 +82,39 @@ stave, so whole systems vanished. Two changes fix it:
 Result on the test page: 10 of 10, spacing 12.0–12.3px throughout, lines
 visibly on the printed lines.
 
-**Head finding is not solved.** 403 found against ~320, and badly distributed —
-6 in one system, 64 in another. The cause is visible in the overlay: this
-edition's double beams merge into one thick bar at photograph resolution, and a
-notehead touching that bar is one connected blob with it. Erasing long thin
-horizontal runs (cut at 0.5–0.65 × staff space) leaves chains of false heads
-riding the beams; raising the cut to 1.2 erases the real heads along with them.
-Row-run thickness cannot separate them.
+**Head finding, after phase 1: 338 against ~320.** Nine of the ten systems read
+between 25 and 39 heads where 32 is right. The fix was to stop cutting beams at
+a fixed thickness — which failed both ways, leaving chains of false heads at 0.5
+staff spaces and erasing the real heads at 1.2 — and let the beam measure
+itself: its thickness is constant along its length, a notehead makes the column
+bulge, so the erasure goes to the run's own median and spares anything 1.8×
+taller. 748 detections became 338.
 
-The next thing to try, and the reason to keep the probe: erase along a beam's
-*measured* thickness rather than a fixed cut — a beam's thickness is constant
-along its length, and where a head joins it the profile bulges. Plus a lower
-`fill` threshold in `findHeads`, since a photographed head is greyer than a
-printed one.
+**What is still wrong, and it is not beams.** The tenth system reads 51. The
+overlay shows the tracked staff lines drifting off the printed ones toward the
+right edge of that system, where this photograph curls hardest — so the window
+the head finder reaches through is in the wrong place, and it collects ink that
+is not notes. The fix is in the tracking, not the wiping: fit each stave a
+smooth curve rather than carrying a smoothed running position, and let the combs
+reach the outermost strips. That belongs to a phase 1b, planned against these
+numbers.
 
 ## Phases
 
-**Phase 1 — read the page.** Comb staff finding and predicted systems into
+**Phase 1 — read the page. DONE 2026-08-14.** Comb staff finding and predicted systems into
 `scan-read.js`, with tests. Then beam removal by thickness profile, measured
 against a hand-counted ground truth per system. Target: every system found, and
 heads within ±10% of truth with no system off by more than a few. Nothing
 downstream is worth building until this holds, because an aligner fed three
 spurious notes for every real one cannot produce a mapping worth painting.
+Landed: 10 of 10 systems, 338 heads against ~320, one system still over on
+tracking drift — see phase 1b below.
+
+**Phase 1b — the edge of a curling page.** Fit each stave a smooth curve
+instead of carrying a smoothed running position, and let the combs reach the
+outermost strips, so the head window stops sliding off the printed staff at the
+right-hand edge. One system on the test page is wrong for this reason and no
+other.
 
 **Phase 2 — pitch and fit.** `stepOf(staff, head)` → diatonic step. Fit clef and
 key by search over the existing aligner. One caveat to build in deliberately:
