@@ -267,6 +267,62 @@ export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor =
   return out.sort((a, b) => a.y0[0] - b.y0[0]);
 }
 
+// Beams, erased before noteheads are hunted.
+//
+// A beamed page fuses heads, stems and beams into one shape, and the head
+// finder scores any ellipse-sized patch of solid ink — so on a page of
+// sixteenths it reports a chain of heads riding along every beam. On the page
+// this was built against that is 748 detections where there are about 320
+// notes.
+//
+// A beam is a long horizontal bar and a notehead is not: a head is at most a
+// space and a half wide. But a fixed thickness cut cannot separate them, since
+// a head TOUCHING a beam is one connected shape with it — cut thin and the
+// beams stay (this edition's double beams merge into one bar at photograph
+// resolution), cut thick and the heads go with them. So the beam measures
+// itself: its thickness is constant along its length, and where a head joins it
+// the column is far taller than that. Erase to the beam's own median, spare the
+// bulge.
+//
+// Slurs go too, being longer and thinner still, and they were noise.
+export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8 } = {}) {
+  const body = new Uint8Array(ink);
+  const runFloor = Math.max(3, Math.round(space * run));
+  // The contiguous ink this pixel belongs to, up and down its own column.
+  const extent = (x, y) => {
+    let top = y;
+    while (top > 0 && body[(top - 1) * w + x]) top--;
+    let bottom = y;
+    while (bottom < h - 1 && body[(bottom + 1) * w + x]) bottom++;
+    return { top, bottom, tall: bottom - top + 1 };
+  };
+  for (let y = 0; y < h; y++) {
+    let x = 0;
+    while (x < w) {
+      if (!body[y * w + x]) { x++; continue; }
+      let end = x;
+      while (end < w && body[y * w + end]) end++;
+      if (end - x >= runFloor) {
+        const talls = [];
+        for (let k = x; k < end; k++) talls.push(extent(k, y).tall);
+        talls.sort((a, b) => a - b);
+        const median = talls[Math.floor(talls.length / 2)];
+        // Ink taller than a notehead everywhere along a long run is not a beam
+        // at all — it is a black chord, a bracket, or the edge of the page.
+        if (median <= space * 1.4) {
+          for (let k = x; k < end; k++) {
+            const { top, bottom, tall } = extent(k, y);
+            if (tall > median * bulge) continue;    // a head joins here
+            for (let yy = top; yy <= bottom; yy++) body[yy * w + k] = 0;
+          }
+        }
+      }
+      x = end;
+    }
+  }
+  return body;
+}
+
 // A tracked stave, in the shape the bar and head finders take: five lines, each
 // sampled once per strip, plus the midpoint they use to reach for ledger lines
 // above and below.
@@ -395,9 +451,13 @@ export function readPage(source, naturalWidth, naturalHeight) {
   const staves = stavesToLines(fillMissedStaves(tracked, profiles, pitch), STRIPS);
   if (staves.length === 0) return null;
 
+  // Heads are hunted on the cleaned page; bars stay on the raw one. A barline
+  // is a full-height column and beam removal has no business nibbling at it.
+  const body = beamMask(ink, w, h, space);
+
   const out = staves.map((staff) => {
     const bars = findBars(ink, w, h, staff, stripW, space);
-    const heads = findHeads(ink, w, h, staff, staff.space);
+    const heads = findHeads(body, w, h, staff, staff.space);
     return {
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),

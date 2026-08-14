@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines,
+  combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines, beamMask,
 } from '../src/analysis/scan-read.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
@@ -202,5 +202,62 @@ describe('stavesToLines', () => {
     for (let k = 0; k < 5; k++) {
       expect(staff.lines[k].at[39] - staff.lines[k].at[0]).toBeCloseTo(7.8, 1);
     }
+  });
+});
+
+// A page 120×60: one horizontal beam 5px thick, with a notehead hanging off it.
+function beamAndHead() {
+  const w = 120;
+  const h = 60;
+  const ink = new Uint8Array(w * h);
+  const set = (x, y) => { ink[y * w + x] = 1; };
+  for (let x = 10; x < 100; x++) for (let y = 20; y < 25; y++) set(x, y);   // beam
+  for (let x = 55; x < 70; x++) {                                           // head
+    for (let y = 25; y < 37; y++) {
+      if (((x - 62) / 7) ** 2 + ((y - 31) / 6) ** 2 <= 1) set(x, y);
+    }
+  }
+  return { ink, w, h };
+}
+
+describe('beamMask', () => {
+  test('the beam goes', () => {
+    const { ink, w, h } = beamAndHead();
+    const body = beamMask(ink, w, h, 12);
+    expect(body[22 * w + 20]).toBe(0);
+    expect(body[22 * w + 90]).toBe(0);
+  });
+
+  test('the notehead stays', () => {
+    const { ink, w, h } = beamAndHead();
+    const body = beamMask(ink, w, h, 12);
+    expect(body[31 * w + 62]).toBe(1);
+    let left = 0;
+    for (let y = 25; y < 37; y++) for (let x = 55; x < 70; x++) left += body[y * w + x];
+    expect(left).toBeGreaterThan(90);        // the head is essentially untouched
+  });
+
+  test('a notehead on its own is never mistaken for a beam', () => {
+    const w = 60;
+    const h = 40;
+    const ink = new Uint8Array(w * h);
+    for (let x = 20; x < 35; x++) {
+      for (let y = 14; y < 26; y++) {
+        if (((x - 27) / 7) ** 2 + ((y - 20) / 6) ** 2 <= 1) ink[y * w + x] = 1;
+      }
+    }
+    const body = beamMask(ink, w, h, 12);
+    expect([...body].reduce((a, b) => a + b, 0)).toBe([...ink].reduce((a, b) => a + b, 0));
+  });
+
+  test('a merged double beam goes as one, because it measures itself', () => {
+    // Two 4px beams with a 3px gap, blurred into one 11px bar — the case a
+    // fixed thickness cut could not survive.
+    const w = 120;
+    const h = 60;
+    const ink = new Uint8Array(w * h);
+    for (let x = 10; x < 100; x++) for (let y = 20; y < 31; y++) ink[y * w + x] = 1;
+    const body = beamMask(ink, w, h, 12);
+    expect(body[25 * w + 55]).toBe(0);
   });
 });
