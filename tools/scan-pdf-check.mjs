@@ -46,7 +46,14 @@ await page.evaluate(() => {
 const built = await page.evaluate(async () => {
   // Two pages of music, as JPEG bytes, wrapped in a PDF by the app's own
   // writer — so the file under test is one this app would itself produce.
-  const sheet = (n) => {
+  // The music has a shape, written down as it is drawn, so the take can be
+  // played FROM it — the take is located by its shape now, and notes with no
+  // relation to the page are quite correctly refused.
+  const steps = [];
+  let at = 0;
+  let seed = 99887766;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const sheet = () => {
     const c = document.createElement('canvas');
     c.width = 1240; c.height = 1754;          // A4 at 150dpi
     const g = c.getContext('2d');
@@ -59,8 +66,12 @@ const built = await page.evaluate(async () => {
       for (let l = 0; l < 5; l++) g.fillRect(110, top + l * s, 1020, 2.2);
       for (const x of [110, 450, 790, 1130]) g.fillRect(x, top, 2.2, s * 4);
       for (let i = 0; i < 8; i++) {
+        const r = rnd();
+        at += (rnd() < 0.5 ? -1 : 1) * (r < 0.12 ? 0 : (r < 0.6 ? 1 : (r < 0.86 ? 2 : 4)));
+        at = Math.max(-2, Math.min(8, at));
+        steps.push(at);
         const x = 170 + i * 120;
-        const y = top + ((i + n) % 5) * (s / 2) + s;
+        const y = (top + 4 * s) - (at * s) / 2;
         g.save(); g.translate(x, y); g.rotate(-0.3);
         g.beginPath(); g.ellipse(0, 0, s * 0.62, s * 0.46, 0, 0, Math.PI * 2);
         g.fillStyle = '#111'; g.fill();
@@ -76,7 +87,7 @@ const built = await page.evaluate(async () => {
   const pages = [];
   let drawn = 0;
   for (const n of [0, 1]) {
-    const { canvas, heads } = sheet(n);
+    const { canvas, heads } = sheet();
     drawn += heads;
     const blob = await new Promise((done) => canvas.toBlob(done, 'image/jpeg', 0.92));
     pages.push({
@@ -91,8 +102,8 @@ const built = await page.evaluate(async () => {
   const scoreId = await savePagesScore({
     name: 'A PDF part', source: 'pdf', pageCount: 2, data,
   });
-  const notes = Array.from({ length: 40 }, (_, i) => ({
-    midi: 48 + (i % 12), cents: (i % 5) * 8 - 16,
+  const notes = steps.slice(0, 40).map((step, i) => ({
+    midi: 48 + Math.round(step * 12 / 7), cents: (i % 5) * 8 - 16,
     start: i * 0.25, end: i * 0.25 + 0.2, frequency: 130,
   }));
   const recId = await saveRecording({

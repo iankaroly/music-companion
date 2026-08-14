@@ -24,6 +24,7 @@
 import { openPaper } from './paper.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { intonationHue } from './chart-utils.js';
+import { findStart } from '../analysis/scan-align.js';
 
 // Every notehead the page reader found, in reading order, carrying the page it
 // is on and the staff space it was measured against.
@@ -37,27 +38,46 @@ export function headsOf(layout) {
   return all;
 }
 
-// One mark per note PLAYED, in order, and not one more.
+// One mark per note PLAYED, in order, from wherever the take begins.
 //
-// The same rule the reader draws by, and the same honesty about it: this is the
-// order you played in and nothing cleverer is claimed. Play from bar 30 and the
-// marks start at bar 1, because nothing in a photograph says where you began.
-// What HAS changed is that the leftovers are counted rather than dropped on the
-// floor — see `pairing` — because a note with a drone and a close-up behind it
-// makes a specific claim about a specific note, and a claim that has quietly
-// slipped by forty noteheads is worse than no claim.
+// The order is still the order you played in — nothing here reorders anything
+// or copes with a repeat taken twice. What it no longer assumes is that you
+// started at the top of the piece.
 export function pairNotes(heads, played) {
-  const count = Math.min(heads.length, played.length);
+  // Where the take begins, found from the shape of it — see scan-align.js.
+  //
+  // This used to start at zero, always. Open a part whose first page is a
+  // title page, play the music on page two, and every ring landed on page one
+  // among noteheads nobody had touched. The offset is the whole of that bug,
+  // and it is found by sliding what was played along what is written and
+  // seeing where the ups and downs agree.
+  const start = findStart(heads, played);
+  // Refused rather than guessed. A take that cannot be placed gets no marks at
+  // all, because a ring is now a control with a drone and a close-up behind it:
+  // eighty of them in the wrong place is eighty specific false claims, and
+  // "I could not tell where this starts" is a better thing to say than any of
+  // them.
+  if (!start.sure) {
+    return {
+      marks: [], heads: heads.length, played: played.length,
+      unmarked: played.length, spare: heads.length, placed: false, why: start.why,
+    };
+  }
+  const from = start.offset;
+  const count = Math.min(heads.length - from, played.length);
   const marks = [];
   for (let i = 0; i < count; i++) {
-    marks.push({ ...heads[i], note: played[i], index: i });
+    marks.push({ ...heads[from + i], note: played[i], index: i });
   }
   return {
     marks,
     heads: heads.length,
     played: played.length,
-    unmarked: Math.max(0, played.length - heads.length),
-    spare: Math.max(0, heads.length - played.length),
+    unmarked: Math.max(0, played.length - count),
+    spare: Math.max(0, heads.length - count),
+    placed: true,
+    offset: from,
+    confidence: start.score,
   };
 }
 
@@ -73,7 +93,10 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   const played = notes ?? [];
   const heads = headsOf(layout);
   const pairing = pairNotes(heads, played);
-  if (!pairing.marks.length) return null;
+  // Nothing placed is a thing to SAY, not a thing to return as emptiness: the
+  // caller has to be able to tell "the pages have not been read" from "the
+  // pages were read and this take could not be found on them".
+  if (!pairing.marks.length) return { pairing, pages: [], noteheadFor: () => null, destroy() {} };
 
   const pages = await openPaper(payload);
   const wrap = document.createElement('div');

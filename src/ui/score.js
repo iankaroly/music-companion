@@ -907,10 +907,15 @@ async function renderScanTab() {
     status(`could not lay the pages out: ${err.message}`, 'bad');
     return null;
   }
-  if (!view) {
-    // No noteheads means the pages have not been read yet, or could not be.
-    // Said plainly, with the thing that fixes it, rather than an empty box.
-    stage.replaceChildren(scanUnreadNote(payload));
+  if (!view || !view.pairing?.marks?.length) {
+    // Two different silences, and they want two different sentences: no
+    // noteheads at all means the pages have not been read, and noteheads but
+    // no marks means the take could not be found among them.
+    stage.replaceChildren(view?.pairing && view.pairing.heads > 0
+      ? scanUnplacedNote(view.pairing)
+      : scanUnreadNote(payload));
+    view?.destroy?.();
+    view = null;
     return null;
   }
 
@@ -937,6 +942,21 @@ async function renderScanTab() {
   // came up with every note clickable and nothing to play them with.
   syncDockVisibility();
   return view;
+}
+
+// The take could not be found on these pages, and why.
+//
+// Refused rather than guessed. Placing it anyway is what put every ring on a
+// title page, and with a drone and a close-up behind each one that is not a
+// slightly-wrong picture — it is a lot of confident false statements about
+// particular notes.
+function scanUnplacedNote(pairing) {
+  const note = document.createElement('p');
+  note.className = 'score-scan-gap';
+  note.textContent = `${pairing.played} notes played, and ${pairing.heads} noteheads`
+    + ` read off the pages — but ${pairing.why}.`
+    + ' The marks are held back rather than put somewhere they might not belong.';
+  return note;
 }
 
 // Why there is nothing to press, and what to do about it.

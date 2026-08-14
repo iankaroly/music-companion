@@ -49,36 +49,55 @@ await page.evaluate(() => {
 // A data URL falls through readableImage to the missing-page placeholder and
 // every page then reads as blank grey, which is a harness testing a fiction.
 const built = await page.evaluate(async () => {
-  const draw = (n) => {
+  // Two pages of real engraving, stored the way the app stores them — as Blobs.
+  // A data URL falls through readableImage to the missing-page placeholder and
+  // every page then reads as blank grey, which is a harness testing a fiction.
+  //
+  // The music has a SHAPE, and the shape is written down as it is drawn: the
+  // take is then played from it, so what is heard genuinely corresponds to
+  // what is on the page. Before the take could be located by its shape this
+  // did not matter and the notes were arbitrary; now arbitrary notes are, quite
+  // correctly, refused.
+  const steps = [];
+  let at = 0;
+  let seed = 424242;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const draw = () => {
     const c = document.createElement('canvas');
     c.width = 1100; c.height = 1500;
     const g = c.getContext('2d');
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = '#111';
     const space = 13;
     for (let sys = 0; sys < 5; sys++) {
       const top = 180 + sys * 260;
+      g.fillStyle = '#111';
       for (let line = 0; line < 5; line++) g.fillRect(100, top + line * space, 900, 2);
       for (const x of [100, 400, 700, 1000]) g.fillRect(x, top, 2, space * 4);
       for (let i = 0; i < 8; i++) {
+        const r = rnd();
+        at += (rnd() < 0.5 ? -1 : 1) * (r < 0.12 ? 0 : (r < 0.6 ? 1 : (r < 0.86 ? 2 : 4)));
+        at = Math.max(-2, Math.min(8, at));
+        steps.push(at);
         const x = 160 + i * 105;
-        const y = top + ((i + n) % 5) * (space / 2) + space;
-        g.beginPath();
-        g.ellipse(x, y, space * 0.62, space * 0.46, -0.3, 0, Math.PI * 2);
-        g.fill();
-        g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);
+        const y = (top + 4 * space) - (at * space) / 2;   // step 0 is the bottom line
+        g.save(); g.translate(x, y); g.rotate(-0.3);
+        g.beginPath(); g.ellipse(0, 0, space * 0.62, space * 0.46, 0, 0, Math.PI * 2);
+        g.fillStyle = '#111'; g.fill(); g.restore();
+        g.fillStyle = '#111'; g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);
       }
     }
     return new Promise((done) => c.toBlob(done, 'image/png'));
   };
   const { savePagesScore, saveRecording, setRecordingScore } = await import('/src/store/db.js');
+  const pageOne = await draw();
+  const pageTwo = await draw();
   const scoreId = await savePagesScore({
-    name: 'Scanned part', source: 'images', pageCount: 2,
-    pages: [await draw(0), await draw(1)],
+    name: 'Scanned part', source: 'images', pageCount: 2, pages: [pageOne, pageTwo],
   });
+  // Fifty notes, played from the top of the part, following what is written.
   const COUNT = 50;
-  const notes = Array.from({ length: COUNT }, (_, i) => ({
-    midi: 48 + (i % 12), cents: (i % 5) * 9 - 18,
+  const notes = steps.slice(0, COUNT).map((step, i) => ({
+    midi: 48 + Math.round(step * 12 / 7), cents: (i % 5) * 9 - 18,
     start: i * 0.2, end: i * 0.2 + 0.18,
     frequency: 130 * (2 ** ((i % 12) / 12)),
   }));
@@ -92,20 +111,14 @@ const built = await page.evaluate(async () => {
     audio: new Float32Array(44100 * seconds), notes, readings, a4: 440,
   });
   await setRecordingScore(recId, scoreId);
+  window.__steps = steps;
   return { scoreId, recId, notes: COUNT };
 });
 
-// NOTHING is read yet, which is the state a real part is in.
-//
-// The reading pass stands aside whenever the player is doing anything, and
-// importing a part and recording straight away is doing something the whole
-// time — so on a fresh import the pass has typically got nowhere. This is that
-// state, and it is the state behind "it only marked five of my hundred notes":
-// the take gets paired against however many noteheads happened to be found,
-// and `Math.min(heads, played)` throws the rest of the take away in silence.
-//
-// So the check starts from nothing read, and the review has to be the thing
-// that fixes it.
+// NOTHING is read yet, which is the state a fresh import is in: the reading
+// pass stands aside whenever the player is doing anything, so importing a part
+// and recording straight away leaves it with nothing read. The review has to
+// be the thing that fixes that.
 const before = await page.evaluate(async (scoreId) => {
   const { loadScorePages } = await import('/src/store/db.js');
   const row = await loadScorePages(scoreId);
@@ -257,10 +270,14 @@ check('the notes are addressable in order, which is what the light rides on',
 const spread = await page.evaluate(async ({ scoreId }) => {
   const { annotateTake, renderScoreTab } = await import('/src/ui/score.js');
   const { clearSheet } = await import('/src/ui/score.js');
-  // 200 notes against 80 noteheads: 120 of them cannot be on the page.
+  // The part read from the top and then kept going: 80 noteheads exist and 200
+  // notes were played, so 120 of them cannot be on these pages. That is a real
+  // shape — a repeat taken, or playing on past the last page photographed —
+  // and it has to be capped and SAID rather than refused or invented.
+  const steps = window.__steps ?? [];
   const many = Array.from({ length: 200 }, (_, i) => ({
-    midi: 48 + (i % 12), cents: (i % 7) * 5 - 15,
-    start: i * 0.1, end: i * 0.1 + 0.09, frequency: 130,
+    midi: 48 + Math.round((steps[i % steps.length] ?? 0) * 12 / 7),
+    cents: (i % 7) * 5 - 15, start: i * 0.1, end: i * 0.1 + 0.09, frequency: 130,
   }));
   clearSheet?.();
   await annotateTake(many, { readings: [], a4: 440 });
@@ -282,6 +299,108 @@ check('and the notes that could not be placed are SAID, not dropped in silence',
   spread.said.trim());
 check('the marks carry across the page break',
   spread.pages.length === 2, `rings on pages ${spread.pages.join(', ')}`);
+
+
+// --- the reported bug: a cover page, and the music on page two --------------
+//
+// "It only showed the analysis on the cover page when all the notes I was
+// playing were on the next page." The marks were paired from the first
+// notehead of the part, so a take of page two landed on page one. This is that
+// score, with that take, and the rings have to be on page two and NOT on page
+// one.
+const cover = await page.evaluate(async () => {
+  const title = () => {
+    // A title page: words and a rule, no music. The kind of page that either
+    // yields no noteheads at all or a few phantom ones — and either way must
+    // not swallow the start of the take.
+    const c = document.createElement('canvas');
+    c.width = 1100; c.height = 1500;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#111';
+    g.font = '64px serif';
+    g.fillText('Suite No. 1', 300, 500);
+    g.font = '34px serif';
+    g.fillText('for violoncello solo', 340, 580);
+    g.fillRect(300, 640, 500, 3);
+    return new Promise((done) => c.toBlob(done, 'image/png'));
+  };
+  // A page of music whose line has a real shape, so it can be found.
+  const steps = [];
+  let at = 0; let seed = 7654321;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed / 2147483648; };
+  const music = () => {
+    const c = document.createElement('canvas');
+    c.width = 1100; c.height = 1500;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+    const s = 13;
+    for (let sys = 0; sys < 5; sys++) {
+      const top = 180 + sys * 260;
+      g.fillStyle = '#111';
+      for (let l = 0; l < 5; l++) g.fillRect(100, top + l * s, 900, 2);
+      for (const x of [100, 400, 700, 1000]) g.fillRect(x, top, 2, s * 4);
+      for (let i = 0; i < 8; i++) {
+        const r = rnd();
+        at += (rnd() < 0.5 ? -1 : 1) * (r < 0.12 ? 0 : (r < 0.6 ? 1 : (r < 0.86 ? 2 : 4)));
+        at = Math.max(-2, Math.min(8, at));
+        steps.push(at);
+        const x = 160 + i * 105;
+        const y = (top + 4 * s) - (at * s) / 2;   // step 0 is the bottom line
+        g.save(); g.translate(x, y); g.rotate(-0.3);
+        g.beginPath(); g.ellipse(0, 0, s * 0.62, s * 0.46, 0, 0, Math.PI * 2);
+        g.fillStyle = '#111'; g.fill(); g.restore();
+        g.fillStyle = '#111'; g.fillRect(x + s * 0.55, y - s * 3, 2, s * 3);
+      }
+    }
+    return new Promise((done) => c.toBlob(done, 'image/png'));
+  };
+
+  const { savePagesScore, saveRecording, setRecordingScore } = await import('/src/store/db.js');
+  const scoreId = await savePagesScore({
+    name: 'Cover then music', source: 'images', pageCount: 2,
+    pages: [await title(), await music()],
+  });
+  // Played exactly what is on page two, in the order it is written.
+  const notes = steps.map((step, i) => ({
+    midi: 48 + Math.round(step * 12 / 7), cents: (i % 5) * 7 - 14,
+    start: i * 0.3, end: i * 0.3 + 0.28, frequency: 130,
+  }));
+  const recId = await saveRecording({
+    date: Date.now(), duration: Math.ceil(notes.at(-1).end) + 1, sampleRate: 44100,
+    audio: new Float32Array(44100 * 20), notes,
+    readings: notes.map((n) => ({
+      time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05,
+      midi: n.midi, cents: n.cents,
+    })),
+    a4: 440,
+  });
+  await setRecordingScore(recId, scoreId);
+
+  const { selectScore, annotateTake, renderScoreTab, clearSheet } = await import('/src/ui/score.js');
+  clearSheet?.();
+  await selectScore(scoreId);
+  const { loadRecording } = await import('/src/store/db.js');
+  const data = await loadRecording(recId);
+  await annotateTake(data.notes, { readings: data.readings, a4: data.a4, recordingId: recId });
+  await renderScoreTab();
+  await new Promise((r) => setTimeout(r, 1500));
+
+  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
+  const onPages = {};
+  for (const ring of rings) {
+    const pg = ring.closest('.scan-page')?.dataset.page;
+    onPages[pg] = (onPages[pg] ?? 0) + 1;
+  }
+  return { played: notes.length, rings: rings.length, onPages,
+    said: document.querySelector('.score-scan-gap')?.textContent ?? '' };
+});
+
+check('the take is found on the page it was actually played from',
+  (cover.onPages['1'] ?? 0) > 30, `rings by page: ${JSON.stringify(cover.onPages)}`);
+check('and NOT dumped onto the cover page',
+  (cover.onPages['0'] ?? 0) === 0,
+  `${cover.onPages['0'] ?? 0} rings on the cover (was all of them)`);
 
 if (errors.length) {
   console.log('\nerrors on the page:');

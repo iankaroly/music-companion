@@ -524,7 +524,30 @@ export function readPage(source, naturalWidth, naturalHeight) {
       top: (staff.lines[0].mid - staff.space * 4.5) / h,
       bottom: (staff.lines[4].mid + staff.space * 4.5) / h,
       bars: bars.map((x) => x / w),
-      heads: heads.map((head) => ({ x: head.x / w, y: head.y / h })),
+      // …and WHERE ON THE STAVE each one sits.
+      //
+      // Zero is the bottom line, one the space above it, two the next line up:
+      // the note's position, counted in half staff-spaces, which is what a
+      // notehead's height on the page actually means. Measured against the
+      // bottom line UNDER THAT HEAD rather than the middle of the stave, so a
+      // photograph of a page that curves — which is every photograph of a
+      // bound part — does not tilt every step at the far end of the system.
+      //
+      // This is not a pitch and cannot become one here: a step turns into a
+      // note only through the clef, the key signature and whatever accidental
+      // stands in front of it, and none of those are read. What it IS good for
+      // is shape. Two lines that rise and fall together are the same music
+      // whatever clef they are written in, and that is enough to find where a
+      // take begins — see analysis/scan-align.js.
+      heads: heads.map((head) => {
+        const strip = Math.min(STRIPS - 1, Math.max(0, Math.floor((head.x / w) * STRIPS)));
+        const bottom = staff.lines[4].at[strip];
+        return {
+          x: head.x / w,
+          y: head.y / h,
+          step: Math.round((bottom - head.y) / (staff.space / 2)),
+        };
+      }),
     };
   });
 
@@ -539,7 +562,10 @@ export function notesInOrder(page) {
       // which bar of this stave it falls in
       let bar = 0;
       for (const x of staff.bars) if (head.x > x) bar++;
-      notes.push({ staff: staffIndex, bar, x: head.x, y: head.y });
+      // `step` comes with it: where on the stave the head sits, which is what
+      // lets a take be found on the page rather than assumed to start at the
+      // top of it. Dropping it here is how the whole alignment came out blind.
+      notes.push({ staff: staffIndex, bar, x: head.x, y: head.y, step: head.step });
     }
   }
   return notes;
