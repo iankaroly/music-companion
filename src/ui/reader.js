@@ -2067,6 +2067,12 @@ function trackPointers(root) {
       // a finger doing something. So the second one only sets the pinch up, and
       // nothing is a pinch until the two of them actually move apart or
       // together — which is the one thing a resting hand never does.
+      // Where the page's own middle is on the glass, which is the point every
+      // scale is taken about. Scaling about the middle does not MOVE the
+      // middle, so whatever the page is doing right now, subtracting the pan
+      // from the middle of its rendered box gives the untransformed one — no
+      // second measurement, and true at any zoom.
+      const box = sheet?.getBoundingClientRect();
       pinch = {
         distance: Math.hypot(a.x - b.x, a.y - b.y),
         x: (a.x + b.x) / 2,
@@ -2074,6 +2080,8 @@ function trackPointers(root) {
         zoom,
         panX,
         panY,
+        cx: box ? box.left + box.width / 2 - panX : window.innerWidth / 2,
+        cy: box ? box.top + box.height / 2 - panY : window.innerHeight / 2,
       };
     }
   }, true);
@@ -2116,8 +2124,27 @@ function trackPointers(root) {
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     zoom = Math.min(ZOOM_LIMIT, Math.max(1, pinch.zoom * (distance / (pinch.distance || 1))));
-    panX = pinch.panX + (x - pinch.x);
-    panY = pinch.panY + (y - pinch.y);
+    // The music stays under the fingers.
+    //
+    // The pan used to follow only how far the midpoint had TRAVELLED — pan +
+    // (now - then) — which is right for two fingers sliding and wrong for two
+    // fingers spreading. A page is scaled about its own middle, so growing it
+    // pushes everything away from that middle; unless you happened to pinch
+    // dead centre, the note you were pinching on slid out from under you as it
+    // grew, and the further out you were the faster it went. At five times on
+    // a phone it could leave the screen altogether, which is the whole feeling
+    // of handling paper falling over.
+    //
+    // What has to hold instead is that the point of the page under the
+    // midpoint STAYS under the midpoint. Where that point sits on the page is
+    // fixed by the pinch that started it — (m0 - c - pan0) / z0 in page units
+    // — and putting it back under the midpoint now is the same statement
+    // rearranged. The ratio is the zoom actually reached rather than the one
+    // the fingers asked for, so at either limit the page stops growing and
+    // still slides with the hand instead of sticking.
+    const grew = zoom / (pinch.zoom || 1);
+    panX = x - pinch.cx - grew * (pinch.x - pinch.cx - pinch.panX);
+    panY = y - pinch.cy - grew * (pinch.y - pinch.cy - pinch.panY);
     if (zoom === 1) { panX = 0; panY = 0; }
     clampPan();
     applyZoom();

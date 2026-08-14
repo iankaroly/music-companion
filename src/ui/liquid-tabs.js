@@ -87,6 +87,16 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
 
   // Animate a full slide between two (possibly non-adjacent) tabs.
   function slide(from, to, dir) {
+    // Unless the device has asked for less of that. A slide with its motion
+    // taken away is not a faster slide — it is the same second of waiting on a
+    // transition that will never report finishing, ended by the backstop timer.
+    // The tab simply arrives instead.
+    if (reduced.matches) {
+      setActive(to);
+      placeGlider(to, false);
+      window.scrollTo({ top: 0, behavior: 'instant' });
+      return;
+    }
     const a = panelOf(from);
     const b = panelOf(to);
     const w = panes.clientWidth;

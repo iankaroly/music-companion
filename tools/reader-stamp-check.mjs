@@ -126,6 +126,43 @@ await touch('touchEnd', []);
 await wait(500);
 check('a pinch with nothing picked up still zooms the music', zoomed !== flat && zoomed !== 'none',
   `${flat} -> ${zoomed}`);
+await page.evaluate(() => document.querySelector('#reader-reset-zoom')?.click());
+await wait(400);
+
+// --- 0c. and the music stays under the fingers -------------------------------
+// Asked of the page rather than of the arithmetic: whatever fraction along the
+// sheet sat under the midpoint before the pinch has to sit under it after. A
+// pinch taken deliberately OFF centre, because on centre every way of doing
+// this looks right and only one of them is.
+const sheetBox = () => page.evaluate(() => {
+  const r = document.querySelector('#reader-sheet')?.getBoundingClientRect();
+  return r ? { left: r.left, width: r.width, top: r.top, height: r.height } : null;
+});
+const HOLD = { x: W * 0.24, y: H * 0.3 };   // well out of the middle
+const b0 = await sheetBox();
+const uX = (HOLD.x - b0.left) / b0.width;
+const uY = (HOLD.y - b0.top) / b0.height;
+await touch('touchStart', [{ x: HOLD.x - 25, y: HOLD.y, id: 1 }]);
+await wait(40);
+await touch('touchStart', [{ x: HOLD.x - 25, y: HOLD.y, id: 1 }, { x: HOLD.x + 25, y: HOLD.y, id: 2 }]);
+for (let i = 1; i <= 8; i++) {
+  const out = 25 + i * 12;
+  await touch('touchMove', [
+    { x: HOLD.x - out, y: HOLD.y, id: 1 },
+    { x: HOLD.x + out, y: HOLD.y, id: 2 },
+  ]);
+  await wait(25);
+}
+const b1 = await sheetBox();
+await touch('touchEnd', []);
+await wait(400);
+const landedX = b1.left + uX * b1.width;
+const landedY = b1.top + uY * b1.height;
+const drift = Math.hypot(landedX - HOLD.x, landedY - HOLD.y);
+check('the music stays under the fingers through an off-centre pinch', drift < 12,
+  `${drift.toFixed(1)}px of drift`);
+await page.evaluate(() => document.querySelector('#reader-reset-zoom')?.click());
+await wait(400);
 // Back to size, so the taps below land where this file thinks they do.
 await page.evaluate(() => document.querySelector('#reader')?.dispatchEvent(
   new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));

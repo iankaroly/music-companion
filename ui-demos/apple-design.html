@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>What the skill is offering — Music Companion</title>
+<style>
+  /* ── APPLE DESIGN, MADE TOUCHABLE ──────────────────────────────────────────
+     Every section here is the same idea twice: on the left what the app (and
+     most of the web) does now, on the right what Apple's fluid-interface talks
+     ask for. Both are live. The point is not to read the difference — it is to
+     put a finger on both and feel which one is the machine and which one is
+     the thing in your hand.
+
+     Nothing here is wired into the app. It is a showroom.                    */
+
+  :root {
+    --bg: #0c0d10;
+    --panel: #141519;
+    --panel-2: #1b1d23;
+    --line: #24262e;
+    --ink: #e9eaee;
+    --muted: #9a9ba6;
+    --dim: #75778a;
+    --now: #ff8095;      /* what happens today */
+    --fluid: #4fe0b0;    /* what the principle asks for */
+    --accent: #8b9cff;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font: 400 100%/1.6 -apple-system, "SF Pro Text", system-ui, sans-serif;
+    padding: 2.4rem 1.25rem 6rem;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 60rem; margin: 0 auto; }
+
+  /* Type: tracking tightens as the size grows, which is §15 practising what
+     the page preaches. */
+  h1 { font-size: clamp(1.8rem, 5vw, 2.6rem); font-weight: 700; letter-spacing: -0.03em; line-height: 1.08; }
+  .lede { color: var(--muted); margin-top: 0.9rem; max-width: 44rem; font-size: 1rem; }
+  .lede b { color: var(--ink); font-weight: 600; }
+
+  section { margin-top: 3.4rem; scroll-margin-top: 1rem; }
+  .head { display: flex; align-items: baseline; gap: 0.7rem; flex-wrap: wrap; }
+  .num {
+    font-variant-numeric: tabular-nums;
+    font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--dim); border: 1px solid var(--line); border-radius: 999px;
+    padding: 0.15rem 0.5rem;
+  }
+  h2 { font-size: 1.25rem; font-weight: 600; letter-spacing: -0.015em; line-height: 1.2; }
+  .why { color: var(--muted); font-size: 0.92rem; margin-top: 0.5rem; max-width: 44rem; }
+  .why code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.86em; color: var(--accent); }
+
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 0.9rem; margin-top: 1.1rem; }
+  @media (max-width: 40rem) { .pair { grid-template-columns: 1fr; } }
+  .demo {
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 0.9rem;
+    overflow: hidden;
+    touch-action: none;
+  }
+  .demo.scrolly { touch-action: pan-y; }
+  .demo h3 {
+    font-size: 0.68rem; letter-spacing: 0.14em; text-transform: uppercase;
+    font-weight: 600; display: flex; align-items: center; gap: 0.4rem;
+  }
+  .demo.a h3 { color: var(--now); }
+  .demo.b h3 { color: var(--fluid); }
+  .demo h3::before { content: ""; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: currentColor; }
+  .demo small { display: block; color: var(--dim); font-size: 0.78rem; margin-top: 0.25rem; min-height: 2.4em; }
+  .stage {
+    position: relative; margin-top: 0.7rem; height: 8.5rem;
+    background: var(--panel-2); border-radius: 10px; overflow: hidden;
+  }
+  .stage.tall { height: 11rem; }
+
+  .tile {
+    position: absolute; width: 4.2rem; height: 4.2rem; border-radius: 12px;
+    background: linear-gradient(160deg, #6f7bff, #4b3fd6);
+    box-shadow: 0 8px 22px rgb(0 0 0 / 0.45);
+    display: grid; place-items: center;
+    font-size: 0.7rem; font-weight: 600; color: #fff;
+    will-change: transform;
+    cursor: grab;
+  }
+  .tile:active { cursor: grabbing; }
+  .tile.mint { background: linear-gradient(160deg, #4fe0b0, #1f9c78); color: #06231a; }
+
+  .btn {
+    appearance: none; border: 1px solid var(--line); background: var(--panel-2);
+    color: var(--ink); font: inherit; font-size: 0.85rem; font-weight: 500;
+    padding: 0.55rem 1rem; border-radius: 999px; cursor: pointer;
+  }
+  .btn.pressed { background: var(--accent); color: #10121a; border-color: transparent; }
+  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-top: 0.7rem; }
+  .readout { font-variant-numeric: tabular-nums; font-size: 0.75rem; color: var(--dim); }
+
+  .marks { position: absolute; inset: auto 0 0.6rem 0; height: 1.4rem; }
+  .marks i {
+    position: absolute; top: 0; width: 1px; height: 100%; background: var(--line);
+  }
+  .ghost {
+    position: absolute; width: 0.6rem; height: 0.6rem; border-radius: 50%;
+    background: var(--now); opacity: 0; transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+
+  .sliders { display: grid; gap: 0.4rem; margin-top: 0.7rem; }
+  .sliders label { display: grid; grid-template-columns: 5.2rem 1fr 2.6rem; gap: 0.5rem; align-items: center; font-size: 0.78rem; color: var(--muted); }
+  .sliders input { width: 100%; accent-color: var(--fluid); }
+  .sliders b { font-variant-numeric: tabular-nums; font-weight: 500; color: var(--ink); text-align: right; }
+
+  /* §12 — the material demo needs something busy to sit over. */
+  .busy {
+    position: absolute; inset: 0;
+    background:
+      repeating-linear-gradient(115deg, #2a2d38 0 12px, #1b1d23 12px 24px);
+    animation: crawl 9s linear infinite;
+  }
+  @keyframes crawl { to { transform: translateX(-24px); } }
+  .glass {
+    position: absolute; left: 0.7rem; right: 0.7rem; top: 1.6rem;
+    padding: 0.7rem 0.85rem; border-radius: 12px;
+    font-size: 0.82rem; font-weight: 500;
+  }
+  .glass.one { background: rgb(20 21 25 / 0.55); backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgb(255 255 255 / 0.10); }
+  .glass.two { top: 4.2rem; }
+  .glass.stacked { background: rgb(20 21 25 / 0.42); backdrop-filter: blur(14px) saturate(1.6); border: 1px solid rgb(255 255 255 / 0.07); }
+  .glass.solidish { background: rgb(18 19 23 / 0.94); border: 1px solid rgb(255 255 255 / 0.14); }
+
+  /* §15 — the typography demo */
+  .type-sample { margin-top: 0.7rem; }
+  .type-sample div { color: var(--ink); }
+  .t-lg { font-size: 2.1rem; font-weight: 600; line-height: 1.05; }
+  .t-md { font-size: 1.05rem; font-weight: 500; line-height: 1.3; margin-top: 0.5rem; }
+  .t-sm { font-size: 0.78rem; line-height: 1.55; color: var(--muted); margin-top: 0.4rem; }
+  .fixed-track .t-lg, .fixed-track .t-md, .fixed-track .t-sm { letter-spacing: 0.01em; }
+  .size-track .t-lg { letter-spacing: -0.028em; }
+  .size-track .t-md { letter-spacing: -0.008em; }
+  .size-track .t-sm { letter-spacing: 0.006em; }
+
+  .verdict {
+    margin-top: 0.9rem; padding: 0.7rem 0.9rem; border-radius: 10px;
+    background: rgb(139 156 255 / 0.08); border: 1px solid rgb(139 156 255 / 0.22);
+    font-size: 0.85rem; color: var(--muted);
+  }
+  .verdict b { color: var(--ink); font-weight: 600; }
+  .verdict.taken { background: rgb(79 224 176 / 0.07); border-color: rgb(79 224 176 / 0.22); }
+
+  footer {
+    margin-top: 4rem; border-top: 1px solid var(--line); padding-top: 1.3rem;
+    color: var(--dim); font-size: 0.86rem;
+  }
+  footer a { color: var(--accent); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .busy { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>What the skill is offering</h1>
+  <p class="lede">
+    Eleven principles out of Emil Kowalski's <b>apple-design</b> skill, each one live and touchable.
+    <b>Left is what the app does today.</b> <b>Right is what the principle asks for.</b> Drag, flick and
+    press both — reading the difference is not the same as feeling it. Nothing here is wired into
+    Music Companion; two of these (§2 and §14) have already been taken, and the rest are here so you
+    can decide with your hands rather than from a list.
+  </p>
+
+  <!-- ══ 1 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§1</span><h2>Response — answer the press, not the release</h2></div>
+    <p class="why">
+      The moment lag appears, directness "falls off a cliff". A button that waits for <code>click</code>
+      has already lost by the time it lights up — and on touch, <code>click</code> can trail the finger
+      by a hundred milliseconds or more.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Answers on release</h3>
+        <small>Press and hold. Nothing happens until you let go.</small>
+        <div class="row"><button class="btn" id="b-late">Press me</button><span class="readout" id="r-late">—</span></div>
+      </div>
+      <div class="demo b">
+        <h3>Answers on press</h3>
+        <small>Lights the instant your finger lands, and cancels if you slide away.</small>
+        <div class="row"><button class="btn" id="b-early">Press me</button><span class="readout" id="r-early">—</span></div>
+      </div>
+    </div>
+    <div class="verdict taken"><b>Already right in the app.</b> Sixteen <code>:active</code> rules across the stylesheet — press states fire on pointer-down.</div>
+  </section>
+
+  <!-- ══ 2 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§2</span><h2>Direct manipulation — respect where they grabbed</h2></div>
+    <p class="why">
+      Touch and content move together. Snapping the element's centre to the finger on grab breaks the
+      illusion in the first frame — you did not pick it up by the middle.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Snaps to centre</h3>
+        <small>Grab it by a corner and it jumps.</small>
+        <div class="stage"><div class="tile" id="t-snap">drag</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Keeps the offset</h3>
+        <small>Grab it anywhere; that spot stays under your finger.</small>
+        <div class="stage"><div class="tile mint" id="t-offset">drag</div></div>
+      </div>
+    </div>
+    <div class="verdict taken"><b>Just fixed.</b> The reader's pinch had exactly this bug in two dimensions — the music slid out from under your fingers as it grew, up to 1465px of drift on a 1024px screen. It now stays put.</div>
+  </section>
+
+  <!-- ══ 3 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§3</span><h2>Interruptibility — the most important one</h2></div>
+    <p class="why">
+      "The thought and the gesture happen in parallel." Every animation must be grabbable and
+      reversible mid-flight. A CSS transition cannot do this: it owns the property until it finishes.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>CSS transition</h3>
+        <small>Tap to send it across, then try to grab it. It ignores you, then jumps.</small>
+        <div class="stage"><div class="tile" id="t-css">tap</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Spring, from the live value</h3>
+        <small>Tap to send it, then catch it mid-flight. It comes with you.</small>
+        <div class="stage"><div class="tile mint" id="t-spring">tap</div></div>
+      </div>
+    </div>
+    <div class="verdict"><b>Not in the app.</b> The reader has no travelling animations to interrupt — page turns are instant by design. This matters the day you animate one.</div>
+  </section>
+
+  <!-- ══ 4 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§4</span><h2>Behaviour over animation — two knobs, not a duration</h2></div>
+    <p class="why">
+      Apple replaced mass/stiffness/damping with <b>damping ratio</b> (overshoot: <code>1.0</code> none,
+      below that it bounces) and <b>response</b> (how fast it gets there, in seconds). Bounce is earned
+      by momentum — a flick deserves it, a tap does not.
+    </p>
+    <div class="pair">
+      <div class="demo b" style="grid-column: 1 / -1">
+        <h3>Try the two numbers</h3>
+        <small>Tap the stage to send it. Apple ships 1.0 / 0.4 for a reposition, 0.8 / 0.3 for a sheet.</small>
+        <div class="stage" id="stage-knobs"><div class="tile mint" id="t-knobs">tap</div></div>
+        <div class="sliders">
+          <label>damping<input type="range" id="k-damp" min="0.25" max="1" step="0.01" value="1" /><b id="v-damp">1.00</b></label>
+          <label>response<input type="range" id="k-resp" min="0.1" max="1.2" step="0.01" value="0.4" /><b id="v-resp">0.40</b></label>
+        </div>
+      </div>
+    </div>
+    <div class="verdict"><b>Finding #5 in the review.</b> The app's <code>--spring</code> is <code>cubic-bezier(0.34, 1.56, 0.64, 1)</code> — that 1.56 is overshoot, and it is the default on ~14 transitions including button presses. Set damping to 0.75 above to feel what a tapped button currently does.</div>
+  </section>
+
+  <!-- ══ 5 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§5</span><h2>Velocity handoff — no seam between drag and animation</h2></div>
+    <p class="why">
+      When the finger leaves, the animation must continue at the speed the finger was going. Drop that
+      and there is a visible stitch where your hand stops mattering.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Velocity thrown away</h3>
+        <small>Flick it hard. It stalls, then eases home at the same speed however you threw it.</small>
+        <div class="stage"><div class="tile" id="t-noveloc">flick</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Velocity carried through</h3>
+        <small>Flick it hard and it keeps going. Nudge it gently and it drifts.</small>
+        <div class="stage"><div class="tile mint" id="t-veloc">flick</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 6 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§6</span><h2>Momentum projection — land where the gesture was going</h2></div>
+    <p class="why">
+      "Take a small input and make a big output." Don't snap from where the finger let go — project
+      where it would have coasted to, then snap to the nearest mark from <em>there</em>.
+      <code>project(v) = (v/1000) · d/(1−d)</code>, <code>d ≈ 0.998</code>.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Snaps from the release point</h3>
+        <small>A hard flick and a gentle nudge land on the same mark.</small>
+        <div class="stage"><div class="marks" id="m-a"></div><div class="tile" id="t-nearest">flick</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Snaps from the projection</h3>
+        <small>The pink dot is where the flick was headed. Throw it and it travels.</small>
+        <div class="stage"><div class="marks" id="m-b"></div><span class="ghost" id="ghost"></span><div class="tile mint" id="t-project">flick</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 7 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§7</span><h2>Rubber-banding — resist, don't stop</h2></div>
+    <p class="why">
+      A hard clamp at a boundary reads as frozen — as though the app stopped listening. Progressive
+      resistance says "still here, nothing more this way", which is a different sentence.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Hard clamp</h3>
+        <small>Drag past the right edge. It sticks and your finger keeps going without it.</small>
+        <div class="stage"><div class="tile" id="t-clamp">drag</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Rubber-banded</h3>
+        <small>Drag past the edge; it follows less and less, then springs back.</small>
+        <div class="stage"><div class="tile mint" id="t-rubber">drag</div></div>
+      </div>
+    </div>
+    <div class="verdict"><b>Finding #2 in the review.</b> The reader hard-clamps both zoom (<code>[1, 5]</code>) and pan. At either limit the page freezes under your fingers.</div>
+  </section>
+
+  <!-- ══ 8 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§7b</span><h2>Spatial consistency — come from where you were summoned</h2></div>
+    <p class="why">
+      A popover should grow out of the control that opened it. Scaling from its own centre severs the
+      relationship between the button you pressed and the thing that appeared.
+    </p>
+    <div class="pair">
+      <div class="demo a scrolly">
+        <h3>Grows from its own centre</h3>
+        <small>Tap either button — the menu appears the same way regardless.</small>
+        <div class="stage" id="pop-a-stage">
+          <div class="row" style="position:absolute;left:0.6rem;right:0.6rem;bottom:0.6rem;justify-content:space-between">
+            <button class="btn" data-pop="a" data-side="left">left</button>
+            <button class="btn" data-pop="a" data-side="right">right</button>
+          </div>
+        </div>
+      </div>
+      <div class="demo b scrolly">
+        <h3>Grows from the trigger</h3>
+        <small>The origin follows the button you actually pressed.</small>
+        <div class="stage" id="pop-b-stage">
+          <div class="row" style="position:absolute;left:0.6rem;right:0.6rem;bottom:0.6rem;justify-content:space-between">
+            <button class="btn" data-pop="b" data-side="left">left</button>
+            <button class="btn" data-pop="b" data-side="right">right</button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="verdict"><b>Finding #7 in the review.</b> The app's <code>.pick-pop</code> sets a vertical origin only, so a menu from a right-hand toolbar button grows from the middle of itself.</div>
+  </section>
+
+  <!-- ══ 9 ═══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§12</span><h2>Materials — never stack glass on glass</h2></div>
+    <p class="why">
+      Translucency conveys hierarchy, but two translucent layers over each other collapse into mud.
+      The upper layer should be the heavier, more opaque one.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Glass over glass</h3>
+        <small>Both layers blur what is behind. Read the second line.</small>
+        <div class="stage tall"><div class="busy"></div>
+          <div class="glass one">Toolbar — 0.55 alpha, blur 14</div>
+          <div class="glass one two stacked">Menu over it — 0.42 alpha, blur 14</div>
+        </div>
+      </div>
+      <div class="demo b">
+        <h3>Glass, then solid</h3>
+        <small>The floating layer commits. Same background, same blur budget.</small>
+        <div class="stage tall"><div class="busy"></div>
+          <div class="glass one">Toolbar — 0.55 alpha, blur 14</div>
+          <div class="glass two solidish">Menu over it — near-opaque, no blur</div>
+        </div>
+      </div>
+    </div>
+    <div class="verdict"><b>Finding #6 in the review.</b> <code>.pick-pop</code> (0.78 + blur 26) opens over <code>#reader-top</code> (0.94 + blur 26). Also: at 0.94 that toolbar's own blur is paying GPU cost for almost nothing.</div>
+  </section>
+
+  <!-- ══ 10 ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§15</span><h2>Typography — tracking belongs to the size</h2></div>
+    <p class="why">
+      Letters read further apart as they grow, so large text wants negative tracking and small text
+      wants a touch of positive. One <code>letter-spacing</code> for everything is wrong somewhere.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>One tracking everywhere</h3>
+        <small><code>letter-spacing: 0.01em</code> at every size.</small>
+        <div class="type-sample fixed-track">
+          <div class="t-lg">Sarabande</div>
+          <div class="t-md">Suite No. 1 in G major</div>
+          <div class="t-sm">Bar 17 ran nine cents sharp across four takes, and the tempo drifted two beats per minute over the repeat.</div>
+        </div>
+      </div>
+      <div class="demo b">
+        <h3>Tracking by size</h3>
+        <small><code>-0.028em</code> / <code>-0.008em</code> / <code>+0.006em</code>.</small>
+        <div class="type-sample size-track">
+          <div class="t-lg">Sarabande</div>
+          <div class="t-md">Suite No. 1 in G major</div>
+          <div class="t-sm">Bar 17 ran nine cents sharp across four takes, and the tempo drifted two beats per minute over the repeat.</div>
+        </div>
+      </div>
+    </div>
+    <div class="verdict taken"><b>Already right in the app.</b> <code>-0.02em</code> at 3.3rem, <code>-0.035em</code> at 5.6rem, <code>line-height: 1</code> on display figures against 1.5 on body.</div>
+  </section>
+
+  <!-- ══ 11 ══════════════════════════════════════════════════════════════ -->
+  <section>
+    <div class="head"><span class="num">§14</span><h2>Reduced motion — gentler, not absent</h2></div>
+    <p class="why">
+      The setting does not mean "no feedback". It means replace travel with a fade: the meaning still
+      arrives, nothing crosses the eye to deliver it.
+    </p>
+    <div class="pair">
+      <div class="demo a">
+        <h3>Motion removed entirely</h3>
+        <small>Tap. It arrives with no acknowledgement at all — reads as a jump cut.</small>
+        <div class="stage"><div class="tile" id="t-nomotion">tap</div></div>
+      </div>
+      <div class="demo b">
+        <h3>Travel swapped for a fade</h3>
+        <small>Tap. It still says something happened, without moving across the eye.</small>
+        <div class="stage"><div class="tile mint" id="t-fade">tap</div></div>
+      </div>
+    </div>
+    <div class="verdict taken"><b>Just fixed.</b> Reduced motion is now answered once at the property level rather than a selector at a time, and <code>prefers-reduced-transparency</code> / <code>prefers-contrast</code> are answered at all — they were not before. Turn the settings on in System Settings and reload the app.</div>
+  </section>
+
+  <footer>
+    Built from the <a href="https://github.com/emilkowalski/skills">emilkowalski/skills</a> <code>apple-design</code> skill,
+    itself distilled from Apple's <em>Designing Fluid Interfaces</em> (WWDC 2018) and <em>The Details of UI Typography</em> (WWDC 2020).
+    Nothing on this page is imported by the app.
+  </footer>
+</div>
+
+<script type="module">
+/* ── the physics ───────────────────────────────────────────────────────────
+   One spring, written the way Apple parameterises it: a damping RATIO and a
+   RESPONSE in seconds, rather than mass/stiffness/damping. It integrates from
+   wherever it currently is, which is the whole reason springs are the answer
+   to interruption — retargeting mid-flight needs no special case, you just
+   change `target` and the motion stays continuous.                          */
+class Spring {
+  constructor({ damping = 1, response = 0.4, onFrame }) {
+    this.damping = damping; this.response = response;
+    this.value = 0; this.velocity = 0; this.target = 0;
+    this.onFrame = onFrame; this.raf = null; this.last = 0;
+  }
+  set({ damping, response }) {
+    if (damping !== undefined) this.damping = damping;
+    if (response !== undefined) this.response = response;
+  }
+  // Start (or redirect) toward a target, optionally seeded with the velocity
+  // the finger was carrying — §5.
+  to(target, velocity) {
+    this.target = target;
+    if (velocity !== undefined) this.velocity = velocity;
+    this.start();
+  }
+  // Grabbed mid-flight: the animation gives up its claim, and whatever is on
+  // screen right now becomes the truth — §3.
+  seize(value) { this.stop(); this.value = value; this.velocity = 0; }
+  start() {
+    if (this.raf) return;
+    this.last = performance.now();
+    const step = (now) => {
+      const dt = Math.min(0.032, (now - this.last) / 1000);
+      this.last = now;
+      const omega = (2 * Math.PI) / this.response;
+      const accel = -omega * omega * (this.value - this.target)
+                  - 2 * this.damping * omega * this.velocity;
+      this.velocity += accel * dt;
+      this.value += this.velocity * dt;
+      this.onFrame(this.value);
+      const settled = Math.abs(this.value - this.target) < 0.4 && Math.abs(this.velocity) < 8;
+      if (settled) { this.value = this.target; this.onFrame(this.value); this.raf = null; return; }
+      this.raf = requestAnimationFrame(step);
+    };
+    this.raf = requestAnimationFrame(step);
+  }
+  stop() { if (this.raf) cancelAnimationFrame(this.raf); this.raf = null; }
+}
+
+// §6 — Apple's own projection, exponential decay rather than the textbook v²/2a.
+const project = (velocity, decel = 0.998) => (velocity / 1000) * decel / (1 - decel);
+
+// §9 — the further past the boundary, the less it follows.
+const rubberband = (overshoot, dimension, c = 0.55) =>
+  (overshoot * dimension * c) / (dimension + c * Math.abs(overshoot));
+
+// A short history of where the pointer has been, which is the only way to know
+// how fast it was going when it left.
+function tracker() {
+  let samples = [];
+  return {
+    reset() { samples = []; },
+    push(x, t) { samples.push({ x, t }); if (samples.length > 6) samples.shift(); },
+    velocity() {
+      if (samples.length < 2) return 0;
+      const a = samples[0];
+      const b = samples[samples.length - 1];
+      const dt = (b.t - a.t) / 1000;
+      return dt > 0 ? (b.x - a.x) / dt : 0;
+    },
+  };
+}
+
+const put = (el, x) => { el.style.transform = `translateX(${x}px)`; };
+const room = (el) => el.parentElement.clientWidth - el.offsetWidth;
+const start = (el, x = 8) => { el.style.top = '50%'; el.style.marginTop = '-2.1rem'; el.style.left = '0'; put(el, x); };
+
+/* ── §1 response ───────────────────────────────────────────────────────── */
+{
+  const late = document.querySelector('#b-late');
+  const early = document.querySelector('#b-early');
+  const rLate = document.querySelector('#r-late');
+  const rEarly = document.querySelector('#r-early');
+  let downAt = 0;
+  late.addEventListener('pointerdown', () => { downAt = performance.now(); });
+  late.addEventListener('click', () => {
+    late.classList.add('pressed');
+    rLate.textContent = `lit ${Math.round(performance.now() - downAt)}ms after touch`;
+    setTimeout(() => late.classList.remove('pressed'), 240);
+  });
+  early.addEventListener('pointerdown', (e) => {
+    const at = performance.now();
+    early.setPointerCapture(e.pointerId);
+    early.classList.add('pressed');
+    rEarly.textContent = `lit ${Math.round(performance.now() - at)}ms after touch`;
+  });
+  // §10 — and it cancels if you slide off, which is the other half of a tap.
+  for (const type of ['pointerup', 'pointercancel', 'pointerleave']) {
+    early.addEventListener(type, () => early.classList.remove('pressed'));
+  }
+}
+
+/* ── §2 direct manipulation ────────────────────────────────────────────── */
+for (const [id, keepOffset] of [['#t-snap', false], ['#t-offset', true]]) {
+  const el = document.querySelector(id);
+  start(el);
+  let grab = 0, live = false;
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    live = true;
+    const box = el.getBoundingClientRect();
+    grab = keepOffset ? e.clientX - box.left : el.offsetWidth / 2;
+    put(el, e.clientX - el.parentElement.getBoundingClientRect().left - grab);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    const x = e.clientX - el.parentElement.getBoundingClientRect().left - grab;
+    put(el, Math.max(0, Math.min(room(el), x)));
+  });
+  for (const t of ['pointerup', 'pointercancel']) el.addEventListener(t, () => { live = false; });
+}
+
+/* ── §3 interruptibility ───────────────────────────────────────────────── */
+{
+  // The wrong way: a CSS transition owns the property until it is finished, and
+  // "grabbing" it can only read the target, never the live value.
+  const el = document.querySelector('#t-css');
+  start(el);
+  let there = false;
+  el.style.transition = 'transform 900ms cubic-bezier(0.4, 0, 0.2, 1)';
+  el.addEventListener('pointerdown', () => {
+    there = !there;
+    put(el, there ? room(el) : 8);
+  });
+}
+{
+  const el = document.querySelector('#t-spring');
+  start(el);
+  let there = false, live = false, grab = 0;
+  const hist = tracker();
+  const spring = new Spring({ damping: 0.85, response: 0.45, onFrame: (v) => put(el, v) });
+  spring.value = 8;
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    // The live on-screen value becomes the truth — no jump.
+    const box = el.getBoundingClientRect();
+    const x = box.left - el.parentElement.getBoundingClientRect().left;
+    spring.seize(x);
+    grab = e.clientX - box.left;
+    live = true;
+    hist.reset();
+    hist.push(e.clientX, e.timeStamp);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    hist.push(e.clientX, e.timeStamp);
+    const x = e.clientX - el.parentElement.getBoundingClientRect().left - grab;
+    spring.value = Math.max(-40, Math.min(room(el) + 40, x));
+    put(el, spring.value);
+  });
+  for (const t of ['pointerup', 'pointercancel']) {
+    el.addEventListener(t, (e) => {
+      if (!live) return;
+      live = false;
+      const moved = Math.abs(hist.velocity()) > 60;
+      if (moved) there = hist.velocity() > 0;
+      else there = !there;   // a tap sends it across
+      spring.to(there ? room(el) : 8, hist.velocity());
+    });
+  }
+}
+
+/* ── §4 the two knobs ──────────────────────────────────────────────────── */
+{
+  const el = document.querySelector('#t-knobs');
+  const stage = document.querySelector('#stage-knobs');
+  const damp = document.querySelector('#k-damp');
+  const resp = document.querySelector('#k-resp');
+  const vDamp = document.querySelector('#v-damp');
+  const vResp = document.querySelector('#v-resp');
+  start(el);
+  let there = false;
+  const spring = new Spring({ onFrame: (v) => put(el, v) });
+  spring.value = 8;
+  const sync = () => {
+    spring.set({ damping: Number(damp.value), response: Number(resp.value) });
+    vDamp.textContent = Number(damp.value).toFixed(2);
+    vResp.textContent = Number(resp.value).toFixed(2);
+  };
+  damp.addEventListener('input', sync);
+  resp.addEventListener('input', sync);
+  sync();
+  stage.addEventListener('pointerdown', () => {
+    there = !there;
+    spring.to(there ? room(el) : 8);
+  });
+}
+
+/* ── §5 velocity handoff ───────────────────────────────────────────────── */
+for (const [id, carry] of [['#t-noveloc', false], ['#t-veloc', true]]) {
+  const el = document.querySelector(id);
+  start(el);
+  let live = false, grab = 0;
+  const hist = tracker();
+  const spring = new Spring({ damping: 0.8, response: 0.45, onFrame: (v) => put(el, v) });
+  spring.value = 8;
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    spring.stop();
+    const box = el.getBoundingClientRect();
+    grab = e.clientX - box.left;
+    live = true;
+    hist.reset(); hist.push(e.clientX, e.timeStamp);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    hist.push(e.clientX, e.timeStamp);
+    spring.value = e.clientX - el.parentElement.getBoundingClientRect().left - grab;
+    put(el, spring.value);
+  });
+  for (const t of ['pointerup', 'pointercancel']) {
+    el.addEventListener(t, () => {
+      if (!live) return;
+      live = false;
+      const v = hist.velocity();
+      const home = v > 0 ? room(el) : 8;
+      // The only difference between the two panels is this one argument.
+      spring.to(home, carry ? v : 0);
+    });
+  }
+}
+
+/* ── §6 momentum projection ────────────────────────────────────────────── */
+for (const [id, marksId, useProjection] of [
+  ['#t-nearest', '#m-a', false], ['#t-project', '#m-b', true],
+]) {
+  const el = document.querySelector(id);
+  const marks = document.querySelector(marksId);
+  const ghost = document.querySelector('#ghost');
+  start(el);
+  // Five places it can land.
+  const stops = () => {
+    const span = room(el);
+    return [0, 0.25, 0.5, 0.75, 1].map((f) => Math.round(f * span));
+  };
+  marks.innerHTML = '';
+  requestAnimationFrame(() => {
+    for (const s of stops()) {
+      const i = document.createElement('i');
+      i.style.left = `${s + el.offsetWidth / 2}px`;
+      marks.append(i);
+    }
+  });
+  let live = false, grab = 0;
+  const hist = tracker();
+  const spring = new Spring({ damping: 0.85, response: 0.4, onFrame: (v) => put(el, v) });
+  spring.value = 8;
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    spring.stop();
+    grab = e.clientX - el.getBoundingClientRect().left;
+    live = true;
+    hist.reset(); hist.push(e.clientX, e.timeStamp);
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    hist.push(e.clientX, e.timeStamp);
+    spring.value = Math.max(0, Math.min(room(el),
+      e.clientX - el.parentElement.getBoundingClientRect().left - grab));
+    put(el, spring.value);
+  });
+  for (const t of ['pointerup', 'pointercancel']) {
+    el.addEventListener(t, () => {
+      if (!live) return;
+      live = false;
+      const v = hist.velocity();
+      // Where it would coast to, if it coasted. The whole difference.
+      const aimAt = useProjection ? spring.value + project(v) : spring.value;
+      if (useProjection && ghost) {
+        const clamped = Math.max(0, Math.min(room(el), aimAt));
+        ghost.style.left = `${clamped + el.offsetWidth / 2}px`;
+        ghost.style.top = '50%';
+        ghost.style.opacity = '1';
+        setTimeout(() => { ghost.style.opacity = '0'; }, 900);
+      }
+      const home = stops().reduce((best, s) =>
+        Math.abs(s - aimAt) < Math.abs(best - aimAt) ? s : best, stops()[0]);
+      spring.to(home, v);
+    });
+  }
+}
+
+/* ── §7 rubber-banding ─────────────────────────────────────────────────── */
+for (const [id, band] of [['#t-clamp', false], ['#t-rubber', true]]) {
+  const el = document.querySelector(id);
+  start(el);
+  let live = false, grab = 0;
+  const spring = new Spring({ damping: 0.8, response: 0.35, onFrame: (v) => put(el, v) });
+  spring.value = 8;
+  el.addEventListener('pointerdown', (e) => {
+    el.setPointerCapture(e.pointerId);
+    spring.stop();
+    grab = e.clientX - el.getBoundingClientRect().left;
+    live = true;
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (!live) return;
+    const span = room(el);
+    let x = e.clientX - el.parentElement.getBoundingClientRect().left - grab;
+    if (x < 0) x = band ? rubberband(x, span) : 0;
+    else if (x > span) x = band ? span + rubberband(x - span, span) : span;
+    spring.value = x;
+    put(el, x);
+  });
+  for (const t of ['pointerup', 'pointercancel']) {
+    el.addEventListener(t, () => {
+      if (!live) return;
+      live = false;
+      const span = room(el);
+      spring.to(Math.max(0, Math.min(span, spring.value)));
+    });
+  }
+}
+
+/* ── §7b spatial consistency ───────────────────────────────────────────── */
+{
+  let open = null;
+  const close = () => { open?.remove(); open = null; };
+  document.addEventListener('pointerdown', (e) => {
+    if (open && !e.target.closest('[data-pop]')) close();
+  }, true);
+  for (const btn of document.querySelectorAll('[data-pop]')) {
+    btn.addEventListener('click', () => {
+      close();
+      const stage = btn.closest('.stage');
+      const pop = document.createElement('div');
+      pop.textContent = 'Sharp · Flat · Natural';
+      Object.assign(pop.style, {
+        position: 'absolute', top: '0.7rem', left: '0.7rem', right: '0.7rem',
+        padding: '0.7rem', borderRadius: '10px', background: '#2a2d38',
+        border: '1px solid #3a3e4b', fontSize: '0.8rem', textAlign: 'center',
+        transformOrigin: '50% 100%',
+      });
+      if (btn.dataset.pop === 'b') {
+        // The origin follows the trigger — the whole point.
+        const box = btn.getBoundingClientRect();
+        const sbox = stage.getBoundingClientRect();
+        const x = ((box.left + box.width / 2 - sbox.left) / sbox.width) * 100;
+        pop.style.transformOrigin = `${x.toFixed(1)}% 100%`;
+      }
+      stage.append(pop);
+      open = pop;
+      pop.animate(
+        [{ opacity: 0, transform: 'scale(0.72)' }, { opacity: 1, transform: 'scale(1)' }],
+        { duration: 260, easing: 'cubic-bezier(0.34, 1.3, 0.64, 1)' },
+      );
+    });
+  }
+}
+
+/* ── §14 reduced motion, both readings ─────────────────────────────────── */
+{
+  const bare = document.querySelector('#t-nomotion');
+  const fade = document.querySelector('#t-fade');
+  start(bare); start(fade);
+  let a = false, b = false;
+  bare.addEventListener('pointerdown', () => { a = !a; put(bare, a ? room(bare) : 8); });
+  fade.addEventListener('pointerdown', () => {
+    b = !b;
+    fade.animate([{ opacity: 1 }, { opacity: 0.15 }, { opacity: 1 }], { duration: 260, easing: 'ease' });
+    put(fade, b ? room(fade) : 8);
+  });
+}
+</script>
+</body>
+</html>

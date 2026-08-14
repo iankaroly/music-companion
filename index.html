@@ -3351,11 +3351,97 @@
 
     :root[data-motion="off"] #blobs i { animation: none !important; }
 
+    /* ---- what the device asked for ----------------------------------------
+       Three settings, asked for independently, and not one of them means "no
+       feedback". Reduced motion wants a gentler answer, not a silent one.
+       Reduced transparency wants a surface that can be read, not one that has
+       gone. More contrast wants an edge it can find.
+
+       They were being answered a selector at a time — four small blocks naming
+       eight elements, against thirty-odd transitions and twenty animations —
+       which is close enough to not answering them at all, because the ones
+       nobody remembered to add are the ones that move. Said once here, at the
+       property rather than at the element, so anything added later is covered
+       the day it is written. */
+
     @media (prefers-reduced-motion: reduce) {
-      .beat-dot, #glider { transition: none !important; }
+      *, *::before, *::after {
+        /* Nothing travels and nothing overshoots. What is left is colour and
+           opacity, which is where the meaning actually lives: a button still
+           says it was pressed and a panel still says it arrived, without
+           anything crossing the eye to say it. Kept as a short fade rather
+           than removed, because an interface that changes with no transition
+           at all reads as a jump cut. */
+        animation-duration: 1ms !important;
+        animation-delay: 0ms !important;
+        animation-iteration-count: 1 !important;
+        transition-property: opacity, color, background-color, border-color, fill, stroke !important;
+        transition-duration: 120ms !important;
+        transition-timing-function: ease !important;
+        scroll-behavior: auto !important;
+      }
+      /* The one thing on screen that moves without being touched. A slow field
+         drifting behind everything, on a cycle of several seconds, is the
+         precise thing this setting exists to turn off. */
       #blobs i { animation: none !important; }
-      .beat-dot.on { transform: none; }
-      .pick-pop { animation: none !important; }
+      /* And the panels stop sliding rather than sliding instantly — see
+         liquid-tabs, which asks the same question in JavaScript. */
+      .tab-panel.sliding { transition: none !important; }
+    }
+
+    @media (prefers-reduced-transparency: reduce) {
+      /* The blur goes everywhere. It is the expensive half and the illegible
+         half: text over a live blur of whatever is behind it is the thing the
+         setting is turned on to avoid. */
+      .beat-dot, .beat-dot.on, .beat-dot.downbeat, .beat-dot.downbeat.on,
+      .card, .cluster, .column, .lib-item, .metro-split, .pick-pop, .scan-chip,
+      .scan-tool, .tab-panel.active, .tab-panel.sliding, #library-list,
+      #score-list, #panes.swiping, #panes.swiping .tab-panel.sliding,
+      #reader-hint, #reader-say, #reader-selection, #reader-top, #reader-ink-bar,
+      #reader-aids, #reader-next, #score-expand, #scan-bottom .ctl:disabled,
+      #scan-top .scan-chip:first-of-type, #welcome, #welcome-card {
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+      }
+      /* …and the surfaces that were counting on it go solid. `--sf` is the
+         surface of whichever theme is in force, so this follows light and dark
+         without being told which one it is in. */
+      .card, .cluster, .column, .lib-item, .metro-split, .pick-pop, .scan-chip,
+      .scan-tool, #library-list, #score-list, #reader-hint, #reader-say,
+      #reader-selection, #reader-top, #reader-ink-bar, #reader-aids,
+      #reader-next, #score-expand, #welcome, #welcome-card {
+        background: rgb(var(--sf)) !important;
+      }
+      /* The reader at night is the exception: it sets its own black and its
+         chrome is written in hard numbers rather than in the token. */
+      #reader.night #reader-top, #reader.night #reader-ink-bar,
+      #reader.night #reader-aids, #reader.night #reader-next,
+      #reader.night #reader-hint, #reader.night #reader-say,
+      #reader.night #reader-selection {
+        background: #1a1c20 !important;
+        color: #d6d9de;
+      }
+    }
+
+    @media (prefers-contrast: more) {
+      /* An edge you can find. The glass line is a whisper by design, which is
+         the wrong answer to somebody who has asked for the opposite. */
+      :root, :root[data-theme="dark"], #reader, :root[data-theme="dark"] #reader {
+        --glass-line: rgb(var(--on-surface) / 0.55);
+        --line: rgb(var(--on-surface) / 0.45);
+        --line-strong: rgb(var(--on-surface) / 0.7);
+        --muted: rgb(var(--on-surface) / 0.85);
+      }
+      .card, .cluster, .column, .lib-item, .pick-pop, .scan-chip, .scan-tool,
+      #reader-top, #reader-ink-bar, #reader-aids, #reader-selection,
+      #welcome-card, button.ctl, .seg-btn, .pick-btn, .reader-tool {
+        border: 1px solid rgb(var(--on-surface) / 0.55) !important;
+      }
+      /* A tool that is ON must not be told apart by a tint alone. */
+      .reader-tool.on, .seg-btn.on, .pick-btn.on, .tab-btn[aria-selected="true"] {
+        outline: 2px solid var(--primary);
+        outline-offset: -2px;
+      }
     }
 
     /* ---- tablet ----
