@@ -2071,6 +2071,15 @@ function trackPointers(root) {
       drawingPointer = null;
       cancelStroke();   // that first finger was not drawing, it was pinching
     }
+    // With marks picked up, a pinch means those marks rather than the page. It
+    // is the only thing it could mean: you have said which marks you are
+    // talking about, and then made the gesture for bigger or smaller.
+    if (picked.length) {
+      const was = pinch.sized ?? pinch.distance;
+      if (was > 0) scaleSelection(distance / was);
+      pinch.sized = distance;
+      return;
+    }
     const x = (a.x + b.x) / 2;
     const y = (a.y + b.y) / 2;
     zoom = Math.min(ZOOM_LIMIT, Math.max(1, pinch.zoom * (distance / (pinch.distance || 1))));
@@ -2220,6 +2229,10 @@ function placeStamp(point) {
   };
   strokes.push(mark);
   remember({ type: 'add', stroke: mark });
+  // Held, so it can be sized straight away: pinch it bigger or smaller, or use
+  // the two chips that appear with it. Placing the next one lets this one go.
+  picked = [mark];
+  refreshSelectionBar();
   scheduleSave();
   redraw();
 }
@@ -2313,6 +2326,51 @@ function moveSelection(dx, dy) {
   // its outline slide across the page while the ink inside them stays exactly
   // where it was and snaps into place when the finger lifts.
   dropDryInk();
+}
+
+// Bigger or smaller, by pinching the thing itself.
+//
+// A sharp you have just stamped on the page is nearly always the wrong size:
+// the one the engraver would have set is a fraction of the one your finger
+// placed, and the one you want over a ledger line is bigger again. Reaching
+// for a slider to say so is reaching away from the note you are looking at.
+//
+// So a pinch resizes what is picked up. A stamp and a piece of text have a
+// size and only that changes; a drawn mark has a width AND a shape, so it is
+// scaled about its own middle and stays the mark it was, larger. Anything
+// picked up can be resized, whichever tool is in hand — a pinch with marks
+// selected can only mean one thing.
+const SIZE_FLOOR = 0.35;
+const SIZE_CEILING = 14;
+
+function scaleSelection(by) {
+  if (!picked.length || !Number.isFinite(by) || by <= 0) return;
+  const bounds = selectionBounds();
+  const scale = unitScale();
+  for (const stroke of picked) {
+    if (stroke.type === 'text') {
+      stroke.size = Math.max(SIZE_FLOOR, Math.min(SIZE_CEILING, (stroke.size ?? 1.6) * by));
+      continue;
+    }
+    stroke.width = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, (stroke.width ?? 0.28) * by));
+    // …and the shape with it, about the middle of what is picked up, so a box
+    // round a bar grows into a bigger box rather than a fatter one.
+    if (!bounds || !scale) continue;
+    const midX = (bounds.left + bounds.right) / 2;
+    const midY = (bounds.top + bounds.bottom) / 2;
+    for (const point of stroke.points) {
+      const at = place(point);
+      if (!at) continue;
+      const want = { x: midX + (at.x - midX) * by, y: midY + (at.y - midY) * by };
+      const moved = anchor(want.x, want.y);
+      if (!moved) continue;
+      if (point.p !== undefined) { point.x = moved.x; point.y = moved.y; point.p = moved.p; }
+      else { point.m = moved.m; point.u = moved.u; point.v = moved.v; }
+    }
+  }
+  dropDryInk();
+  redraw();
+  scheduleSave();
 }
 
 function recolourSelection() {
@@ -2439,45 +2497,27 @@ async function showPage(index) {
   const next = Math.max(0, Math.min(pageEls.length - 1, index));
   if (next !== wantedPage) turnWay = next > wantedPage ? 1 : -1;
   wantedPage = next;
-  const shownNext = visiblePages(next);
-  // Drawn BEFORE anything on screen changes. A turn that has to wait shows the
-  // page you were reading for a moment longer, which is the right thing to
-  // look at while waiting.
-  if (isPaper()) {
-    const token = ++turnToken;
-    // The page you asked for goes to the front of the queue.
-    //
-    // Drawing a page is the one genuinely expensive thing this reader does, and
-    // there is one processor. A turn used to be able to arrive while the
-    // look-ahead was part-way through drawing a page two ahead of you, and then
-    // wait for THAT to finish before its own page was even started: two full
-    // renders of latency for one tap. On this laptop that is eighty
-    // milliseconds and invisible. On an iPad it is two seconds, which is the
-    // whole of "occasionally I tap and it lags".
-    //
-    // Saying a turn is in progress makes the look-ahead stand still. It cannot
-    // recall the render already running — nothing can — but it starts no more
-    // until the page in front of you is on screen.
-    turning++;
-    const slow = setTimeout(() => {
-      if (token === turnToken) root?.classList.add('waiting');
-    }, SAY_TURNING);
-    try {
-      // Rough first for a page that is not there yet — somebody is waiting on
-      // this one. A page already drawn is untouched.
-      const ready = Promise.all(shownNext.map(
-        (i) => drawPaperPage(i, { quick: !drawn.has(i) }).catch(() => {}),
-      ));
-      await Promise.race([ready, new Promise((resolve) => { setTimeout(resolve, HOLD_PAGE); })]);
-    } finally {
-      turning--;
-      clearTimeout(slow);
-      root?.classList.remove('waiting');
-    }
-    // Somebody tapped again while this page was being drawn: that turn is the
-    // one that matters, and this one must not undo it.
-    if (token !== turnToken) return;
-  }
+  const token = ++turnToken;
+
+  // THE TURN HAPPENS NOW. The pixels catch up.
+  //
+  // Everything below the wait used to be below the wait: the page number, the
+  // pages themselves, the ink. So a turn to a page that was not drawn yet held
+  // the WHOLE turn — for up to two and a half seconds, because that is how long
+  // this was willing to keep the page you were reading rather than show you a
+  // blank one.
+  //
+  // Which is fine once. Tap ten times while it is doing that and you get ten
+  // turns, every one of them waiting, every one of them superseded by the next
+  // — so nothing moves at all, and then the last one lands and the part jumps
+  // ten pages in one go. That is exactly what a reader that ignores you and
+  // then overreacts feels like, and it was the honest consequence of insisting
+  // a page be perfect before it could be seen.
+  //
+  // It is the wrong trade. A page that is on its way is a better thing to be
+  // looking at than the page you have just left, because it is the one you
+  // asked for — and it arrives sooner now anyway, drawn roughly first. So the
+  // turn is committed here, immediately, and the drawing follows it.
   const moved = next !== pageIndex;
   pageIndex = next;
   // A new page is a new page: it arrives whole, not at whatever corner you had
@@ -2519,7 +2559,29 @@ async function showPage(index) {
   refreshUpNext();
   refreshSeek();
   redraw();
-  if (isPaper()) keepNeighboursReady(shown);
+  if (!isPaper()) return;
+
+  // …and now the picture, for the page you are already looking at.
+  //
+  // Nothing waits on this except the mark in the corner, and a turn that has
+  // been superseded asks for nothing at all — ten taps are one render of the
+  // page you stopped on, not ten renders of the nine you went past.
+  if (shown.every((i) => drawn.has(i))) { keepNeighboursReady(shown); return; }
+  const slow = setTimeout(() => {
+    if (token === turnToken) root?.classList.add('waiting');
+  }, SAY_TURNING);
+  turning++;
+  try {
+    await Promise.all(shown.map(
+      (i) => drawPaperPage(i, { quick: !drawn.has(i) }).catch(() => {}),
+    ));
+  } finally {
+    turning--;
+    clearTimeout(slow);
+    if (token === turnToken) root?.classList.remove('waiting');
+  }
+  if (token !== turnToken) return;
+  keepNeighboursReady(shown);
 }
 
 // What you are about to turn into.
@@ -4238,6 +4300,10 @@ function buildSelectionBar() {
   count.className = 'reader-selection-count';
   bar.append(
     count,
+    // Said two ways: pinch what is picked up, or tap these. A gesture nobody
+    // finds is a gesture nobody has.
+    iconButton(null, '−', 'Smaller', () => scaleSelection(1 / 1.25), { className: 'reader-chip' }),
+    iconButton(null, '+', 'Bigger', () => scaleSelection(1.25), { className: 'reader-chip' }),
     iconButton(null, '🎨', 'Recolour them', recolourSelection, { className: 'reader-chip' }),
     iconButton(null, 'Delete', 'Rub them out', deleteSelection, { className: 'reader-chip danger' }),
     iconButton(null, 'Done', 'Put them down', clearSelection, { className: 'reader-chip' }),

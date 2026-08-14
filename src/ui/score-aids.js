@@ -221,7 +221,15 @@ function build() {
   const grip = document.createElement('span');
   grip.className = 'aid-grip';
   grip.setAttribute('aria-hidden', 'true');
+  // Held by the grip OR by any part of the strip that is not a control.
+  //
+  // A grip a centimetre wide is a thing you have to notice before you can use
+  // it, and "I cannot move it" is what happens when you do not. The whole
+  // strip is now a handle except for the parts that do something when pressed,
+  // which is the rule people already expect from every window they have ever
+  // dragged.
   makeDraggable(strip, grip);
+  makeDraggable(strip, strip, (e) => !e.target.closest('button, select, input'));
 
   strip.append(grip, metroRow, tuneRow, shut);
 
@@ -261,7 +269,7 @@ function recallWhere() {
   return null;
 }
 
-function makeDraggable(node, handle) {
+function makeDraggable(node, handle, when = null) {
   let from = null;
 
   // The moves are listened for on the WINDOW, not on the grip.
@@ -288,6 +296,7 @@ function makeDraggable(node, handle) {
   };
 
   handle.addEventListener('pointerdown', (e) => {
+    if (when && !when(e)) return;
     const box = node.getBoundingClientRect();
     from = { dx: e.clientX - box.left, dy: e.clientY - box.top, id: e.pointerId };
     node.classList.add('moving');
