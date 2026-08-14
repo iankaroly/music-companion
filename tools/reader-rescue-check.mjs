@@ -47,5 +47,24 @@ console.log('--- with the move handler throwing every time ---');
 a=await marks(); await draw(MID+70);
 const after=await marks();
 console.log('marks', a, '->', after, after===a+1 ? 'RESCUED' : 'LOST');
+// And the case the net was actually written for: something throws the stroke
+// away mid-gesture while the pencil is still down. Every silent path this bug
+// could take does exactly that — a pinch cancelling, the app backgrounded, a
+// pointer presumed lost — and the net used to be disarmed in precisely those
+// cases, because it asked whether a stroke still existed before rebuilding one.
+await p.evaluate(()=>{ PointerEvent.prototype.getCoalescedEvents = undefined; });
+console.log('--- with the stroke thrown away mid-gesture ---');
+const c=await marks();
+await pen('mousePressed',W*0.2,MID+140);
+for(let i=1;i<=8;i++) await pen('mouseMoved',W*0.2+i*14,MID+140);
+// the app is backgrounded, which drops every pointer and cancels the stroke
+await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+await p.evaluate(()=>Object.defineProperty(document,'visibilityState',{value:'hidden',configurable:true}));
+await p.evaluate(()=>document.dispatchEvent(new Event('visibilitychange')));
+for(let i=9;i<=16;i++) await pen('mouseMoved',W*0.2+i*14,MID+140);
+await pen('mouseReleased',W*0.2+224,MID+140);
+await new Promise(r=>setTimeout(r,900));
+const d=await marks();
+console.log('marks',c,'->',d, d===c+1?'RESCUED':'LOST');
 await b.close();
-process.exit(after===a+1?0:1);
+process.exit(after===a+1 && d===c+1 ?0:1);

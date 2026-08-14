@@ -186,10 +186,16 @@ async function readerTrouble() {
     const { inkReport } = await import('./reader.js');
     const report = inkReport?.();
     if (!report) return [];
-    return report.total
-      ? [`The reader refused ${report.total} pencil touch(es) this session:`,
-        ...report.reasons.map((r) => `  · ${r}`)]
-      : ['The reader has refused no pencil touch this session.'];
+    const lost = report.began - report.ended;
+    const lines = [`Pencil strokes this session: ${report.began} began, ${report.ended} finished`
+      + `${lost > 0 ? `  ← ${lost} never finished` : ''}.`];
+    if (report.total) {
+      lines.push(`The reader had ${report.total} thing(s) to say about them:`);
+      lines.push(...report.reasons.map((r) => `  · ${r}`));
+    } else {
+      lines.push('Nothing was refused and nothing was rebuilt.');
+    }
+    return lines;
   } catch {
     return [];
   }

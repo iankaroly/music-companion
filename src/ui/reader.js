@@ -1445,6 +1445,14 @@ function nibPressure(point, e) {
 
 // A stroke that turned out to be the start of a pinch is not a stroke.
 function cancelStroke() {
+  // A pencil's stroke is not a thing to cancel.
+  //
+  // This exists for the finger that turns out to have been the first half of a
+  // pinch. A pencil is never part of a pinch — it is not even counted among
+  // the pointers on the glass — so nothing that cancels a finger's gesture has
+  // any business throwing away a pencil's. It is FINISHED instead, and what
+  // was drawn is kept.
+  if (penStroke.live) { penStroke.end(); return; }
   stopHold();
   lastInkAt = null;
   drawing = null;
@@ -1641,6 +1649,10 @@ let penSeenAt = 0;
 // and did not is recorded with the reason, and Settings can show the tally. A
 // number is worth more than a memory of it happening.
 const inkTrouble = [];
+// How many pencil strokes went down, and how many came back. A list of
+// refusals with no denominator cannot tell "everything worked" from "three
+// vanished down a path that logs nothing" — they both read as zero.
+const penStrokes = { began: 0, ended: 0 };
 
 function penRefused(why) {
   inkTrouble.push(why);
@@ -1651,7 +1663,13 @@ function penRefused(why) {
 export function inkReport() {
   const tally = new Map();
   for (const why of inkTrouble) tally.set(why, (tally.get(why) ?? 0) + 1);
-  return { total: inkTrouble.length, reasons: [...tally].map(([why, n]) => `${why} x${n}`) };
+  return {
+    total: inkTrouble.length,
+    began: penStrokes.began,
+    ended: penStrokes.ended,
+    marks: strokes.length,
+    reasons: [...tally].map(([why, n]) => `${why} x${n}`),
+  };
 }
 // The gesture that picked the pen up must not also be the gesture that puts it
 // down again — see onTap, which normally reads a tap that made no mark as "I
@@ -1762,12 +1780,15 @@ function armPencil(e) {
   // here would take the whole stroke down with it. The mark is worth more than
   // the routing: without capture the moves still arrive, they just stop if the
   // pen leaves the canvas.
-  // No capture, no canvas: the pencil is followed from the root like every
-  // other pencil event. See penStroke.
-  penStroke.live = true;
-  drawingPointer = e.pointerId;
-  marksAtDown = strokes.length;
-  beginStroke(e);
+  // Through the SAME door as every other pencil stroke.
+  //
+  // This used to start the stroke itself — its own live flag, its own
+  // beginStroke — which meant the first stroke of every session, the one that
+  // arms the tool, was the one with no raw path recorded, no try/catch round
+  // it and nothing logged if it failed. The one most likely to be lost was the
+  // one nothing was watching. Called after setTool above, because begin()
+  // refuses outright when no tool is out.
+  penStroke.begin(e);
   return true;
 }
 
@@ -1838,6 +1859,7 @@ const penStroke = {
       endStroke();
     }
     this.live = true;
+    penStrokes.began += 1;
     this.raw = [{ x: e.clientX, y: e.clientY }];
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
@@ -1897,20 +1919,52 @@ const penStroke = {
     if (!this.live) return;
     this.live = false;
     drawingPointer = null;
-    // A stroke that arrives here having collected almost nothing did not fail
-    // at the door — it failed while being drawn, which is a different place to
-    // look and has never been visible from outside.
-    const wasMarking = !!drawing;
-    // The net. A stroke that collected nothing while the pencil plainly
-    // travelled is rebuilt from where the pencil travelled.
-    if (wasMarking && (drawing.points?.length ?? 0) <= 1 && this.raw.length > 2) {
+    const began = marksAtDown;
+
+    // The net, and it is no longer gated on the stroke still existing.
+    //
+    // It used to ask "was there a mark under way?" before rebuilding one — and
+    // every silent path this bug could take is a path that THROWS THE MARK
+    // AWAY while leaving the stroke live: a pinch cancelling it, the app being
+    // backgrounded, a pointer presumed lost. In exactly the cases the net was
+    // written for, the net was disarmed, and nothing was written down either.
+    // Which is why the diagnostic could read clean while the pencil visibly
+    // failed.
+    //
+    // So the question is now the only one that matters: did the pencil travel,
+    // and did anything get committed? If it travelled and nothing did, the
+    // mark is rebuilt from where it travelled — building it from nothing if
+    // need be. For a pencil there is no such thing as a stroke that was
+    // rightly discarded: it is never part of a pinch, so nothing that cancels
+    // a finger's gesture has any business cancelling this one. A pen stroke
+    // interrupted by anything at all is still a mark the hand made.
+    // Only for the tools that MAKE a mark. A lasso, a rubber, a stamp and a
+    // piece of text all legitimately leave `drawing` empty — rebuilding "the
+    // stroke" from the path of a rubber would ink in everything it had just
+    // rubbed out.
+    const marking = !['eraser', 'lasso', 'text', 'stamp'].includes(tool);
+    const thin = (drawing?.points?.length ?? 0) <= 1;
+    if (marking && thin && this.raw.length > 2) {
       const rescued = [];
       for (const at of this.raw) {
         const point = anchor(at.x, at.y);
         if (point) rescued.push(point);
       }
       if (rescued.length > 1) {
-        drawing.points = rescued;
+        const brush = currentBrush();
+        drawing = {
+          ...(drawing ?? {
+            tool,
+            layer,
+            colour: brushCss(brush),
+            width: brush.width,
+            overlay: brush.overlay,
+            nib: brush.nib,
+          }),
+          points: rescued,
+        };
+        delete drawing.freehand;
+        delete drawing.snapped;
         strokeTravel = TAP_INK;   // it travelled; that is what raw says
         penRefused(`a stroke was rebuilt from the raw path (${rescued.length} points)`);
       }
@@ -1922,7 +1976,10 @@ const penStroke = {
     } catch (err) {
       penRefused(`the stroke could not be finished (${err.name}: ${err.message})`);
     }
-    if (wasMarking && points <= 1) penRefused('the stroke began but received no movement');
+    if (marking && points <= 1 && strokes.length === began) {
+      penRefused('the stroke began and nothing came of it');
+    }
+    penStrokes.ended += 1;
   },
 };
 

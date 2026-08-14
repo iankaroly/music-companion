@@ -2100,6 +2100,9 @@
       white-space: nowrap;
     }
     #reader-say[hidden] { display: none; }
+    /* It says things over the music, so it must never be something the music
+       is drawn underneath. */
+    #reader-say { pointer-events: none; }
     #reader-land {
       position: fixed;
       left: 50%;
