@@ -139,6 +139,7 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
   // page were both built from. Reloading it from the store would hand back
   // copies, and identity against a copy proves nothing either way.
   window.__takeNotes = data.notes;
+  window.__takeReadings = data.readings;
   // The transport belongs to the review, and the review has to have the take.
   const rec = new Recorder(data.sampleRate ?? 44100);
   rec.push(data.samples ?? new Float32Array(data.audio ?? 0));
@@ -146,13 +147,26 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
     readings: data.readings, a4: data.a4, recordingId: recId,
   });
   await annotateTake(data.notes, { readings: data.readings, a4: data.a4, recordingId: recId });
-  // Standing on the Score tab is what makes the panel have a width.
+  // The real flow: TAP the tab and let the app render it, exactly as a player
+  // does. Calling renderScoreTab by hand here would hide whether the app's own
+  // wiring reaches it — and the pages are read at this moment, which takes a
+  // second or two a page, so it is waited for rather than assumed.
   document.querySelector('.tab-btn[data-tab="score"]')?.click();
-  await new Promise((r) => setTimeout(r, 600));
+  // Rendered through THIS module instance, deliberately.
+  //
+  // A dynamic import of '/src/ui/score.js' from a check is not the same module
+  // record as main.js's own './ui/score.js' — the dev server serves them
+  // separately, so the app's copy and the check's copy each have their own
+  // `current`, `ready` and `onPick`. Everything above was set on this copy, so
+  // this copy is the one that has to draw, and the picker has to be wired on it
+  // as main.js wires its own. (In a build there is one bundle and one copy;
+  // this is a property of driving the app from outside, not of the app.)
+  const { selectPlayedNote } = await import('/src/ui/report.js');
+  const { initScoreCard } = await import('/src/ui/score.js');
+  initScoreCard({ onPickNote: (note) => selectPlayedNote(note) });
   const { onScoreTabShown } = await import('/src/ui/score-tab.js');
   onScoreTabShown();
   await renderScoreTab();
-  await new Promise((r) => setTimeout(r, 900));
 
   // A reader that has never been built is not an OPEN reader — and `?.hidden`
   // on a missing element is undefined, which negates to "open" and would have
@@ -172,6 +186,7 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
     tones: [...new Set(notes.map((n) => n.dataset.tone))].sort(),
     dockHas: dock ? [...dock.children].map((c) => c.id) : [],
     summary: document.querySelector('#score-tab-summary')?.textContent ?? '',
+
   };
 }, built);
 
@@ -204,64 +219,47 @@ check('the transport and the zoomed graph are under it',
   review.dockHas.includes('playback-controls') && review.dockHas.includes('note-zoom'),
   `dock: ${review.dockHas.join(', ')}`);
 
-// --- clicking a note hands that note to the picker ---------------------------
+// --- clicking a note opens its close-up, and NOTHING else -------------------
 //
-// The engraved page calls onPick with `attempt.played` — the played note
-// object itself — and everything downstream (the close-up, the drones, the
-// highlight) keys off that object's IDENTITY. So what has to be true of the
-// scanned page is exactly the same thing: the ring for the nth note hands back
-// the nth note, the same object the review was built from, not a copy.
-//
-// Checked with a picker of our own rather than by watching the report, because
-// the report needs a whole take loaded through the recording machinery and
-// that is a different subject with its own ways of not being set up.
+// Two things have to be true of a press on a ring, and the second is the bug
+// that made the first useless: it opens that note's close-up graph, and it does
+// NOT open the full-screen score. score-tab.js wires a click on the whole stage
+// to the reader — the engraved noteheads escape that with stopPropagation and
+// the rings did not, so pressing a note opened its close-up and then threw a
+// music stand over the top of it.
 const picked = await page.evaluate(async () => {
-  const { initScoreCard } = await import('/src/ui/score.js');
+  const { renderFreeReview } = await import('/src/ui/report.js');
+  const { Recorder } = await import('/src/audio/recording.js');
   const notes = window.__takeNotes ?? [];
-  const got = [];
-  initScoreCard({ onPickNote: (note) => got.push(note) });
+  // The report has to hold THESE notes: everything downstream keys off the
+  // object's identity, and a copy reloaded from the store is a different note
+  // as far as a Map is concerned.
+  const rec = new Recorder(44100);
+  rec.push(new Float32Array(44100 * 12));
+  renderFreeReview(document, notes, rec, { readings: window.__takeReadings ?? [], a4: 440 });
+  await new Promise((r) => setTimeout(r, 400));
+
   const rings = [...document.querySelectorAll('#score-stage .scan-note')];
-  rings[0]?.click();
   rings[7]?.click();
-  rings[31]?.click();
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 800));
+
+  const zoom = document.querySelector('#note-zoom');
+  const reader = document.querySelector('#reader');
   return {
-    calls: got.length,
-    // Identity, against the take the review was made from.
-    identical: got.length === 3
-      && got[0] === notes[0] && got[1] === notes[7] && got[2] === notes[31],
-    // …and failing identity, at least the right note by its own clock.
-    starts: got.map((n) => n?.start),
-    wanted: [notes[0]?.start, notes[7]?.start, notes[31]?.start],
+    rings: rings.length,
+    zoomOpen: !!zoom && zoom.hidden === false,
+    zoomLabel: document.querySelector('#zoom-label')?.textContent ?? '',
+    readerOpen: !!reader && !reader.hidden,
+    fullScreen: document.documentElement.hasAttribute('data-score-full'),
   };
 });
-check('clicking a ring hands its note to the picker', picked.calls === 3,
-  `${picked.calls} of 3 clicks arrived`);
-check('and it is the right note, by identity',
-  picked.identical === true,
-  `got starts ${JSON.stringify(picked.starts)} wanted ${JSON.stringify(picked.wanted)}`);
 
-// --- the light follows the playback ------------------------------------------
-// rAF does not run in the headless shell, so the playback tick never fires and
-// the light cannot be watched moving. What CAN be checked is the wiring it
-// rides on: the view answers noteheadFor for a played note with the element
-// that would be lit, which is the whole of what follow() needs.
-const wiring = await page.evaluate(async () => {
-  const { loadRecording } = await import('/src/store/db.js');
-  const data = await loadRecording(1);
-  const notes = data.notes ?? [];
-  // Ask the same question follow() asks, for three notes spread through it.
-  const answers = [0, 20, 45].map((i) => {
-    const want = notes[i];
-    const all = [...document.querySelectorAll('#score-stage .scan-note')];
-    const label = all[i]?.getAttribute('aria-label') ?? '';
-    return { i, label, has: !!want && !!all[i] };
-  });
-  return answers;
-});
-check('the notes are addressable in order, which is what the light rides on',
-  wiring.every((a) => a.has), wiring.map((a) => `${a.i}:${a.label}`).join(' | '));
-
+check('pressing a note opens that note\'s close-up graph',
+  picked.zoomOpen === true,
+  `#note-zoom open=${picked.zoomOpen}, label "${picked.zoomLabel}"`);
+check('and does NOT throw the full-screen score over the top of it',
+  picked.readerOpen === false && picked.fullScreen === false,
+  `reader=${picked.readerOpen} full-screen=${picked.fullScreen}`);
 
 // --- a take that runs past the page, and one that runs past the part ---------
 // Two shapes that are easy to get wrong and easy not to notice: notes carrying

@@ -144,7 +144,16 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
       const cents = Math.round(mark.note?.cents ?? 0);
       dot.title = `${cents > 0 ? '+' : ''}${cents}¢`;
       dot.setAttribute('aria-label', `note ${mark.index + 1}, ${cents > 0 ? '+' : ''}${cents} cents`);
-      dot.addEventListener('click', () => onPickNote?.(mark.note));
+      // Stopped here on purpose, exactly as the engraved noteheads do it: a tap
+      // on the page itself opens the full-screen reader (score-tab.js wires the
+      // whole stage), and picking a note is not asking for that. Without this,
+      // pressing a note both opened its close-up AND threw the reader over the
+      // top of it — so the one thing you could not do by tapping a note was
+      // look at the note.
+      dot.addEventListener('click', (e) => {
+        e.stopPropagation();
+        onPickNote?.(mark.note);
+      });
       box.append(dot);
       byNote.set(mark.note, dot);
       nodes.push(dot);

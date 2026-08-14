@@ -869,6 +869,19 @@ async function renderScanTab() {
   const pageCount = payload.layout?.length ?? payload.pages?.length ?? payload.pageCount ?? 0;
   const readSoFar = (payload.layout ?? []).filter(Boolean).length;
   if (pageCount && readSoFar < pageCount) {
+    // Something on the screen FIRST.
+    //
+    // Reading a part takes a second or two a page, and everything below waits
+    // for it — so the panel sat empty for as long as it took, with the summary
+    // above it saying the take had been analysed. An empty box under a sentence
+    // claiming success reads as a failure, and it is the one moment the app
+    // genuinely is working.
+    const waiting = document.createElement('p');
+    waiting.className = 'score-scan-gap';
+    waiting.textContent = pageCount === 1
+      ? 'Reading the page, so every note can be put where it belongs…'
+      : `Reading the ${pageCount} pages, so every note can be put where it belongs…`;
+    mountScore(waiting, ready.summary);
     // No `standAside` handed over on purpose: that argument is the reader's,
     // for keeping a page turn instant, and there are no page turns here. The
     // pass narrates its own progress.
@@ -976,7 +989,23 @@ function scanUnreadNote(payload) {
 
 // Engrave and mark up the page. Called the first time the Score tab is shown,
 // because only then does its panel have a width to lay the music out to.
+// One render at a time, and one per take.
+//
+// The tab machinery calls this on every switch to the Score tab, and a take
+// arriving while that tab is already up calls it too. Both are right, and
+// both were allowed to run at once — on a scan that means two passes reading
+// the same pages and two sets of rings racing to replace each other in the
+// same box, with whichever finishes second winning. Held on a promise so the
+// second caller waits for the first rather than starting again.
+let rendering = null;
+
 export async function renderScoreTab() {
+  if (rendering) return rendering;
+  rendering = renderScoreTabOnce().finally(() => { rendering = null; });
+  return rendering;
+}
+
+async function renderScoreTabOnce() {
   if (!current || !ready) return null;
   if (view) return view; // already drawn for this take
   // A scan gets the photograph, with the same things live on it.
