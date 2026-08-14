@@ -2777,8 +2777,20 @@ async function showPage(index) {
   }, SAY_TURNING);
   turning++;
   try {
+    // Always the rough one, with somebody waiting.
+    //
+    // This asked for a SHARP draw of anything already on the page, which was
+    // right while the look-ahead drew sharp and became exactly wrong once it
+    // drew rough: a page the look-ahead had warmed would be thrown away and
+    // re-rendered at full quality with a finger tapping, turning the warm case
+    // — the one that is supposed to be instant — into the slowest of the lot.
+    //
+    // Nothing here is ever sharp now. An undrawn page gets the rough render, a
+    // rough one is already on screen and returns at once, and sharpenSoon does
+    // the proper draw when the turning stops. What a turn waits for is the
+    // least it can wait for and still show you music.
     await Promise.all(shown.map(
-      (i) => drawPaperPage(i, { quick: !drawn.has(i) }).catch(() => {}),
+      (i) => drawPaperPage(i, { quick: true }).catch(() => {}),
     ));
   } finally {
     turning--;
@@ -2883,7 +2895,22 @@ function keepNeighboursReady(shown) {
         await new Promise((go) => { setTimeout(go, 30); });
         if (mine !== lookAhead) return;
       }
-      await drawPaperPage(i).catch(() => {});
+      // ROUGH, which is the whole point of drawing it early.
+      //
+      // This asked for a full-quality render, and a full render of a
+      // photographed page is several times the work of the rough one the TURN
+      // itself uses. So the look-ahead was the most expensive thing in the
+      // reader while being the least urgent: three sharp pages queued one
+      // behind another, each one blocking the next, and a hand tapping at the
+      // speed hands actually tap outran them within a page or two. After that
+      // every turn paid for its own render with somebody waiting on it, which
+      // is exactly what a look-ahead exists to prevent.
+      //
+      // Rough pages cost a fraction, so the window in front of you actually
+      // fills, and sharpenSoon upgrades whatever you land on a moment after
+      // the turns stop — which is the order these should always have been in:
+      // something to read immediately, sharp before you need the detail.
+      await drawPaperPage(i, { quick: true }).catch(() => {});
     }
     if (mine !== lookAhead) return;
     // Again afterwards: a page drawn by the LAST turn's look-ahead finishes
@@ -5198,7 +5225,16 @@ async function drawOnePage(index, quick = false) {
   const slice = slices[index];
   if (!paper || !node || !slice) return;
   // Already there, and already as sharp as it is going to be.
-  if (drawn.has(index) && !(!quick && rough.has(index))) return;
+  if (drawn.has(index) && !(!quick && rough.has(index))) {
+    // …except that a page which is only ROUGH is still owed a proper draw, and
+    // returning here is now the commonest way of arriving at one: the turn asks
+    // for rough, finds the look-ahead has already done it, and leaves. Without
+    // saying so on the way out, the sharpening was scheduled only by the draw
+    // that never happened, and a warmed page stayed soft until something
+    // unrelated redrew it.
+    if (rough.has(index)) sharpenSoon(index);
+    return;
+  }
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
   const mine = era;

@@ -128,9 +128,27 @@ const reopened = await page.evaluate(async (recId) => {
   return {
     reviewShown: review ? !review.hidden : null,
     summary: document.querySelector('#score-tab-summary')?.textContent ?? null,
-    stage: document.querySelector('#score-stage button')?.textContent?.trim() ?? null,
     gap: document.querySelector('.score-scan-gap')?.textContent ?? null,
     waiting: reviewIsWaiting(),
+    // PRESENT is not the same as reachable, and the difference was the whole
+    // bug: the button existed in the document the entire time, on a tab the
+    // player was not looking at. offsetParent is null for anything inside a
+    // hidden ancestor, which is what "there is no option to open it" means
+    // from the outside.
+    ways: [...document.querySelectorAll('button')]
+      .filter((b) => /open the score/i.test(b.textContent ?? ''))
+      .map((b) => ({
+        shown: b.offsetParent !== null && b.getBoundingClientRect().height > 0,
+        // Which card it is in — the Record tab's score card, or the Score
+        // tab's review card.
+        where: b.closest('#score-sheet') ? 'record-card'
+          : (b.closest('#score-stage') ? 'score-tab' : 'somewhere else'),
+      })),
+    // The instruction itself, and where it is.
+    hintShown: (() => {
+      const h = document.querySelector('#score-hint');
+      return !!h && h.offsetParent !== null && /open the score/i.test(h.textContent ?? '');
+    })(),
   };
 }, built.recId);
 
@@ -149,7 +167,43 @@ check('the missing half is named rather than left as a hole',
   (reopened.gap ?? '(nothing said)').slice(0, 110));
 check('the take is stamped, so it can be reopened like any other',
   reopened.waiting === true, `reviewIsWaiting=${reopened.waiting}`);
-check('the way through to the page is offered', !!reopened.stage, `stage: "${reopened.stage}"`);
+// Asked from where the player is actually standing.
+//
+// Pressing Stop leaves you on the Record tab, so that is the screen the
+// question is about: with the take just finished and the hint saying to open
+// the score, is there something on THIS screen to press? A headless page shows
+// no tab until it is told to, and a visibility check run against no tab at all
+// would answer a question nobody asked.
+const onRecordTab = await page.evaluate(async () => {
+  document.querySelector('.tab-btn[data-tab="analyze"]')?.click();
+  await new Promise((r) => setTimeout(r, 700));
+  const seen = [...document.querySelectorAll('button')]
+    .filter((b) => /open the score/i.test(b.textContent ?? ''))
+    .map((b) => ({
+      shown: b.offsetParent !== null && b.getBoundingClientRect().height > 0,
+      where: b.closest('#score-sheet') ? 'record-card'
+        : (b.closest('#score-stage') ? 'score-tab' : 'somewhere else'),
+    }));
+  const hint = document.querySelector('#score-hint');
+  return {
+    ways: seen,
+    hintShown: !!hint && hint.offsetParent !== null && /open the score/i.test(hint.textContent ?? ''),
+  };
+});
+reopened.ways = onRecordTab.ways;
+reopened.hintShown = onRecordTab.hintShown;
+
+// The bug this file exists to keep out, stated as the requirement rather than
+// as a selector: the sentence telling you to open the score, and a button that
+// does it, have to be on the SAME screen.
+const visibleWays = (reopened.ways ?? []).filter((w) => w.shown);
+check('a way to open the score is actually on screen, not merely in the document',
+  visibleWays.length > 0,
+  `${reopened.ways.length} found, ${visibleWays.length} visible`
+    + ` — ${reopened.ways.map((w) => `${w.where}:${w.shown ? 'shown' : 'hidden'}`).join(', ')}`);
+check('and it is on the same card as the line that tells you to press it',
+  reopened.hintShown === true && visibleWays.some((w) => w.where === 'record-card'),
+  `hint on screen=${reopened.hintShown}`);
 
 // --- and through to the page, which is where the take has to land ------------
 const onPage = await page.evaluate(async () => {

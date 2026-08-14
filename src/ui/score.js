@@ -643,37 +643,63 @@ function scanSummary(analysis) {
   return `${parts.join(', ')}.`;
 }
 
+// The way through to the page, built fresh for wherever it is being put.
+function openScoreButton() {
+  const open = document.createElement('button');
+  open.className = 'ctl primary';
+  open.type = 'button';
+  open.textContent = 'Open the score →';
+  open.addEventListener('click', () => readCurrentScore());
+  return open;
+}
+
+// Said out loud, and next to the thing that would fix it. This is the only part
+// of the analysis a scan cannot do, and a player who is not told that is a
+// player who thinks the app looked at their notes and had no opinion.
+function scanGapNote() {
+  const gap = document.createElement('p');
+  gap.className = 'score-scan-gap';
+  gap.textContent = 'Read from the sound: intonation, how each note spoke, and'
+    + ' your own pulse. Whether you played the written note needs the notation —';
+  const add = document.createElement('button');
+  add.type = 'button';
+  add.className = 'linkish';
+  add.textContent = 'add its MusicXML';
+  add.addEventListener('click', () => el('score-pair')?.click());
+  gap.append(' ', add, '.');
+  return gap;
+}
+
 function showScanReview(analysis) {
   const title = el('score-review-title');
   if (title) title.textContent = current.name ?? '';
   const summary = el('score-tab-summary');
   if (summary) summary.textContent = scanSummary(analysis);
 
-  const stage = el('score-stage');
-  if (stage) {
-    const open = document.createElement('button');
-    open.className = 'ctl primary';
-    open.type = 'button';
-    open.textContent = 'Open the score →';
-    open.addEventListener('click', () => readCurrentScore());
-
-    // Said out loud, and next to the thing that would fix it. This is the only
-    // part of the analysis a scan cannot do, and a player who does not know
-    // that is a player who thinks the app looked at their notes and had no
-    // opinion about them.
-    const gap = document.createElement('p');
-    gap.className = 'score-scan-gap';
-    gap.textContent = 'Read from the sound: intonation, how each note spoke, and'
-      + ' your own pulse. Whether you played the written note needs the notation —';
-    const add = document.createElement('button');
-    add.type = 'button';
-    add.className = 'linkish';
-    add.textContent = 'add its MusicXML';
-    add.addEventListener('click', () => el('score-pair')?.click());
-    gap.append(' ', add, '.');
-
-    stage.replaceChildren(open, gap);
+  // On BOTH screens, because the sentence and the button were on different
+  // ones.
+  //
+  // This is the "it tells me to open the score and there is nothing to press"
+  // bug, and it is entirely a matter of geography. #score-hint — the line that
+  // says open the score — lives in the Record tab's card, which is where you
+  // are standing when you press Stop. #score-stage lives in the Score tab's
+  // review card, which is a tab switch away and gives no sign it has anything
+  // on it. So the instruction was on one screen and the only way to obey it
+  // was on another, and a player who never thought to go looking simply had a
+  // take that went nowhere.
+  //
+  // A take against notation never had this problem because it fills
+  // #score-sheet, which is in the Record card an inch under the hint. So this
+  // does the same thing, and keeps the Score tab's copy for the player who
+  // arrives from that side.
+  const sheet = el('score-sheet');
+  if (sheet) {
+    sheet.replaceChildren(openScoreButton(), scanGapNote());
+    sheet.hidden = false;
   }
+  const stage = el('score-stage');
+  if (stage) stage.replaceChildren(openScoreButton(), scanGapNote());
+
   const tempo = el('score-tempo-row');
   if (tempo) tempo.hidden = true;    // there is no written tempo to play against
   showReviewCard(true);
