@@ -172,7 +172,7 @@ function build() {
   noteOut.textContent = '—';
   const centsOut = document.createElement('span');
   centsOut.className = 'aid-cents';
-  centsOut.textContent = 'listening…';
+  centsOut.textContent = 'opening the mic…';
   const dial = document.createElement('div');
   dial.className = 'aid-meter';
   const needle = document.createElement('div');
@@ -191,7 +191,7 @@ function build() {
   const listen = chip('Listen', 'Ask for the microphone', () => {
     document.dispatchEvent(new CustomEvent('score-tuner', { detail: { on: true, tap: true } }));
     listen.hidden = true;
-    strip.__parts.centsOut.textContent = 'listening…';
+    strip.__parts.centsOut.textContent = 'opening the mic…';
   }, 'aid-chip aid-listen');
   tuneRow.append(listen);
 
@@ -215,19 +215,19 @@ function nudge(by) {
   paintTempo();
 }
 
+function paintPlay() {
+  const { play } = strip.__parts;
+  const on = !!metro?.running;
+  play.textContent = on ? '❚❚' : '▶';
+  play.title = on ? 'Stop the click' : 'Start the click';
+  play.setAttribute('aria-label', play.title);
+}
+
 function toggleClick() {
   if (!metro) return;
-  const { play } = strip.__parts;
-  if (metro.running) {
-    metro.stop();
-    play.textContent = '▶';
-    play.title = 'Start the click';
-  } else {
-    metro.start();
-    play.textContent = '❚❚';
-    play.title = 'Stop the click';
-  }
-  play.setAttribute('aria-label', play.title);
+  if (metro.running) metro.stop();
+  else metro.start();
+  paintPlay();
 }
 
 // The beat, seen rather than only heard: on a stand, with the click turned
@@ -267,9 +267,14 @@ export function showAids(which) {
   strip.hidden = false;
   strip.dataset.showing = which;
   if (which !== 'tuner') { askForEars(false); return; }
+  // One at a time. Holding the microphone puts iOS into a record-capable audio
+  // session, which drops the output level for as long as it is held — so a
+  // click left running under the tuner is a click you can barely hear, and it
+  // would be the tuner's own fault.
+  if (metro?.running) toggleClick();
   heardAnything = false;
   strip.__parts.listen.hidden = true;
-  strip.__parts.centsOut.textContent = 'listening…';
+  strip.__parts.centsOut.textContent = 'opening the mic…';
   askForEars(true);
   // If nothing has been heard shortly, the microphone was never opened — say
   // so, and offer the tap that can actually open it.
@@ -326,7 +331,13 @@ export function feedReading(reading) {
 
 // Everything let go of: the reader is closing.
 export function stopAids() {
+  // Through the same repaint that owns the button, or a reopened strip shows a
+  // stop glyph over a stopped click — after which the first tap STARTS it and
+  // changes nothing on screen, and the second stops it. Half of every tap
+  // doing the opposite of what the button says is a metronome that reads as
+  // broken whatever the audio is doing.
   if (metro?.running) metro.stop();
+  if (strip?.__parts) paintPlay();
   if (strip) { strip.hidden = true; }
   showing = null;
   askForEars(false);

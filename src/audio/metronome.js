@@ -97,8 +97,20 @@ export function subdivisionOffsets(name) {
   }
 }
 
+let metronomes = 0;
+
 export class Metronome {
   constructor(onBeat) {
+    // Its own name in the audio session's ledger.
+    //
+    // Both instances of this class — the tab's and the one on the score page —
+    // used the literal string 'metronome', so the bookkeeper could not tell
+    // them apart: stopping either emptied the set, the shared output context
+    // went to sleep five seconds later, and the OTHER one carried on
+    // scheduling against a frozen clock. A running metronome, a running
+    // button, and silence.
+    metronomes += 1;
+    this.key = `metronome:${metronomes}`;
     this.bpm = 80;
     this.beatsPerBar = 4;
     this.subdivision = 'quarter';
@@ -120,7 +132,7 @@ export class Metronome {
 
   start() {
     if (this.running) return;
-    this.ctx = holdAudio('metronome');
+    this.ctx = holdAudio(this.key);
     this.nextTime = this.ctx.currentTime + 0.1;
     this.count = 0;
     this.barCount = 0;
@@ -131,7 +143,7 @@ export class Metronome {
   stop() {
     clearInterval(this.timer);
     this.timer = null;
-    releaseAudio('metronome');
+    releaseAudio(this.key);
   }
 
   schedule() {

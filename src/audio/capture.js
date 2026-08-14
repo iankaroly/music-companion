@@ -1,4 +1,4 @@
-import { setAudioSessionType, releaseCaptureSession } from './context.js';
+import { setAudioSessionType, releaseCaptureSession, watchMic } from './context.js';
 
 // Mic capture: getUserMedia → AudioWorklet → onChunk(Float32Array).
 // Returns { sampleRate, stop }.
@@ -54,6 +54,10 @@ export function releaseMic() {
   held = null;
   releaseCaptureSession();
 }
+
+// So the output session can ask whether a microphone is really open rather
+// than trusting a category it set before finding out. See context.js.
+watchMic(() => micIsHeld());
 
 export function micIsHeld() {
   return held !== null;
@@ -141,8 +145,18 @@ export async function ensureMic() {
     held.ctx.close().catch(() => {});
     held = null;
   }
+  // Claimed only for as long as it is earned. If open() throws — a refused
+  // permission, a microphone the device will not give up — the session used to
+  // stay claimed for the life of the page, and iOS routes a record-category
+  // session quietly: the metronome then played to nobody, with no error.
   setAudioSessionType('play-and-record');
-  const session = await open();
+  let session;
+  try {
+    session = await open();
+  } catch (err) {
+    releaseCaptureSession();
+    throw err;
+  }
   held = session;
   // Left LIVE, deliberately, where it used to be parked — the track disabled
   // and the context suspended — for the half-second before capture turned both
@@ -256,8 +270,19 @@ function resumeAfterHiding() {
 // always did, indicator and all.
 export async function startCapture(onChunk, { onInterrupted, throughLock = false } = {}) {
   // record-capable session only while the mic is live — it halves iOS
-  // output volume, so playback-only features must not inherit it
+  // output volume, so playback-only features must not inherit it. Given back
+  // on any failure below: a session claimed by a capture that never started is
+  // a session nothing else will ever reclaim.
   setAudioSessionType('play-and-record');
+  try {
+    return await reallyStartCapture(onChunk, { onInterrupted, throughLock });
+  } catch (err) {
+    releaseCaptureSession();
+    throw err;
+  }
+}
+
+async function reallyStartCapture(onChunk, { onInterrupted, throughLock = false } = {}) {
 
   if (held && !usable(held)) {
     held.ctx.close().catch(() => {});

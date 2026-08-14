@@ -85,8 +85,18 @@ export function wakeAudio() {
   const ctx = audioContext();
   clearTimeout(idleTimer);
   idleTimer = null;
-  // never downgrade the mic's session while it is capturing
-  if (sessionType !== 'play-and-record') setAudioSessionType('playback');
+  // Never downgrade the mic's session WHILE IT IS CAPTURING — but ask the
+  // microphone, not a flag it left behind.
+  //
+  // The record-capable session is claimed before the microphone is actually
+  // opened, so a getUserMedia that is refused or times out leaves the app
+  // pinned to 'play-and-record' for the rest of its life. iOS routes a
+  // record-category session quietly and to a different output, and nothing
+  // here could ever set it back: the click was then inaudible for ever, with
+  // no error and a metronome that looked like it was running. Conditioning on
+  // the mic being live rather than on the flag makes the pin come undone by
+  // itself the moment the microphone is not actually held.
+  if (sessionType !== 'play-and-record' || !micIsHeld()) setAudioSessionType('playback');
   if (ctx.state !== 'running') ctx.resume().catch(() => {});
   return ctx;
 }
@@ -114,6 +124,18 @@ function scheduleSleep(delay = IDLE_MS) {
 // Anything that makes a sound holds the session for as long as it lasts:
 // 'drone', 'metronome', 'playback'. Re-holding the same key is a no-op, so
 // callers can be sloppy about matching every start with exactly one stop.
+// Asked of the microphone rather than assumed. Imported lazily to keep the
+// module cycle one-way at load time — capture.js already imports this file.
+let micLive = () => false;
+
+export function watchMic(isHeld) {
+  micLive = isHeld;
+}
+
+function micIsHeld() {
+  try { return micLive(); } catch { return false; }
+}
+
 export function holdAudio(key) {
   holds.add(key);
   return wakeAudio();

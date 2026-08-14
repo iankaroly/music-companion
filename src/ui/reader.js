@@ -1804,6 +1804,18 @@ function armPencil(e) {
 // There is one pencil. While it is down it is drawing. That is the whole rule.
 const penStroke = {
   live: false,
+  // Where the pencil actually went, written down the moment it is heard and
+  // before anything is done with it.
+  //
+  // This is the safety net, and it is deliberately not clever. Every other
+  // record of a stroke is downstream of machinery that has now failed three
+  // times in ways nobody could reproduce: the anchoring, the thinning, the
+  // coalesced samples, the caches. This is the raw positions, kept by the
+  // outermost handler in the app, and if a stroke reaches its end having
+  // collected nothing while this holds a path, the stroke is rebuilt from it.
+  // A mark drawn from these is a mark the hand actually made, even if
+  // everything between here and the page went wrong.
+  raw: [],
 
   begin(e) {
     // EVERY way out of here says so.
@@ -1828,6 +1840,7 @@ const penStroke = {
       endStroke();
     }
     this.live = true;
+    this.raw = [{ x: e.clientX, y: e.clientY }];
     drawingPointer = e.pointerId;
     marksAtDown = strokes.length;
     try {
@@ -1848,6 +1861,8 @@ const penStroke = {
 
   extend(e) {
     if (!this.live || !tool) return;
+    // Written down FIRST, before anything that could throw.
+    if (this.raw.length < 4000) this.raw.push({ x: e.clientX, y: e.clientY });
     // Every position the device actually sampled, not just the one it got
     // round to telling us about — iPadOS gathers a pencil at 240Hz and hands
     // the extra ones over in a single move.
@@ -1887,8 +1902,23 @@ const penStroke = {
     // A stroke that arrives here having collected almost nothing did not fail
     // at the door — it failed while being drawn, which is a different place to
     // look and has never been visible from outside.
-    const points = drawing?.points?.length ?? 0;
     const wasMarking = !!drawing;
+    // The net. A stroke that collected nothing while the pencil plainly
+    // travelled is rebuilt from where the pencil travelled.
+    if (wasMarking && (drawing.points?.length ?? 0) <= 1 && this.raw.length > 2) {
+      const rescued = [];
+      for (const at of this.raw) {
+        const point = anchor(at.x, at.y);
+        if (point) rescued.push(point);
+      }
+      if (rescued.length > 1) {
+        drawing.points = rescued;
+        strokeTravel = TAP_INK;   // it travelled; that is what raw says
+        penRefused(`a stroke was rebuilt from the raw path (${rescued.length} points)`);
+      }
+    }
+    const points = drawing?.points?.length ?? 0;
+    this.raw = [];
     try {
       endStroke();
     } catch (err) {
@@ -4316,6 +4346,37 @@ function build() {
     if (e.target?.closest?.('input, textarea, [contenteditable]')) return;
     dropSelection();
   }, true);
+
+  // --- the touch stream, refused ------------------------------------------
+  //
+  // This is the published workaround for the thing that has eaten a stroke
+  // four times, and it is the only one of these that is not a guess.
+  //
+  // WebKit bug 269535, open: if a finger or a palm is already on the glass
+  // when the Apple Pencil lands, WebKit dispatches NO POINTER EVENTS AT ALL
+  // for that pencil contact. Not a pointerdown, not a cancel, not an error —
+  // the stroke happens on the screen and the page is never told. Writing a
+  // second letter with your hand still resting from the first is exactly that
+  // race, which is why it is always the second one, why it is intermittent,
+  // and why no amount of driving a headless browser could ever produce it.
+  //
+  // The asymmetry that makes this fixable: on iOS, preventDefault on a POINTER
+  // event does not call off the system gesture recognisers, and preventDefault
+  // on a TOUCH event does. So the touch stream is refused outright — which is
+  // what both of the published fixes for this symptom do, and what stops the
+  // recogniser claiming the sequence before the pencil's pointer events are
+  // ever synthesised.
+  //
+  // { passive: false } is not optional: a passive listener cannot
+  // preventDefault, and would look exactly like this change doing nothing.
+  //
+  // Not on the chrome. Refusing touches on a button is refusing the button.
+  for (const type of ['touchstart', 'touchmove']) {
+    root.addEventListener(type, (e) => {
+      if (onChrome(e)) return;
+      if (e.cancelable) e.preventDefault();
+    }, { passive: false });
+  }
 
   trackPointers(root);
 
