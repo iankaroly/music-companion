@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'vitest';
-import { combScore, combPeaks, trackCombs } from '../src/analysis/scan-read.js';
+import {
+  combScore, combPeaks, trackCombs, fillMissedStaves,
+} from '../src/analysis/scan-read.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
 // are inked. A stave is five inked rows with clear gaps between them.
@@ -130,5 +132,51 @@ describe('trackCombs', () => {
     const staves = trackCombs(perStrip, 12);
     expect(staves).toHaveLength(2);
     expect(staves[0].y0[0]).toBeLessThan(staves[1].y0[0]);
+  });
+});
+
+// A page of evenly spaced systems, as profiles, one per strip.
+function pageStrips({ strips = 40, tops = [100, 260, 420, 580], step = 12, height = 800 } = {}) {
+  return Array.from({ length: strips }, () => {
+    const p = new Float32Array(height);
+    for (const top of tops) for (let k = 0; k < 5; k++) p[Math.round(top + k * step)] = 1;
+    return p;
+  });
+}
+
+describe('fillMissedStaves', () => {
+  test('a system missed in the middle is put back', () => {
+    const profiles = pageStrips();                       // four systems on the page
+    const found = trackCombs(
+      profiles.map((p) => combPeaks(p, 12).filter((c) => Math.abs(c.y0 - 260) > 20)), 12,
+    );                                                   // …but the reader saw three
+    expect(found).toHaveLength(3);
+    const filled = fillMissedStaves(found, profiles, 12);
+    expect(filled).toHaveLength(4);
+    expect(filled[1].y0[0]).toBeCloseTo(260, 0);
+  });
+
+  test('a system missed at the foot of the page is put back', () => {
+    const profiles = pageStrips();
+    const found = trackCombs(
+      profiles.map((p) => combPeaks(p, 12).filter((c) => c.y0 < 500)), 12,
+    );
+    expect(found).toHaveLength(3);
+    const filled = fillMissedStaves(found, profiles, 12);
+    expect(filled.map((s) => Math.round(s.y0[0]))).toEqual([100, 260, 420, 580]);
+  });
+
+  test('nothing is invented where the page has no ink', () => {
+    // Three real systems and blank paper below them: prediction must not
+    // manufacture a fourth out of an empty margin.
+    const profiles = pageStrips({ tops: [100, 260, 420], height: 800 });
+    const found = trackCombs(profiles.map((p) => combPeaks(p, 12)), 12);
+    expect(fillMissedStaves(found, profiles, 12)).toHaveLength(3);
+  });
+
+  test('fewer than three staves is not a rhythm worth extrapolating', () => {
+    const profiles = pageStrips({ tops: [100, 260] });
+    const found = trackCombs(profiles.map((p) => combPeaks(p, 12)), 12);
+    expect(fillMissedStaves(found, profiles, 12)).toHaveLength(2);
   });
 });

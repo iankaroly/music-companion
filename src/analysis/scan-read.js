@@ -197,6 +197,76 @@ export function trackCombs(perStrip, pitch, { drift = 0.6, cross = 0.5 } = {}) {
     .sort((a, b) => a.y0[0] - b.y0[0]);
 }
 
+// The page has a rhythm; use it.
+//
+// Systems on a printed page are evenly spaced, so the staves that were found
+// say where the ones that were missed must be. A PREDICTED position is then
+// accepted on far weaker evidence than an unprompted one — which is the whole
+// point: the shadow at the foot of a photographed page costs a system its
+// score, not its existence. On the page this was built against it is what
+// turned seven systems into ten.
+//
+// The weak threshold is safe only because the position was predicted. Nothing
+// here can invent a stave in a blank margin: a prediction must still find some
+// comb response in half the strips it crosses.
+export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor = 0.05 } = {}) {
+  if (staves.length < 3) return staves;      // two points are not a rhythm
+  const strips = profiles.length;
+  const height = profiles[0].length;
+  const middle = Math.floor(strips / 2);
+  const tops = staves.map((s) => s.y0[middle]);
+  // The LOWER median, and that is the whole trick: a missed system doubles the
+  // gap on either side of where it should have been, and nothing ever halves
+  // one. Taking the upper median of [160, 320] would adopt the hole as the
+  // page's spacing and then find nothing missing at all.
+  const gaps = tops.slice(1).map((y, i) => y - tops[i]).sort((a, b) => a - b);
+  const gap = gaps[Math.floor((gaps.length - 1) / 2)];
+
+  const wanted = [];
+  for (let y = tops[0] - gap; y > pitch; y -= gap) wanted.push(y);
+  for (let i = 0; i + 1 < tops.length; i++) {
+    const span = tops[i + 1] - tops[i];
+    const n = Math.round(span / gap);
+    for (let k = 1; k < n; k++) wanted.push(tops[i] + (span * k) / n);
+  }
+  for (let y = tops.at(-1) + gap; y + 5 * pitch < height; y += gap) wanted.push(y);
+
+  const out = [...staves];
+  for (const want of wanted) {
+    if (out.some((s) => Math.abs(s.y0[middle] - want) < gap * 0.4)) continue;
+    const y0 = new Float32Array(strips);
+    const step = new Float32Array(strips);
+    let answered = 0;
+    for (let s = 0; s < strips; s++) {
+      let best = -1;
+      let bestY = want;
+      let bestStep = pitch;
+      for (let y = Math.round(want - gap * 0.35); y <= Math.round(want + gap * 0.35); y++) {
+        for (let st = pitch - 1.5; st <= pitch + 1.5; st += 0.25) {
+          const v = combScore(profiles[s], y, st);
+          if (v > best) { best = v; bestY = y; bestStep = st; }
+        }
+      }
+      y0[s] = bestY;
+      step[s] = bestStep;
+      if (best > floor) answered++;
+    }
+    if (answered < strips * votes) continue;
+    // A stave does not jump about. The best answer in each strip is pulled
+    // toward its neighbours before the lines are drawn from it, so a strip that
+    // happened to like a slur keeps the stave straight anyway.
+    const smooth = new Float32Array(strips);
+    for (let s = 0; s < strips; s++) {
+      let sum = 0;
+      let n = 0;
+      for (let k = Math.max(0, s - 2); k <= Math.min(strips - 1, s + 2); k++) { sum += y0[k]; n++; }
+      smooth[s] = sum / n;
+    }
+    out.push({ y0: smooth, step });
+  }
+  return out.sort((a, b) => a.y0[0] - b.y0[0]);
+}
+
 function stripPeaks(ink, w, h, strip, stripW, thickness) {
   const x0 = strip * stripW;
   const x1 = Math.min(w, x0 + stripW);
