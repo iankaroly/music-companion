@@ -236,7 +236,7 @@ async function initSoundCheck() {
           ? '  ← iOS plays this one QUIETLY. Something is holding the microphone.' : ''}`,
         `Volume: ${now.volume.toFixed(2)}${now.volume < 0.2 ? '  ← this is nearly off' : ''}`,
         `Click level: ${now.click.toFixed(2)}${now.click < 0.2 ? '  ← this is nearly off' : ''}`,
-        `Microphone held: ${now.micHeld ? 'yes' : 'no'}`,
+        `Microphone: ${now.micListening ? 'LISTENING' : (now.micParked ? 'parked (not listening)' : 'not open')}`,
         `Holding audio: ${now.holds.length ? now.holds.join(', ') : 'nothing'}`,
         `Sample rate: ${now.sampleRate || 'unknown'}`,
       ];

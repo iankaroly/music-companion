@@ -55,12 +55,28 @@ export function releaseMic() {
   releaseCaptureSession();
 }
 
-// So the output session can ask whether a microphone is really open rather
-// than trusting a category it set before finding out. See context.js.
-watchMic(() => micIsHeld());
+// So the output session can ask whether a microphone is really LISTENING.
+//
+// Not whether one is held — that is a different question with a different
+// answer, and asking the wrong one is what made the metronome silent. A stream
+// is deliberately kept open between uses so that starting again costs nothing,
+// and `held` stays set for the whole session once anything has used the
+// microphone once. Answering "is the mic held?" therefore meant: record a
+// take, or tune, or even just run the microphone check, and the app claimed
+// the recording audio session for the rest of its life. iOS plays a
+// record-category session quietly and to a different output, so from then on
+// the click was inaudible — with no error, and a metronome that looked like it
+// was running perfectly.
+//
+// Parked is not listening. Interrupted is not listening. Only capturing is.
+watchMic(() => micIsCapturing(), () => micIsHeld());
 
 export function micIsHeld() {
   return held !== null;
+}
+
+export function micIsCapturing() {
+  return !!held && inUse && !held.parked && !held.interrupted;
 }
 
 // A parked session can still have been revoked (the user pulled permission, a
@@ -304,6 +320,7 @@ async function reallyStartCapture(onChunk, { onInterrupted, throughLock = false 
   if (session.ctx.state !== 'running') {
     inUse = false;
     session.parked = true;
+    releaseCaptureSession();   // nothing is listening, so nothing may claim the route
     throw new Error('audio is blocked until you tap again');
   }
   // A microphone that is open, live, and sending nothing.

@@ -48,7 +48,8 @@ export function audioState() {
     sampleRate: ctx?.sampleRate ?? 0,
     session: sessionType,
     holds: [...holds],
-    micHeld: micIsHeld(),
+    micListening: micIsHeld(),
+    micParked: micParked(),
     volume: getVolume(),
     click: clickLevel(),
     routed: !!masterGain,
@@ -144,13 +145,19 @@ function scheduleSleep(delay = IDLE_MS) {
 // Asked of the microphone rather than assumed. Imported lazily to keep the
 // module cycle one-way at load time — capture.js already imports this file.
 let micLive = () => false;
+let micKept = () => false;
 
-export function watchMic(isHeld) {
-  micLive = isHeld;
+export function watchMic(isCapturing, isHeld = null) {
+  micLive = isCapturing;
+  if (isHeld) micKept = isHeld;
 }
 
 function micIsHeld() {
   try { return micLive(); } catch { return false; }
+}
+
+function micParked() {
+  try { return micKept() && !micLive(); } catch { return false; }
 }
 
 export function holdAudio(key) {
