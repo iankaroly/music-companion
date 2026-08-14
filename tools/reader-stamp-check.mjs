@@ -104,6 +104,45 @@ const seek = await page.evaluate(() => ({
 check('no seek bar along the foot of the page', !seek.bar && !seek.track,
   `#reader-seek=${seek.bar} .seek-track=${seek.track}`);
 
+// --- 0b. a pinch with nothing picked up still zooms the page -----------------
+// The thing all of this must not have broken. Hiding the chips and holding a
+// sign back both hang off the pinch handler, which is the same handler that
+// magnifies the music.
+const sheetTransform = () => page.evaluate(() =>
+  getComputedStyle(document.querySelector('#reader-sheet') ?? document.body).transform);
+const flat = await sheetTransform();
+await touch('touchStart', [{ x: W * 0.45, y: H * 0.5, id: 1 }]);
+await wait(40);
+await touch('touchStart', [{ x: W * 0.45, y: H * 0.5, id: 1 }, { x: W * 0.55, y: H * 0.5, id: 2 }]);
+for (let i = 1; i <= 8; i++) {
+  await touch('touchMove', [
+    { x: W * 0.45 - i * 16, y: H * 0.5, id: 1 },
+    { x: W * 0.55 + i * 16, y: H * 0.5, id: 2 },
+  ]);
+  await wait(25);
+}
+const zoomed = await sheetTransform();
+await touch('touchEnd', []);
+await wait(500);
+check('a pinch with nothing picked up still zooms the music', zoomed !== flat && zoomed !== 'none',
+  `${flat} -> ${zoomed}`);
+// Back to size, so the taps below land where this file thinks they do.
+await page.evaluate(() => document.querySelector('#reader')?.dispatchEvent(
+  new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+await page.reload({ waitUntil: 'load' });
+await wait(1800);
+await page.evaluate(async (x) => {
+  document.querySelector('#welcome')?.remove();
+  document.querySelector('#welcome-card')?.remove();
+  localStorage.removeItem('readerPencilSeen');
+  const { openReader } = await import('/src/ui/reader.js');
+  const { saveAnnotations } = await import('/src/store/db.js');
+  await saveAnnotations('stamp-test', []);
+  await openReader({ id: 'stamp-test', name: 'Stamp test', xml: x, kind: 'notation' });
+  await new Promise((r) => setTimeout(r, 900));
+}, xml());
+await wait(500);
+
 // --- pick the sharp out of the stamp menu ------------------------------------
 await page.evaluate(() => document.querySelector('#reader-stamps')?.click());
 await wait(200);

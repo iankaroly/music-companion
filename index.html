@@ -2137,13 +2137,16 @@
     #reader-next[hidden] { display: none; }
     /* The click and the pitch, over the foot of the page — and never over the
        music itself, because the whole reason it is here is that you are
-       reading from that music. Where it STARTS is only a first offer: it is
-       dragged anywhere and stays where it was put. */
+       reading from that music. Clear of what is overleaf, which is the one
+       other thing down here and which appears exactly when the controls are
+       away, so the two are on screen together or not at all. Where it STARTS
+       is only a first offer: it is dragged anywhere and stays where it was
+       put. */
     #reader-aids {
       position: fixed;
       left: 50%;
       transform: translateX(-50%);
-      bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+      bottom: calc(2.4rem + env(safe-area-inset-bottom, 0px));
       z-index: 4;
       display: flex;
       align-items: center;

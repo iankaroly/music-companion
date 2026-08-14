@@ -1293,7 +1293,7 @@ let erasing = false;
 let lasso = null;        // the loop being drawn, in screen points
 let picked = [];         // the strokes inside it
 let dragging = null;     // { x, y } while the selection is being moved
-let pendingStamp = null; // a sign this gesture will leave, if it turns out to be a tap
+let pendingPlace = null; // { tool, point } this gesture will leave, if it is a tap
 
 function beginStroke(e) {
   const at = pointerPosition(e);
@@ -1330,19 +1330,22 @@ function beginStroke(e) {
   nibPressure(point, e);
   lastInkAt = at;
   strokeTravel = 0;
-  if (tool === 'text') { writeText(point); return; }
-  // A sign is placed when the finger LIFTS, not when it lands.
+  // The tools that PLACE a thing do it when the finger lifts, not when it lands.
   //
   // At the moment a contact arrives there is no way to tell whether a second
   // one is on its way: there is one entry in `pointers`, `pinch` is null, and
-  // the first finger of a pinch is indistinguishable from a tap. So placing on
-  // the way down meant every pinch made with the stamp tool in hand dropped a
-  // sharp on the page before it began — and since a freshly placed sign is
-  // held, what the pinch then resized was the accident rather than the sign
-  // you had reached for. This is what you MIGHT have meant; endStroke decides
-  // that you did, and cancelStroke throws it away the moment the gesture turns
-  // out to have been a pinch.
-  if (tool === 'stamp') { pendingStamp = point; return; }
+  // the first finger of a pinch is indistinguishable from a tap. So acting on
+  // the way down meant every pinch made with one of these in hand did its thing
+  // before the pinch began — a sharp dropped on the page, or a keyboard thrown
+  // up over the music — and since a freshly placed sign is held, what the pinch
+  // then resized was the accident rather than the sign you had reached for.
+  // Reaching to make a flat bigger left another flat behind it, every time.
+  //
+  // This is what you MIGHT have meant; endStroke decides that you did, and
+  // cancelStroke throws it away the moment two fingers turn out to be a pinch.
+  // A modal still opens inside the gesture that asked for it, which is what iOS
+  // requires — a lift is as much a gesture as a press.
+  if (tool === 'text' || tool === 'stamp') { pendingPlace = { tool, point }; return; }
   const brush = currentBrush();
   drawing = {
     tool,
@@ -1481,7 +1484,7 @@ function cancelStroke() {
   // The sign that was never placed. This is the whole point of holding it back:
   // the finger that was about to stamp turned out to be half of a pinch, and a
   // pinch is a request to resize what is already there, never to add to it.
-  pendingStamp = null;
+  pendingPlace = null;
   // What was PICKED stays picked. Pinching in to look closer at a selection is
   // a reasonable thing to do to one, and losing it for that would be its own
   // small betrayal.
@@ -1491,12 +1494,13 @@ function cancelStroke() {
 function endStroke() {
   stopHold();
   lastInkAt = null;
-  // A sign that survived the gesture: one finger went down and the same finger
+  // A thing that survived the gesture: one finger went down and the same finger
   // came up, so it was a tap and it meant what it said.
-  if (pendingStamp) {
-    const where = pendingStamp;
-    pendingStamp = null;
-    placeStamp(where);
+  if (pendingPlace) {
+    const { tool: what, point } = pendingPlace;
+    pendingPlace = null;
+    if (what === 'text') writeText(point);
+    else placeStamp(point);
     return;
   }
   if (tool === 'lasso') {
@@ -2214,7 +2218,7 @@ function forgetEveryPointer() {
   penPointer = null;
   pinch = null;
   pinching = false;
-  pendingStamp = null;
+  pendingPlace = null;
   refreshSelectionBar();
   if (drawingPointer !== null) { drawingPointer = null; cancelStroke(); }
 }
