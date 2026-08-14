@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  combScore, combPeaks, trackCombs, fillMissedStaves,
+  combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines,
 } from '../src/analysis/scan-read.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
@@ -178,5 +178,29 @@ describe('fillMissedStaves', () => {
     const profiles = pageStrips({ tops: [100, 260] });
     const found = trackCombs(profiles.map((p) => combPeaks(p, 12)), 12);
     expect(fillMissedStaves(found, profiles, 12)).toHaveLength(2);
+  });
+});
+
+describe('stavesToLines', () => {
+  test('five lines a step apart, in the shape the head finder takes', () => {
+    const strips = 40;
+    const y0 = new Float32Array(strips).fill(100);
+    const step = new Float32Array(strips).fill(12);
+    const [staff] = stavesToLines([{ y0, step }], strips);
+    expect(staff.lines).toHaveLength(5);
+    expect(staff.lines[0].at[0]).toBeCloseTo(100, 5);
+    expect(staff.lines[4].at[0]).toBeCloseTo(148, 5);
+    expect(staff.lines[2].mid).toBeCloseTo(124, 5);
+    expect(staff.space).toBeCloseTo(12, 5);
+  });
+
+  test('a sagging stave sags on every line together', () => {
+    const strips = 40;
+    const y0 = Float32Array.from({ length: strips }, (_, s) => 100 + s * 0.2);
+    const step = new Float32Array(strips).fill(12);
+    const [staff] = stavesToLines([{ y0, step }], strips);
+    for (let k = 0; k < 5; k++) {
+      expect(staff.lines[k].at[39] - staff.lines[k].at[0]).toBeCloseTo(7.8, 1);
+    }
   });
 });

@@ -267,83 +267,20 @@ export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor =
   return out.sort((a, b) => a.y0[0] - b.y0[0]);
 }
 
-function stripPeaks(ink, w, h, strip, stripW, thickness) {
-  const x0 = strip * stripW;
-  const x1 = Math.min(w, x0 + stripW);
-  const profile = new Float32Array(h);
-  for (let y = 0; y < h; y++) {
-    let n = 0;
-    for (let x = x0; x < x1; x++) n += ink[y * w + x];
-    profile[y] = n;
-  }
-  const peaks = [];
-  const floor = (x1 - x0) * 0.55;
-  for (let y = 1; y < h - 1; y++) {
-    if (profile[y] < floor) continue;
-    if (profile[y] < profile[y - 1] || profile[y] < profile[y + 1]) continue;
-    if (peaks.length && y - peaks.at(-1) <= thickness) continue;
-    peaks.push(y);
-  }
-  return peaks;
-}
-
-// Link the per-strip peaks into curves. Each curve is one staff line, allowed to
-// wander by a fraction of a staff space from one strip to the next.
-function trackLines(peaksPerStrip, pitch) {
-  const drift = Math.max(2, pitch * 0.45);
-  const curves = [];
-  for (let s = 0; s < peaksPerStrip.length; s++) {
-    const taken = new Set();
-    for (const curve of curves) {
-      if (curve.last < s - 2) continue;
-      let best = null;
-      let bestGap = drift;
-      for (const y of peaksPerStrip[s]) {
-        if (taken.has(y)) continue;
-        const gap = Math.abs(y - curve.y);
-        if (gap < bestGap) { bestGap = gap; best = y; }
-      }
-      if (best === null) continue;
-      taken.add(best);
-      curve.points.push([s, best]);
-      curve.y = best;
-      curve.last = s;
-    }
-    for (const y of peaksPerStrip[s]) {
-      if (taken.has(y)) continue;
-      curves.push({ points: [[s, y]], y, last: s });
-    }
-  }
-  // A staff line crosses most of the page; a beam, a slur or a pencil mark does
-  // not. What survives is sampled to one y per strip.
-  return curves
-    .filter((c) => c.points.length >= peaksPerStrip.length * 0.45)
-    .map((c) => {
-      const at = new Float32Array(peaksPerStrip.length);
-      let k = 0;
-      for (let s = 0; s < at.length; s++) {
-        while (k + 1 < c.points.length && c.points[k + 1][0] <= s) k++;
-        const [sa, ya] = c.points[k];
-        const next = c.points[k + 1];
-        at[s] = next ? ya + (next[1] - ya) * ((s - sa) / (next[0] - sa)) : ya;
-      }
-      return { at, mid: at[Math.floor(at.length / 2)] };
-    })
-    .sort((a, b) => a.mid - b.mid);
-}
-
-function groupStaves(lines, pitch) {
-  const staves = [];
-  for (let i = 0; i + 4 < lines.length; i++) {
-    const five = lines.slice(i, i + 5);
-    const gaps = five.slice(1).map((l, k) => l.mid - five[k].mid);
-    const mean = gaps.reduce((a, b) => a + b, 0) / gaps.length;
-    if (Math.abs(mean - pitch) > pitch * 0.35) continue;
-    if (!gaps.every((g) => Math.abs(g - mean) < mean * 0.3)) continue;
-    staves.push({ lines: five, space: mean });
-    i += 4;
-  }
-  return staves;
+// A tracked stave, in the shape the bar and head finders take: five lines, each
+// sampled once per strip, plus the midpoint they use to reach for ledger lines
+// above and below.
+export function stavesToLines(staves, strips) {
+  return staves.map(({ y0, step }) => {
+    const lines = [0, 1, 2, 3, 4].map((index) => {
+      const at = new Float32Array(strips);
+      for (let s = 0; s < strips; s++) at[s] = y0[s] + index * step[s];
+      return { at, mid: at[Math.floor(strips / 2)] };
+    });
+    let sum = 0;
+    for (let s = 0; s < strips; s++) sum += step[s];
+    return { lines, space: sum / strips };
+  });
 }
 
 // A barline is a column of ink that spans the stave from the top line to the
@@ -440,10 +377,22 @@ export function readPage(source, naturalWidth, naturalHeight) {
   if (!(space > 2 && space < 40)) return null;
 
   const stripW = Math.max(1, Math.floor(w / STRIPS));
-  const peaks = [];
-  for (let s = 0; s < STRIPS; s++) peaks.push(stripPeaks(ink, w, h, s, stripW, thickness));
-  const lines = trackLines(peaks, pitch);
-  const staves = groupStaves(lines, pitch);
+  // One profile per strip: for each row, the fraction of that strip's columns
+  // that are inked. Everything above works on these and never on the image.
+  const profiles = [];
+  for (let s = 0; s < STRIPS; s++) {
+    const x0 = s * stripW;
+    const x1 = Math.min(w, x0 + stripW);
+    const p = new Float32Array(h);
+    for (let y = 0; y < h; y++) {
+      let n = 0;
+      for (let x = x0; x < x1; x++) n += ink[y * w + x];
+      p[y] = n / (x1 - x0);
+    }
+    profiles.push(p);
+  }
+  const tracked = trackCombs(profiles.map((p) => combPeaks(p, pitch)), pitch);
+  const staves = stavesToLines(fillMissedStaves(tracked, profiles, pitch), STRIPS);
   if (staves.length === 0) return null;
 
   const out = staves.map((staff) => {
