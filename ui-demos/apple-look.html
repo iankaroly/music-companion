@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>The same app, in Apple's visual language — Music Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ── THE SAME FOUR SURFACES, TWICE ─────────────────────────────────────────
+     The apple-design skill is mostly motion — eleven of its fifteen sections
+     are gesture and animation physics. Only two are visual: §12 materials and
+     §15 typography. This page takes those two seriously and shows what they do
+     to the app's actual look, with everything else held still: same content,
+     same layout, same information. Flip the switch at the top.
+
+     NOW    the candy-glass stage as it ships — Fredoka display face, violet
+            primary, 2rem corners, one blur weight on everything.
+     APPLE  system font with size-specific tracking, material weight used as
+            hierarchy (heavy chrome, light content, never stacked), depth from
+            layered shadow rather than from a border, and Apple's system
+            colours instead of the violet.
+
+     Nothing here is imported by the app.                                     */
+
+  * { box-sizing: border-box; margin: 0; }
+  /* Both spellings, and it matters: without the unprefixed one Chrome's text
+     autosizing boosts a long line in a narrow column to four times its size —
+     the switch bar came out bigger than the note name it was there to explain. */
+  html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+
+  /* ---- the switch, which is chrome and belongs to neither look ---------- */
+  .control {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+    padding: 0.7rem 1rem;
+    background: rgb(12 13 16 / 0.82);
+    -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+    border-bottom: 1px solid #24262e;
+    color: #e9eaee;
+    font: 500 0.82rem/1.4 -apple-system, system-ui, sans-serif;
+  }
+  .control .seg { display: flex; background: #1b1d23; border-radius: 999px; padding: 0.18rem; gap: 0.15rem; }
+  .control .seg button {
+    appearance: none; border: 0; background: none; color: #9a9ba6;
+    font: inherit; padding: 0.35rem 0.9rem; border-radius: 999px; cursor: pointer;
+    transition: color 140ms, background 140ms;
+  }
+  .control .seg button[aria-pressed="true"] { background: #34374a; color: #fff; }
+  /* The bar carries controls and a link, and nothing else. It used to carry a
+     sentence, which Chrome's text autosizer promptly blew up to four times its
+     size — it blockifies a flex item, decides a multi-line block in a narrow
+     column needs help, and ignores text-size-adjust while doing it. A sticky
+     bar has no business holding a paragraph; the explanation is in the page. */
+  .control a { margin-left: auto; white-space: nowrap; }
+  .control a { color: #8b9cff; }
+
+  /* ══ SHARED SHAPE ═══════════════════════════════════════════════════════
+     Layout only. Every visual decision lives in the two theme blocks below,
+     so the comparison is honest — nothing moves, only how it is dressed.    */
+  /* Room for the dock, which floats over the page rather than reserving a
+     strip of it — so the page has to leave the strip itself. */
+  body { min-height: 100vh; padding-bottom: 10rem; }
+  .app { max-width: 34rem; margin: 0 auto; padding: 0 1rem; }
+  .bar { display: flex; align-items: center; justify-content: space-between; padding: 1.1rem 0.25rem 1.2rem; }
+  .icon-btn { display: grid; place-items: center; width: 2.4rem; height: 2.4rem; cursor: pointer; border: 0; background: none; color: inherit; }
+  .icon-btn svg { width: 1.15rem; height: 1.15rem; }
+  .card { margin-bottom: 0.9rem; padding: 1.25rem; }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin-bottom: 1rem; }
+  .tuner-main { display: flex; align-items: baseline; gap: 1rem; }
+  .meter { margin: 1.2rem 0 0.2rem; }
+  .meter-track { position: relative; height: 8px; border-radius: 99px; }
+  .meter-zero { position: absolute; left: 50%; top: -5px; bottom: -5px; width: 2px; border-radius: 2px; }
+  .meter-needle { position: absolute; top: -6px; left: 47%; width: 4px; height: 20px; border-radius: 99px; }
+  .meter-labels { display: flex; justify-content: space-between; margin-top: 0.85rem; font-size: 0.72rem; }
+  .trace { width: 100%; height: 190px; display: block; }
+  .chips { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-top: 0.9rem; }
+  .chip { border: 0; cursor: pointer; font: inherit; padding: 0.42rem 0.85rem; }
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem; }
+  .stat b { display: block; }
+  .stat i { font-style: normal; }
+  .rows { list-style: none; padding: 0; margin: 0; display: grid; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .row-name em { display: block; font-style: normal; }
+  .dock { position: fixed; left: 50%; transform: translateX(-50%); bottom: 1rem; display: flex; z-index: 40; }
+  .dock-btn { border: 0; cursor: pointer; font: inherit; }
+  .sub { margin-top: 0.9rem; }
+  @media (max-width: 560px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .dock-btn { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     NOW — the candy-glass stage, as it ships today
+     ══════════════════════════════════════════════════════════════════════ */
+  body[data-look="now"] {
+    --sf: 255 255 255;
+    --primary: #6d4ef6;
+    --ink: #2a2149;
+    --muted: #7b74a0;
+    --line: #e3ddf5;
+    --good: #17b578; --off: #f29b38; --bad: #ef5c73;
+    --sharp: #d9612c; --flat: #2b74c9;
+    background: #eeebfa;
+    color: var(--ink);
+    font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+  }
+  /* The drifting colour field the real app has under everything. */
+  body[data-look="now"]::before {
+    content: ""; position: fixed; inset: -20%; z-index: -1;
+    background:
+      radial-gradient(38rem 30rem at 15% 12%, #b9a4ff 0%, transparent 62%),
+      radial-gradient(34rem 28rem at 85% 28%, #8fd8ff 0%, transparent 60%),
+      radial-gradient(30rem 26rem at 50% 92%, #ffc0d8 0%, transparent 62%);
+    filter: blur(64px) saturate(1.2); opacity: 0.7;
+  }
+  body[data-look="now"] .brand { font-family: "Fredoka", ui-rounded, system-ui, sans-serif; font-weight: 500; font-size: 1.15rem; letter-spacing: 0.01em; }
+  body[data-look="now"] .card {
+    background: rgb(var(--sf) / 0.55);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6); backdrop-filter: blur(22px) saturate(1.6);
+    border: 1px solid rgb(var(--sf) / 0.7);
+    border-radius: 2rem;
+    box-shadow: 0 2px 4px rgb(42 33 73 / 0.05), 0 12px 32px rgb(42 33 73 / 0.1);
+  }
+  /* One tracking everywhere, which is the §15 finding made visible. */
+  body[data-look="now"] .eyebrow { font-family: "Fredoka", ui-rounded, sans-serif; font-size: 0.7rem; font-weight: 500; letter-spacing: 0.01em; text-transform: uppercase; color: var(--muted); }
+  body[data-look="now"] .meta, body[data-look="now"] .pill { font-size: 0.75rem; color: var(--muted); letter-spacing: 0.01em; }
+  body[data-look="now"] .note { font-family: "Fredoka", ui-rounded, sans-serif; font-size: 3.3rem; font-weight: 600; line-height: 1; letter-spacing: 0.01em; }
+  body[data-look="now"] .cents { font-size: 1.5rem; font-weight: 500; color: var(--flat); letter-spacing: 0.01em; }
+  body[data-look="now"] .cents small { font-size: 0.7em; }
+  body[data-look="now"] .meter-track { background: var(--line); }
+  body[data-look="now"] .meter-zero { background: rgb(42 33 73 / 0.25); }
+  body[data-look="now"] .meter-needle { background: var(--flat); box-shadow: 0 2px 6px rgb(43 116 201 / 0.5); }
+  body[data-look="now"] .meter-labels { color: var(--muted); }
+  body[data-look="now"] .sub { font-size: 0.82rem; line-height: 1.5; color: var(--muted); }
+  body[data-look="now"] .grid line { stroke: #e6e0f6; stroke-width: 1; }
+  body[data-look="now"] .trace-line { stroke: var(--primary); stroke-width: 2.5; }
+  body[data-look="now"] .band-bad { fill: rgb(239 92 115 / 0.12); }
+  body[data-look="now"] .band-off { fill: rgb(242 155 56 / 0.14); }
+  body[data-look="now"] .playhead { stroke: rgb(42 33 73 / 0.3); stroke-width: 1; }
+  body[data-look="now"] .playhead-dot { fill: var(--primary); }
+  body[data-look="now"] .chip { border-radius: 999px; font-size: 0.76rem; font-weight: 500; background: rgb(42 33 73 / 0.06); color: var(--ink); }
+  body[data-look="now"] .chip.is-live { background: var(--good); color: #fff; }
+  body[data-look="now"] .chip.is-bad { background: var(--bad); color: #fff; }
+  body[data-look="now"] .chip.is-off { background: var(--off); color: #fff; }
+  body[data-look="now"] .stat b { font-size: 1.6rem; font-weight: 600; letter-spacing: 0.01em; }
+  body[data-look="now"] .stat i { font-size: 0.62em; color: var(--muted); }
+  body[data-look="now"] .stat span { font-size: 0.7rem; color: var(--muted); }
+  body[data-look="now"] .rows { gap: 0.85rem; }
+  body[data-look="now"] .row-name { font-size: 0.9rem; font-weight: 500; }
+  body[data-look="now"] .row-name em { font-size: 0.74rem; color: var(--muted); font-weight: 400; margin-top: 0.1rem; }
+  body[data-look="now"] .row-val { font-size: 0.9rem; font-weight: 600; color: var(--primary); }
+  body[data-look="now"] .pill { background: rgb(23 181 120 / 0.14); color: #0f7a52; padding: 0.2rem 0.6rem; border-radius: 999px; font-weight: 500; }
+  body[data-look="now"] .dock {
+    gap: 0.15rem; padding: 0.34rem; border-radius: 1.9rem;
+    background: rgb(var(--sf) / 0.55);
+    -webkit-backdrop-filter: blur(22px) saturate(1.6); backdrop-filter: blur(22px) saturate(1.6);
+    border: 1px solid rgb(var(--sf) / 0.7);
+    box-shadow: 0 2px 4px rgb(42 33 73 / 0.05), 0 12px 32px rgb(42 33 73 / 0.1);
+  }
+  body[data-look="now"] .dock-btn {
+    font-family: "Fredoka", ui-rounded, sans-serif; font-size: 0.76rem; font-weight: 500;
+    padding: 0.5rem 0.8rem; border-radius: 1.9rem; background: none; color: rgb(42 33 73 / 0.52);
+  }
+  body[data-look="now"] .dock-btn.is-on { background: #fff; color: var(--ink); box-shadow: 0 4px 16px rgb(42 33 73 / 0.18); }
+
+  /* ══════════════════════════════════════════════════════════════════════
+     APPLE — §12 materials and §15 typography, taken seriously
+     ══════════════════════════════════════════════════════════════════════ */
+  body[data-look="apple"] {
+    color-scheme: light;
+    --blue: #0a84ff; --green: #30d158; --orange: #ff9f0a; --red: #ff453a;
+    --ink: #000; --muted: rgb(60 60 67 / 0.6); --sep: rgb(60 60 67 / 0.18);
+    --grouped: #f2f2f7; --raised: #fff;
+    background: var(--grouped);
+    color: var(--ink);
+    /* §15 — the platform face first. It already ships optical sizing and
+       tracking tables; a custom display face is a decision you have to earn. */
+    font-family: -apple-system, "SF Pro Text", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body[data-look="apple"].dark {
+    color-scheme: dark;
+    --ink: #fff; --muted: rgb(235 235 245 / 0.6); --sep: rgb(84 84 88 / 0.65);
+    --grouped: #000; --raised: #1c1c1e;
+  }
+  /* §12 — content sits on a plain grouped ground and the CHROME is the
+     material. The reverse (glass cards on a busy field) is what makes every
+     surface compete; here only the floating layer is allowed to be glass. */
+  body[data-look="apple"] .card {
+    background: var(--raised);
+    border-radius: 0.9rem;
+    border: 0;
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.04), 0 1px 2px rgb(0 0 0 / 0.05), 0 6px 16px rgb(0 0 0 / 0.05);
+  }
+  body[data-look="apple"].dark .card { box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.06); }
+  /* §15 — tracking belongs to the size. Large tightens, small opens up. */
+  body[data-look="apple"] .brand { font-size: 1.3rem; font-weight: 700; letter-spacing: -0.022em; }
+  body[data-look="apple"] .eyebrow {
+    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted);
+  }
+  body[data-look="apple"] .meta { font-size: 0.78rem; color: var(--muted); letter-spacing: 0; }
+  body[data-look="apple"] .note {
+    font-size: 3.3rem; font-weight: 700; line-height: 1;
+    letter-spacing: -0.035em;              /* large: negative */
+    font-variant-numeric: tabular-nums;
+  }
+  body[data-look="apple"] .cents {
+    font-size: 1.5rem; font-weight: 600; color: var(--blue);
+    letter-spacing: -0.02em; font-variant-numeric: tabular-nums;
+  }
+  body[data-look="apple"] .cents small { font-size: 0.66em; font-weight: 500; }
+  body[data-look="apple"] .meter-track { background: var(--sep); }
+  body[data-look="apple"] .meter-zero { background: var(--muted); }
+  body[data-look="apple"] .meter-needle { background: var(--blue); box-shadow: 0 1px 4px rgb(10 132 255 / 0.5); }
+  body[data-look="apple"] .meter-labels { color: var(--muted); letter-spacing: 0.005em; }
+  body[data-look="apple"] .sub { font-size: 0.82rem; line-height: 1.5; color: var(--muted); letter-spacing: 0.004em; }
+  body[data-look="apple"] .grid line { stroke: var(--sep); stroke-width: 0.5; }
+  body[data-look="apple"] .trace-line { stroke: var(--blue); stroke-width: 2; }
+  body[data-look="apple"] .band-bad { fill: rgb(255 69 58 / 0.1); }
+  body[data-look="apple"] .band-off { fill: rgb(255 159 10 / 0.12); }
+  body[data-look="apple"] .playhead { stroke: var(--muted); stroke-width: 0.5; }
+  body[data-look="apple"] .playhead-dot { fill: var(--blue); }
+  body[data-look="apple"] .chip {
+    border-radius: 0.55rem; font-size: 0.78rem; font-weight: 500; letter-spacing: -0.004em;
+    background: rgb(120 120 128 / 0.12); color: var(--ink);
+  }
+  /* Semantic colour as a tint with coloured text, not as a filled shout. */
+  body[data-look="apple"] .chip.is-live { background: rgb(48 209 88 / 0.16); color: #248a3d; }
+  body[data-look="apple"] .chip.is-bad { background: rgb(255 69 58 / 0.16); color: #d70015; }
+  body[data-look="apple"] .chip.is-off { background: rgb(255 159 10 / 0.18); color: #a05a00; }
+  body[data-look="apple"].dark .chip.is-live { color: #30d158; }
+  body[data-look="apple"].dark .chip.is-bad { color: #ff453a; }
+  body[data-look="apple"].dark .chip.is-off { color: #ff9f0a; }
+  body[data-look="apple"] .stat b { font-size: 1.7rem; font-weight: 700; letter-spacing: -0.028em; font-variant-numeric: tabular-nums; }
+  body[data-look="apple"] .stat i { font-size: 0.58em; font-weight: 600; color: var(--muted); letter-spacing: -0.01em; }
+  body[data-look="apple"] .stat span { font-size: 0.72rem; color: var(--muted); letter-spacing: 0.006em; }
+  /* Grouped inset list: hairline separators inset to the text, not to the box. */
+  body[data-look="apple"] .rows { gap: 0; }
+  body[data-look="apple"] .row { padding: 0.7rem 0; }
+  body[data-look="apple"] .row + .row { box-shadow: inset 0 0.5px 0 var(--sep); }
+  body[data-look="apple"] .row-name { font-size: 0.95rem; font-weight: 500; letter-spacing: -0.012em; }
+  body[data-look="apple"] .row-name em { font-size: 0.78rem; color: var(--muted); font-weight: 400; letter-spacing: 0; margin-top: 0.08rem; }
+  body[data-look="apple"] .row-val { font-size: 0.95rem; font-weight: 600; color: var(--muted); font-variant-numeric: tabular-nums; letter-spacing: -0.012em; }
+  body[data-look="apple"] .pill {
+    background: rgb(48 209 88 / 0.16); color: #248a3d; padding: 0.15rem 0.5rem;
+    border-radius: 0.4rem; font-size: 0.72rem; font-weight: 600; letter-spacing: 0;
+  }
+  body[data-look="apple"].dark .pill { color: #30d158; }
+  /* §12 — THIS is the glass, and it is the only glass: a floating layer with
+     the content passing underneath it. Heavier blur and a deeper shadow than
+     anything on the page, because it is the biggest floating surface. */
+  body[data-look="apple"] .dock {
+    gap: 0.1rem; padding: 0.28rem; border-radius: 1.15rem;
+    background: rgb(255 255 255 / 0.72);
+    -webkit-backdrop-filter: blur(30px) saturate(1.8); backdrop-filter: blur(30px) saturate(1.8);
+    box-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.06), 0 12px 34px rgb(0 0 0 / 0.16);
+    /* The bright top edge is light catching the material. */
+    border-top: 1px solid rgb(255 255 255 / 0.65);
+  }
+  body[data-look="apple"].dark .dock {
+    background: rgb(30 30 32 / 0.72);
+    border-top: 1px solid rgb(255 255 255 / 0.14);
+    box-shadow: 0 0 0 0.5px rgb(255 255 255 / 0.08), 0 12px 34px rgb(0 0 0 / 0.5);
+  }
+  body[data-look="apple"] .dock-btn {
+    font-size: 0.74rem; font-weight: 500; letter-spacing: -0.006em;
+    padding: 0.5rem 0.75rem; border-radius: 0.95rem; background: none; color: var(--muted);
+  }
+  body[data-look="apple"] .dock-btn.is-on { background: rgb(120 120 128 / 0.18); color: var(--ink); font-weight: 600; }
+  /* §12 — a scroll edge that fades rather than a 1px rule under the chrome. */
+  body[data-look="apple"] .dock::before {
+    content: ""; position: absolute; left: -1rem; right: -1rem; bottom: -1rem; height: 3.4rem;
+    z-index: -1; pointer-events: none;
+    background: linear-gradient(to top, var(--grouped) 30%, transparent);
+  }
+
+  /* §1 and §4 — press states answer the pointer, and the two looks disagree
+     about whether a tapped button should overshoot. */
+  body[data-look="now"] .dock-btn:active, body[data-look="now"] .chip:active { transform: scale(0.9); transition: transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+  body[data-look="apple"] .dock-btn:active, body[data-look="apple"] .chip:active { transform: scale(0.96); transition: transform 120ms ease-out; }
+
+  .intro, .caption {
+    max-width: 34rem; margin: 1.6rem auto 0; padding: 0 1rem;
+    font: 400 0.85rem/1.6 -apple-system, system-ui, sans-serif;
+  }
+  .intro { margin-top: 1.4rem; }
+  body[data-look="now"] .intro { color: #6b6490; }
+  body[data-look="now"] .intro b { color: #2a2149; }
+  body[data-look="apple"] .intro { color: var(--muted); }
+  body[data-look="apple"] .intro b { color: var(--ink); }
+  body[data-look="now"] .caption { color: #6b6490; }
+  body[data-look="apple"] .caption { color: var(--muted); }
+  .caption b { font-weight: 600; }
+  body[data-look="apple"] .caption b { color: var(--ink); }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition-duration: 120ms !important; }
+  }
+</style>
+</head>
+<body data-look="apple">
+
+<div class="control">
+  <span>Look</span>
+  <div class="seg" id="look">
+    <button type="button" data-look="now" aria-pressed="false">Now</button>
+    <button type="button" data-look="apple" aria-pressed="true">Apple</button>
+  </div>
+  <div class="seg" id="mode">
+    <button type="button" data-mode="light" aria-pressed="true">Light</button>
+    <button type="button" data-mode="dark" aria-pressed="false">Dark</button>
+  </div>
+  <a href="apple-design.html">Motion demo →</a>
+</div>
+
+<p class="intro">
+  The <b>apple-design</b> skill is mostly motion — eleven of its fifteen sections are gesture and
+  animation physics. Only two are visual: <b>§12 materials</b> and <b>§15 typography</b>. This page
+  takes those two seriously on the same four surfaces the other ten directions use, with the content
+  and the layout held still, so what you are judging is the dressing and nothing else.
+  Press <b>space</b> to flip back and forth — the differences read best when they swap under a still eye.
+</p>
+
+<div class="app">
+  <header class="bar">
+    <div class="brand">Music Companion</div>
+    <button class="icon-btn" aria-label="Settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M6 6l1.5 1.5M16.5 16.5L18 18M18 6l-1.5 1.5M7.5 16.5L6 18"/>
+      </svg>
+    </button>
+  </header>
+
+  <section class="card tuner">
+    <div class="card-head"><span class="eyebrow">Listening</span><span class="meta">D string</span></div>
+    <div class="tuner-main">
+      <div class="note">D3</div>
+      <div class="cents">&minus;6<small>&cent;</small></div>
+    </div>
+    <div class="meter">
+      <div class="meter-track"><i class="meter-zero"></i><i class="meter-needle"></i></div>
+      <div class="meter-labels"><span>&minus;50</span><span>in tune</span><span>+50</span></div>
+    </div>
+    <p class="sub">Vibrato &plusmn;14&cent; at 5.4&nbsp;Hz &mdash; measured at the centre it orbits.</p>
+  </section>
+
+  <section class="card take">
+    <div class="card-head"><span class="eyebrow">The take</span><span class="meta">32 notes &middot; 0:38</span></div>
+    <svg class="trace" viewBox="0 0 600 190" preserveAspectRatio="none" aria-label="Pitch over time">
+      <rect class="band band-bad" x="196" y="0" width="34" height="190"/>
+      <rect class="band band-off" x="352" y="0" width="34" height="190"/>
+      <g class="grid">
+        <line x1="0" y1="38" x2="600" y2="38"/><line x1="0" y1="76" x2="600" y2="76"/>
+        <line x1="0" y1="114" x2="600" y2="114"/><line x1="0" y1="152" x2="600" y2="152"/>
+      </g>
+      <polyline class="trace-line" fill="none" stroke-linejoin="round" stroke-linecap="round"
+        points="10,150 40,150 42,132 80,131 82,113 120,115 122,96 160,95 162,78 200,79 202,60 240,58 242,42 280,44 282,60 320,58 322,78 360,80 362,96 400,95 402,113 440,114 442,131 480,133 482,150 520,149 560,150"/>
+      <line class="playhead" x1="470" y1="0" x2="470" y2="190"/>
+      <rect class="playhead-dot" x="466" y="0" width="8" height="16" rx="4"/>
+    </svg>
+    <div class="chips">
+      <button class="chip is-live">C3 +2&cent;</button>
+      <button class="chip is-bad">F&sharp;3 +21&cent;</button>
+      <button class="chip is-off">A3 &minus;18&cent;</button>
+    </div>
+  </section>
+
+  <section class="card timing">
+    <div class="card-head"><span class="eyebrow">Timing</span><span class="pill">steady</span></div>
+    <div class="stats">
+      <div class="stat"><b>96</b><span>pulse</span></div>
+      <div class="stat"><b>12<i>ms</i></b><span>off beat</span></div>
+      <div class="stat"><b>94<i>%</i></b><span>evenness</span></div>
+      <div class="stat"><b>+0.4<i>%</i></b><span>drift</span></div>
+    </div>
+    <p class="sub">Pulse read from your own playing &mdash; no metronome needed. One entry to look at: the 12th note, 73&nbsp;ms late.</p>
+  </section>
+
+  <section class="card library">
+    <div class="card-head"><span class="eyebrow">Library</span><span class="meta">11 takes</span></div>
+    <ul class="rows">
+      <li class="row"><span class="row-name">Bach &mdash; Suite No.&nbsp;1, Prelude<em>4 takes &middot; Friday</em></span><span class="row-val">6.2&cent;</span></li>
+      <li class="row"><span class="row-name">Elgar &mdash; Concerto, opening<em>3 takes &middot; Tuesday</em></span><span class="row-val">11.4&cent;</span></li>
+      <li class="row"><span class="row-name">Scales &mdash; D major, three octaves<em>4 takes &middot; today</em></span><span class="row-val">5.1&cent;</span></li>
+    </ul>
+  </section>
+
+  <p class="caption" id="caption"></p>
+</div>
+
+<nav class="dock">
+  <button class="dock-btn is-on">Tuner</button>
+  <button class="dock-btn">Record</button>
+  <button class="dock-btn">Library</button>
+  <button class="dock-btn">Coach</button>
+  <button class="dock-btn">Metronome</button>
+</nav>
+
+<script type="module">
+const body = document.body;
+
+const CAPTIONS = {
+  now: 'What ships today. Every surface is glass over a drifting colour field, '
+     + 'so the cards, the dock and the background are all asking to be looked at '
+     + 'at once — and one letter-spacing is used from the 3.3rem note name down '
+     + 'to the 0.7rem label.',
+  apple: 'Content sits on a plain grouped ground; only the dock is a material, '
+       + 'with the page passing under it and a fade rather than a rule where '
+       + 'they meet (§12). Tracking now belongs to the size — the note name '
+       + 'tightens to −0.035em while the small print opens slightly (§15). '
+       + 'Semantic colour became a tint with coloured text instead of a filled '
+       + 'shout, so three chips in a row stop competing with the trace.',
+};
+
+function setLook(look) {
+  body.dataset.look = look;
+  for (const b of document.querySelectorAll('#look button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.look === look));
+  }
+  document.querySelector('#caption').textContent = CAPTIONS[look];
+}
+
+function setMode(mode) {
+  body.classList.toggle('dark', mode === 'dark');
+  for (const b of document.querySelectorAll('#mode button')) {
+    b.setAttribute('aria-pressed', String(b.dataset.mode === mode));
+  }
+}
+
+document.querySelector('#look').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) setLook(b.dataset.look);
+});
+document.querySelector('#mode').addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b) setMode(b.dataset.mode);
+});
+
+// A keyboard way to flip back and forth quickly, because the differences are
+// easiest to see when the two states swap under a still eye.
+addEventListener('keydown', (e) => {
+  if (e.key === ' ' || e.key === 'Enter') {
+    if (e.target.closest('button')) return;
+    e.preventDefault();
+    setLook(body.dataset.look === 'now' ? 'apple' : 'now');
+  }
+});
+
+setLook('apple');
+setMode('light');
+</script>
+</body>
+</html>
