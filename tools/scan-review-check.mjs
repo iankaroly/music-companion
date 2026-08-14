@@ -249,6 +249,40 @@ const wiring = await page.evaluate(async () => {
 check('the notes are addressable in order, which is what the light rides on',
   wiring.every((a) => a.has), wiring.map((a) => `${a.i}:${a.label}`).join(' | '));
 
+
+// --- a take that runs past the page, and one that runs past the part ---------
+// Two shapes that are easy to get wrong and easy not to notice: notes carrying
+// on over a page break, and a take with more notes in it than the part has
+// noteheads. The second one is the case that used to be silently truncated.
+const spread = await page.evaluate(async ({ scoreId }) => {
+  const { annotateTake, renderScoreTab } = await import('/src/ui/score.js');
+  const { clearSheet } = await import('/src/ui/score.js');
+  // 200 notes against 80 noteheads: 120 of them cannot be on the page.
+  const many = Array.from({ length: 200 }, (_, i) => ({
+    midi: 48 + (i % 12), cents: (i % 7) * 5 - 15,
+    start: i * 0.1, end: i * 0.1 + 0.09, frequency: 130,
+  }));
+  clearSheet?.();
+  await annotateTake(many, { readings: [], a4: 440 });
+  await renderScoreTab();
+  await new Promise((r) => setTimeout(r, 900));
+  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
+  const pagesWithRings = new Set(rings.map((r) => r.closest('.scan-page')?.dataset.page));
+  return {
+    rings: rings.length,
+    pages: [...pagesWithRings].sort(),
+    said: document.querySelector('.scan-pairing')?.textContent ?? '',
+  };
+}, built);
+
+check('a take longer than the part is capped at the noteheads that exist',
+  spread.rings === 80, `${spread.rings} rings for 200 notes over 80 noteheads`);
+check('and the notes that could not be placed are SAID, not dropped in silence',
+  /200/.test(spread.said) && /80/.test(spread.said) && /120/.test(spread.said),
+  spread.said.trim());
+check('the marks carry across the page break',
+  spread.pages.length === 2, `rings on pages ${spread.pages.join(', ')}`);
+
 if (errors.length) {
   console.log('\nerrors on the page:');
   for (const e of errors.slice(0, 8)) console.log(`  ${e}`);

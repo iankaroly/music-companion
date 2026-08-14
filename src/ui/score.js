@@ -835,6 +835,12 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   return { aligned, timing, annotated: true };
 }
 
+// The longest the review will wait for the pages to be read before drawing
+// what it has. Long enough for a part of a dozen pages on a tablet, short
+// enough that a pass which is standing aside for something else cannot turn
+// this into a blank card.
+const READ_WAIT = 20000;
+
 // The scanned page, in the review, with everything on it live.
 //
 // Everything the engraved review does, done against a photograph: the note
@@ -866,7 +872,19 @@ async function renderScanTab() {
     // No `standAside` handed over on purpose: that argument is the reader's,
     // for keeping a page turn instant, and there are no page turns here. The
     // pass narrates its own progress.
-    await measurePages(current.id).catch(() => {});
+    //
+    // Raced against a clock, though, because measurePages hands back the pass
+    // that is ALREADY running if there is one — and that pass may be the
+    // reader's, which stands aside for as long as somebody is touching the
+    // reader. Awaiting it flat would make this review wait on a screen behind
+    // it. Whatever has been read by the time the clock runs out is what the
+    // page is drawn from; the pass carries on either way and the next look at
+    // this take gets the rest.
+    const finished = measurePages(current.id).catch(() => null);
+    await Promise.race([
+      finished,
+      new Promise((go) => { setTimeout(go, READ_WAIT); }),
+    ]);
     payload = await loadScorePages(current.id).catch(() => payload);
     status(`${current.name} — ${ready.summary}`);
   }
