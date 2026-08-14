@@ -31,7 +31,7 @@ missed head shifts every mark after it.
 ## The idea
 
 **The recording is the oracle. The page supplies place and order; the audio
-supplies pitch and time.**
+supplies pitch and time — and then supplies a second opinion on the page.**
 
 A notehead's height against its own five lines gives its diatonic *step*
 exactly. What a step does not give is a letter — and that unknown is a single
@@ -110,22 +110,52 @@ the aligner forgives octave errors cheaply, which is right for marking and wrong
 for fitting — two clefs an octave apart would score identically. The fit uses an
 octave-strict cost; only the final marking stays forgiving.
 
-**Phase 3 — the page as the review.** Replace index pairing in
+**Phase 3 — read it again, knowing the answer.** Detection and alignment are a
+loop, not a pipeline. See below.
+
+**Phase 4 — the page as the review.** Replace index pairing in
 `drawScanMarks` with the alignment. Then the cursor: each matched head carries
 its note's start and end from the audio, so playback moves a cursor between
 heads and turns pages by itself. Tapping a head plays that note, as a tile does.
 
-## What it refuses to do
+## Neither wrong nor silent
 
-The rule from the MusicXML path holds: **paint only after the check passes.**
-Where the alignment's per-note cost is poor, those heads stay unmarked and the
-page says it lost the thread. A wrong mark on your own music is worse than no
-mark, and a mark cannot be un-seen.
+The obvious design is a gate: paint where the alignment is confident, leave the
+rest blank. It is the rule the MusicXML path lives by and it is safe, but on a
+photographed page it would leave real holes — and a page with a third of it
+uncoloured teaches you not to look at it.
 
-Named failures, all of which degrade to "unmarked" rather than to "wrong":
-repeats (one line of heads played twice), ties (two heads, one sound), trills
-and ornaments (one head, many sounds), double stops, and any run of misdetected
-heads.
+The uncertainty is not in the alignment. It is in the head list: beams read as
+heads, faint heads missed. So resolve it where it lives.
+
+**1. The recording corrects the detector.** After the first alignment, go back
+to the image where the two disagree. The audio has a note that no head matched:
+re-search that small x-range at a much lower threshold — a head that scored 0.7
+in a place the music demands one is almost certainly real. A head matched
+nothing, in a take that otherwise aligns cleanly: it was probably a beam, and it
+goes. Then align again. Detection constrains alignment, alignment constrains
+detection, twice round. This is what recovers most of what a gate would simply
+have dropped, and it costs arithmetic and nothing else.
+
+**2. What survives as doubtful is drawn as doubtful.** Not omitted: a
+low-confidence head is drawn HOLLOW — the mark says "I think this one is here".
+A tap moves it to the notehead it belongs on, and because the alignment is
+monotone, that one correction re-solves every note after it. So nothing is ever
+shown confidently wrong, and nothing is permanently stranded either.
+
+**3. Nothing is lost while any of this is in doubt.** Every note is analysed
+regardless — the cents, the landing, the timing are all in the take. The page is
+a second view of an analysis that is already complete, and the chart and the
+tiles still cover every note played. What is ever in question is *where on the
+page* to draw a note, never whether it was measured.
+
+There is no guarantee with no human anywhere in it. What there is: a reader that
+knows when it is unsure and asks for one tap, rather than one that guesses
+quietly.
+
+The hard cases stay hard — repeats (one line of heads played twice), ties (two
+heads, one sound), trills (one head, many sounds), double stops. They surface as
+hollow marks and a tap fixes them, which is the same mechanism, not a new one.
 
 ## Out of scope
 
