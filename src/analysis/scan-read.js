@@ -449,6 +449,24 @@ function findHeads(ink, w, h, staff, space) {
         hollow = (rimInk / rim.length) >= 0.68 && (coreInk / core.length) <= 0.42;
       }
       if (!solid && !hollow) continue;
+      // Wide ink is a beam, whatever shape a patch of it happens to be.
+      //
+      // This is the one that a photograph teaches you and a drawn page never
+      // will. beamMask takes out a beam by finding a long horizontal run of
+      // ink no taller than a notehead — which works for ONE beam and fails for
+      // a stack of two or three, because a stack is exactly a notehead tall.
+      // What survives is a long black bar, and any patch of it is a perfectly
+      // good solid ellipse. On bars of semiquavers that put a ring on the beam
+      // every few pixels: a row of them marching along above the notes, and
+      // more marks than the page has notes.
+      //
+      // A notehead is about a staff space and a half across and then it stops.
+      // Ink that carries on well past that, on the head's own middle row, is
+      // something the head is attached to rather than the head.
+      let across = 1;
+      for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
+      for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
+      if (across > space * 2.6) continue;
       let clear = 0;
       for (const [dx, dy] of ring) {
         const yy = y + dy;
