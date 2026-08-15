@@ -860,6 +860,18 @@ export function readPage(source, naturalWidth, naturalHeight) {
     return {
       clef: read.clef,
       clefConfidence: read.confidence,
+      // Where it looked, so the answer can be checked rather than believed.
+      //
+      // Five ways of correcting this reading were tried and measured and all
+      // five came to nothing. What none of them did was LOOK at the band being
+      // sampled — every real bug on this page was found by drawing something on
+      // top of it, and every dead end came from reasoning about what the code
+      // probably does. The reader now reports its own clef zone so the next
+      // question can be asked of a picture. Drawn by tools/reader-look.html.
+      clefZone: {
+        x: clefFrom / w,
+        w: Math.min(w - clefFrom, Math.max(3, Math.round(staff.space * 3.6))) / w,
+      },
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),
       space: staff.space / h,

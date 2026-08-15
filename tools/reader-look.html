@@ -91,6 +91,7 @@
   <label class="toggle"><input type="checkbox" id="showBars" checked> <span class="swatch" style="background:var(--bar)"></span> barlines</label>
   <label class="toggle"><input type="checkbox" id="showStaves" checked> <span class="swatch" style="background:var(--stave)"></span> staves &amp; clefs</label>
   <label class="toggle"><input type="checkbox" id="showSteps"> numbers</label>
+  <label class="toggle"><input type="checkbox" id="showZone" checked> <span class="swatch" style="background:var(--bad)"></span> clef zone</label>
   <label class="toggle">clef
     <select id="forceClef">
       <option value="">as read</option>
@@ -148,6 +149,7 @@ const toggles = {
   bars: document.querySelector('#showBars'),
   staves: document.querySelector('#showStaves'),
   steps: document.querySelector('#showSteps'),
+  zone: document.querySelector('#showZone'),
 };
 const forceClef = document.querySelector('#forceClef');
 const forceKey = document.querySelector('#forceKey');
@@ -221,6 +223,19 @@ function draw() {
         + (forceClef.value ? ' (set)'
           : staff.clef ? ` ${(staff.clefConfidence ?? 0).toFixed(2)}` : '');
       svg.append(label);
+    }
+    // The band the clef was actually read from. Drawn because four attempts at
+    // correcting the clef were reasoned about and measured, and none of them
+    // looked at where the measurement was being taken.
+    if (toggles.zone.checked && staff.clefZone) {
+      const zx = staff.clefZone.x * width;
+      const zw = staff.clefZone.w * width;
+      const zTop = staff.lines[0][0] * height - space * 3;
+      svg.append(svgEl('rect', {
+        x: zx, y: zTop, width: zw, height: space * 10,
+        fill: 'none', stroke: 'var(--bad)', 'stroke-width': 1.5,
+        'stroke-dasharray': '4 3', opacity: 0.9,
+      }));
     }
     if (toggles.bars.checked) {
       for (const x of staff.bars ?? []) {
