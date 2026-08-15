@@ -261,6 +261,56 @@ check('and does NOT throw the full-screen score over the top of it',
   picked.readerOpen === false && picked.fullScreen === false,
   `reader=${picked.readerOpen} full-screen=${picked.fullScreen}`);
 
+
+// --- a note, chosen at random, says how far out it was -----------------------
+//
+// Not the first ring and not a chosen one: the point is that ANY note on the
+// page answers, so the check picks one it did not choose and compares what
+// the app says against what that note actually was. The reading has to be the
+// right note's reading, which is the part a positional pairing gets wrong
+// quietly.
+const random = await page.evaluate(async () => {
+  const notes = window.__takeNotes ?? [];
+  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
+  // Deterministic "random": a fixed pick out of the middle of the take, so a
+  // failure can be reproduced rather than hunted.
+  const which = 23;
+  const trail = [];
+  for (const i of [3, 11, 23, 40]) {
+    document.querySelectorAll('#score-stage .scan-note')[i]?.click();
+    await new Promise((r) => setTimeout(r, 500));
+    const b = document.querySelector('.scan-reading');
+    const w = Math.round(notes[i]?.cents ?? 0);
+    trail.push(`${i}→"${(b?.textContent ?? '').trim()}" (${w >= 0 ? '+' : ''}${w}¢)`);
+  }
+  rings[which]?.click();
+  await new Promise((r) => setTimeout(r, 700));
+  const box = document.querySelector('.scan-reading');
+  const want = Math.round(notes[which]?.cents ?? 0);
+  return {
+    trail,
+    which,
+    shown: !!box && box.offsetParent !== null,
+    text: (box?.textContent ?? '').trim(),
+    wanted: Math.abs(want) <= 5 ? 'in tune' : `${Math.abs(want)}¢ ${want > 0 ? 'sharp' : 'flat'}`,
+    tone: box?.dataset.tone ?? '',
+    // The ring itself also carries it, for a pointer that can hover.
+    ringTitle: rings[which]?.title ?? '',
+    ringLabel: rings[which]?.getAttribute('aria-label') ?? '',
+  };
+});
+
+check('a note picked at random shows its reading on screen',
+  random.shown === true, `${random.trail.join(' | ')}`);
+check('and the cents it shows are that note\'s own',
+  random.text.includes(random.wanted),
+  `note ${random.which}: shows "${random.text}", should contain "${random.wanted}"`);
+check('sharp or flat is said in colour too, not only in numbers',
+  ['good', 'sharp', 'flat'].includes(random.tone), `state="${random.tone}"`);
+check('and the ring itself carries the reading for a pointer',
+  random.ringTitle.includes('¢') && /cents/.test(random.ringLabel),
+  `title "${random.ringTitle}", label "${random.ringLabel}"`);
+
 // --- a take that runs past the page, and one that runs past the part ---------
 // Two shapes that are easy to get wrong and easy not to notice: notes carrying
 // on over a page break, and a take with more notes in it than the part has

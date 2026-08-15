@@ -1229,6 +1229,22 @@
       box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 28%, transparent);
     }
     .scan-pairing { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 0.25rem; }
+    /* What the note you just pressed did. Said by the ring itself rather than
+       by the playhead's readout, which answers for wherever the cursor is. */
+    .scan-reading {
+      margin: 0 0 0.6rem;
+      text-align: center;
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.95rem;
+      color: var(--ink);
+    }
+    .scan-reading[hidden] { display: none; }
+    .scan-reading[data-tone="good"] { color: var(--good); }
+    .scan-reading[data-tone="sharp"] { color: var(--sharp); }
+    .scan-reading[data-tone="flat"] { color: var(--flat); }
+    /* The one you are looking at, so a page of rings does not lose it. */
+    .scan-note.picked { box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 45%, transparent); }
     /* The light that follows the playback keeps its colour in the dark.
        Night mode inverts the whole sheet to get white notes on black, and the
        lit notehead is IN the sheet, so its blue glow came out the complement of

@@ -110,6 +110,23 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   const byNote = new Map();
   const nodes = [];
 
+  // Where a pressed note says how it went. Above the pages, so it does not
+  // move when a long part scrolls.
+  const reading = document.createElement('p');
+  reading.className = 'scan-reading';
+  reading.hidden = true;
+  container.insertBefore(reading, wrap);
+
+  const say = (mark) => {
+    const cents = Math.round(mark.note?.cents ?? 0);
+    const how = Math.abs(cents) <= 5 ? 'in tune'
+      : `${Math.abs(cents)}¢ ${cents > 0 ? 'sharp' : 'flat'}`;
+    reading.hidden = false;
+    reading.dataset.tone = intonationHue(cents);
+    reading.textContent = `Note ${mark.index + 1} — ${how}`;
+    for (const other of nodes) other.classList.toggle('picked', other === byNote.get(mark.note));
+  };
+
   const across = Math.min(MAX_ACROSS, Math.max(320, container.clientWidth || 360));
   for (const page of wanted) {
     const holder = document.createElement('div');
@@ -152,6 +169,14 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
       // look at the note.
       dot.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Said plainly, right here, by the mark that was pressed.
+        //
+        // The report has a readout of its own, but it belongs to the playhead:
+        // it follows the cursor across the take and answers for wherever that
+        // is, which is the right behaviour for a graph you are dragging and the
+        // wrong answer to "what was THIS note". Pressing a ring should say what
+        // that ring is, and the only thing that certainly knows is the ring.
+        say(mark);
         onPickNote?.(mark.note);
       });
       box.append(dot);
