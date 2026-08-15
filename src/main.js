@@ -601,9 +601,32 @@ pauseBtn.addEventListener('click', () => {
 // over, and getUserMedia simply never comes back. So the wait is bounded, and
 // running out of patience is an error like any other — the control comes back
 // and the screen says what to do about it.
-const NO_ANSWER = 'the microphone never answered. If a permission prompt appeared, answer it and try again'
-  + ' — otherwise check Settings → Safari → Microphone, and Screen Time → Content & Privacy'
-  + ' → Microphone if that is on';
+//
+// Which advice, though, depends on where the app is running, and the wrong
+// advice is worse than none: an app added to the home screen is not Safari and
+// does not answer to Settings → Safari, so sending somebody there sends them to
+// a switch that was never the one holding the microphone shut. Written the day
+// that happened — both settings checked, both already right, and the app still
+// silent, because the app doing the refusing was the installed one.
+function noAnswer() {
+  return 'the microphone never answered. If a permission prompt appeared, answer it and try again — '
+    + (installedApp()
+      ? 'otherwise this is the installed app being refused, which the Safari settings do not govern:'
+        + ' open the same address in Safari itself and record there to see whether it is only the'
+        + ' installed copy'
+      : 'otherwise check Settings → Safari → Microphone, and Screen Time → Content & Privacy'
+        + ' → Microphone if that is on')
+    + `. ${SEE_SETTINGS}`;
+}
+
+// Every dead end above ends here, because the answer to "what is actually wrong
+// on THIS iPad" is already one tap away and nothing on screen said so.
+const SEE_SETTINGS = 'The gear, top right, checks the microphone and says what it finds';
+
+function installedApp() {
+  return navigator.standalone === true
+    || globalThis.matchMedia?.('(display-mode: standalone)').matches === true;
+}
 
 async function within(work, ms) {
   let timer = null;
@@ -611,7 +634,7 @@ async function within(work, ms) {
     return await Promise.race([
       work,
       new Promise((_, reject) => {
-        timer = setTimeout(() => reject(new Error(NO_ANSWER)), ms);
+        timer = setTimeout(() => reject(new Error(noAnswer())), ms);
       }),
     ]);
   } finally {
@@ -2240,11 +2263,9 @@ refreshPedalReport();
 // version, or a home-screen app the system will not give a microphone to.
 
 function appSetting() {
-  const standalone = navigator.standalone === true
-    || globalThis.matchMedia?.('(display-mode: standalone)').matches;
   const os = navigator.userAgent.match(/OS (\d+)[._](\d+)/);
   return [
-    standalone ? 'Added to the home screen' : 'Running in the browser',
+    installedApp() ? 'Added to the home screen' : 'Running in the browser',
     os ? `iOS/iPadOS ${os[1]}.${os[2]}` : null,
     globalThis.isSecureContext ? null : 'the page is not secure, which alone stops the microphone',
   ].filter(Boolean).join(' · ');
@@ -2317,8 +2338,17 @@ async function checkMicrophone() {
   } catch (err) {
     if (err.message === 'no answer') {
       say('No answer after ten seconds — the permission prompt never appeared. That is the system'
-        + ' refusing silently: check Settings → Safari → Microphone, and Screen Time → Content &'
-        + ' Privacy Restrictions → Microphone if that is switched on.', true);
+        + ' refusing silently: '
+        + (installedApp()
+          // Said differently to an app that is not Safari, because Settings →
+          // Safari is not the switch holding it shut and the ten minutes spent
+          // there are ten minutes not spent finding the one that is.
+          ? 'and since this is the app added to the home screen rather than Safari, the Safari'
+            + ' settings are not what is holding it shut. Open the same address in Safari itself'
+            + ' and try recording there: if that works, it is this installed copy that has been'
+            + ' refused, and re-adding it to the home screen asks again from scratch.'
+          : 'check Settings → Safari → Microphone, and Screen Time → Content &'
+            + ' Privacy Restrictions → Microphone if that is switched on.'), true);
     } else {
       say(`Refused: ${err.name} — ${err.message}`, true);
     }
