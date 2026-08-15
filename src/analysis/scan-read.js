@@ -425,7 +425,7 @@ function findBars(ink, w, h, staff, stripW, space) {
 // solid ellipse about a staff space tall and half again as wide, with white
 // above and below it; a beam is thinner, a stem far narrower, a slur thinner
 // still.
-function findHeads(ink, w, h, staff, space) {
+function findHeads(ink, w, h, staff, space, gray, background) {
   const hw = Math.max(2, Math.round(space * 0.62));
   const hh = Math.max(2, Math.round(space * 0.45));
   const inside = [];
@@ -501,7 +501,35 @@ function findHeads(ink, w, h, staff, space) {
         // middle of them. A staff line is thin, so it costs the core a small
         // fraction; a solid head fills it completely and is caught by the
         // solid test long before this one.
-        hollow = (rimInk / rim.length) >= 0.68 && (coreInk / core.length) <= 0.42;
+        // AND THE MIDDLE MUST BE PAPER, not merely too pale to binarise.
+        //
+        // Ink is a threshold on how much darker than the local background a
+        // pixel is, and everything below that threshold is "not ink" whether it
+        // is white paper or the faded middle of a solid notehead. On a
+        // photograph a great many solid heads print grey in the middle — the
+        // lamp, the blur, the downscale — and every one of them satisfied a
+        // core test written against the binarised image. Thirty-two of the four
+        // hundred and five notes on the page this was built for were called
+        // minims, which makes each of them two beats instead of a quarter, and
+        // no bar containing one can add up.
+        //
+        // The grey the threshold was computed from is still to hand, so the
+        // question can be asked properly: is the middle of this head as light
+        // as the paper around it? For a ring it is, because it IS the paper.
+        let paper = 0;
+        for (const [dx, dy] of core) {
+          const at = (y + dy) * w + x + dx;
+          if (gray[at] >= background[at] - 6) paper += 1;
+        }
+        const ring = (rimInk / rim.length) >= 0.68 && (coreInk / core.length) <= 0.42;
+        hollow = ring && (paper / core.length) >= 0.7;
+        // A ring whose middle is grey rather than white is not a ring at all —
+        // it is a solid head that printed faintly, and it must be taken as one
+        // rather than thrown away. Rejecting these outright cost twenty-four of
+        // the real page's four hundred and five noteheads: better than calling
+        // them minims, but they are neither missing nor hollow, they are just
+        // pale.
+        if (ring && !hollow) solid = true;
       }
       if (!solid && !hollow) continue;
       // Wide ink is a beam, whatever shape a patch of it happens to be.
@@ -601,7 +629,7 @@ export function readPage(source, naturalWidth, naturalHeight) {
   const found = staves.map((staff) => ({
     staff,
     bars: findBars(ink, w, h, staff, stripW, space),
-    heads: findHeads(body, w, h, staff, staff.space),
+    heads: findHeads(body, w, h, staff, staff.space, gray, background),
     space: staff.space,
     // Where this stave's five lines sit under any given x — a stem crosses
     // them and they must not be counted as the beams it is looking for.
