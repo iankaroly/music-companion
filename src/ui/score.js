@@ -14,6 +14,7 @@ import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { rhythmReport } from '../analysis/rhythm.js';
+import { scanTiming } from '../analysis/scan-timing.js';
 import { showScore, paint } from './score-view.js';
 import { showScanScore } from './scan-view.js';
 import { openReader } from './reader.js';
@@ -945,6 +946,30 @@ async function renderScanTab() {
         ? ` ${pairing.played} notes played, ${pairing.heads} noteheads found on the pages read`
           + ` — the last ${pairing.unmarked} are not on the page.`
         : ` ${pairing.played} notes played onto ${pairing.heads} noteheads, in the order you played them.`;
+      line.append(extra);
+    }
+  }
+
+  // …and now the timing, which needed the marks to exist.
+  //
+  // Until the take was on the noteheads there were no bars to measure it
+  // against, so a scan could only report the pulse a player kept — true, and
+  // not what a page of music offers. The page has bars on it, and a bar is the
+  // unit a player thinks in. Said here rather than in analyseScanTake because
+  // it is the pairing, not the audio, that makes it possible.
+  const bars = scanTiming(view.pairing?.marks);
+  if (bars) {
+    ready.bars = bars;
+    const line = el('score-tab-summary');
+    if (line) {
+      const extra = document.createElement('small');
+      extra.className = 'scan-pairing';
+      const steady = `${Math.round(bars.steadiness * 100)}% steady across ${bars.bars} bars`;
+      const moving = bars.verdict === 'steady' ? '' : `, ${bars.verdict}`;
+      const perNote = bars.evenNotes && Number.isFinite(bars.meanOffMs)
+        ? `, notes ${Math.round(bars.meanOffMs)}ms from where the bar wants them`
+        : '';
+      extra.textContent = ` Against the bars on the page: ${steady}${moving}${perNote}.`;
       line.append(extra);
     }
   }

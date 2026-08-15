@@ -219,6 +219,15 @@ check('the transport and the zoomed graph are under it',
   review.dockHas.includes('playback-controls') && review.dockHas.includes('note-zoom'),
   `dock: ${review.dockHas.join(', ')}`);
 
+
+// --- the timing, against the bars the page actually has ----------------------
+const timing = await page.evaluate(() => {
+  const line = document.querySelector('#score-tab-summary')?.textContent ?? '';
+  return { line, hasBars: /against the bars on the page/i.test(line) };
+});
+check('the review reports timing against the page\'s own bars',
+  timing.hasBars === true, timing.line.slice(-120));
+
 // --- clicking a note opens its close-up, and NOTHING else -------------------
 //
 // Two things have to be true of a press on a ring, and the second is the bug

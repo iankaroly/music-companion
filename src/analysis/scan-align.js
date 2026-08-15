@@ -116,7 +116,13 @@ export function findStart(heads, played) {
   // further in you go the more a small slip early on has thrown the two
   // sequences out of step with each other, so the tail is the least
   // trustworthy evidence in the take, not the most.
-  const WINDOW = 40;
+  // Short on purpose. The longer this window, the more of the take has to be
+  // note-perfect for the take to be placed at all — and a note left out at the
+  // twentieth would refuse a take whose first twenty were exact. Where a take
+  // begins is decided by how it BEGINS; everything after that is the aligner's
+  // problem, and the aligner is built for exactly the slips that would ruin
+  // this comparison.
+  const WINDOW = 16;
   const written = shapeOf(steps, WRITTEN_WIDE);
   const heard = shapeOf(notes, PLAYED_WIDE).slice(0, WINDOW);
   if (heard.length < ENOUGH - 1) {

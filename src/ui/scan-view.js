@@ -25,6 +25,8 @@ import { openPaper } from './paper.js';
 import { notesInOrder } from '../analysis/scan-read.js';
 import { intonationHue } from './chart-utils.js';
 import { findStart } from '../analysis/scan-align.js';
+import { fitPitches } from '../analysis/scan-pitch.js';
+import { alignScore } from '../analysis/align-score.js';
 
 // Every notehead the page reader found, in reading order, carrying the page it
 // is on and the staff space it was measured against.
@@ -48,12 +50,10 @@ export function pairNotes(heads, played) {
   //
   // This used to start at zero, always. Open a part whose first page is a
   // title page, play the music on page two, and every ring landed on page one
-  // among noteheads nobody had touched. The offset is the whole of that bug,
-  // and it is found by sliding what was played along what is written and
-  // seeing where the ups and downs agree.
+  // among noteheads nobody had touched.
   const start = findStart(heads, played);
   // Refused rather than guessed. A take that cannot be placed gets no marks at
-  // all, because a ring is now a control with a drone and a close-up behind it:
+  // all, because a ring is a control with a drone and a close-up behind it:
   // eighty of them in the wrong place is eighty specific false claims, and
   // "I could not tell where this starts" is a better thing to say than any of
   // them.
@@ -63,6 +63,68 @@ export function pairNotes(heads, played) {
       unmarked: played.length, spare: heads.length, placed: false, why: start.why,
     };
   }
+
+  // …and then the notes are lined up PROPERLY, rather than counted off.
+  //
+  // Knowing where a take starts is not the same as knowing which notehead each
+  // note landed on. Pairing them off in order — first with first, second with
+  // second — is right until the first slip, and then it is wrong for the whole
+  // rest of the take: repeat a bar, drop a note, put in one that is not there,
+  // and every mark after that point is on the wrong notehead, silently.
+  //
+  // The app already has an aligner that survives all three, written for
+  // MusicXML: a full edit distance with a traceback that sees the whole take
+  // before deciding anything. It wants written pitches, which a photograph does
+  // not have — so they are ESTIMATED (see scan-pitch.js) and handed to it. Its
+  // verdicts are not used and must not be: an estimated pitch cannot say a note
+  // was wrong. Only its PATH is taken, which is the answer to "which notehead
+  // is this note on", and that path is what a slip in the middle needs.
+  const fit = fitPitches(heads, played, start.offset);
+  if (!fit || fit.agreement < 0.6) {
+    return positional(heads, played, start);
+  }
+
+  // Only the stretch of the page the take could be on. Aligning forty notes
+  // against a twenty-page part is both slower and looser than it needs to be.
+  const from = start.offset;
+  const to = Math.min(fit.notes.length, from + Math.ceil(played.length * 1.6) + 16);
+  const window = fit.notes.slice(from, to).map((n, i) => ({ ...n, id: i }));
+  if (window.length < 2) return positional(heads, played, start);
+
+  let attempts = null;
+  try {
+    attempts = alignScore(played, window).attempts;
+  } catch {
+    return positional(heads, played, start);
+  }
+
+  const seen = new Set();
+  const marks = [];
+  for (const attempt of attempts) {
+    if (!attempt?.played || !attempt.score) continue;
+    const at = played.indexOf(attempt.played);
+    if (at < 0 || seen.has(at)) continue;
+    seen.add(at);
+    marks.push({ ...heads[from + attempt.score.id], note: attempt.played, index: at });
+  }
+  marks.sort((a, b) => a.index - b.index);
+  return {
+    marks,
+    heads: heads.length,
+    played: played.length,
+    unmarked: Math.max(0, played.length - marks.length),
+    spare: Math.max(0, heads.length - marks.length),
+    placed: true,
+    offset: from,
+    confidence: start.score,
+    aligned: true,
+  };
+}
+
+// The old way, kept for when the pitch fit is too poor to align on: notes
+// counted off from where the take starts. Right until the first slip, which is
+// better than nothing and honest about being the fallback.
+function positional(heads, played, start) {
   const from = start.offset;
   const count = Math.min(heads.length - from, played.length);
   const marks = [];
@@ -78,6 +140,7 @@ export function pairNotes(heads, played) {
     placed: true,
     offset: from,
     confidence: start.score,
+    aligned: false,
   };
 }
 
