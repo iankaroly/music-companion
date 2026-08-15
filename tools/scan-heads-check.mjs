@@ -196,6 +196,76 @@ for (const beams of [1, 2, 3]) {
     r.right / r.found >= 0.9, `${r.right} of ${r.found} (${Math.round(100 * r.right / r.found)}%)`);
 }
 
+
+// --- barlines, on a page that is mostly stems --------------------------------
+//
+// A barline is a column of ink spanning the stave, and so is a stem with a
+// notehead at one end and a beam at the other. On a photograph of anything
+// faster than crotchets the second kind vastly outnumbers the first: a page of
+// twenty bars came back with a hundred and fifty-three barlines, almost all of
+// them stems, and everything bar-shaped downstream was built on that.
+//
+// Two things tell them apart, and both are about what a barline is NOT touching.
+// Nothing wide hangs off it — a stem meets a notehead or a beam and those are
+// wide — and it stops at the stave, where a stem carries on past to reach what
+// it is joined to.
+const lines = await page.evaluate(async () => {
+  const { readPage } = await import('/src/analysis/scan-read.js');
+  // Four bars a system, and between the barlines a thicket of beamed
+  // semiquavers whose stems span the stave exactly as a barline does.
+  const space = 15;
+  const W = Math.round(space * 90);
+  const H = Math.round(space * 60);
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#111';
+  let drawn = 0;
+  for (let sys = 0; sys < 3; sys++) {
+    const top = space * 10 + sys * space * 16;
+    for (let l = 0; l < 5; l++) g.fillRect(space * 4, top + l * space, W - space * 8, Math.max(1, space * 0.12));
+    // The barlines: exactly the height of the stave, nothing attached.
+    for (const at of [4, 26, 48, 70, 82]) {
+      g.fillRect(space * at, top, Math.max(1.5, space * 0.14), space * 4);
+      drawn += 1;
+    }
+    // …and the stems, which are the impostors.
+    for (let grp = 0; grp < 8; grp++) {
+      const x0 = space * 7 + grp * space * 9.5;
+      const ys = [];
+      for (let i = 0; i < 4; i++) {
+        const st = (grp + i) % 5;
+        const y = top + 4 * space - st * space / 2;
+        ys.push(y);
+        g.save(); g.translate(x0 + i * space * 2, y); g.rotate(-0.3);
+        g.beginPath(); g.ellipse(0, 0, space * 0.62, space * 0.46, 0, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+      const stemTop = Math.min(...ys) - space * 3.5;
+      for (let i = 0; i < 4; i++) {
+        g.fillRect(x0 + i * space * 2 + space * 0.55, stemTop, Math.max(1.5, space * 0.13), ys[i] - stemTop);
+      }
+      for (let bm = 0; bm < 2; bm++) {
+        g.fillRect(x0 + space * 0.55, stemTop + bm * space * 0.5, space * 6.5, Math.max(2, space * 0.26));
+      }
+    }
+  }
+  const read = readPage(c, c.width, c.height);
+  return {
+    drawn: drawn,
+    found: read ? read.staves.reduce((n, st) => n + st.bars.length, 0) : 0,
+    staves: read?.staves.length ?? 0,
+  };
+});
+
+check('barlines are found on a page thick with stems',
+  lines.found >= lines.drawn * 0.7,
+  `${lines.found} found, ${lines.drawn} drawn across ${lines.staves} staves`);
+check('and the stems are not counted as barlines',
+  lines.found <= lines.drawn * 1.6,
+  `${lines.found} found for ${lines.drawn} real (96 stems on the page)`);
+
 const failed = results.filter((r) => !r.pass);
 console.log(failed.length ? `\n${failed.length} FAILED` : '\nALL PASS');
 await browser.close();

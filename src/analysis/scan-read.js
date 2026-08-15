@@ -349,13 +349,66 @@ function findBars(ink, w, h, staff, stripW, space) {
     Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
   ];
   const columns = [];
+  // How wide is too wide for something a barline is touching.
+  const wide = Math.max(3, Math.round(space * 1.2));
   for (let x = 0; x < w; x++) {
     const top = Math.round(lineY(0, x));
     const bottom = Math.round(lineY(4, x));
     if (bottom <= top) continue;
     let filled = 0;
     for (let y = top; y <= bottom; y++) if (y >= 0 && y < h && ink[y * w + x]) filled++;
-    if (filled / (bottom - top + 1) > 0.88) columns.push(x);
+    if (filled / (bottom - top + 1) <= 0.88) continue;
+
+    // A full column is not a barline if something is hanging off it.
+    //
+    // This test was the whole of it, and on a photograph of anything faster
+    // than crotchets it is wrong far more often than right: a stem with a
+    // notehead at one end and a beam at the other fills a column from the top
+    // line to the bottom just as well as a barline does. A page of twenty bars
+    // came back with a hundred and fifty-three barlines, almost all of them
+    // stems, and every bar-shaped thing downstream — the timing, the note
+    // values, the grouping — was built on that.
+    //
+    // What tells them apart is what they touch. A barline touches the five
+    // staff lines and nothing else: it is thin for its whole height. A stem
+    // touches a notehead, or a beam, or both, and those are WIDE. So the
+    // column is walked and asked how much of it is attached to something,
+    // ignoring the staff lines themselves, which cross everything.
+    const lines = [0, 1, 2, 3, 4].map((k) => lineY(k, x));
+    let looked = 0;
+    let attached = 0;
+    for (let y = top; y <= bottom; y++) {
+      if (y < 0 || y >= h) continue;
+      if (lines.some((line) => Math.abs(y - line) <= Math.max(1, space * 0.22))) continue;
+      looked += 1;
+      let across = 1;
+      for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
+      for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
+      if (across >= wide) attached += 1;
+    }
+    if (looked > 0 && attached / looked > 0.12) continue;
+
+    // And a barline STOPS at the stave.
+    //
+    // What the test above leaves is the leading stem of a beamed group: long,
+    // vertical, nothing wide touching it over most of its length. But a stem is
+    // going somewhere — up to a beam above the stave, or down to a notehead
+    // below it — and a barline is not. It is drawn between the top line and the
+    // bottom line and it ends there.
+    const over = Math.round(space * 1.4);
+    let above = 0;
+    let below = 0;
+    for (let k = 1; k <= over; k++) {
+      const up = top - k;
+      const down = bottom + k;
+      if (up >= 0 && ink[up * w + x]) above += 1;
+      if (down < h && ink[down * w + x]) below += 1;
+    }
+    // A little overhang is how a barline is drawn by hand and printed by a
+    // press; half a staff space of it either way is not a stem.
+    const overhang = Math.max(1, Math.round(space * 0.5));
+    if (above > overhang || below > overhang) continue;
+    columns.push(x);
   }
   const bars = [];
   for (const x of columns) {
