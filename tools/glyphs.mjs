@@ -14,6 +14,7 @@ export const GLYPH = {
   trebleClef: '\u{E050}',
   bassClef: '\u{E062}',
   cClef: '\u{E05C}',
+  commonTime: '\u{E08A}',
   sharp: '\u{E262}',
   flat: '\u{E260}',
   natural: '\u{E261}',
