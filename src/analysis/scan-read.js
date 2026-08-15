@@ -191,7 +191,21 @@ export function trackCombs(perStrip, pitch, { drift = 0.6, cross = 0.5 } = {}) {
         while (k + 1 < c.points.length && c.points[k + 1][0] <= s) k++;
         const [sa, ya, sta] = c.points[k];
         const next = c.points[k + 1];
-        const t = next ? (s - sa) / (next[0] - sa) : 0;
+        // Clamped, so a stave is never EXTRAPOLATED past the strips that
+        // actually measured it.
+        //
+        // Before this, a strip to the left of the first measured point got a
+        // negative t and the line was run backwards off the end of its own
+        // evidence. That is the left margin of the page — which is precisely
+        // where the clef is drawn, so the one region the model was inventing was
+        // the one region it would be read in. On a photograph of the Bärenreiter
+        // Bach the fitted lines sat right through the body of every system and a
+        // space and a half out at the clef, and every clef there read tenor.
+        //
+        // Held flat instead: outside the evidence a stave keeps the height it
+        // last had. A page bends, and it does not bend in the margin where there
+        // is nothing printed to bend.
+        const t = next ? Math.max(0, Math.min(1, (s - sa) / (next[0] - sa))) : 0;
         y0[s] = next ? ya + (next[1] - ya) * t : ya;
         step[s] = next ? sta + (next[2] - sta) * t : sta;
       }
@@ -329,15 +343,89 @@ export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8 } = {}) {
 // A tracked stave, in the shape the bar and head finders take: five lines, each
 // sampled once per strip, plus the midpoint they use to reach for ledger lines
 // above and below.
+// A stave BENDS. It does not wave.
+//
+// The tracker takes the best comb in each strip and interpolates across the
+// strips that had none. Where a strip's best answer is not the stave — a beam
+// lying across it, a slur, the thick of a phrase mark — the curve steps sideways
+// and the interpolation smooths that step into the shape of a real bend. The
+// result reads as a stave everywhere and is a stave nowhere.
+//
+// It is visible on a photograph of the Bärenreiter Bach: on the last three
+// systems the tracked lines weave across the printed ones instead of following
+// them, and those are precisely the systems whose clef comes back wrong. Nothing
+// downstream can survive it — the clef is measured in spaces from the top line,
+// the step of every notehead is measured from the bottom one.
+//
+// A page curls in ONE direction. Whatever a book does between the gutter and the
+// fore-edge, it does smoothly, so two coefficients and a curve describe it and a
+// third would only be fitting the noise. Anything a quadratic cannot follow is
+// not the stave, so it is dropped and the curve refitted without it.
+function fitCurve(values, tolerance) {
+  const n = values.length;
+  if (n < 4) return Float32Array.from(values);
+  const solve = (use) => {
+    // Normal equations for a + b·s + c·s², built over the strips still in play.
+    let n0 = 0; let s1 = 0; let s2 = 0; let s3 = 0; let s4 = 0;
+    let v0 = 0; let v1 = 0; let v2 = 0;
+    for (let s = 0; s < n; s++) {
+      if (!use[s]) continue;
+      const v = values[s];
+      n0 += 1; s1 += s; s2 += s * s; s3 += s ** 3; s4 += s ** 4;
+      v0 += v; v1 += s * v; v2 += s * s * v;
+    }
+    if (n0 < 4) return null;
+    // Gaussian elimination on the 3×3, written out because it is a 3×3.
+    const m = [[n0, s1, s2, v0], [s1, s2, s3, v1], [s2, s3, s4, v2]];
+    for (let i = 0; i < 3; i++) {
+      let pivot = i;
+      for (let r = i + 1; r < 3; r++) if (Math.abs(m[r][i]) > Math.abs(m[pivot][i])) pivot = r;
+      if (Math.abs(m[pivot][i]) < 1e-9) return null;
+      [m[i], m[pivot]] = [m[pivot], m[i]];
+      for (let r = 0; r < 3; r++) {
+        if (r === i) continue;
+        const f = m[r][i] / m[i][i];
+        for (let k = i; k < 4; k++) m[r][k] -= f * m[i][k];
+      }
+    }
+    return [m[0][3] / m[0][0], m[1][3] / m[1][1], m[2][3] / m[2][2]];
+  };
+
+  const use = new Array(n).fill(true);
+  let coefficients = solve(use);
+  if (!coefficients) return Float32Array.from(values);
+  // One rejection pass. A second buys nothing on a page that has any stave at
+  // all, and on a page that has none it would happily fit four points.
+  let dropped = false;
+  for (let s = 0; s < n; s++) {
+    const [a, b, c] = coefficients;
+    if (Math.abs(values[s] - (a + b * s + c * s * s)) > tolerance) { use[s] = false; dropped = true; }
+  }
+  if (dropped) coefficients = solve(use) ?? coefficients;
+  const [a, b, c] = coefficients;
+  const out = new Float32Array(n);
+  for (let s = 0; s < n; s++) out[s] = a + b * s + c * s * s;
+  return out;
+}
+
 export function stavesToLines(staves, strips) {
   return staves.map(({ y0, step }) => {
+    // The spacing is smoothed too, and harder. A stave's lines do not get
+    // further apart across a page by more than the perspective of a curling
+    // sheet, so a strip claiming a different spacing is a strip that found
+    // something else.
+    let raw = 0;
+    for (let s = 0; s < strips; s++) raw += step[s];
+    const nominal = raw / strips;
+    const smoothStep = fitCurve(step, Math.max(0.5, nominal * 0.12));
+    const smoothY0 = fitCurve(y0, Math.max(1.5, nominal * 0.9));
     const lines = [0, 1, 2, 3, 4].map((index) => {
       const at = new Float32Array(strips);
-      for (let s = 0; s < strips; s++) at[s] = y0[s] + index * step[s];
+      for (let s = 0; s < strips; s++) at[s] = smoothY0[s] + index * smoothStep[s];
       return { at, mid: at[Math.floor(strips / 2)] };
     });
     let sum = 0;
-    for (let s = 0; s < strips; s++) sum += step[s];
+    for (let s = 0; s < strips; s++) sum += smoothStep[s];
     return { lines, space: sum / strips };
   });
 }
@@ -413,6 +501,9 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   const x1 = Math.min(w - 1, x0 + across);
   if (x1 <= x0) return null;
   const mid = Math.round((x0 + x1) / 2);
+  // Measured over a wide window, not over the clef zone alone: a comb wants five
+  // clean lines and the clef zone is the one place on the stave guaranteed to
+  // have something else drawn in it.
   const top = lineY(0, mid);
   const rows = Math.round(space * (4 + CLEF_MARGIN * 2));
   const out = new Float32Array(rows);
