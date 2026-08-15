@@ -702,7 +702,23 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // two array reads on the pixels that used to be skipped outright, and it
       // is the whole of the extra cost.
       const solidCentre = ink[y * w + x];
-      if (!solidCentre && !(ink[y * w + x - hw] && ink[y * w + x + hw])) continue;
+      // Looked for at TWO radii each side, not one.
+      //
+      // The single probe sat at exactly ±hw — the notehead's own half-width,
+      // which is to say exactly on the ellipse the ring is drawn along. That is
+      // the one place the answer depends on where a two-pixel stroke happens to
+      // fall rather than on whether there is a ring there at all: half a pixel
+      // out and the probe reads paper on a perfectly good minim, and the
+      // candidate is dropped before any test of it runs. It is why `minims`
+      // scored 64% on a CLEAN page — the worst number in the suite and the one
+      // that could not be blamed on the camera.
+      //
+      // An inner probe at 78% of the radius sits inside the stroke instead of on
+      // it. Ink at EITHER radius, on BOTH sides, is a ring.
+      const inner = Math.max(1, Math.round(hw * 0.78));
+      const leftInk = ink[y * w + x - hw] || ink[y * w + x - inner];
+      const rightInk = ink[y * w + x + hw] || ink[y * w + x + inner];
+      if (!solidCentre && !(leftInk && rightInk)) continue;
       let filled = 0;
       for (const [dx, dy] of inside) filled += ink[(y + dy) * w + x + dx];
       const fill = filled / inside.length;
