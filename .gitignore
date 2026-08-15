@@ -17,3 +17,6 @@ ios/DerivedData/
 *.xcuserstate
 xcuserdata/
 public/pdfjs/
+
+# Workflow worktrees: checkouts of this repo, not content of it.
+.claude/worktrees/
