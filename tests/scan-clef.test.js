@@ -1,16 +1,21 @@
 import { describe, test, expect } from 'vitest';
-import { clefFeatures, classifyClef } from '../src/analysis/scan-clef.js';
+import { clefFeatures, classifyClef, MARGIN } from '../src/analysis/scan-clef.js';
 
-// A column of ink density, one entry per row, covering three staff spaces above
-// the top line and three below the bottom one. `from` and `to` are in staff
+// A column of ink density, one entry per row. `from` and `to` are in staff
 // spaces measured from the top line, so 0..4 is exactly the stave.
-function column({ space = 10, from, to, height = 10 }) {
+//
+// The origin is MARGIN, imported rather than restated: the window is asymmetric
+// — short above the stave where the bar numbers and pencil live, long below it
+// where only a treble clef reaches — and a test that hard-codes the old
+// symmetric 3 measures every extent 1.6 spaces adrift while claiming the code
+// changed behaviour it had not.
+function column({ space = 10, from, to, height = 12 }) {
   const rows = new Float32Array(space * height);
-  const start = Math.round((from + 3) * space);
+  const start = Math.round((from + MARGIN) * space);
   // Inclusive of the last row: the extent is where the ink ENDS, so a band
   // described as reaching 4 spaces has its final inked row at 4 spaces, not one
   // row short of it.
-  const end = Math.round((to + 3) * space);
+  const end = Math.round((to + MARGIN) * space);
   for (let i = Math.max(0, start); i <= Math.min(rows.length - 1, end); i++) rows[i] = 1;
   return rows;
 }
@@ -42,8 +47,8 @@ describe('clefFeatures ignores the stave it is measured against', () => {
   function withLines(base, { space = 10, lines = [0, 1, 2, 3, 4], thickness = 0.1 }) {
     const rows = Float32Array.from(base);
     for (const l of lines) {
-      const from = Math.round((l + 3) * space);
-      const to = Math.round((l + 3 + thickness) * space);
+      const from = Math.round((l + MARGIN) * space);
+      const to = Math.round((l + MARGIN + thickness) * space);
       for (let i = from; i <= to && i < rows.length; i++) rows[i] = 1;
     }
     return rows;

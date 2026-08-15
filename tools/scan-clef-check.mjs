@@ -115,12 +115,16 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
     return out;
   }
 
-  // The clef zone off the SPOILED page: the band just right of the opening
-  // barline, three staff spaces above the stave and three below it.
-  const MARGIN = 3;
+  // The clef zone off the SPOILED page, using the READER'S OWN window rather
+  // than a number repeated here. The window is asymmetric — short above the
+  // stave, long below — and a harness that restates it as a symmetric 3
+  // measures every extent adrift and then reports the reader as broken.
+  const clefMod = await import('/src/analysis/scan-clef.js');
+  const MARGIN = clefMod.MARGIN;
+  const BELOW = clefMod.MARGIN_BELOW;
   function columnAt(canvas, { x, width, top, space }) {
     const w = Math.max(2, Math.round(width));
-    const rows = Math.round(space * (4 + MARGIN * 2));
+    const rows = Math.round(space * (4 + MARGIN + BELOW));
     const y0 = Math.round(top - MARGIN * space);
     const clampedY = Math.max(0, y0);
     const clampedRows = Math.min(rows, canvas.height - clampedY);

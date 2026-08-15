@@ -18,7 +18,7 @@
 // survive being drawn at any size on any screen.
 
 import { beamLayer, readValues } from './scan-stems.js';
-import { clefFeatures, classifyClef } from './scan-clef.js';
+import { clefFeatures, classifyClef, MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW } from './scan-clef.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -450,10 +450,9 @@ export function stavesToLines(staves, strips) {
 // Sampled here rather than in scan-clef.js because this is where the ink and
 // the stave's own geometry are, and a photographed page sags — so the zone has
 // to follow the line under it rather than sit at a fixed height. What comes back
-// is one value per row, the fraction of the band inked, running from CLEF_MARGIN
-// spaces above the top line to the same below the bottom one, which is the shape
-// scan-clef.js measures extents from.
-const CLEF_MARGIN = 3;
+// is one value per row, the fraction of the band inked, running from CLEF_ABOVE
+// spaces above the top line to CLEF_BELOW below the bottom one — asymmetric, and
+// scan-clef.js says why.
 
 // Where a stave's lines actually begin.
 //
@@ -594,11 +593,11 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   //
   // The top line as PRINTED under this band, not as the page-wide fit predicts.
   const top = lineY(0, mid) + bandShift(ink, w, h, lineY, space, x0, x1, mid);
-  const rows = Math.round(space * (4 + CLEF_MARGIN * 2));
+  const rows = Math.round(space * (4 + CLEF_ABOVE + CLEF_BELOW));
   const out = new Float32Array(rows);
   const wide = x1 - x0 + 1;
   for (let r = 0; r < rows; r++) {
-    const y = Math.round(top - CLEF_MARGIN * space + r);
+    const y = Math.round(top - CLEF_ABOVE * space + r);
     if (y < 0 || y >= h) continue;
     let inked = 0;
     for (let x = x0; x <= x1; x++) if (ink[y * w + x]) inked++;

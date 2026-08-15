@@ -32,8 +32,23 @@
 // and a sixth out the rest — and a page of confident wrong verdicts teaches
 // somebody to play out of tune.
 
-// How far outside the stave the clef zone is sampled, in staff spaces.
-const MARGIN = 3;
+// How far outside the stave the clef zone is sampled, in staff spaces — and it
+// is NOT the same above as below.
+//
+// Everything a page puts near the head of a stave that is not the clef sits
+// ABOVE it: the printed bar number, a pencil bowing, a dynamic, a fingering.
+// Measured on the photograph, the five systems that read wrong had tops of
+// -1.60, -2.01, -1.62, -2.18 and -2.19 while the five that read right sat at
+// -0.10 to -0.20, and every one of the ten had the same bottom, about 3.0. The
+// verdicts differed on ink no clef has, two spaces above the stave.
+//
+// Below the stave there is only the clef: a treble hangs to 5.6 spaces and
+// nothing else reaches down there at the head of a system. So the window is cut
+// short above, where the noise is, and left long below, where the evidence is.
+const ABOVE = 1.4;
+const BELOW = 3;
+export const MARGIN = ABOVE;
+export const MARGIN_BELOW = BELOW;
 
 // Below this a row is paper, not ink. Low, because a photographed clef is grey
 // at its edges and the extent is exactly what is being measured.
@@ -71,17 +86,36 @@ export function clefFeatures(column, space) {
   let total = 0;
   // Walked as runs rather than as rows, so the five lines the clef is standing
   // on do not get to vote on how far down it reaches.
+  // Collected as runs first, then walked from the STAVE UPWARD.
+  //
+  // A clef is one connected shape standing on the stave. What sits above it —
+  // the printed bar number, a pencil bowing, a dynamic — is separate ink with
+  // clear paper between. Measured from the topmost run down, that separate ink
+  // becomes part of the clef's extent and a bass clef reports a top of -1.4
+  // where its own ink starts at -0.1, which is the tenor test firing on a bar
+  // number. So the extent stops at the first clear gap: below it is the clef,
+  // above it is the page.
+  const runs = [];
   let i = 0;
   while (i < column.length) {
     if (column[i] < INK) { i++; continue; }
     let end = i;
     while (end + 1 < column.length && column[end + 1] >= INK) end++;
-    if (end - i + 1 >= minRun) {
-      if (first < 0) first = i;
-      last = end;
-      for (let r = i; r <= end; r++) { weighted += r * column[r]; total += column[r]; }
-    }
+    if (end - i + 1 >= minRun) runs.push([i, end]);
     i = end + 1;
+  }
+  // Wide enough to be paper rather than the pale waist of a glyph.
+  const gap = Math.max(2, Math.round(space * 0.55));
+  const keep = [];
+  for (let k = runs.length - 1; k >= 0; k--) {
+    const above = runs[k - 1];
+    keep.unshift(runs[k]);
+    if (above && runs[k][0] - above[1] - 1 >= gap) break;
+  }
+  for (const [from, to] of keep) {
+    if (first < 0) first = from;
+    last = to;
+    for (let r = from; r <= to; r++) { weighted += r * column[r]; total += column[r]; }
   }
   if (first < 0 || total <= 0) return null;
   const toSpaces = (row) => row / space - MARGIN;
