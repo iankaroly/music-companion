@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'vitest';
 import {
-  combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines, beamMask,
+  combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines, beamMask, realStaff,
 } from '../src/analysis/scan-read.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
@@ -259,5 +259,24 @@ describe('beamMask', () => {
     for (let x = 10; x < 100; x++) for (let y = 20; y < 31; y++) ink[y * w + x] = 1;
     const body = beamMask(ink, w, h, 12);
     expect(body[25 * w + 55]).toBe(0);
+  });
+});
+
+describe('realStaff', () => {
+  test('a staff with noteheads is real', () => {
+    expect(realStaff({ heads: [{ x: 0.1 }], bars: [] })).toBe(true);
+  });
+
+  test('a staff with only barlines is real — a bar of rests is still a bar', () => {
+    expect(realStaff({ heads: [], bars: [0.1, 0.9] })).toBe(true);
+  });
+
+  test('a staff with neither is the gradient, not a stave', () => {
+    expect(realStaff({ heads: [], bars: [] })).toBe(false);
+  });
+
+  test('missing fields are not a stave', () => {
+    expect(realStaff({})).toBe(false);
+    expect(realStaff(null)).toBe(false);
   });
 });

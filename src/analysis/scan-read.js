@@ -575,6 +575,21 @@ function findHeads(ink, w, h, staff, space, gray, background) {
   return kept.sort((a, b) => a.x - b.x);
 }
 
+// A comb locks onto the shadow gradient at the foot of a photographed page and
+// reports a stave that is not there. Every photographed case in both benchmarks
+// read seven staves where six were drawn, and the seventh carried no noteheads
+// and no barlines while the real six carried eighty heads each. It cost nothing
+// visible and everything countable: a phantom system inflates every recall
+// denominator — the barline check read 86% where the six real systems had in
+// fact found every barline — and it would renumber every bar after it.
+//
+// Heads OR bars, not heads AND bars. A system of nothing but rests has no
+// noteheads and is still a system, and dropping it would lose the barlines that
+// carry the count past it.
+export function realStaff(staff) {
+  return ((staff?.heads?.length ?? 0) > 0) || ((staff?.bars?.length ?? 0) > 0);
+}
+
 // The whole reading, normalised. `source` is anything drawImage accepts.
 export function readPage(source, naturalWidth, naturalHeight) {
   const w = Math.min(WORK_WIDTH, naturalWidth);
@@ -681,7 +696,7 @@ export function readPage(source, naturalWidth, naturalHeight) {
     };
   });
 
-  return { staves: out, strips: STRIPS, space: space / h };
+  return { staves: out.filter(realStaff), strips: STRIPS, space: space / h };
 }
 
 // Every notehead on a page, in reading order, with the bar it belongs to.
