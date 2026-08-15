@@ -472,18 +472,34 @@ export function staveStart(ink, w, h, staff, stripW) {
     }
     // Four of five, because one faint line is what a photographed page does and
     // the comb that found this stave was built around exactly that.
-    if (lit >= 4) {
+    // Three of five, not four.
+    //
+    // At the left edge of a photographed page one line in five is routinely
+    // lost to the shadow — that is the whole reason the stave is found by a comb
+    // rather than by hunting lines one at a time — and asking for four here
+    // asked for more than the tracker itself asks for.
+    if (lit >= 3) {
       run++;
-      // Held for a full space before it counts, so a stray mark in the margin
+      // Held for half a space before it counts, so a stray mark in the margin
       // cannot start the stave early.
-      if (run >= Math.max(2, Math.round(staff.space))) {
+      if (run >= Math.max(2, Math.round(staff.space * 0.5))) {
         return x - run + 1;
       }
     } else {
       run = 0;
     }
   }
-  return 0;
+  // NOT zero.
+  //
+  // Returning zero when the stave could not be found put the clef zone at the
+  // left edge of the IMAGE — the page margin — and the classifier then read
+  // whatever noise was there and reported it at 0.97 confidence. Measured on a
+  // photograph of the Bärenreiter Bach: the systems that read their clef right
+  // sampled at x = 39, the ones that read it wrong sampled at x = 3, every time.
+  //
+  // Six confident wrong answers is worse than six refusals, and a refusal is
+  // what not knowing where the stave starts actually means.
+  return null;
 }
 
 export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
@@ -845,6 +861,35 @@ export function readPage(source, naturalWidth, naturalHeight) {
   }));
   const perStaff = readValues(ink, beams, w, h, found);
 
+  // Where the staves start, decided for the PAGE and not for each system.
+  //
+  // Systems on a printed page are left-aligned — the same engraver set them all
+  // to the same margin — so "where does this stave begin" has one answer, and
+  // asking it ten times gets ten answers of which several are wrong. Measured on
+  // a photograph of the Bärenreiter Bach the per-system answers came back 109,
+  // 360, 88, 47, 38, 171, 137, 53, none, 77, where the truth is around fifty:
+  // the systems that landed near it read their clef correctly and the rest read
+  // the music, or the margin, and reported it at 0.97 confidence.
+  //
+  // A LOW percentile of the answers, not the median.
+  //
+  // The errors only go one way. staveStart walks left to right and stops at the
+  // first sustained run of staff lines, so a system it reads correctly gives the
+  // margin and a system it misreads gives something further RIGHT — it has run
+  // past the clef into the music. The nine answers on that page sorted to
+  // 38, 47, 53, 77, 88, 109, 137, 171, 360 against a truth near fifty: the
+  // median lands on 88 and is wrong for everybody, the low quarter lands on 53.
+  //
+  // The same trick fillMissedStaves uses on the vertical — the page has a
+  // rhythm, so use it — with the statistic chosen for which way the errors run.
+  const starts = found
+    .map(({ staff }) => staveStart(ink, w, h, staff, stripW))
+    .filter((x) => x !== null)
+    .sort((a, b) => a - b);
+  const margin = starts.length
+    ? starts[Math.floor((starts.length - 1) * 0.25)]
+    : null;
+
   const out = found.map(({ staff, bars, heads }, staffIndex) => {
     const values = perStaff[staffIndex];
     // The clef, read from the paper rather than fitted from a recording.
@@ -854,9 +899,12 @@ export function readPage(source, naturalWidth, naturalHeight) {
     // See staveStart. Null when it cannot be told, and null must stay null: a
     // cello part is in bass clef most of the time, and assuming so is what
     // turns the other times into a page of confident verdicts a sixth out.
-    const clefFrom = staveStart(ink, w, h, staff, stripW) + staff.space * 0.25;
-    const column = clefColumn(ink, w, h, staff, stripW, staff.space, clefFrom);
-    const read = classifyClef(clefFeatures(column, staff.space));
+    const clefFrom = margin === null ? null : margin + staff.space * 0.25;
+    const read = clefFrom === null
+      ? { clef: null, confidence: 0 }
+      : classifyClef(clefFeatures(
+        clefColumn(ink, w, h, staff, stripW, staff.space, clefFrom), staff.space,
+      ));
     return {
       clef: read.clef,
       clefConfidence: read.confidence,
@@ -868,7 +916,7 @@ export function readPage(source, naturalWidth, naturalHeight) {
       // top of it, and every dead end came from reasoning about what the code
       // probably does. The reader now reports its own clef zone so the next
       // question can be asked of a picture. Drawn by tools/reader-look.html.
-      clefZone: {
+      clefZone: clefFrom === null ? null : {
         x: clefFrom / w,
         w: Math.min(w - clefFrom, Math.max(3, Math.round(staff.space * 3.6))) / w,
       },

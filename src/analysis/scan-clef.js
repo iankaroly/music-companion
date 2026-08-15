@@ -140,7 +140,7 @@ export function classifyClef(features) {
   // line. Measured at 5.6 spaces where neither other clef passes 3.3, which is
   // the widest margin on the page.
   if (bottom > BELOW_STAVE) {
-    return { clef: 'treble', confidence: Math.min(1, (bottom - STAVE) / 1.6) };
+    return { clef: 'treble', confidence: Math.max(0, Math.min(1, (bottom - STAVE) / 1.6)) };
   }
 
   // Tenor next, by the TOP.
@@ -174,7 +174,9 @@ export function classifyClef(features) {
   // a sanity check — ink tall enough to be a symbol at all. A stave whose head
   // is blank or smeared has nothing that tall and still refuses.
   if (bottom - top > SHORTEST) {
-    return { clef: 'bass', confidence: Math.min(1, (STAVE - bottom) / 1.5) };
+    // Clamped at both ends: ink reaching past the bottom line gave a NEGATIVE
+    // confidence, which every caller was about to compare against a threshold.
+    return { clef: 'bass', confidence: Math.max(0, Math.min(1, (STAVE - bottom) / 1.5)) };
   }
   return { clef: null, confidence: 0 };
 }
