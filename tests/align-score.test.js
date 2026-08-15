@@ -166,3 +166,48 @@ describe('alignScore — attempts on the page', () => {
     expect(result.latest.get('a').verdict).toBe('wrong');
   });
 });
+
+// A reference read off a photograph is not a file, and the difference has to
+// reach the cost table. A missed accidental puts a written note a semitone from
+// where it really is, and there is nothing on the page to catch it.
+//
+// Priced at COST.wrong the aligner would rather leave a correctly-played note
+// unmatched (insert 1.0) than pair it with a reference one semitone out (1.4) —
+// so the notes likeliest to have been read slightly wrong are exactly the ones
+// that would go unmarked. Off MusicXML this must stay OFF: there a semitone IS
+// a wrong note and saying so is the whole job.
+describe('near-miss costing, for a reference that is a reading', () => {
+  test('by default a semitone is a wrong note, because MusicXML is exact', () => {
+    const score = scoreNotes([60, 62, 64, 65]);
+    const played = playedNotes([60, 62, 63, 65]);
+    const { attempts } = alignScore(played, score);
+    expect(attempts[2].verdict).toBe('wrong');
+  });
+
+  test('with nearMiss the note is still paired, and said to be near rather than wrong', () => {
+    const score = scoreNotes([60, 62, 64, 65]);
+    const played = playedNotes([60, 62, 63, 65]);
+    const { attempts } = alignScore(played, score, { nearMiss: true });
+    expect(attempts.filter(Boolean).length).toBe(4);
+    expect(attempts[2].played.midi).toBe(63);
+    expect(attempts[2].verdict).toBe('near');
+  });
+
+  test('nearMiss does not excuse a note a third out', () => {
+    const score = scoreNotes([60, 62, 64, 65]);
+    const played = playedNotes([60, 62, 68, 65]);
+    const { attempts } = alignScore(played, score, { nearMiss: true });
+    expect(attempts[2].verdict).toBe('wrong');
+  });
+
+  test('a run of semitone slips keeps the whole take in step', () => {
+    // What a page in two sharps looks like when the signature was not read:
+    // every F and C a semitone low. The alignment must survive it intact.
+    const score = scoreNotes([60, 62, 64, 65, 67, 69, 71, 72]);
+    const played = playedNotes([61, 62, 64, 66, 67, 69, 71, 73]);
+    const { attempts } = alignScore(played, score, { nearMiss: true });
+    expect(attempts.filter(Boolean).length).toBe(8);
+    expect(attempts[0].played.midi).toBe(61);
+    expect(attempts[7].played.midi).toBe(73);
+  });
+});

@@ -17,6 +17,22 @@
 const COST = {
   match: 0,
   octave: 0.5, // right note, wrong register — still tells you something
+  // A semitone, when the SCORE ITSELF is a reading rather than a file.
+  //
+  // Off a photograph a missed accidental puts a written note a semitone from
+  // where it really is, and nothing on the page catches it. The PAIRING was
+  // never at risk — wrong (1.4) already sits under insert + delete (2.0), so
+  // such a note is matched rather than skipped — but the VERDICT was, and the
+  // verdict is what gets shown to somebody about their own playing. Calling a
+  // correctly-played note wrong because the reference was misread is the exact
+  // failure this whole route exists to avoid.
+  //
+  // The cheaper cost also settles the closer calls: where shifting the whole
+  // alignment by one would buy a few exact matches, near-misses at 0.6 hold the
+  // true path down where at 1.4 they were nearly worth abandoning.
+  //
+  // Off MusicXML this stays OFF. There a semitone IS a wrong note.
+  near: 0.6,
   wrong: 1.4, // must stay under insert + delete, or wrong notes derail the path
   insert: 1.0, // a played note the score does not have
   delete: 1.0, // a score note that never sounded
@@ -29,17 +45,22 @@ const LEFT = 2; // consume a played note, nothing written
 // Kept numeric and object-free: this is called once per cell, and a movement
 // against a ten-minute take is millions of cells. The verdict is worked out
 // only along the traceback, which visits each score note once.
-function substitutionCost(scoreNote, playedNote) {
+function substitutionCost(scoreNote, playedNote, nearMiss) {
   const distance = playedNote.midi - scoreNote.midi;
   if (distance === 0) return COST.match;
   if (distance % 12 === 0) return COST.octave;
+  if (nearMiss && Math.abs(distance) === 1) return COST.near;
   return COST.wrong;
 }
 
-function verdictFor(scoreNote, playedNote) {
+function verdictFor(scoreNote, playedNote, nearMiss) {
   const distance = playedNote.midi - scoreNote.midi;
   if (distance === 0) return 'match';
   if (distance % 12 === 0) return 'octave';
+  // Its own verdict, never folded into 'match': a note a semitone from a
+  // reference nobody is sure of is a note nothing can judge, and the caller has
+  // to be able to WITHHOLD rather than approve.
+  if (nearMiss && Math.abs(distance) === 1) return 'near';
   return 'wrong';
 }
 
@@ -59,7 +80,7 @@ function repeatRuns(scoreNotes) {
   return runs;
 }
 
-export function alignScore(playedNotes, scoreNotes) {
+export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
   const played = playedNotes ?? [];
   const score = scoreNotes ?? [];
   if (score.length === 0) throw new Error('the score has no notes to align against');
@@ -88,7 +109,7 @@ export function alignScore(playedNotes, scoreNotes) {
     from[base] = UP;
 
     for (let j = 1; j <= P; j++) {
-      const diagonal = above[j - 1] + substitutionCost(scoreNote, played[j - 1]);
+      const diagonal = above[j - 1] + substitutionCost(scoreNote, played[j - 1], nearMiss);
       const up = above[j] + COST.delete;
       const left = row[j - 1] + COST.insert;
 
@@ -120,7 +141,7 @@ export function alignScore(playedNotes, scoreNotes) {
     if (step === DIAGONAL) {
       const scoreNote = score[i - 1];
       const playedNote = played[j - 1];
-      const verdict = verdictFor(scoreNote, playedNote);
+      const verdict = verdictFor(scoreNote, playedNote, nearMiss);
       attempts[i - 1] = {
         scoreNoteId: scoreNote.id,
         pass: scoreNote.pass ?? 0,
