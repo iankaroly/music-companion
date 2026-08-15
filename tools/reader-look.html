@@ -226,9 +226,24 @@ function draw() {
 
 for (const t of Object.values(toggles)) t.addEventListener('change', draw);
 
-els.file.addEventListener('change', async () => {
+// Dropped as well as picked, because the instructions above say "drop in the
+// photograph" and a page whose copy promises something the page cannot do is
+// worse than one that never offered.
+document.addEventListener('dragover', (e) => { e.preventDefault(); document.body.style.outline = '2px dashed var(--head)'; });
+document.addEventListener('dragleave', () => { document.body.style.outline = ''; });
+document.addEventListener('drop', (e) => {
+  e.preventDefault();
+  document.body.style.outline = '';
+  const file = e.dataTransfer?.files?.[0];
+  if (file) load(file);
+});
+
+els.file.addEventListener('change', () => {
   const file = els.file.files?.[0];
-  if (!file) return;
+  if (file) load(file);
+});
+
+async function load(file) {
   els.hint.textContent = 'reading…';
   const source = await toImage(file);
   const naturalWidth = source.width;
@@ -267,7 +282,7 @@ els.file.addEventListener('change', async () => {
   els.hint.textContent = 'Click any ring to see what the reader thinks that note is.';
   els.stage.hidden = false;
   draw();
-});
+}
 </script>
 </body>
 </html>
