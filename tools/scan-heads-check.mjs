@@ -132,6 +132,70 @@ check('every staff is still found on every page',
   [filled, hollow, mixed, clutter].every((r) => r.staves === 5),
   [filled, hollow, mixed, clutter].map((r) => r.staves).join('/'));
 
+
+// --- how long each note is, read off the page --------------------------------
+//
+// The duration of a note is in its head (filled or hollow), its stem and the
+// beams crossing that stem. Counted note by note this comes out right about
+// four times in five, which sounds respectable and is useless: a bar of sixteen
+// semiquavers needs all sixteen right before the bar adds up, and four fifths
+// sixteen times over is two per cent of bars. So the notes under one beam vote
+// — they are under ONE beam, so they agree by construction — and the numbers
+// below are what that is worth.
+const values = await page.evaluate(async () => {
+  const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
+  const beamed = (beams, space = 16) => {
+    const W = Math.round(space * 90);
+    const H = Math.round(space * 70);
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#111';
+    let drawn = 0;
+    for (let sys = 0; sys < 4; sys++) {
+      const top = space * 8 + sys * space * 16;
+      for (let l = 0; l < 5; l++) g.fillRect(space * 4, top + l * space, W - space * 8, Math.max(1, space * 0.12));
+      for (let grp = 0; grp < 6; grp++) {
+        const x0 = space * 7 + grp * space * 13;
+        const ys = [];
+        for (let i = 0; i < 4; i++) {
+          const st = (grp + i) % 6;
+          const y = top + 4 * space - st * space / 2;
+          ys.push(y);
+          g.save(); g.translate(x0 + i * space * 2.8, y); g.rotate(-0.3);
+          g.beginPath(); g.ellipse(0, 0, space * 0.62, space * 0.46, 0, 0, Math.PI * 2); g.fill();
+          g.restore();
+          drawn += 1;
+        }
+        const stemTop = Math.min(...ys) - space * 3;
+        for (let i = 0; i < 4; i++) {
+          g.fillRect(x0 + i * space * 2.8 + space * 0.55, stemTop, Math.max(1.5, space * 0.13), ys[i] - stemTop);
+        }
+        for (let bm = 0; bm < beams; bm++) {
+          g.fillRect(x0 + space * 0.55, stemTop + bm * space * 0.5, space * 8.5, Math.max(2, space * 0.28));
+        }
+      }
+    }
+    return { canvas: c, drawn };
+  };
+  const out = {};
+  for (const beams of [1, 2, 3]) {
+    const { canvas, drawn } = beamed(beams);
+    const read = readPage(canvas, canvas.width, canvas.height);
+    const heads = read ? notesInOrder(read) : [];
+    out[beams] = { drawn, found: heads.length, right: heads.filter((h) => h.beams === beams).length };
+  }
+  return out;
+});
+
+for (const beams of [1, 2, 3]) {
+  const r = values[beams];
+  const name = { 1: 'quavers', 2: 'semiquavers', 3: 'demisemiquavers' }[beams];
+  check(`a page of beamed ${name} is read as ${beams} beam${beams > 1 ? 's' : ''} a note`,
+    r.right / r.found >= 0.9, `${r.right} of ${r.found} (${Math.round(100 * r.right / r.found)}%)`);
+}
+
 const failed = results.filter((r) => !r.pass);
 console.log(failed.length ? `\n${failed.length} FAILED` : '\nALL PASS');
 await browser.close();

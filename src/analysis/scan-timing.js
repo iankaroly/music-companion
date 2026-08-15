@@ -1,3 +1,5 @@
+import { validateValues } from './scan-values.js';
+
 // Your timing, against the bars on the page.
 //
 // A take against a scan could say how steady your own pulse was, and that is a
@@ -60,10 +62,11 @@ export function barsOf(marks) {
     if (!Number.isFinite(start)) continue;
     const key = `${mark.page}|${mark.staff}|${mark.bar}`;
     if (!current || current.key !== key) {
-      current = { key, page: mark.page, staff: mark.staff, notes: [] };
+      current = { key, page: mark.page, staff: mark.staff, notes: [], marks: [] };
       bars.push(current);
     }
     current.notes.push(mark.note);
+    current.marks.push(mark);
   }
   return bars;
 }
@@ -129,19 +132,33 @@ export function scanTiming(marks) {
     .filter((v) => Number.isFinite(v));
   const evenNotes = gaps.length >= 3 && median(gaps) <= EVEN_ENOUGH;
 
-  // Where each note sat inside its bar, if that question is a fair one. An
-  // equal-note bar of n notes wants its kth note a k/n of the way through.
+  // Where each note sat inside its bar.
+  //
+  // Two ways of knowing, and the better one is used where it can be. If the
+  // note VALUES were read off the page and the bars they make add up, then a
+  // bar says exactly where each of its notes belongs — a dotted quaver is
+  // three quarters of a beat in, and no assumption is needed. Where they were
+  // not read, or do not add up, the fallback is that the notes of a bar are
+  // equal, which is true of a page of semiquavers and false of the first
+  // dotted rhythm.
+  const written = validateValues(real.map((bar) => bar.notes.map((_, k) => bar.marks?.[k]?.beats ?? 0)));
   const notes = [];
-  if (evenNotes) {
-    for (const bar of real) {
-      const step = bar.length / bar.count;
+  const useWritten = written.ok;
+  if (useWritten || evenNotes) {
+    for (const [b, bar] of real.entries()) {
+      const values = bar.marks?.map((m) => m?.beats) ?? [];
+      const trusted = useWritten && written.trusted.has(b)
+        && values.length === bar.count && values.every((v) => v > 0);
+      let at = 0;
       for (const [k, note] of bar.notes.entries()) {
-        notes.push({
-          note,
-          bar: bar.key,
-          wanted: bar.from + k * step,
-          offBy: note.start - (bar.from + k * step),
-        });
+        // From the written value where the bar adds up, from equal spacing
+        // where it does not — and nothing at all if neither is available.
+        const wanted = trusted
+          ? bar.from + (at / written.beatsPerBar) * bar.length
+          : (evenNotes ? bar.from + (k / bar.count) * bar.length : null);
+        if (trusted) at += values[k];
+        if (wanted === null) continue;
+        notes.push({ note, bar: bar.key, wanted, offBy: note.start - wanted, fromWritten: trusted });
       }
     }
   }
@@ -158,6 +175,10 @@ export function scanTiming(marks) {
     verdict: drift < -0.04 ? 'rushing' : (drift > 0.04 ? 'dragging' : 'steady'),
     worstBar: { page: worst.page, staff: worst.staff, length: worst.length, notes: worst.count },
     evenNotes,
+    // Whether the per-note verdicts came from values read off the page or
+    // from assuming a bar's notes are equal. A different claim, said plainly.
+    fromWritten: notes.length > 0 && notes.every((n) => n.fromWritten),
+    beatsPerBar: written.ok ? written.beatsPerBar : null,
     notes,
     meanOffMs: offs.length ? (offs.reduce((a, b) => a + b, 0) / offs.length) * 1000 : null,
   };

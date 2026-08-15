@@ -17,6 +17,8 @@
 // Coordinates come out normalised to the image (0–1 across, 0–1 down), so they
 // survive being drawn at any size on any screen.
 
+import { beamLayer, readValues } from './scan-stems.js';
+
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
 
@@ -531,10 +533,21 @@ export function readPage(source, naturalWidth, naturalHeight) {
   // Heads are hunted on the cleaned page; bars stay on the raw one. A barline
   // is a full-height column and beam removal has no business nibbling at it.
   const body = beamMask(ink, w, h, space);
+  // The beams, as their own layer: what beamMask took out. Finding them was
+  // already done — this is only the difference between the page and the page
+  // with the beams removed — and it is what says a quaver from a semiquaver.
+  const beams = beamLayer(ink, body);
 
   const out = staves.map((staff) => {
     const bars = findBars(ink, w, h, staff, stripW, space);
     const heads = findHeads(body, w, h, staff, staff.space);
+    // Where this stave's five lines sit under any given x — a stem crosses
+    // them and they must not be counted as the beams it is looking for.
+    const lineAt = (x) => {
+      const strip = Math.min(STRIPS - 1, Math.max(0, Math.floor((x / w) * STRIPS)));
+      return staff.lines.map((line) => line.at[strip]);
+    };
+    const values = readValues(ink, beams, w, h, heads, staff.space, lineAt);
     return {
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),
@@ -557,13 +570,18 @@ export function readPage(source, naturalWidth, naturalHeight) {
       // is shape. Two lines that rise and fall together are the same music
       // whatever clef they are written in, and that is enough to find where a
       // take begins — see analysis/scan-align.js.
-      heads: heads.map((head) => {
+      heads: heads.map((head, i) => {
         const strip = Math.min(STRIPS - 1, Math.max(0, Math.floor((head.x / w) * STRIPS)));
         const bottom = staff.lines[4].at[strip];
         return {
           x: head.x / w,
           y: head.y / h,
           step: Math.round((bottom - head.y) / (staff.space / 2)),
+          // How long the note is, in crotchets — read from the head's own
+          // shape, its stem and the beams crossing it. Whether to believe it
+          // is a separate question with its own file.
+          beats: values[i]?.beats ?? null,
+          beams: values[i]?.beams ?? 0,
         };
       }),
     };
@@ -583,7 +601,10 @@ export function notesInOrder(page) {
       // `step` comes with it: where on the stave the head sits, which is what
       // lets a take be found on the page rather than assumed to start at the
       // top of it. Dropping it here is how the whole alignment came out blind.
-      notes.push({ staff: staffIndex, bar, x: head.x, y: head.y, step: head.step });
+      notes.push({
+        staff: staffIndex, bar, x: head.x, y: head.y, step: head.step,
+        beats: head.beats, beams: head.beams,
+      });
     }
   }
   return notes;
