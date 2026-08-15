@@ -787,6 +787,20 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
       for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
       if (across > space * 2.6) continue;
+      // …and a notehead is not NARROWER than a notehead either.
+      //
+      // The upper bound has always been here: ink that runs on past a head's own
+      // width is something the head is attached to. The lower bound was missing,
+      // and it is the one that matters on a real page. A solid candidate whose
+      // middle row is thinner than a notehead is a stem crossing a beam, the
+      // dot of a fingering, a letter of the heading, the tip of a pencil bowing
+      // — all of them dark, all of them convincingly round at the scale of an
+      // ellipse two pixels smaller than they are.
+      //
+      // Only the SOLID branch is floored. A ring is judged by its rim and its
+      // paper centre and has its own tests; measured on the corpus the same
+      // floor applied to rings costs real minims and buys nothing.
+      if (solid && across < space * 1.05) continue;
       let clear = 0;
       for (const [dx, dy] of ring) {
         const yy = y + dy;
