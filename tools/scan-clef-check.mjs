@@ -176,18 +176,68 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
       });
     }
   }
-  return results;
+  // --- and now through readPage itself ---------------------------------
+  //
+  // Everything above measures the classifier against a column this file sampled
+  // for it. That proves the rules and not the plumbing, and the plumbing is
+  // where a feature quietly does nothing: readPage has to find the stave, find
+  // its opening barline, sample the zone beside it and hang the answer on the
+  // stave. Asked here end to end, because a clef nothing reads is a clef.
+  const { readPage } = await import('/src/analysis/scan-read.js');
+  const endToEnd = [];
+  for (const kind of KINDS) {
+    const space = 18;
+    const W = 1200;
+    const gap = space * 14;
+    const systems = 4;
+    const H = Math.round(space * 8 + systems * gap);
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
+    const x0 = space * 3;
+    for (let sys = 0; sys < systems; sys++) {
+      const top = space * 4 + sys * gap;
+      drawSystem(g, { space, x0, W, top, kind, warp: 0.7, tilt: 0.004 });
+      // Notes, so the stave is a stave and not a bare grid.
+      const bendAt = (x) => 0.7 * space * Math.sin((x / W) * Math.PI);
+      const lineY = (l, x) => top + l * space + bendAt(x) + 0.004 * (x - W / 2);
+      g.fillStyle = '#111';
+      for (let n = 0; n < 14; n++) {
+        const x = x0 + space * 8 + n * space * 3;
+        const y = lineY(4, x) - ((n + sys) % 8) * space / 2;
+        g.save(); g.translate(x, y); g.rotate(-0.28);
+        g.beginPath(); g.ellipse(0, 0, space * 0.62, space * 0.46, 0, 0, Math.PI * 2);
+        g.fill(); g.restore();
+        g.fillRect(x + space * 0.55, y - space * 3.2, Math.max(1.3, space * 0.11), space * 3.2);
+      }
+    }
+    const shot = await spoil(c, { blur: 1.0, contrast: 0.6, tint: [212, 194, 158], jpeg: 0.6, scale: 0.62 });
+    let read = null;
+    try { read = readPage(shot, shot.width, shot.height); } catch { read = null; }
+    const clefs = (read?.staves ?? []).map((s) => s.clef);
+    endToEnd.push({
+      want: kind.name,
+      staves: clefs.length,
+      clefs,
+      right: clefs.filter((cl) => cl === kind.name).length,
+    });
+  }
+
+  return { results, endToEnd };
 }, { glyph: GLYPH, anchor: CLEF_ANCHOR, fontBase64 });
 
 await browser.close();
 
+const { results: graded, endToEnd } = report;
+
 if (wantJson) {
-  console.log(JSON.stringify({ results: report, errors }, null, 2));
+  console.log(JSON.stringify({ results: graded, endToEnd, errors }, null, 2));
 } else {
   console.log('\nCLEFS — real Bravura, spoiled the way a camera spoils a page\n');
   console.log('spoiling         want     read     conf    top   bottom   sym');
   let right = 0;
-  for (const r of report) {
+  for (const r of graded) {
     if (r.want === r.got) right++;
     console.log(
       `${r.spoil.padEnd(16)} ${r.want.padEnd(8)} ${String(r.got).padEnd(8)} `
@@ -196,6 +246,15 @@ if (wantJson) {
       + `${r.want === r.got ? '' : '   <-- WRONG'}`,
     );
   }
-  console.log(`\n${right}/${report.length} read correctly\n`);
+  console.log(`\n${right}/${graded.length} read correctly\n`);
+  console.log('THROUGH readPage — a photographed page, four systems, end to end\n');
+  console.log('want     staves  clefs read                       right');
+  for (const e of endToEnd) {
+    console.log(
+      `${e.want.padEnd(8)} ${String(e.staves).padStart(4)}    `
+      + `${e.clefs.map((c) => String(c)).join(' ').padEnd(30)} ${e.right}/${e.staves}`,
+    );
+  }
+  console.log('');
   if (errors.length) console.log('page errors:', errors);
 }

@@ -18,6 +18,7 @@
 // survive being drawn at any size on any screen.
 
 import { beamLayer, readValues } from './scan-stems.js';
+import { clefFeatures, classifyClef } from './scan-clef.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -341,6 +342,42 @@ export function stavesToLines(staves, strips) {
   });
 }
 
+// The clef zone: the band just right of a stave's opening barline.
+//
+// Sampled here rather than in scan-clef.js because this is where the ink and
+// the stave's own geometry are, and a photographed page sags — so the zone has
+// to follow the line under it rather than sit at a fixed height. What comes back
+// is one value per row, the fraction of the band inked, running from CLEF_MARGIN
+// spaces above the top line to the same below the bottom one, which is the shape
+// scan-clef.js measures extents from.
+const CLEF_MARGIN = 3;
+
+export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
+  const lineY = (index, x) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+  ];
+  // Wide enough for a clef and no wider: past about four spaces the first
+  // notehead or the key signature starts arriving, and either would be measured
+  // as though it were part of the clef.
+  const across = Math.max(3, Math.round(space * 3.6));
+  const x0 = Math.max(0, Math.round(fromX));
+  const x1 = Math.min(w - 1, x0 + across);
+  if (x1 <= x0) return null;
+  const mid = Math.round((x0 + x1) / 2);
+  const top = lineY(0, mid);
+  const rows = Math.round(space * (4 + CLEF_MARGIN * 2));
+  const out = new Float32Array(rows);
+  const wide = x1 - x0 + 1;
+  for (let r = 0; r < rows; r++) {
+    const y = Math.round(top - CLEF_MARGIN * space + r);
+    if (y < 0 || y >= h) continue;
+    let inked = 0;
+    for (let x = x0; x <= x1; x++) if (ink[y * w + x]) inked++;
+    out[r] = inked / wide;
+  }
+  return out;
+}
+
 // A barline is a column of ink that spans the stave from the top line to the
 // bottom one — and nothing else on a single-staff part does that. Thick columns
 // (a final double bar, a repeat) come out as one barline, which is right.
@@ -657,7 +694,19 @@ export function readPage(source, naturalWidth, naturalHeight) {
 
   const out = found.map(({ staff, bars, heads }, staffIndex) => {
     const values = perStaff[staffIndex];
+    // The clef, read from the paper rather than fitted from a recording.
+    //
+    // Measured just right of the stave's opening barline — or of the left edge
+    // of the page if the barline was missed, since a clef that far left is
+    // still a clef. Null when it cannot be told, and null must stay null: a
+    // cello part is in bass clef most of the time, and assuming so is what
+    // turns the other times into a page of confident verdicts a sixth out.
+    const clefFrom = (bars[0] ?? 0) + staff.space * 0.35;
+    const column = clefColumn(ink, w, h, staff, stripW, staff.space, clefFrom);
+    const read = classifyClef(clefFeatures(column, staff.space));
     return {
+      clef: read.clef,
+      clefConfidence: read.confidence,
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),
       space: staff.space / h,
@@ -713,6 +762,11 @@ export function notesInOrder(page) {
       notes.push({
         staff: staffIndex, bar, x: head.x, y: head.y, step: head.step,
         beats: head.beats, beams: head.beams,
+        // Carried down from the stave, because a note's pitch is its position
+        // AND the clef that names the lines it sits between — and by the time
+        // anything downstream has a note it no longer has the stave.
+        clef: staff.clef ?? null,
+        clefConfidence: staff.clefConfidence ?? 0,
       });
     }
   }

@@ -27,6 +27,8 @@ import { intonationHue } from './chart-utils.js';
 import { findStart } from '../analysis/scan-align.js';
 import { fitPitches } from '../analysis/scan-pitch.js';
 import { alignScore } from '../analysis/align-score.js';
+import { pitchOf } from '../analysis/scan-notes.js';
+import { NO_KEY } from '../analysis/scan-key.js';
 
 // Every notehead the page reader found, in reading order, carrying the page it
 // is on and the staff space it was measured against.
@@ -35,7 +37,18 @@ export function headsOf(layout) {
   for (const [page, read] of (layout ?? []).entries()) {
     if (!read) continue;
     const space = read.space ?? 0.01;
-    for (const note of notesInOrder(read)) all.push({ ...note, page, space });
+    for (const note of notesInOrder(read)) {
+      // Priced in pitch here, where the clef the stave was read with is still
+      // attached. A head whose stave had no readable clef gets midi null and
+      // takes the shape-matching route with the rest of its page.
+      //
+      // NO_KEY until the signature detector lands: the alignment is right
+      // without it — a page in two sharps is out by a semitone on its F's and
+      // C's, which is what the aligner's near-miss tier is for — but a VERDICT
+      // is not, and verdicts are gated on confidence anyway.
+      const pitch = pitchOf(note.step, note.clef, NO_KEY);
+      all.push({ ...note, page, space, midi: pitch?.midi ?? null });
+    }
   }
   return all;
 }

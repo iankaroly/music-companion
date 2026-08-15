@@ -109,3 +109,31 @@ describe('classifyClef', () => {
     expect(classifyClef(f).clef).toBeNull();
   });
 });
+
+// Measured through readPage rather than off a column sampled by hand, which is
+// where the bass rule was first found to be fitted to its measurement instead
+// of to a clef: 15/15 sampled directly and 1/4 end to end, because readPage
+// takes a slightly different band and a bass clef's bottom has barely a third
+// of a space of margin against the bottom line.
+describe('bass is the residual, not a boundary', () => {
+  test('a bass clef reads whether it stops at 2.5 spaces or at 3.4', () => {
+    for (const to of [2.5, 2.7, 3.0, 3.27, 3.4]) {
+      const f = clefFeatures(column({ from: -0.1, to }), 10);
+      expect(classifyClef(f).clef).toBe('bass');
+    }
+  });
+
+  test('a speck beside the barline is still not a clef', () => {
+    const f = clefFeatures(column({ from: 1.0, to: 1.6 }), 10);
+    expect(classifyClef(f).clef).toBeNull();
+  });
+
+  test('the three stay mutually exclusive', () => {
+    const treble = clefFeatures(column({ from: -1.3, to: 5.6 }), 10);
+    const tenor = clefFeatures(column({ from: -1.1, to: 3.15 }), 10);
+    const bass = clefFeatures(column({ from: -0.1, to: 3.27 }), 10);
+    expect(classifyClef(treble).clef).toBe('treble');
+    expect(classifyClef(tenor).clef).toBe('tenor');
+    expect(classifyClef(bass).clef).toBe('bass');
+  });
+});

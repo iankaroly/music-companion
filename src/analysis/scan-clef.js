@@ -118,6 +118,10 @@ const TALLEST = STAVE * 2;
 // Treble is alone below the stave; tenor is alone above it. Bass and tenor
 // overlap completely at the bottom, which is why reading the bottom to tell
 // them apart failed on eight of fifteen real glyphs.
+// Shorter than any clef and taller than a speck. A bass clef is the smallest
+// of the three at about 2.6 spaces; a smudge left by the barline or a fleck of
+// grain is a fraction of one.
+const SHORTEST = 1.5;
 const BELOW_STAVE = 4.5;
 const ABOVE_STAVE = -0.6;
 
@@ -139,10 +143,10 @@ export function classifyClef(features) {
     return { clef: 'treble', confidence: Math.min(1, (bottom - STAVE) / 1.6) };
   }
 
-  // Bass against tenor, by the TOP.
+  // Tenor next, by the TOP.
   //
-  // This is the correction the benchmark forced. Both stop around three spaces
-  // — 2.5 to 3.3 for a bass, 3.1 to 3.2 for a C-clef — so a rule reading the
+  // This is the correction the benchmark forced. Bass and C-clef both STOP
+  // around three spaces — 2.5 to 3.3 and 3.1 to 3.2 — so a rule reading the
   // bottom cannot separate them at all, and the first version of this file read
   // every C-clef as a bass and half the basses as C-clefs. Where they differ is
   // the top: a C-clef in tenor position begins a full space ABOVE the top line
@@ -154,7 +158,22 @@ export function classifyClef(features) {
     // wearing the clothes of a measurement.
     return { clef: 'tenor', confidence: symmetry };
   }
-  if (bottom < STAVE - 0.5) {
+
+  // Bass is what is left, and it is left DELIBERATELY rather than tested for.
+  //
+  // Its own measurement is the weakest on the page: a bass clef stops between
+  // 2.5 and 3.3 spaces depending on the camera, and the bottom line is at 4, so
+  // any threshold drawn between them has a fraction of a space of margin.
+  // Tested directly at 3.5 it read fifteen of fifteen sampled by hand and ONE
+  // OF FOUR through readPage, which samples a slightly different band — the
+  // rule was fitted to a measurement, not to a clef.
+  //
+  // The three clefs are mutually exclusive and two of them have wide margins:
+  // only a treble hangs below the bottom line, only a C-clef starts above the
+  // top one. So bass is the residual, and what guards it is not a boundary but
+  // a sanity check — ink tall enough to be a symbol at all. A stave whose head
+  // is blank or smeared has nothing that tall and still refuses.
+  if (bottom - top > SHORTEST) {
     return { clef: 'bass', confidence: Math.min(1, (STAVE - bottom) / 1.5) };
   }
   return { clef: null, confidence: 0 };
