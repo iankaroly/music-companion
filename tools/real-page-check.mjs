@@ -14,6 +14,28 @@
 // staves are found, they are found in the right places, and the heads are
 // spread across them rather than piled onto one.
 //
+// WHAT RESOLUTION IS AND IS NOT WORTH
+//
+// READ_WIDE exists because the obvious first move — read the page bigger — is
+// worth measuring before it is believed. The reading pass draws every page into
+// a canvas 1400 across whatever the photograph's own size, so a 4000px scan and
+// a 700px screenshot are read at the same size. Raising that on this page:
+//
+//   1400 across, 10px staff space  → 405 heads, evenly spread across the staves
+//   2200 across, 16px staff space  → 417
+//   3000 across, 21px staff space  → 427, and MORE uneven between staves
+//
+// Four times the pixels for five per cent more notes, and the distribution gets
+// worse rather than better. So the cap stays where it is, and the note is kept
+// here so the next person does not spend the afternoon finding out again.
+//
+// What the source resolution DOES change is what survives being shrunk to 1400.
+// The same page from a 739px screenshot read 450 heads with a wild spread
+// (37 39 31 37 35 46 45 49 66 39 26); from a 1640px copy, 405 with an even one
+// (34 25 34 35 34 37 44 39 45 40 38). Upscaling a small picture invents blur;
+// downscaling a large one averages the noise away. Photograph the page, do not
+// screenshot a photograph of it.
+//
 //   npm run dev            (in another terminal, on port 5199)
 //   node tools/real-page-check.mjs [path-to-image]
 //
@@ -26,6 +48,7 @@ const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 const PORT = process.env.PORT ?? '5199';
+const WIDE = Number(process.env.READ_WIDE ?? 1400);
 const FILE = process.argv[2]
   ?? `${process.env.HOME}/music-companion/tests/fixtures/cello-page.jpg`;
 
@@ -51,7 +74,7 @@ const check = (name, pass, detail = '') => {
   console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
 };
 
-const read = await page.evaluate(async (b64) => {
+const read = await page.evaluate(async ({ b64, wide }) => {
   const blob = await (await fetch(`data:image/jpeg;base64,${b64}`)).blob();
   const { openPaper } = await import('/src/ui/paper.js');
   const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
@@ -61,7 +84,7 @@ const read = await page.evaluate(async (b64) => {
   const sheet = document.createElement('canvas');
   sheet.width = 8; sheet.height = 8;
   const dpr = window.devicePixelRatio || 1;
-  await pages.draw(0, sheet, 1400 / dpr, 6000 / dpr);
+  await pages.draw(0, sheet, wide / dpr, (wide * 4.3) / dpr);
   const found = readPage(sheet, sheet.width, sheet.height);
   if (!found) return { ok: false, sheet: `${sheet.width}x${sheet.height}` };
 
@@ -85,7 +108,7 @@ const read = await page.evaluate(async (b64) => {
     stepRange: steps.length ? [Math.min(...steps), Math.max(...steps)] : null,
     withStep: steps.length,
   };
-}, base64);
+}, { b64: base64, wide: WIDE });
 
 if (!read.ok) {
   check('the page was read at all', false, `readPage returned nothing (sheet ${read.sheet})`);
