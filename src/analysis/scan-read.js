@@ -517,6 +517,60 @@ export function staveStart(ink, w, h, staff, stripW) {
   return null;
 }
 
+// How far the PRINTED stave sits from where the page-wide fit puts it, right
+// here, under the clef band.
+//
+// trackCombs holds each staff line flat outside the strips that measured it. At
+// the left edge the first strips are lost to the shadow in the gutter, so a line
+// keeps the height it had at the first strip that answered — and a page lifting
+// out of a binding rises over exactly that inch, so the printed lines sit as much
+// as 0.58 of a space ABOVE the model. clefColumn took its window from that model,
+// so `top` moved from about -0.3 to about -0.9 and crossed ABOVE_STAVE (-0.6) in
+// scan-clef.js: a bass clef, read confidently as tenor.
+//
+// The clef ink itself is the same height on every system — bottom minus top is
+// 2.65 to 2.89 spaces across all of them, which is one bass clef nine times. Only
+// the zero point moved. And the first inch is the ONLY place a clef is ever read,
+// which is why this error costs the clef and costs nothing else.
+const REGISTER = 0.9;        // reach, in staff spaces — strictly under one
+const REGISTER_FLOOR = 0.4;  // below this the band has no stave to register on
+
+function bandShift(ink, w, h, lineY, space, x0, x1, mid) {
+  const wide = x1 - x0 + 1;
+  const seen = new Map();
+  const rowInk = (y) => {
+    if (y < 0 || y >= h) return 0;
+    const had = seen.get(y);
+    if (had !== undefined) return had;
+    let lit = 0;
+    for (let x = x0; x <= x1; x++) if (ink[y * w + x]) lit++;
+    const v = lit / wide;
+    seen.set(y, v);
+    return v;
+  };
+  const reach = Math.round(space * REGISTER);
+  const above = Math.round(lineY(0, mid) - space);
+  const below = Math.round(lineY(4, mid) + space);
+  let best = 0;
+  let bestScore = -1;
+  for (let d = -reach; d <= reach; d++) {
+    let score = 0;
+    // A staff line is inked right across the band; the clef standing on it
+    // covers half the band at most. So the five lines are what the comb finds.
+    for (let k = 0; k < 5; k++) score += rowInk(Math.round(lineY(k, mid)) + d);
+    // Seven teeth, not five, and the outer two count AGAINST. Five evenly spaced
+    // teeth slid a whole space match four of the five lines again; what a stave
+    // has that its aliases do not is a blank row a space outside each end.
+    score -= rowInk(above + d) + rowInk(below + d);
+    // Ties to the smaller correction.
+    if (score > bestScore || (score === bestScore && Math.abs(d) < Math.abs(best))) {
+      bestScore = score;
+      best = d;
+    }
+  }
+  return bestScore / 5 >= REGISTER_FLOOR ? best : 0;
+}
+
 export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   const lineY = (index, x) => staff.lines[index].at[
     Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
@@ -532,10 +586,14 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   const x1 = Math.min(w - 1, x0 + across);
   if (x1 <= x0) return null;
   const mid = Math.round((x0 + x1) / 2);
-  // Measured over a wide window, not over the clef zone alone: a comb wants five
+  // Registered inside the clef band, not over a wide window. A comb wants five
   // clean lines and the clef zone is the one place on the stave guaranteed to
-  // have something else drawn in it.
-  const top = lineY(0, mid);
+  // have something else drawn in it — so the comb carries two negative teeth a
+  // space outside each end, which is what a stave has that its aliases and the
+  // clef's own ink do not.
+  //
+  // The top line as PRINTED under this band, not as the page-wide fit predicts.
+  const top = lineY(0, mid) + bandShift(ink, w, h, lineY, space, x0, x1, mid);
   const rows = Math.round(space * (4 + CLEF_MARGIN * 2));
   const out = new Float32Array(rows);
   const wide = x1 - x0 + 1;
