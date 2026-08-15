@@ -70,19 +70,35 @@ function findStem(ink, w, h, head, space) {
   const best = { dir: 0, x: 0, length: 0 };
   for (const [side, dir] of [[1, -1], [-1, 1]]) {
     // Up on the right, down on the left: the usual engraving, and the only
-    // place worth looking.
-    const x = head.x + side * Math.round(space * 0.55);
-    if (x < 1 || x >= w - 1) continue;
-    let length = 0;
-    let missed = 0;
-    for (let k = 1; k <= reach; k++) {
-      const y = head.y + dir * k;
-      if (y < 0 || y >= h) break;
-      // A stem wanders a pixel either way on a photographed page.
-      if (ink[y * w + x] || ink[y * w + x - 1] || ink[y * w + x + 1]) { length = k; missed = 0; }
-      else if (k > space * 0.8 && ++missed > gapMax) break;
+    // side worth looking at. WHERE on that side is another matter, and it was
+    // being guessed to the pixel: a single column at 0.55 of a staff space out
+    // from the middle of the head, give or take one. That is exactly right for
+    // a head of the size assumed, drawn by the program that assumed it. On a
+    // photograph of a real edition the head is a slightly different width, and
+    // findHeads' idea of its middle is a pixel or two off besides, so 0.55 of a
+    // space lands beside the stem rather than on it and the note comes back
+    // with no stem at all — which makes it a crotchet, whatever is written
+    // above it. Seventy-eight of the four hundred and five notes on the page
+    // this was built for, nearly one in five, and every one of them a
+    // semiquaver read as a crotchet.
+    //
+    // So the side is swept rather than guessed. A stem sits somewhere between
+    // a third and four fifths of a space from the middle of the head, and the
+    // longest run found anywhere in that band is the stem.
+    for (let off = Math.round(space * 0.35); off <= Math.round(space * 0.8); off++) {
+      const x = head.x + side * off;
+      if (x < 1 || x >= w - 1) continue;
+      let length = 0;
+      let missed = 0;
+      for (let k = 1; k <= reach; k++) {
+        const y = head.y + dir * k;
+        if (y < 0 || y >= h) break;
+        // A stem wanders a pixel either way on a photographed page.
+        if (ink[y * w + x] || ink[y * w + x - 1] || ink[y * w + x + 1]) { length = k; missed = 0; }
+        else if (k > space * 0.8 && ++missed > gapMax) break;
+      }
+      if (length > best.length) { best.dir = dir; best.x = x; best.length = length; }
     }
-    if (length > best.length) { best.dir = dir; best.x = x; best.length = length; }
   }
   // Shorter than about a staff space is not a stem, it is the head's own edge
   // or a ledger line. Not much more than that, though: a beamed group is drawn
@@ -241,6 +257,49 @@ function profileAt(ink, w, h, head, stem, space, lineDeep, slope, from, to, win)
   return p;
 }
 
+// Is there anything BEAM-SHAPED at the end of this stem, whether or not the
+// count managed to read it?
+//
+// This exists to tell two things apart that a failed count cannot: a crotchet,
+// whose stem ends in nothing, and a beamed note whose beam was there and was
+// missed. Both come back with no bands, and the difference matters enormously —
+// the first should keep its zero and the second should take its group's answer.
+//
+// Stem length was tried as the discriminator and it is not one. An unbeamed
+// crotchet has about three and a bit spaces of stem, and so does a beamed note
+// near the top of its group; the notes lower in the group have MORE. On a real
+// photographed page of continuous semiquavers that mistake locked eighty-four
+// notes at zero — every note whose beam the count had missed was declared a
+// crotchet on the strength of having a normal stem.
+//
+// What a beam actually is, is ink running sideways where a stem alone would be
+// two or three pixels across. That is a different question from how many beams
+// there are and a far easier one, so it can still be answered on a note whose
+// count failed. Looked for over the last part of the stem, both sides, since a
+// note at either end of a group has beam on one side only.
+function wideAtEnd(ink, w, h, head, stem, space, lineDeep) {
+  const wide = Math.max(3, Math.round(space * 1.4));
+  const from = Math.max(1, Math.round(stem.length - space * 1.2));
+  for (let k = from; k <= stem.length + 2; k++) {
+    const y = head.y + stem.dir * k;
+    if (y < 0 || y >= h) break;
+    for (const step of [-1, 1]) {
+      let run = 0;
+      let missed = 0;
+      for (let x = stem.x + step; x >= 0 && x < w; x += step) {
+        // A staff line runs further sideways than any beam and must not be
+        // mistaken for one here, exactly as in the profile: ink counts only
+        // where it is thicker than this page's staff lines.
+        if (ink[y * w + x] && inkDepth(ink, w, h, x, y, lineDeep) >= lineDeep) {
+          run += 1 + missed; missed = 0;
+        } else if (++missed > 2) break;
+        if (run >= wide) return true;
+      }
+    }
+  }
+  return false;
+}
+
 function stemProfile(ink, w, h, head, stem, space, lineDeep) {
   const win = Math.max(2, Math.round(space * 0.85));
   const from = Math.max(1, Math.round(space * 0.7));
@@ -391,10 +450,11 @@ export function readValues(ink, beams, w, h, staves) {
     const at = { x: Math.round(head.x), y: Math.round(head.y) };
     const stem = findStem(ink, w, h, at, space);
     const hollow = !!head.hollow;
-    if (!stem || hollow) return { at, stem, hollow, stack: null };
+    if (!stem || hollow) return { at, stem, hollow, stack: null, wide: false };
     const p = stemProfile(ink, w, h, at, stem, space, lineDeep);
     const stack = beamStack(p, space);
-    return { at, stem, hollow, stack };
+    const wide = wideAtEnd(ink, w, h, at, stem, space, lineDeep);
+    return { at, stem, hollow, stack, wide };
   }));
 
   // Gathered in staff spaces rather than in pixels, so that a page whose
@@ -458,11 +518,11 @@ export function readValues(ink, beams, w, h, staves) {
         // does. Flagged so the vote below can decline to let it speak, and more
         // importantly decline to let it interrupt.
         weak: !m.stack && m.stem.length < space * 2.6,
-        // The opposite case, and it needs a name of its own: a FULL stem —
-        // three spaces of it, the length an engraver draws when nothing is
-        // going to be attached to the end — with no band anywhere along it.
-        // That is not a note whose beam was missed. It is a crotchet, and the
-        // page has said so about as plainly as a page can.
+        // The opposite case, and it needs a name of its own: a full stem with
+        // no band along it AND NOTHING BEAM-SHAPED AT ITS END. That is not a
+        // note whose beam was missed — it is a crotchet, and the page has said
+        // so about as plainly as a page can. The last clause is what makes the
+        // claim safe: see wideAtEnd.
         //
         // The distinction is the whole difference between a zero that means
         // "saw nothing" and a zero that means "there is nothing", and the vote
@@ -473,7 +533,7 @@ export function readValues(ink, beams, w, h, staves) {
         // a page of beamed groups and crotchets set as a bar sets them, every
         // single crotchet came back as a quaver, a semiquaver or a
         // demisemiquaver, according to whichever group it stood beside.
-        sure: !m.stack && m.stem.length >= space * 2.6,
+        sure: !m.stack && !m.wide && m.stem.length >= space * 2.6,
       };
     });
     return voteWithinGroups(raw, space);
