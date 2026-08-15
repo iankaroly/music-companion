@@ -95,8 +95,38 @@ const read = await page.evaluate(async ({ b64, wide }) => {
   const tops = found.staves.map((s) => Math.round(s.top * 1000) / 1000);
   const gaps = tops.slice(1).map((t, i) => Math.round((t - tops[i]) * 1000) / 1000);
   const steps = heads.map((h) => h.step).filter((s) => Number.isFinite(s));
+
+  // The note VALUES, which is the thing a take is finally measured against.
+  //
+  // There is no ground truth for this page — nobody has counted its beams — so
+  // what is asserted below is not "every value is right". It is the two things
+  // a wrong read cannot fake: that the values were read at all, and that the
+  // BARS THEY MAKE ADD UP. A bar of semiquavers whose beams were miscounted
+  // sums to five and a half beats, not four, and scan-values refuses it. So the
+  // sum passing on a real photograph is evidence about the beams that no
+  // drawn page can give.
+  const { validateValues } = await import('/src/analysis/scan-values.js');
+  const shape = {};
+  for (const head of heads) shape[head.beams ?? 'none'] = (shape[head.beams ?? 'none'] ?? 0) + 1;
+  const bars = [];
+  let key = null;
+  for (const head of heads) {
+    const at = `${head.staff}|${head.bar}`;
+    if (at !== key) { bars.push([]); key = at; }
+    bars.at(-1).push(head.beats ?? 0);
+  }
+  const values = validateValues(bars);
+
   return {
     ok: true,
+    shape,
+    withBeams: heads.filter((h) => Number.isFinite(h.beams)).length,
+    values: {
+      ok: values.ok,
+      beatsPerBar: values.beatsPerBar,
+      trusted: values.trusted?.size ?? 0,
+      bars: bars.length,
+    },
     sheet: `${sheet.width}x${sheet.height}`,
     staves: found.staves.length,
     heads: heads.length,
@@ -143,6 +173,26 @@ if (!read.ok) {
   // Spread across the systems rather than piled onto one.
   const empty = read.perStaff.filter((n) => n === 0).length;
   check('no system came back empty', empty === 0, `${empty} of ${read.staves} empty`);
+
+  console.log(`\n  beams read: ${JSON.stringify(read.shape)}`);
+  console.log(`  bars: ${read.values.bars}, adding up: ${read.values.trusted}, `
+    + `time signature: ${read.values.beatsPerBar ?? 'none'}\n`);
+
+  check('every notehead was given a written value',
+    read.withBeams === read.heads, `${read.withBeams} of ${read.heads}`);
+
+  // The page is bars 21–41 of continuous semiquavers, so the beams should be
+  // overwhelmingly twos. A read scattered evenly across 0..4 has not read the
+  // page, it has read noise that happens to average out.
+  const two = read.shape['2'] ?? 0;
+  check('and the values look like the music on the page',
+    two >= read.heads * 0.5, `${two} of ${read.heads} read as semiquavers`);
+
+  // The one that matters: do the bars add up, on a real photograph?
+  check('the bars the page reads add up to a real time signature',
+    read.values.ok, read.values.ok
+      ? `${read.values.trusted} of ${read.values.bars} bars sum to ${read.values.beatsPerBar} beats`
+      : `no time signature fits — ${read.values.trusted} of ${read.values.bars} bars agree`);
 }
 
 if (errors.length) {

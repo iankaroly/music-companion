@@ -591,16 +591,29 @@ export function readPage(source, naturalWidth, naturalHeight) {
   // with the beams removed — and it is what says a quaver from a semiquaver.
   const beams = beamLayer(ink, body);
 
-  const out = staves.map((staff) => {
-    const bars = findBars(ink, w, h, staff, stripW, space);
-    const heads = findHeads(body, w, h, staff, staff.space);
+  // Bars and heads for every stave first, and the note values only afterwards.
+  //
+  // The values cannot be read stave by stave, because counting beams needs to
+  // know how this edition draws them — how thick, how far apart — and one
+  // stave of twenty notes is too small a sample to measure that off a bad
+  // photograph. Read together, the whole page measures its own engraving once.
+  // See readValues.
+  const found = staves.map((staff) => ({
+    staff,
+    bars: findBars(ink, w, h, staff, stripW, space),
+    heads: findHeads(body, w, h, staff, staff.space),
+    space: staff.space,
     // Where this stave's five lines sit under any given x — a stem crosses
     // them and they must not be counted as the beams it is looking for.
-    const lineAt = (x) => {
+    lineAt: (x) => {
       const strip = Math.min(STRIPS - 1, Math.max(0, Math.floor((x / w) * STRIPS)));
       return staff.lines.map((line) => line.at[strip]);
-    };
-    const values = readValues(ink, beams, w, h, heads, staff.space, lineAt);
+    },
+  }));
+  const perStaff = readValues(ink, beams, w, h, found);
+
+  const out = found.map(({ staff, bars, heads }, staffIndex) => {
+    const values = perStaff[staffIndex];
     return {
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),
