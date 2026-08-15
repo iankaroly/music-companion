@@ -35,7 +35,8 @@
     "score:playback": "node tools/scan-playback-check.mjs",
     "score:review": "node tools/scan-review-check.mjs",
     "score:heads": "node tools/scan-heads-check.mjs",
-    "score:pdf": "node tools/scan-pdf-check.mjs"
+    "score:pdf": "node tools/scan-pdf-check.mjs",
+    "scan:corpus": "node tools/scan-corpus.mjs"
   },
   "keywords": [],
   "author": "",
