@@ -352,13 +352,62 @@ export function stavesToLines(staves, strips) {
 // scan-clef.js measures extents from.
 const CLEF_MARGIN = 3;
 
+// Where a stave's lines actually begin.
+//
+// The clef zone used to start at the stave's first BARLINE, which sounded right
+// and is wrong on almost every printed page: engravers do not draw a barline at
+// the start of a system. On a real photograph of the Bärenreiter Bach the first
+// barline sits at 0.5 across the page — it is the barline in the MIDDLE — so
+// the clef was being read off a handful of semiquavers halfway through the bar.
+// It read treble, at confidence 1.00, on a page that is bass clef throughout.
+// One system in ten came out right, and only because it found no barline at all
+// and fell back to the left edge, which is where the clef was all along.
+//
+// So the stave is asked where it starts: the first column at which most of its
+// five lines are inked, which is the left end of the stave and the thing the
+// clef is drawn against.
+export function staveStart(ink, w, h, staff, stripW) {
+  const lineY = (index, x) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+  ];
+  // Only the first third is searched: a stave that has not started by then has
+  // not been found, and hunting further right risks calling the music the start.
+  const limit = Math.floor(w / 3);
+  let run = 0;
+  for (let x = 0; x < limit; x++) {
+    let lit = 0;
+    for (let k = 0; k < 5; k++) {
+      const y = Math.round(lineY(k, x));
+      for (let dy = -1; dy <= 1; dy++) {
+        if (y + dy >= 0 && y + dy < h && ink[(y + dy) * w + x]) { lit++; break; }
+      }
+    }
+    // Four of five, because one faint line is what a photographed page does and
+    // the comb that found this stave was built around exactly that.
+    if (lit >= 4) {
+      run++;
+      // Held for a full space before it counts, so a stray mark in the margin
+      // cannot start the stave early.
+      if (run >= Math.max(2, Math.round(staff.space))) {
+        return x - run + 1;
+      }
+    } else {
+      run = 0;
+    }
+  }
+  return 0;
+}
+
 export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   const lineY = (index, x) => staff.lines[index].at[
     Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
   ];
-  // Wide enough for a clef and no wider: past about four spaces the first
-  // notehead or the key signature starts arriving, and either would be measured
-  // as though it were part of the clef.
+  // Wide enough for a clef and no wider. Segmenting the clef by its own ink was
+  // tried instead — count non-staff ink per column, stop at the first gap — and
+  // it read WORSE on a real page (one system in ten against four), because a
+  // bass clef's dots and the key signature that follows do not separate by a
+  // clean gap at photograph resolution. Kept simple until there is a real
+  // corpus to tune against; see the note in the plan about what this costs.
   const across = Math.max(3, Math.round(space * 3.6));
   const x0 = Math.max(0, Math.round(fromX));
   const x1 = Math.min(w - 1, x0 + across);
@@ -696,12 +745,12 @@ export function readPage(source, naturalWidth, naturalHeight) {
     const values = perStaff[staffIndex];
     // The clef, read from the paper rather than fitted from a recording.
     //
-    // Measured just right of the stave's opening barline — or of the left edge
-    // of the page if the barline was missed, since a clef that far left is
-    // still a clef. Null when it cannot be told, and null must stay null: a
+    // Measured just right of where the stave's LINES begin — not of its first
+    // barline, which on a printed page is the one in the middle of the system.
+    // See staveStart. Null when it cannot be told, and null must stay null: a
     // cello part is in bass clef most of the time, and assuming so is what
     // turns the other times into a page of confident verdicts a sixth out.
-    const clefFrom = (bars[0] ?? 0) + staff.space * 0.35;
+    const clefFrom = staveStart(ink, w, h, staff, stripW) + staff.space * 0.25;
     const column = clefColumn(ink, w, h, staff, stripW, staff.space, clefFrom);
     const read = classifyClef(clefFeatures(column, staff.space));
     return {
