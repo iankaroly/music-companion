@@ -33,20 +33,68 @@ describe('clefFeatures', () => {
   });
 });
 
+describe('clefFeatures ignores the stave it is measured against', () => {
+  // A staff line crosses the clef zone like everything else in that band, and
+  // it is inked across the whole width of it. Counted as clef ink it pins the
+  // extent to the stave: a bass clef that stops at three spaces measured 4.17,
+  // which is the bottom line, and every C-clef measured the same. A clef is
+  // thick; a staff line is not.
+  function withLines(base, { space = 10, lines = [0, 1, 2, 3, 4], thickness = 0.1 }) {
+    const rows = Float32Array.from(base);
+    for (const l of lines) {
+      const from = Math.round((l + 3) * space);
+      const to = Math.round((l + 3 + thickness) * space);
+      for (let i = from; i <= to && i < rows.length; i++) rows[i] = 1;
+    }
+    return rows;
+  }
+
+  test('a bass clef keeps its own extent with the stave drawn through it', () => {
+    const bare = column({ from: 0, to: 2.6 });
+    const f = clefFeatures(withLines(bare, {}), 10);
+    expect(f.bottom).toBeLessThan(3.2);
+  });
+
+  test('the staff lines alone are not a clef at all', () => {
+    const empty = new Float32Array(10 * 10);
+    expect(clefFeatures(withLines(empty, {}), 10)).toBeNull();
+  });
+});
+
+// The extents below are MEASURED, not invented — they are what tools/
+// scan-clef-check.mjs reads off real Bravura glyphs through the camera
+// spoiling, across clean, blurred, faint, photographed and small. The first
+// version of these tests carried my own idea of where a clef reaches, which
+// said a C-clef fills the stave and no more. It does not: in tenor position it
+// starts a space ABOVE the top line, and that is the thing that separates it
+// from a bass clef. Rules tuned against the invented numbers read five of the
+// fifteen real glyphs wrong.
 describe('classifyClef', () => {
-  test('ink far above and below the stave is a treble clef', () => {
-    const f = clefFeatures(column({ from: -1.5, to: 5.5 }), 10);
+  test('a treble clef hangs far below the bottom line', () => {
+    // Measured -1.22..5.56 clean, -1.33..5.61 small.
+    const f = clefFeatures(column({ from: -1.3, to: 5.6 }), 10);
     expect(classifyClef(f).clef).toBe('treble');
   });
 
-  test('ink confined to the top three spaces is a bass clef', () => {
-    const f = clefFeatures(column({ from: 0, to: 2.6 }), 10);
-    expect(classifyClef(f).clef).toBe('bass');
+  test('a bass clef starts AT the top line and stops short of the bottom', () => {
+    // Measured -0.06..2.50 clean, -0.22..3.27 photographed.
+    expect(classifyClef(clefFeatures(column({ from: -0.06, to: 2.5 }), 10)).clef).toBe('bass');
+    expect(classifyClef(clefFeatures(column({ from: -0.22, to: 3.27 }), 10)).clef).toBe('bass');
   });
 
-  test('ink filling the stave and no more is a C-clef', () => {
-    const f = clefFeatures(column({ from: 0.1, to: 3.9 }), 10);
-    expect(classifyClef(f).clef).toBe('tenor');
+  test('a C-clef in tenor position starts ABOVE the top line', () => {
+    // Measured -1.06..3.17 clean, -1.19..3.11 small.
+    expect(classifyClef(clefFeatures(column({ from: -1.06, to: 3.17 }), 10)).clef).toBe('tenor');
+    expect(classifyClef(clefFeatures(column({ from: -1.19, to: 3.11 }), 10)).clef).toBe('tenor');
+  });
+
+  test('bass and tenor are separated by the top, which is where they differ', () => {
+    // The two sit 1 space apart at the top and overlap at the bottom, so a rule
+    // reading the bottom cannot tell them apart at all.
+    const bass = clefFeatures(column({ from: -0.22, to: 3.27 }), 10);
+    const tenor = clefFeatures(column({ from: -1.06, to: 3.17 }), 10);
+    expect(bass.bottom).toBeGreaterThan(tenor.bottom);
+    expect(classifyClef(bass).clef).not.toBe(classifyClef(tenor).clef);
   });
 
   test('nothing to read is refused rather than guessed', () => {

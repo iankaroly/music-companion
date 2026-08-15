@@ -39,6 +39,20 @@ const MARGIN = 3;
 // at its edges and the extent is exactly what is being measured.
 const INK = 0.12;
 
+// The stave runs THROUGH the clef, and it is inked right across the band.
+//
+// Found by the benchmark on the day this was written: every bass clef measured
+// down to 4.17 spaces and every C-clef the same, which is not a clef, it is the
+// bottom line of the stave. Ink alone cannot tell a clef from the five lines it
+// stands on — but thickness can. A staff line is a tenth of a space; the
+// thinnest part of any clef is several times that.
+//
+// So the extent is measured over vertical RUNS of inked rows, and a run too
+// thin to be part of a symbol is the stave and is dropped. Where a clef crosses
+// a line the two merge into one thick run and are kept, which is right: that
+// row does carry clef.
+const THINNEST = 0.42;
+
 /**
  * Ink extent of one horizontal band, measured in staff spaces from the top line.
  *
@@ -50,17 +64,24 @@ const INK = 0.12;
  */
 export function clefFeatures(column, space) {
   if (!column?.length || !(space > 0)) return null;
+  const minRun = Math.max(2, Math.round(THINNEST * space));
   let first = -1;
   let last = -1;
   let weighted = 0;
   let total = 0;
-  for (let i = 0; i < column.length; i++) {
-    const v = column[i];
-    if (v < INK) continue;
-    if (first < 0) first = i;
-    last = i;
-    weighted += i * v;
-    total += v;
+  // Walked as runs rather than as rows, so the five lines the clef is standing
+  // on do not get to vote on how far down it reaches.
+  let i = 0;
+  while (i < column.length) {
+    if (column[i] < INK) { i++; continue; }
+    let end = i;
+    while (end + 1 < column.length && column[end + 1] >= INK) end++;
+    if (end - i + 1 >= minRun) {
+      if (first < 0) first = i;
+      last = end;
+      for (let r = i; r <= end; r++) { weighted += r * column[r]; total += column[r]; }
+    }
+    i = end + 1;
   }
   if (first < 0 || total <= 0) return null;
   const toSpaces = (row) => row / space - MARGIN;
@@ -86,6 +107,20 @@ const STAVE = 4;
 // the only one that WANTS to see ink outside the stave.
 const TALLEST = STAVE * 2;
 
+// The two boundaries the three clefs actually separate on, both measured off
+// real Bravura through the camera spoiling rather than reasoned about:
+//
+//            top            bottom
+//   treble   -1.22..-1.33   5.56..5.61
+//   tenor    -1.06..-1.19   3.09..3.17
+//   bass     -0.06..-0.22   2.50..3.27
+//
+// Treble is alone below the stave; tenor is alone above it. Bass and tenor
+// overlap completely at the bottom, which is why reading the bottom to tell
+// them apart failed on eight of fifteen real glyphs.
+const BELOW_STAVE = 4.5;
+const ABOVE_STAVE = -0.6;
+
 /**
  * Which clef those measurements are.
  *
@@ -94,22 +129,33 @@ const TALLEST = STAVE * 2;
  */
 export function classifyClef(features) {
   if (!features) return { clef: null, confidence: 0 };
-  const { top, bottom, height, symmetry } = features;
-  if (height > TALLEST) return { clef: null, confidence: 0 };
-  // Treble first: it is the only clef that leaves the stave at BOTH ends, and
-  // nothing else comes near its height.
-  if (height > STAVE * 1.4 && top < -0.4 && bottom > STAVE - 0.4) {
-    return { clef: 'treble', confidence: Math.min(1, height / (STAVE * 1.8)) };
+  const { top, bottom, symmetry } = features;
+  if (bottom - top > TALLEST) return { clef: null, confidence: 0 };
+
+  // Treble, by the one thing only a treble does: hang well below the bottom
+  // line. Measured at 5.6 spaces where neither other clef passes 3.3, which is
+  // the widest margin on the page.
+  if (bottom > BELOW_STAVE) {
+    return { clef: 'treble', confidence: Math.min(1, (bottom - STAVE) / 1.6) };
   }
-  // Bass: stops well before the bottom line, starts at or above the top one.
-  if (bottom < STAVE - 0.8 && top < 1) {
-    return { clef: 'bass', confidence: Math.min(1, (STAVE - bottom) / 1.6) };
-  }
-  // C-clef: fills the stave, near-symmetric. Reported as tenor rather than alto
-  // because a cello part in a C-clef is in tenor — alto belongs to the viola,
-  // and reading it here would be a guess wearing the clothes of a measurement.
-  if (height > STAVE * 0.8 && height < STAVE * 1.3 && symmetry > 0.7) {
+
+  // Bass against tenor, by the TOP.
+  //
+  // This is the correction the benchmark forced. Both stop around three spaces
+  // — 2.5 to 3.3 for a bass, 3.1 to 3.2 for a C-clef — so a rule reading the
+  // bottom cannot separate them at all, and the first version of this file read
+  // every C-clef as a bass and half the basses as C-clefs. Where they differ is
+  // the top: a C-clef in tenor position begins a full space ABOVE the top line
+  // (-1.06 to -1.19 measured), a bass clef begins on it (-0.06 to -0.22). A
+  // whole space of daylight between them, at every spoiling.
+  if (top < ABOVE_STAVE) {
+    // Reported as tenor rather than alto because a cello part in a C-clef is in
+    // tenor. Alto belongs to the viola, and reading it here would be a guess
+    // wearing the clothes of a measurement.
     return { clef: 'tenor', confidence: symmetry };
+  }
+  if (bottom < STAVE - 0.5) {
+    return { clef: 'bass', confidence: Math.min(1, (STAVE - bottom) / 1.5) };
   }
   return { clef: null, confidence: 0 };
 }

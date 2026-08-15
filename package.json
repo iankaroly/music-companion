@@ -37,7 +37,8 @@
     "score:heads": "node tools/scan-heads-check.mjs",
     "score:pdf": "node tools/scan-pdf-check.mjs",
     "scan:corpus": "node tools/scan-corpus.mjs",
-    "scan:bars": "node tools/scan-bars-check.mjs"
+    "scan:bars": "node tools/scan-bars-check.mjs",
+    "scan:clef": "node tools/scan-clef-check.mjs"
   },
   "keywords": [],
   "author": "",
