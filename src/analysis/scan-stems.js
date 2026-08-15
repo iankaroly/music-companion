@@ -289,7 +289,26 @@ function quantile(values, q) {
 function beamStack(p, space) {
   if (p.length < 2) return null;
   const lo = quantile(p, 0.2);
-  const hi = Math.max(...p);
+  // The ceiling is taken from the FAR END of the stem, where a beam is, and not
+  // from the whole profile.
+  //
+  // A beam is always at the end — that is what a stem is for — so the tallest
+  // thing anywhere along the stem is not necessarily a beam, and taking the
+  // level from it is how one bad row poisons a whole note. On a dense page the
+  // rows that were poisoning it were staff lines: a plain crossing survives the
+  // depth test often enough, fills the window, and sets `hi` to one. The level
+  // is a fraction of the way from floor to ceiling, so a ceiling of one put the
+  // bar at 0.66 — and the real beams, read at a little over half a window on a
+  // sloped group, all fell UNDER it. The stack then found the staff line and
+  // reported one beam where the page had two. Whole groups at a time, because
+  // every note in a group crosses the same lines.
+  //
+  // Two staff spaces is enough room for any stack an engraver draws — three
+  // beams at a pitch of about half a space, plus the slack the profile is given
+  // past the end of the stem.
+  const tail = Math.max(0, p.length - Math.max(3, Math.round(space * 2)));
+  let hi = 0;
+  for (let i = tail; i < p.length; i++) if (p[i] > hi) hi = p[i];
   // A bare stem fills about a tenth of the window and nothing else on it does.
   // Both tests are needed: the difference alone would call a broken stem a
   // beam, and the height alone would call a fat blot one.

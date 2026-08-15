@@ -161,11 +161,19 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
             const end = beamY(i);
             g.fillRect(sx(i), Math.min(ys[i], end), stemW, Math.abs(ys[i] - end));
           }
-          const t = Math.max(1.8, space * 0.26);
+          // A beam is half a staff space thick with a quarter space of paper
+          // under it, which is what engraving practice says and what the
+          // editions on a stand actually look like. The first version of this
+          // file drew them 0.26 and 0.46 — barely half size — and that is not a
+          // cosmetic difference: beams that thin merge into one band under a
+          // blur that leaves real beams separate, so every photographed page
+          // here was harder than any photograph of real music, and the reader
+          // was being tuned against a difficulty that does not exist.
+          const t = Math.max(1.8, space * 0.5);
           for (let bm = 0; bm < unit.beams; bm++) {
             // Stacked away from the beam nearest the heads: downwards for
             // stems up, upwards for stems down.
-            const off = dir < 0 ? bm * space * 0.46 : -bm * space * 0.46;
+            const off = dir < 0 ? bm * space * 0.75 : -bm * space * 0.75;
             const x1 = sx(0);
             const x2 = sx(n - 1) + stemW;
             const y1 = beamY(0) + off;
@@ -409,6 +417,29 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
         { beams: 0, steps: [(grp * 2 + sys) % 8], dir: up, gapBefore: 2.6 },
         { beams: 0, steps: [(grp * 2 + sys + 3) % 8], dir: up, gapBefore: 2.6 },
       ]) },
+      spoil: PHOTO,
+    },
+
+    // THE SHAPE OF THE PAGE THIS WAS ALL FOR.
+    //
+    // Bars 21–41 of the Bach, photographed off the stand: continuous
+    // semiquavers in groups of four, nine or ten groups to a system, at ten
+    // pixels to the staff space. Every other page here is more generous than
+    // that — six groups a system, well spaced — and the difference matters,
+    // because a dense page gives every stem a neighbour's beam two spaces away
+    // and gives the profile window less room to be wrong in.
+    denseSemis: {
+      draw: { space: 16, gapSpaces: 3, noteGap: 2, plan: (sys) => (
+        [0, 1, 2, 3, 4, 5, 6, 7, 8].map((grp) => ({
+          beams: 2, steps: rising(grp + sys), dir: grp % 2 ? down : up })))
+      },
+      spoil: {},
+    },
+    densePhoto: {
+      draw: { space: 16, warp: 0.7, tilt: 0.004, gapSpaces: 3, noteGap: 2, plan: (sys) => (
+        [0, 1, 2, 3, 4, 5, 6, 7, 8].map((grp) => ({
+          beams: 2, steps: rising(grp + sys), dir: grp % 2 ? down : up })))
+      },
       spoil: PHOTO,
     },
 
