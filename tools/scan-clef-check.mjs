@@ -51,7 +51,7 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
 
   // One system: five lines, an opening barline, and a clef sitting on the line
   // it names. Bent and tilted like every other photographed page in the suite.
-  function drawSystem(g, { space, x0, W, top, kind, warp, tilt }) {
+  function drawSystem(g, { space, x0, W, top, kind, warp, tilt, sharps = 0 }) {
     const bendAt = (x) => warp * space * Math.sin((x / W) * Math.PI);
     const tiltAt = (x) => tilt * (x - W / 2);
     const lineY = (l, x) => top + l * space + bendAt(x) + tiltAt(x);
@@ -66,6 +66,23 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
     g.font = `${space * 4}px BravuraTest`;
     g.textBaseline = 'alphabetic';
     g.fillText(kind.glyph, x0 + space * 0.7, lineY(kind.anchor, x0 + space));
+    // The KEY SIGNATURE, and it is the whole reason this benchmark was wrong.
+    //
+    // Without it every page here carried a clef standing alone in clean paper,
+    // which is not what an engraver sets and not what the reader meets: on a
+    // real page of the Bach the sampling band lands on the G-major sharp on
+    // nine systems in ten. A suite that draws no signature cannot see that, so
+    // its 12/12 was reporting on a page that does not exist.
+    //
+    // Sharps sit immediately right of the clef, in order, on fixed lines.
+    for (let i = 0; i < sharps; i++) {
+      const x = x0 + space * (3.0 + i * 0.9);
+      // F then C, which is where a two-sharp signature puts them relative to
+      // whichever clef is in force — close enough for the thing being tested,
+      // which is that there is tall ink right beside the clef.
+      const line = kind.name === 'treble' ? [0.5, 2][i] ?? 1 : [1, 2.5][i] ?? 1;
+      g.fillText(glyph.sharp, x, lineY(line, x));
+    }
   }
 
   async function spoil(source, { blur = 0, contrast = 1, tint = null, jpeg = null, scale = 1 }) {
@@ -148,7 +165,7 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
     for (const [i, kind] of KINDS.entries()) {
       const top = space * 4 + i * gap;
       tops.push(top);
-      drawSystem(g, { space, x0, W, top, kind, warp: 0.7, tilt: 0.004 });
+      drawSystem(g, { space, x0, W, top, kind, warp: 0.7, tilt: 0.004, sharps: 2 });
     }
     const shot = await spoil(c, spoilOpts);
     const s = spoilOpts.scale ?? 1;
@@ -198,7 +215,7 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
     const x0 = space * 3;
     for (let sys = 0; sys < systems; sys++) {
       const top = space * 4 + sys * gap;
-      drawSystem(g, { space, x0, W, top, kind, warp: 0.7, tilt: 0.004 });
+      drawSystem(g, { space, x0, W, top, kind, warp: 0.7, tilt: 0.004, sharps: 2 });
       // Notes, so the stave is a stave and not a bare grid.
       const bendAt = (x) => 0.7 * space * Math.sin((x / W) * Math.PI);
       const lineY = (l, x) => top + l * space + bendAt(x) + 0.004 * (x - W / 2);
