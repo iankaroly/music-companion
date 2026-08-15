@@ -40,12 +40,90 @@ export function headsOf(layout) {
   return all;
 }
 
+// Placed by the ALIGNER, on pitches read off the page.
+//
+// The route below asks two questions in the wrong order. findStart guesses
+// where the take began from the shape of the line alone, then fitPitches works
+// out the clef from the take that has just been placed — so the page's notes
+// depend on the take and the take depends on the page's notes, and neither can
+// check the other. On a photographed page the reader misses or invents roughly
+// one notehead in seven, which breaks the shape sequence every few notes, so
+// the offset findStart returned was whichever one the noise happened to favour.
+// It reported that as sure, and eighty rings landed on notes nobody had played.
+//
+// With a clef read off the paper (scan-clef.js) there is nothing to guess.
+// alignScore sees the whole take against the whole page and decides everything
+// at once, including where the take begins — that is what a traceback is for.
+// Its edit distance is built for exactly the errors the reader makes: an
+// invented notehead costs one delete, 1.0, against the 1.4 per note of staying
+// shifted, so it resyncs after a single note instead of never.
+function alignByPitch(heads, played) {
+  const window = heads
+    .map((head, id) => ({ ...head, id }))
+    .filter((head) => Number.isFinite(head.midi));
+  if (window.length < 2 || (played?.length ?? 0) < 2) return null;
+
+  let attempts = null;
+  try {
+    // nearMiss, because this reference is a READING. A missed accidental is a
+    // semitone, and a semitone must not be reported as a wrong note when the
+    // page rather than the player may be what is wrong.
+    ({ attempts } = alignScore(played, window, { nearMiss: true }));
+  } catch {
+    return null;
+  }
+
+  const seen = new Set();
+  const marks = [];
+  for (const attempt of attempts) {
+    if (!attempt?.played || !attempt.score) continue;
+    const at = played.indexOf(attempt.played);
+    if (at < 0 || seen.has(at)) continue;
+    seen.add(at);
+    marks.push({
+      ...heads[attempt.score.id],
+      note: attempt.played,
+      index: at,
+      // Carried through so the review can WITHHOLD on a note whose reference
+      // was only nearly right. A ring saying "read as a semitone out" is
+      // honest; one saying "you played this 100 cents flat" is not.
+      verdict: attempt.verdict,
+    });
+  }
+  marks.sort((a, b) => a.index - b.index);
+  return marks;
+}
+
 // One mark per note PLAYED, in order, from wherever the take begins.
 //
-// The order is still the order you played in — nothing here reorders anything
-// or copes with a repeat taken twice. What it no longer assumes is that you
-// started at the top of the piece.
+// Two routes in, and which one runs is decided by whether the page managed to
+// read its own clef. The order is still the order you played in; what it no
+// longer assumes is that you started at the top of the piece.
 export function pairNotes(heads, played) {
+  // The page read its own clef, so the aligner can be given real notes.
+  if ((heads ?? []).some((h) => Number.isFinite(h?.midi))) {
+    const marks = alignByPitch(heads, played);
+    if (marks?.length) {
+      return {
+        marks,
+        heads: heads.length,
+        played: played.length,
+        unmarked: Math.max(0, played.length - marks.length),
+        spare: Math.max(0, heads.length - marks.length),
+        placed: true,
+        aligned: true,
+        readPitch: true,
+      };
+    }
+  }
+  return pairByShape(heads, played);
+}
+
+// The route for a page whose clef could not be read: shape-matched, then
+// pitch-fitted from the take. Kept because a page it cannot read is commoner
+// than it should be, and half an answer beats none — but it is the fallback
+// now, not the way in.
+function pairByShape(heads, played) {
   // Where the take begins, found from the shape of it — see scan-align.js.
   //
   // This used to start at zero, always. Open a part whose first page is a
@@ -61,6 +139,7 @@ export function pairNotes(heads, played) {
     return {
       marks: [], heads: heads.length, played: played.length,
       unmarked: played.length, spare: heads.length, placed: false, why: start.why,
+      readPitch: false,
     };
   }
 
@@ -118,6 +197,7 @@ export function pairNotes(heads, played) {
     offset: from,
     confidence: start.score,
     aligned: true,
+    readPitch: false,
   };
 }
 
@@ -141,6 +221,7 @@ function positional(heads, played, start) {
     offset: from,
     confidence: start.score,
     aligned: false,
+    readPitch: false,
   };
 }
 

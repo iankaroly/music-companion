@@ -111,3 +111,47 @@ describe('putting played notes on the noteheads they belong to', () => {
     expect(placed).toBe(false);
   });
 });
+
+// Placed by the aligner, on pitches the PAGE read for itself.
+//
+// The route above asks two questions in the wrong order: findStart guesses
+// where the take began from the shape of the line alone, then fitPitches works
+// out the clef from the take that has just been placed. Neither can check the
+// other. With a clef read off the paper there is nothing to guess.
+describe('pairing on pitches read off the page', () => {
+  const LINE = [43, 45, 47, 48, 50, 52, 53, 55, 57, 59, 60, 62, 64, 65, 67, 69, 71, 72];
+
+  const readHeads = (midis) => midis.map((midi, i) => ({
+    midi, step: i, page: 0, space: 0.01, x: 0.05 + (i % 10) * 0.09, y: 0.5,
+  }));
+  const play = (midis) => midis.map((midi, i) => ({ midi, cents: 0, start: i * 0.5 }));
+
+  it('places a take that starts halfway down the page, halfway down the page', () => {
+    const result = pairNotes(readHeads(LINE), play(LINE.slice(9)));
+    expect(result.readPitch).toBe(true);
+    expect(result.placed).toBe(true);
+    expect(result.marks[0].midi).toBe(LINE[9]);
+  });
+
+  it('a spurious notehead costs one note, not the rest of the take', () => {
+    // The failure that broke the old route: one invented head shifted every
+    // pairing after it, with no way to resync. Edit distance pays 1.0 once.
+    const withExtra = [...LINE.slice(0, 5), 99, ...LINE.slice(5)];
+    const result = pairNotes(readHeads(withExtra), play(LINE));
+    expect(result.placed).toBe(true);
+    expect(result.marks.at(-1).midi).toBe(LINE.at(-1));
+  });
+
+  it('a missed notehead does not shift the rest either', () => {
+    const missing = [...LINE.slice(0, 6), ...LINE.slice(7)];
+    const result = pairNotes(readHeads(missing), play(LINE));
+    expect(result.placed).toBe(true);
+    expect(result.marks.at(-1).midi).toBe(LINE.at(-1));
+  });
+
+  it('heads with no readable pitch fall back to the old route rather than refusing', () => {
+    const noPitch = readHeads(LINE).map((h) => ({ ...h, midi: null, step: h.step }));
+    const result = pairNotes(noPitch, play(LINE));
+    expect(result.readPitch).toBe(false);
+  });
+});
