@@ -17,8 +17,8 @@
 // Coordinates come out normalised to the image (0–1 across, 0–1 down), so they
 // survive being drawn at any size on any screen.
 
-import { beamLayer, readValues } from './scan-stems.js';
-import { clefFeatures, classifyClef } from './scan-clef.js';
+import { beamLayer, readValues } from '/src/analysis/scan-stems.js';
+import { clefFeatures, classifyClef } from '/src/analysis/scan-clef.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -324,27 +324,12 @@ export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8 } = {}) {
         for (let k = x; k < end; k++) talls.push(extent(k, y).tall);
         talls.sort((a, b) => a - b);
         const median = talls[Math.floor(talls.length / 2)];
-        // What the beam is on its OWN, measured where nothing is attached to it.
-        //
-        // `bulge` asks whether a column is taller than the beam by enough to be
-        // a notehead joining it, and it was asking that against the median — but
-        // half of a beamed group's columns HAVE something joining them. Stems at
-        // every note, heads at the ends, a second beam under the first. The
-        // median is therefore already inflated by the very thing being detected,
-        // so the bar for "taller than the beam" sits too high, the join is not
-        // recognised, and the beam is erased straight through the notehead.
-        //
-        // The low quartile is the beam where it is only itself. Same test, honest
-        // baseline. (The median still gates the line below: that decision is
-        // about whether this run is a beam at all, and for that the whole run's
-        // typical height is the right question.)
-        const base = talls[Math.floor((talls.length - 1) * 0.25)];
         // Ink taller than a notehead everywhere along a long run is not a beam
         // at all — it is a black chord, a bracket, or the edge of the page.
         if (median <= space * 1.4) {
           for (let k = x; k < end; k++) {
             const { top, bottom, tall } = extent(k, y);
-            if (tall > base * bulge) continue;    // a head joins here
+            if (tall > median * bulge) continue;    // a head joins here
             for (let yy = top; yy <= bottom; yy++) body[yy * w + k] = 0;
           }
         }
@@ -702,7 +687,15 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // two array reads on the pixels that used to be skipped outright, and it
       // is the whole of the extra cost.
       const solidCentre = ink[y * w + x];
-      if (!solidCentre && !(ink[y * w + x - hw] && ink[y * w + x + hw])) continue;
+      if (!solidCentre) {
+        const lo = Math.max(2, Math.round(space * 0.3));
+        let left = 0;
+        for (let k = lo; k <= hw; k++) if (ink[y * w + x - k]) { left = 1; break; }
+        if (!left) continue;
+        let right = 0;
+        for (let k = lo; k <= hw; k++) if (ink[y * w + x + k]) { right = 1; break; }
+        if (!right) continue;
+      }
       let filled = 0;
       for (const [dx, dy] of inside) filled += ink[(y + dy) * w + x + dx];
       const fill = filled / inside.length;
