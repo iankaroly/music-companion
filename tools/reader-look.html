@@ -69,6 +69,9 @@
   #stage { position: relative; display: inline-block; max-width: 100%; }
   #stage img { display: block; max-width: 100%; height: auto; }
   #overlay { position: absolute; inset: 0; width: 100%; height: 100%; }
+  #note .big { font-size: 1.5rem; color: var(--head); letter-spacing: 0.01em; }
+  select { font: inherit; font-size: 0.85rem; background: var(--panel); color: var(--ink);
+           border: 1px solid var(--rule); border-radius: 5px; padding: 0.1rem 0.3rem; }
   #note {
     position: fixed; bottom: 1rem; left: 1rem; right: 1rem;
     background: var(--panel); border: 1px solid var(--rule); border-radius: 9px;
@@ -88,6 +91,25 @@
   <label class="toggle"><input type="checkbox" id="showBars" checked> <span class="swatch" style="background:var(--bar)"></span> barlines</label>
   <label class="toggle"><input type="checkbox" id="showStaves" checked> <span class="swatch" style="background:var(--stave)"></span> staves &amp; clefs</label>
   <label class="toggle"><input type="checkbox" id="showSteps"> numbers</label>
+  <label class="toggle">clef
+    <select id="forceClef">
+      <option value="">as read</option>
+      <option value="bass">bass</option>
+      <option value="tenor">tenor</option>
+      <option value="treble">treble</option>
+    </select>
+  </label>
+  <label class="toggle">key
+    <select id="forceKey">
+      <option value="0">none</option>
+      <option value="1">1 sharp (G)</option>
+      <option value="2">2 sharps (D)</option>
+      <option value="3">3 sharps (A)</option>
+      <option value="-1">1 flat (F)</option>
+      <option value="-2">2 flats (B♭)</option>
+      <option value="-3">3 flats (E♭)</option>
+    </select>
+  </label>
   <div class="spacer"></div>
   <div id="counts"></div>
 </header>
@@ -109,7 +131,8 @@
 <script type="module">
 import { readPage, notesInOrder } from '/src/analysis/scan-read.js';
 import { pitchOf } from '/src/analysis/scan-notes.js';
-import { NO_KEY } from '/src/analysis/scan-key.js';
+import { keyFromCount, NO_KEY } from '/src/analysis/scan-key.js';
+import { midiToName } from '/src/analysis/note-utils.js';
 
 const els = {
   file: document.querySelector('#file'),
@@ -126,6 +149,21 @@ const toggles = {
   staves: document.querySelector('#showStaves'),
   steps: document.querySelector('#showSteps'),
 };
+const forceClef = document.querySelector('#forceClef');
+const forceKey = document.querySelector('#forceKey');
+
+// The clef the reader read is wrong on a good half of a real page, and the note
+// names all hang off it. Rather than show names that are confidently a sixth
+// out, the clef can be SAID — which is also how a page gets checked by somebody
+// who can see what clef it is at a glance.
+function clefFor(staffClef) {
+  return forceClef.value || staffClef;
+}
+function keyNow() {
+  const n = Number(forceKey.value) || 0;
+  if (!n) return NO_KEY;
+  return keyFromCount(Math.abs(n), n > 0 ? 'sharp' : 'flat') ?? NO_KEY;
+}
 
 let last = null;
 
@@ -178,8 +216,10 @@ function draw() {
         fill: staff.clef ? 'var(--stave)' : 'var(--bad)',
         'font-size': Math.max(11, space * 1.5), 'font-family': 'ui-monospace, monospace',
       });
-      label.textContent = `${i + 1}: ${staff.clef ?? 'no clef'}`
-        + (staff.clef ? ` ${(staff.clefConfidence ?? 0).toFixed(2)}` : '');
+      const shown = clefFor(staff.clef);
+      label.textContent = `${i + 1}: ${shown ?? 'no clef'}`
+        + (forceClef.value ? ' (set)'
+          : staff.clef ? ` ${(staff.clefConfidence ?? 0).toFixed(2)}` : '');
       svg.append(label);
     }
     if (toggles.bars.checked) {
@@ -203,12 +243,28 @@ function draw() {
         fill: 'none', stroke: 'var(--head)', 'stroke-width': 1.8, opacity: 0.9,
       });
       dot.style.cursor = 'pointer';
-      const pitch = pitchOf(note.step, note.clef, NO_KEY);
+      const clef = clefFor(note.clef);
+      const pitch = pitchOf(note.step, clef, keyNow());
       dot.addEventListener('click', () => {
         els.note.style.display = 'block';
-        els.note.textContent = `#${i + 1} · staff ${note.staff + 1} · bar ${note.bar + 1}`
-          + ` · step ${note.step} · clef ${note.clef ?? 'none'}`
-          + ` · midi ${pitch?.midi ?? '—'} · beats ${note.beats ?? '—'}`;
+        const name = pitch ? midiToName(pitch.midi) : null;
+        const value = note.beats === 4 ? 'semibreve'
+          : note.beats === 2 ? 'minim'
+          : note.beats === 1 ? 'crotchet'
+          : note.beats === 0.5 ? 'quaver'
+          : note.beats === 0.25 ? 'semiquaver'
+          : note.beats === 0.125 ? 'demisemiquaver'
+          : note.beats ? `${note.beats} beats` : 'unread';
+        els.note.innerHTML = name
+          ? `<b class="big">${name}</b> · ${value}`
+            + `<br>note ${i + 1} of ${notesInOrder(read).length} · system ${note.staff + 1}`
+            + ` · bar ${note.bar + 1} · step ${note.step}`
+            + `<br>read in ${clef} clef`
+            + (forceClef.value ? ' (you set this)'
+              : ` at ${(note.clefConfidence ?? 0).toFixed(2)} confidence — set the clef above if that is wrong`)
+          : `<b class="big">no name</b><br>note ${i + 1} · system ${note.staff + 1}`
+            + ` · step ${note.step}<br>the clef on this system could not be read,`
+            + ' and a step without a clef is not a note. Set it above.';
       });
       svg.append(dot);
       if (toggles.steps.checked) {
@@ -225,6 +281,8 @@ function draw() {
 }
 
 for (const t of Object.values(toggles)) t.addEventListener('change', draw);
+forceClef.addEventListener('change', draw);
+forceKey.addEventListener('change', draw);
 
 // Dropped as well as picked, because the instructions above say "drop in the
 // photograph" and a page whose copy promises something the page cannot do is

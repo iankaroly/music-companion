@@ -548,7 +548,20 @@ function findHeads(ink, w, h, staff, space, gray, background) {
     ring.push([dx, -hh - Math.round(space * 0.5)]);
     ring.push([dx, hh + Math.round(space * 0.5)]);
   }
-  const reach = space * 4.5;
+  // How far off the stave a notehead is still looked for.
+  //
+  // Four and a half spaces reaches step 17 and stops, and that is a real ceiling
+  // rather than a safe margin: on a photograph of the Bach the measured steps
+  // ran [-8, 17] — hard against it at the top, which is what a truncation looks
+  // like from the outside. A cello part in bass clef climbs past it constantly,
+  // and every note above D5 was simply not there.
+  //
+  // Seven spaces is four ledger lines, which is as high as this repertoire goes
+  // before an editor gives up and changes clef. It costs more of the margin
+  // being searched, and the margin is where the pencil lives — so what stops a
+  // bowing mark being read as a note is the head tests themselves, not the
+  // refusal to look.
+  const reach = space * 7;
   const top = Math.max(hh + 1, Math.round(staff.lines[0].mid - reach));
   const bottom = Math.min(h - hh - 2, Math.round(staff.lines[4].mid + reach));
   const scored = [];
