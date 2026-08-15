@@ -116,11 +116,24 @@ const read = await page.evaluate(async ({ b64, wide }) => {
     bars.at(-1).push(head.beats ?? 0);
   }
   const values = validateValues(bars);
+  // The bars one at a time, not just the verdict. The aggregate cannot say
+  // WHY a page refuses, and the two reasons want completely different work:
+  // a few wild bars among plausible ones is a barline problem, and every bar
+  // being differently wrong is a note-value problem.
+  const perBar = [];
+  let barKey = null;
+  for (const head of heads) {
+    const at = `${head.staff}|${head.bar}`;
+    if (at !== barKey) { perBar.push({ at, n: 0, sum: 0 }); barKey = at; }
+    perBar.at(-1).n += 1;
+    perBar.at(-1).sum += head.beats ?? 0;
+  }
 
   return {
     ok: true,
     shape,
     withBeams: heads.filter((h) => Number.isFinite(h.beams)).length,
+    perBar: perBar.map((b) => ({ ...b, sum: +b.sum.toFixed(2) })),
     values: {
       ok: values.ok,
       beatsPerBar: values.beatsPerBar,
@@ -189,6 +202,17 @@ if (!read.ok) {
     two >= read.heads * 0.5, `${two} of ${read.heads} read as semiquavers`);
 
   // The one that matters: do the bars add up, on a real photograph?
+  // How many notes each bar holds, which is the barline's report card. On this
+  // page every bar should hold about the same number; a bar of three and a bar
+  // of thirty-five are a barline missed and a barline invented.
+  const counts = read.perBar.map((b) => b.n).sort((a, b) => a - b);
+  const mid = counts[Math.floor(counts.length / 2)];
+  const ragged = read.perBar.filter((b) => b.n < mid * 0.6 || b.n > mid * 1.4).length;
+  console.log(`  per bar: ${read.perBar.map((b) => `${b.n}/${b.sum}`).join(' ')}`);
+  check('the barlines cut the page into bars of comparable size',
+    ragged <= read.perBar.length * 0.15,
+    `${ragged} of ${read.perBar.length} bars are less than 0.6x or more than 1.4x the median of ${mid} notes`);
+
   check('the bars the page reads add up to a real time signature',
     read.values.ok, read.values.ok
       ? `${read.values.trusted} of ${read.values.bars} bars sum to ${read.values.beatsPerBar} beats`
