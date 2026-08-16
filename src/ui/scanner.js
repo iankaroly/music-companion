@@ -17,6 +17,17 @@
 // what was outlined — the page pulled square out of the frame, not the
 // photograph of a book on a table.
 //
+// TWO outlines when the camera is over an open book, numbered 1 and 2, and one
+// press of the shutter then keeps two pages. Music is read out of books, and a
+// scanner that cannot tell a spread from a sheet either bends both pages onto
+// one rectangle or quietly keeps the bigger half.
+//
+// It also says how far away to be. The page is stored at the size it was in the
+// picture, so a page shot from across the room is a page kept at a fifth of the
+// resolution the phone was holding, and nothing downstream can put that back.
+// The shutter goes blue when the paper fills a third of the frame or more, and
+// says "closer" until it does.
+//
 // Two shutters, both driven by that. The manual one is a button, and it lights
 // up blue the moment the page is squarely in view. The automatic one takes the
 // shot itself when the outline has held still, and then refuses to take another
@@ -24,8 +35,8 @@
 // is the whole trick; without it an auto-shutter takes forty photographs of the
 // same page while you reach for the corner.
 
-import { findPage } from '../analysis/page-edges.js';
-import { straightenCanvas, readableImage, sizeOfImage, paperIn } from './straighten.js';
+import { findPages, coverageOf, quadsMoved } from '../analysis/page-edges.js';
+import { straightenCanvas, readableImage, sizeOfImage, papersIn } from './straighten.js';
 
 let root = null;
 let video = null;
@@ -47,7 +58,8 @@ let armed = true;      // may the auto-shutter fire?
 // a thick part at a rhythm; it starts off.
 let auto = false;
 let cleanUp = true;    // pull the page square and take the shadows out, on the way in
-let paper = null;      // where the page is in the LIVE picture: for the outline only
+let paper = [];        // where the page or pages are in the LIVE picture: the outline
+let held = null;       // where they were a tick ago, for deciding it is being held still
 let done = null;       // resolve the promise openScanner returned
 
 // The sampling canvas: tiny on purpose. Nothing here needs detail, and reading
@@ -61,13 +73,16 @@ sample.height = SAMPLE_H;
 
 // A second, larger look at the picture: enough to find the corners of a sheet
 // of paper, still small enough to do it several times a second. It is the same
-// search that runs when the shutter goes, so what you see outlined is exactly
-// what will be kept.
-const EDGE_W = 200;
+// search that runs when the shutter goes, AT THE SAME WIDTH — the outline used
+// to be looked for at 200 pixels across and the kept page at 220, so the two
+// could disagree about whether there was a page at all, and the promise this
+// file makes at the top of it (what gets kept is exactly what was outlined) was
+// not quite true.
+const EDGE_W = 220;
 const edges = document.createElement('canvas');
 
 function findPaper() {
-  if (!video?.videoWidth) return null;
+  if (!video?.videoWidth) return [];
   const w = EDGE_W;
   const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
   if (edges.width !== w || edges.height !== h) { edges.width = w; edges.height = h; }
@@ -79,9 +94,9 @@ function findPaper() {
     luma[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
   }
   try {
-    return findPage(luma, w, h);
+    return findPages(luma, w, h);
   } catch {
-    return null;
+    return [];
   }
 }
 
@@ -89,7 +104,12 @@ function findPaper() {
 // outline when it has got it, and nothing at all when it has not. It is the
 // only feedback that matters — you can see whether the thing is going to work
 // before you press anything, and you press when it is blue.
-function showPaper(quad, ready) {
+//
+// TWO outlines when the camera is over an open book, one round each page, and
+// each numbered. That is the whole of the interface for a spread: you can see
+// before you press anything that this is going to come out as two pages rather
+// than as one page bent down the middle.
+function showPaper(quads, ready) {
   if (!guide || !video?.videoWidth) return;
   const box = video.getBoundingClientRect();
   const dpr = window.devicePixelRatio || 1;
@@ -102,7 +122,7 @@ function showPaper(quad, ready) {
   const ctx = guide.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, box.width, box.height);
-  if (!quad) return;
+  if (!quads?.length) return;
   // The video is drawn with object-fit: cover, so the picture is cropped to the
   // screen, not letterboxed into it. The outline has to be cropped the same way
   // or it sits somewhere the page is not.
@@ -111,17 +131,35 @@ function showPaper(quad, ready) {
   const shownH = video.videoHeight * scale;
   const offX = (box.width - shownW) / 2;
   const offY = (box.height - shownH) / 2;
-  const at = quad.map(([x, y]) => [offX + x * shownW, offY + y * shownH]);
   ctx.save();
   ctx.lineJoin = 'round';
   ctx.lineWidth = ready ? 4 : 2.5;
   ctx.strokeStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.55)';
   ctx.fillStyle = 'rgb(58 130 255 / 0.14)';
-  ctx.beginPath();
-  at.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-  ctx.closePath();
-  if (ready) ctx.fill();
-  ctx.stroke();
+  quads.forEach((quad, page) => {
+    const at = quad.map(([x, y]) => [offX + x * shownW, offY + y * shownH]);
+    ctx.beginPath();
+    at.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+    ctx.closePath();
+    if (ready) ctx.fill();
+    ctx.stroke();
+    // Numbered only when there are two: on a single page a number over the
+    // music is clutter, and on a spread it is the answer to "which of these is
+    // it going to keep first".
+    if (quads.length < 2) return;
+    const cx = at.reduce((n, p) => n + p[0], 0) / 4;
+    const cy = at.reduce((n, p) => n + p[1], 0) / 4;
+    ctx.save();
+    ctx.font = '600 22px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.7)';
+    ctx.strokeStyle = 'rgb(0 0 0 / 0.35)';
+    ctx.lineWidth = 3;
+    ctx.strokeText(String(page + 1), cx, cy);
+    ctx.fillText(String(page + 1), cx, cy);
+    ctx.restore();
+  });
   ctx.restore();
 }
 
@@ -144,8 +182,40 @@ function readyToShoot(on) {
 // steady for a couple of seconds and no shot has been taken, it takes one.
 // Somebody holding a phone over a page for two seconds wants a photograph, and
 // a scanner that refuses because the light is grey is a scanner nobody uses.
-const STILL_ENOUGH = 15;     // mean luma difference between frames, 0–255
+// …and the reason THIS is measured on the page rather than on the picture.
+//
+// A mean frame-to-frame luma difference is not a measure of how still the phone
+// is being held. It is a measure of how much of the frame is filled with ink
+// that is moving, and the same hand-shake reads three times as big with the
+// phone close over a page as it does at arm's length — measured on a synthetic
+// camera: a one-pixel drift is 1.7 with the page filling a third of the frame
+// and 8–12 with it filling most of it, against a threshold of 15. So the page
+// was never "steady" close up, the shutter never lit blue, and the only way to
+// get a scan out of this was to hold the phone far enough back that the page
+// was a small slab in the middle of the picture — which is exactly the scan
+// nobody wants, a page kept at a fifth of the resolution the camera was
+// holding and blown up afterwards.
+//
+// So steadiness is asked of the CORNERS OF THE PAGE, which is the thing that
+// actually has to hold still, and answered in fractions of the frame. It means
+// the same at every distance.
+const HELD_STILL = 0.03;     // how far a corner may drift a tick, in frame widths
+const STILL_ENOUGH = 15;     // mean luma difference: the fallback, when no page is found
 const MOVED_ENOUGH = 24;     // what counts as "the page was turned"
+// How much of the frame the page has to fill before the shutter goes blue. What
+// gets stored is the paper and nothing else, so a page shot from across the
+// room is stored at the resolution it was in the picture — a fifth of a frame
+// of music is a fifth of a page of detail, and no straightening puts that back.
+//
+// A LOWER BAR FOR TWO PAGES, and it reads backwards until you draw it. A spread
+// is about half as tall as it is wide, and a phone's frame is not: held right
+// up against the book, edge to edge, an open spread covers 0.53 of a 4:3 frame
+// and 0.33 of a tall one, against 0.9 for a single page. Asking a book for 0.3
+// asks it for something the shape of the phone will not allow, and the answer
+// would be "closer" until the edges ran off the frame and then "back off" —
+// which is the bug this was meant to fix, wearing a hat.
+const FILL_FRAME = 0.3;
+const FILL_SPREAD = 0.75;    // of it, when the camera is over two pages at once
 const PAPER_FRACTION = 0.2;  // how much of the frame is brighter than its own mid-point
 const INK_DENSITY = 0.03;    // how much of it has ink-like detail in it
 const STILL_FRAMES = 2;      // ~300ms of holding steady: quick, because the
@@ -232,15 +302,33 @@ function watch() {
     const { motion, paper: bright, ink, lit, frame } = readFrame();
     // Where the sheet of paper is, every tick, whether or not the shutter is
     // automatic: the outline is what tells you the scan is going to come out.
+    const before = held;
     paper = findPaper();
-    const steady = motion <= STILL_ENOUGH;
-    const ready = !!paper && steady && lit >= 25;
+    held = paper.length ? paper : null;
+    const fills = coverageOf(paper);
+    const steady = paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH;
+    const close = fills >= FILL_FRAME * (paper.length > 1 ? FILL_SPREAD : 1);
+    const ready = paper.length > 0 && steady && close && lit >= 25;
     showPaper(paper, ready);
     readyToShoot(ready);
+    // What to do about it, in one line, and each of these is a different thing
+    // to do: come closer, back off, hold still, turn a light on.
+    const advice = () => {
+      if (lit < 25) return 'too dark to see the page';
+      if (!paper.length) {
+        // Nearly the whole frame is bright and yet no page was found: the paper
+        // is running off the edges. That is the one case where the answer is to
+        // move AWAY, and it used to be told to come closer.
+        return bright > 0.72 ? 'back off a little — the edges are off the frame'
+          : 'show the whole page, edges and all';
+      }
+      if (!close) return 'closer — fill the frame with the page';
+      if (!steady) return 'hold it steady…';
+      return paper.length > 1 ? 'tap the button — both pages are in view'
+        : 'tap the button — the page is square in view';
+    };
     if (!auto) {
-      say(ready ? 'tap the button — the page is square in view'
-        : paper ? 'hold it steady…'
-          : lit < 25 ? 'too dark to see the page' : 'show the whole page, edges and all');
+      say(advice());
       return;
     }
     // Re-arming asks the right question: not "did the picture just move" but
@@ -276,7 +364,7 @@ function watch() {
       // thumb between every two pages.
       stillFor = 0;
       waiting = 0;
-      say('hold it steady…');
+      say(advice());
       return;
     }
     // A page whose four corners are in view is a page: nothing else in a room
@@ -284,7 +372,13 @@ function watch() {
     // cannot be found — the page fills the frame, a hand is over one edge — it
     // falls back to what it always did: mostly paper, with ink on it.
     if (ready) stillFor++;
-    else {
+    else if (paper.length) {
+      // Found, held still, and too far away to be worth keeping. Waiting is the
+      // right answer: the shutter that fires here is the one that fills a
+      // library with pages nothing can read.
+      stillFor = 0;
+      say(advice());
+    } else {
       const looksLikePaper = bright >= PAPER_FRACTION;
       const hasInk = ink >= INK_DENSITY;
       if (looksLikePaper && hasInk) stillFor++;
@@ -294,7 +388,8 @@ function watch() {
       }
     }
     if (stillFor >= STILL_FRAMES
-      || (waiting >= PATIENCE && bright >= PAPER_FRACTION * 0.6 && ink >= INK_DENSITY * 0.7)) {
+      || (waiting >= PATIENCE && !paper.length
+        && bright >= PAPER_FRACTION * 0.6 && ink >= INK_DENSITY * 0.7)) {
       stillFor = 0;
       waiting = 0;
       armed = false;
@@ -330,38 +425,54 @@ async function capture() {
   canvas.width = video.videoWidth;
   canvas.height = video.videoHeight;
   canvas.getContext('2d').drawImage(video, 0, 0);
-  const number = String(pages.length + 1).padStart(2, '0');
-  const name = `page-${number}.jpg`;
   // Where the paper was, on the frame actually taken. Kept with the shot, so
   // the edges can be moved afterwards without the corners having to be found
   // all over again from a picture the hand has since moved on from.
-  const corners = paperIn(canvas, canvas.width, canvas.height);
-  let page = canvas;
-  if (cleanUp) {
-    try {
-      page = straightenCanvas(canvas, canvas.width, canvas.height, corners);
-    } catch {
-      page = canvas;    // the photograph as taken is still a page
+  //
+  // One quadrilateral for a sheet and TWO for a book open at a spread, in
+  // reading order — and two of them means two pages come out of this one press
+  // of the shutter, which is the only sane thing to do with a photograph of an
+  // open book. Warping both onto one rectangle gives a page bent down the
+  // middle; keeping the bigger of them throws half the music away.
+  const found = cleanUp ? papersIn(canvas, canvas.width, canvas.height) : [];
+  const taken = [];
+  for (const corners of (found.length ? found : [null])) {
+    const number = String(pages.length + taken.length + 1).padStart(2, '0');
+    const name = `page-${number}.jpg`;
+    let page = canvas;
+    if (cleanUp) {
+      try {
+        page = straightenCanvas(canvas, canvas.width, canvas.height, corners);
+      } catch {
+        page = canvas;    // the photograph as taken is still a page
+      }
     }
+    // The straightened page first, the photograph as taken behind it: squaring
+    // up is worth having and is never worth losing the shot over.
+    const file = (await pageFrom(page, name))
+      ?? (page === canvas ? null : await pageFrom(canvas, name));
+    if (file) taken.push({ file, corners });
   }
-  // The straightened page first, the photograph as taken behind it: squaring up
-  // is worth having and is never worth losing the shot over.
-  const file = (await pageFrom(page, name)) ?? (page === canvas ? null : await pageFrom(canvas, name));
-  if (!file) {
+  if (!taken.length) {
     say('that shot did not come out — take it again');
     return;
   }
   // The photograph as taken is kept for as long as the session lasts, because
   // moving the edges means going back to it: the straightened page has already
-  // thrown away everything outside the outline.
+  // thrown away everything outside the outline. Both pages of a spread point at
+  // the same photograph and at their own corners in it, so either of them can
+  // have its edges moved without disturbing the other.
   const raw = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
   shotOf = previous ? Float32Array.from(previous) : null;
-  pages.push(file);
-  shots.push({ raw, corners });
-  addThumb(file, pages.length - 1);
+  for (const { file, corners } of taken) {
+    pages.push(file);
+    shots.push({ raw, corners });
+    addThumb(file, pages.length - 1);
+  }
   refreshCount();
   waiting = 0;
-  say(auto ? 'got it — turn the page' : 'got it');
+  if (taken.length > 1) say(`got both pages — ${auto ? 'turn the page' : 'turn over'}`);
+  else say(auto ? 'got it — turn the page' : 'got it');
   root.classList.add('flash');
   setTimeout(() => root.classList.remove('flash'), 180);
 }
@@ -544,7 +655,8 @@ function stopCamera() {
   stream?.getTracks().forEach((track) => track.stop());
   stream = null;
   if (video) video.srcObject = null;
-  paper = null;
+  paper = [];
+  held = null;
   showPaper(null, false);
   previous = null;
   shotOf = null;
@@ -578,6 +690,8 @@ export async function openScanner() {
   auto = false;
   cleanUp = true;
   armed = true;
+  paper = [];
+  held = null;
   refreshCount();
   el('scan-auto')?.classList.remove('on');
   root.hidden = false;
@@ -594,7 +708,7 @@ export async function openScanner() {
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
-  say('line the page up — the button lights when it has it');
+  say('hold it close, so the page fills the frame — the button lights when it has it');
   watch();
   return new Promise((resolve) => { done = resolve; });
 }

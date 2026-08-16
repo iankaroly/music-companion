@@ -15,7 +15,7 @@
 // visible half of the complaint — and if even that fails, the picture is kept
 // exactly as it was taken. A page ruined by a confident guess has no undo.
 
-import { findPage, homography, through, rectFor } from '../analysis/page-edges.js';
+import { findPage, findPages, homography, through, rectFor } from '../analysis/page-edges.js';
 import { unshadow } from '../analysis/unshadow.js';
 
 const LOOK_AT = 220;      // the width the corners are looked for at
@@ -49,7 +49,9 @@ function lumaOf(source, w, h) {
 }
 
 // Where the paper is, in the picture's own 0–1 terms. Null when nothing in the
-// frame looks enough like a sheet of paper to risk it.
+// frame looks enough like a sheet of paper to risk it — and null for an open
+// book too, because one quadrilateral cannot describe two pages and this is
+// what the callers that keep exactly one page ask.
 export function paperIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
@@ -57,6 +59,19 @@ export function paperIn(source, width, height) {
     return findPage(lumaOf(source, w, h), w, h);
   } catch {
     return null;
+  }
+}
+
+// Every page in the picture: one quadrilateral for a sheet, two for a book open
+// at a spread, none when there is no convincing paper. The scanner asks this
+// one, because a scanner that finds two pages can keep two pages.
+export function papersIn(source, width, height) {
+  const w = Math.min(LOOK_AT, width);
+  const h = Math.max(1, Math.round(height * (w / width)));
+  try {
+    return findPages(lumaOf(source, w, h), w, h);
+  } catch {
+    return [];
   }
 }
 

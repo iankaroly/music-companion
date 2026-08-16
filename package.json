@@ -54,7 +54,8 @@
     "scan:train": "node tools/patch-train.mjs",
     "scan:curve": "node tools/patch-curve.mjs",
     "scan:stems": "node tools/stem-audit.mjs",
-    "scan:bar-why": "node tools/bar-probe.mjs"
+    "scan:bar-why": "node tools/bar-probe.mjs",
+    "scan:spread": "node tools/scan-spread-check.mjs"
   },
   "keywords": [],
   "author": "",

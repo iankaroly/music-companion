@@ -57,14 +57,25 @@ function splitAt(luma, count) {
 // darker than either (it is a crease, in shadow, at an angle to the light), so
 // it is thin in the mask, and a couple of passes of erosion cut it. What is
 // left is the page that was lying flattest under the camera.
+//
+// What is off the edge of the picture counts as bright rather than as dark: a
+// page held close enough to run to the edge of the frame is still a page, and
+// the old version — which simply skipped the border row — ate a pixel off every
+// edge that touched it on every pass, so a page photographed close was shaved
+// from the outside in while a page photographed at arm's length was not.
 function erode(mask, w, h, times) {
   let from = mask;
   for (let pass = 0; pass < times; pass++) {
     const to = new Uint8Array(w * h);
-    for (let y = 1; y < h - 1; y++) {
-      for (let x = 1; x < w - 1; x++) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
         const at = y * w + x;
-        to[at] = from[at] && from[at - 1] && from[at + 1] && from[at - w] && from[at + w] ? 1 : 0;
+        if (!from[at]) continue;
+        const left = x > 0 ? from[at - 1] : 1;
+        const right = x < w - 1 ? from[at + 1] : 1;
+        const up = y > 0 ? from[at - w] : 1;
+        const down = y < h - 1 ? from[at + w] : 1;
+        to[at] = left && right && up && down ? 1 : 0;
       }
     }
     from = to;
@@ -108,34 +119,66 @@ function dilate(mask, w, h, times) {
   return from;
 }
 
-// The largest run of bright pixels that all touch each other — the page, when
-// the page is the brightest large thing in the frame. Islands of light on the
-// table, a reflection, the white of a cuff: all smaller, all discarded.
-function brightestRegion(bright, w, h) {
-  const label = new Int32Array(w * h).fill(-1);
+// Anything dark with paper all the way round it is part of the paper.
+//
+// This is the other half of the ink problem, and it is the half that decides
+// whether the finder works with the phone held close. Closing by a pixel shuts
+// a staff line; it does not shut a beamed group, a chord, a rehearsal mark or
+// the shadow the phone itself throws across the page — and those get BIGGER in
+// the frame as the phone comes closer, until the brightest connected thing in
+// the picture is a strip of margin rather than a page. So instead of trying to
+// bridge ink by its width, the dark that is reachable from the edge of the
+// picture is called background and everything else is called page. Ink cannot
+// reach the edge of the picture; the table can.
+function fillHoles(mask, w, h) {
+  const outside = new Uint8Array(w * h);
   const stack = new Int32Array(w * h);
-  let best = null;
-  let current = 0;
+  let top = 0;
+  const reach = (at) => { if (!mask[at] && !outside[at]) { outside[at] = 1; stack[top++] = at; } };
+  for (let x = 0; x < w; x++) { reach(x); reach((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { reach(y * w); reach(y * w + w - 1); }
+  while (top > 0) {
+    const at = stack[--top];
+    const x = at % w;
+    const y = (at / w) | 0;
+    if (x > 0) reach(at - 1);
+    if (x < w - 1) reach(at + 1);
+    if (y > 0) reach(at - w);
+    if (y < h - 1) reach(at + w);
+  }
+  const out = new Uint8Array(w * h);
+  for (let i = 0; i < w * h; i++) out[i] = mask[i] || !outside[i] ? 1 : 0;
+  return out;
+}
+
+// Runs of bright pixels that all touch each other, biggest first. The first of
+// them is the page, when the page is the brightest large thing in the frame —
+// islands of light on the table, a reflection, the white of a cuff are all
+// smaller. The SECOND matters too: across the gutter of an open book it is the
+// facing page, and that is how a spread is told from a sheet.
+function regionsOf(bright, w, h) {
+  const seen = new Uint8Array(w * h);
+  const stack = new Int32Array(w * h);
+  const regions = [];
   for (let start = 0; start < w * h; start++) {
-    if (!bright[start] || label[start] !== -1) continue;
+    if (!bright[start] || seen[start]) continue;
     let top = 0;
     stack[top++] = start;
-    label[start] = current;
+    seen[start] = 1;
     const found = [];
     while (top > 0) {
       const at = stack[--top];
       found.push(at);
       const x = at % w;
       const y = (at / w) | 0;
-      if (x > 0 && bright[at - 1] && label[at - 1] === -1) { label[at - 1] = current; stack[top++] = at - 1; }
-      if (x < w - 1 && bright[at + 1] && label[at + 1] === -1) { label[at + 1] = current; stack[top++] = at + 1; }
-      if (y > 0 && bright[at - w] && label[at - w] === -1) { label[at - w] = current; stack[top++] = at - w; }
-      if (y < h - 1 && bright[at + w] && label[at + w] === -1) { label[at + w] = current; stack[top++] = at + w; }
+      if (x > 0 && bright[at - 1] && !seen[at - 1]) { seen[at - 1] = 1; stack[top++] = at - 1; }
+      if (x < w - 1 && bright[at + 1] && !seen[at + 1]) { seen[at + 1] = 1; stack[top++] = at + 1; }
+      if (y > 0 && bright[at - w] && !seen[at - w]) { seen[at - w] = 1; stack[top++] = at - w; }
+      if (y < h - 1 && bright[at + w] && !seen[at + w]) { seen[at + w] = 1; stack[top++] = at + w; }
     }
-    if (!best || found.length > best.length) best = found;
-    current++;
+    regions.push(found);
   }
-  return best;
+  return regions.sort((a, b) => b.length - a.length);
 }
 
 // The four corners of a roughly rectangular blob. A page's top-left corner is
@@ -175,14 +218,26 @@ function quadArea(q) {
 // Could this be a sheet of paper? Four tests, and all of them have to pass,
 // because the cost of a wrong yes is a ruined page and the cost of a wrong no
 // is a photograph that looks like a photograph.
-function looksLikePaper(quad, area, w, h) {
+//
+// `floor` is how much of the frame the shape has to fill, and it is an argument
+// because half of an open book is half the size of a page — a spread shot at a
+// sensible distance has each of its pages down around a fifth of the frame, and
+// judging those two halves at the bar a whole page has to clear rejects every
+// book ever photographed.
+function looksLikePaper(quad, area, w, h, floor = 0.25) {
   if (quad.some((point) => !point)) return false;
   const size = quadArea(quad);
-  if (size < w * h * 0.25 || size > w * h * 0.99) return false;
+  if (size < w * h * floor || size > w * h * 0.995) return false;
   // A photograph that is nothing but paper has no edges in it to straighten by
   // — every corner it finds is a corner of the picture — and pulling it onto
   // itself would cost it a resampling and gain it nothing.
-  const inCorner = ([x, y]) => (x < w * 0.03 || x > w * 0.97) && (y < h * 0.03 || y > h * 0.97);
+  //
+  // The band is 1.5% of the frame rather than the 3% it was, because 3% is a
+  // page held at exactly the distance this is meant to be used at. A phone a
+  // hand's width above a part, square to it, puts the paper's corners about two
+  // per cent in from the picture's — and the whole shape was being thrown away
+  // for being too well framed, which is the opposite of what this test is for.
+  const inCorner = ([x, y]) => (x < w * 0.015 || x > w * 0.985) && (y < h * 0.015 || y > h * 0.985);
   if (quad.every(inCorner)) return false;
   // Convex, and going round one way: a bow-tie is not a page.
   const turns = quad.map((_, i) => cross(quad[i], quad[(i + 1) % 4], quad[(i + 2) % 4]));
@@ -208,46 +263,239 @@ function looksLikePaper(quad, area, w, h) {
   // out of the mask without taking anything off the paper. What this catches is
   // a shape nothing like its own outline; two pages of an open book are caught
   // by the side lengths before they get here.
-  if (area / size < 0.6) return false;
+  if (area !== null && area / size < 0.6) return false;
   return true;
 }
 
-// The page in a photograph, as four corners in the picture's own 0–1 terms, or
-// null when there is no convincing one. `luma` is one value a pixel.
-export function findPage(luma, w, h) {
+// --- an open book ---------------------------------------------------------------
+//
+// Music does not arrive as loose sheets. It arrives as a book open on a stand,
+// and what the camera sees is two pages at once, hinged down the middle, each
+// leaning away from the other. Warping that pair onto one rectangle gives a
+// page that is twice as wide as any page and bent in the middle; picking the
+// bigger half of it and throwing the other away — which is what the erosion
+// here used to do, quietly — loses half the music and says nothing about it.
+//
+// So a spread is FOUND, as a spread, and comes back as two pages. There are two
+// ways it shows up in the picture and both have to be handled:
+//
+//   the fold is dark enough to cut the paper in two — two bright regions, side
+//   by side, the same size and the same height. This is the common one: the
+//   gutter of a bound book is a crease in shadow.
+//
+//   the book is flat enough, or lit flat enough, that the fold stays brighter
+//   than the table — one wide bright region with a dark seam down it. Here the
+//   evidence is a valley in the page's own brightness, read across the page
+//   after it has been squared up, so a tilted book does not hide it.
+
+const HALF_FLOOR = 0.09;      // how much of the frame one page of a spread must fill
+const GUTTER_BAND = 0.16;     // how far from the middle the fold is looked for
+const GUTTER_DARK = 0.92;     // how much darker than the paper beside it the fold must be
+const GUTTER_WIDE = 0.14;     // and how narrow: a spine is a line, a shadow is a wash
+
+// Two pages, when the fold has cut the paper into two bright regions.
+function pagesApart(regions, w, h, shave) {
+  const count = w * h;
+  const [first, second] = regions;
+  if (!first || !second) return null;
+  if (second.length < count * HALF_FLOOR) return null;
+  if (second.length < first.length * 0.45) return null;   // a page and a scrap
+  const quads = [first, second].map((region) => grow(cornersOf(region, w), shave));
+  const box = (q) => ({
+    left: Math.min(...q.map((p) => p[0])),
+    right: Math.max(...q.map((p) => p[0])),
+    top: Math.min(...q.map((p) => p[1])),
+    bottom: Math.max(...q.map((p) => p[1])),
+  });
+  const [a, b] = quads.map(box);
+  // Side by side, not one above the other and not one inside the other.
+  const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+  const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+  const heights = [a.bottom - a.top, b.bottom - b.top];
+  if (overlapX > Math.min(a.right - a.left, b.right - b.left) * 0.25) return null;
+  if (overlapY < Math.min(...heights) * 0.6) return null;
+  if (Math.min(...heights) / Math.max(...heights) < 0.6) return null;
+  // Facing each other across a fold, rather than two sheets a hand apart.
+  if (-overlapX > w * 0.2) return null;
+  if (!quads.every((quad, i) => looksLikePaper(quad, regions[i].length, w, h, HALF_FLOOR))) return null;
+  return quads.sort((p, q) => box(p).left - box(q).left);
+}
+
+// The page's own brightness, read across it: one number per column of a page
+// that has been squared up first, so the fold of a book photographed at an
+// angle is still a straight line down the middle of the reading.
+function acrossPage(quad, luma, w, h, from, to, steps) {
+  const map = homography([[0, 0], [1, 0], [1, 1], [0, 1]], quad);
+  if (!map) return null;
+  const profile = new Float64Array(steps);
+  const rows = 24;
+  for (let i = 0; i < steps; i++) {
+    const u = (i + 0.5) / steps;
+    let total = 0;
+    for (let j = 0; j < rows; j++) {
+      const v = from + ((j + 0.5) / rows) * (to - from);
+      const [x, y] = through(map, u, v);
+      const px = Math.max(0, Math.min(w - 1, Math.round(x)));
+      const py = Math.max(0, Math.min(h - 1, Math.round(y)));
+      total += luma[py * w + px];
+    }
+    profile[i] = total / rows;
+  }
+  return profile;
+}
+
+// Where the fold is, in the page's own 0–1 width, or null if there is no fold.
+// Read three times down the page: a seam that is in the middle at the top and
+// somewhere else at the bottom is a shadow, not a spine.
+function foldIn(quad, luma, w, h) {
+  const STEPS = 90;
+  const bands = [[0.06, 0.36], [0.36, 0.66], [0.66, 0.96]];
+  const found = [];
+  for (const [from, to] of bands) {
+    const profile = acrossPage(quad, luma, w, h, from, to, STEPS);
+    if (!profile) return null;
+    let at = -1;
+    let darkest = Infinity;
+    const first = Math.round(STEPS * (0.5 - GUTTER_BAND));
+    const last = Math.round(STEPS * (0.5 + GUTTER_BAND));
+    for (let i = first; i <= last; i++) {
+      if (profile[i] < darkest) { darkest = profile[i]; at = i; }
+    }
+    if (at < 0) return null;
+    // Darker than the paper BESIDE it rather than than the page as a whole: a
+    // reading taken across a system of music is pulled down by the staff lines
+    // in it, and they lie across the fold and the margins alike, so measuring
+    // the fold against them is measuring it against itself.
+    const reach = Math.round(STEPS * 0.16);
+    const clear = Math.round(STEPS * 0.045);
+    const beside = (from, to) => {
+      const run = [...profile.slice(Math.max(0, from), Math.min(STEPS, to))].sort((a, b) => a - b);
+      return run.length ? run[Math.floor(run.length / 2)] : 0;
+    };
+    // Both sides averaged rather than the darker of them, because one side of
+    // the fold is where the title sits and the other is where it does not.
+    const paper = (beside(at - reach, at - clear) + beside(at + clear, at + reach + 1)) / 2;
+    if (!paper || darkest > paper * GUTTER_DARK) return null;
+    // And a LINE rather than a wash. The one thing that looks like a fold and
+    // is not is the shadow of the phone lying across the middle of the page,
+    // and that is broad — it darkens a third of the paper, not a column of it.
+    const level = (darkest + paper) / 2;
+    let opens = at;
+    let closes = at;
+    while (opens > 0 && profile[opens - 1] < level) opens--;
+    while (closes < STEPS - 1 && profile[closes + 1] < level) closes++;
+    if ((closes - opens + 1) / STEPS > GUTTER_WIDE) return null;
+    found.push((at + 0.5) / STEPS);
+  }
+  // The same seam each time, give or take the slant of the book.
+  if (Math.max(...found) - Math.min(...found) > 0.06) return null;
+  return found;
+}
+
+// One wide sheet, cut in two down the fold. The halves are the quadrilateral
+// split along the seam, which is where a spread's two pages actually are.
+function pagesTogether(quad, luma, w, h) {
+  const across = (dist(quad[0], quad[1]) + dist(quad[3], quad[2])) / 2;
+  const down = (dist(quad[0], quad[3]) + dist(quad[1], quad[2])) / 2;
+  if (across < down * 1.08) return null;         // one page is not this wide
+  const fold = foldIn(quad, luma, w, h);
+  if (!fold) return null;
+  const map = homography([[0, 0], [1, 0], [1, 1], [0, 1]], quad);
+  if (!map) return null;
+  // A straight seam through the three readings, so a book that leans keeps its
+  // pages square rather than gaining a wedge of its neighbour.
+  const slant = (fold[2] - fold[0]) / 2;
+  const middle = (fold[0] + fold[1] + fold[2]) / 3;
+  const top = through(map, middle - slant / 2, 0);
+  const bottom = through(map, middle + slant / 2, 1);
+  const halves = [
+    [quad[0], top, bottom, quad[3]],
+    [top, quad[1], quad[2], bottom],
+  ];
+  if (!halves.every((half) => looksLikePaper(half, null, w, h, HALF_FLOOR))) return null;
+  return halves;
+}
+
+const withinPicture = (quad, w, h) => quad.map(([x, y]) => [
+  Math.max(0, Math.min(1, x / w)),
+  Math.max(0, Math.min(1, y / h)),
+]);
+
+// The bright mask a page is found in: paper against the table, with the ink and
+// the shadows on the paper filled back in.
+function paperMask(luma, w, h) {
   const count = w * h;
   const cut = splitAt(luma, count);
   const bright = new Uint8Array(count);
   for (let i = 0; i < count; i++) bright[i] = luma[i] > cut ? 1 : 0;
+  return { cut, bright, solid: fillHoles(erode(dilate(bright, w, h, 1), w, h, 1), w, h) };
+}
+
+// The pages in a photograph, each as four corners in the picture's own 0–1
+// terms: one for a sheet, two for an open book, none when nothing in the frame
+// is convincingly paper. `luma` is one value a pixel.
+export function findPages(luma, w, h) {
+  const count = w * h;
+  const { solid } = paperMask(luma, w, h);
   const shave = Math.max(1, Math.round(w / 90));
-  // Close the ink up, then shave the fold of the book away.
-  const solid = erode(dilate(bright, w, h, 1), w, h, 1);
-  const region = brightestRegion(erode(solid, w, h, shave), w, h);
-  if (!region || region.length < count * 0.18) return null;
+  // Shave the fold of the book away, which is what parts two pages that touch.
+  const regions = regionsOf(erode(solid, w, h, shave), w, h);
+  const spread = pagesApart(regions, w, h, shave);
+  if (spread) return spread.map((quad) => withinPicture(quad, w, h));
+  const region = regions[0];
+  if (!region || region.length < count * 0.18) return [];
   const quad = grow(cornersOf(region, w), shave);
-  if (!looksLikePaper(quad, region.length, w, h)) return null;
-  return quad.map(([x, y]) => [
-    Math.max(0, Math.min(1, x / w)),
-    Math.max(0, Math.min(1, y / h)),
-  ]);
+  const flat = pagesTogether(quad, luma, w, h);
+  if (flat) return flat.map((half) => withinPicture(half, w, h));
+  if (!looksLikePaper(quad, region.length, w, h)) return [];
+  return [withinPicture(quad, w, h)];
+}
+
+// The page, for everything that wants exactly one. Null for an open book as
+// well as for an empty frame: a caller that can only keep one page must not be
+// handed half a spread as though it were the whole of it.
+export function findPage(luma, w, h) {
+  const found = findPages(luma, w, h);
+  return found.length === 1 ? found[0] : null;
+}
+
+// How much of the frame some pages take up, 0–1. What the scanner puts a number
+// to when it asks somebody to come closer: a page shot from far enough away to
+// be a fifth of the picture is a page stored at a fifth of the resolution the
+// phone was holding, and no amount of straightening afterwards puts that back.
+export function coverageOf(quads) {
+  return (quads ?? []).reduce((sum, quad) => sum + quadArea(quad), 0);
+}
+
+// How far the pages moved between two looks, as a fraction of the frame —
+// Infinity when there is nothing to compare, or when the number of pages
+// changed, both of which mean "not settled yet".
+export function quadsMoved(now, before) {
+  if (!now?.length || !before?.length || now.length !== before.length) return Infinity;
+  let worst = 0;
+  for (let i = 0; i < now.length; i++) {
+    for (let k = 0; k < 4; k++) {
+      worst = Math.max(worst, dist(now[i][k], before[i][k]));
+    }
+  }
+  return worst;
 }
 
 // Why it said no. Not used by the app; used by the bench in tools/, and by
 // anyone trying to work out what a photograph looks like to this code.
 export function inspect(luma, w, h) {
   const count = w * h;
-  const cut = splitAt(luma, count);
-  const bright = new Uint8Array(count);
-  for (let i = 0; i < count; i++) bright[i] = luma[i] > cut ? 1 : 0;
+  const { cut, bright, solid } = paperMask(luma, w, h);
   let lit = 0;
   for (let i = 0; i < count; i++) lit += bright[i];
   const shave = Math.max(1, Math.round(w / 90));
-  const solid = erode(dilate(bright, w, h, 1), w, h, 1);
-  const region = brightestRegion(erode(solid, w, h, shave), w, h);
+  const regions = regionsOf(erode(solid, w, h, shave), w, h);
+  const region = regions[0];
   const quad = region ? grow(cornersOf(region, w), shave) : null;
   const sides = quad && quad.every(Boolean)
     ? [dist(quad[0], quad[1]), dist(quad[1], quad[2]), dist(quad[2], quad[3]), dist(quad[3], quad[0])]
     : null;
+  const found = findPages(luma, w, h);
   return {
     cut,
     litFraction: lit / count,
@@ -256,7 +504,9 @@ export function inspect(luma, w, h) {
     sides: sides?.map((n) => Math.round(n)),
     quadFraction: quad && quad.every(Boolean) ? quadArea(quad) / count : 0,
     fill: quad && region && quad.every(Boolean) ? region.length / quadArea(quad) : 0,
-    accepted: !!(region && region.length >= count * 0.18 && looksLikePaper(quad, region.length, w, h)),
+    pages: found.length,
+    coverage: coverageOf(found),
+    accepted: found.length > 0,
   };
 }
 
