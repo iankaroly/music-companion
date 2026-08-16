@@ -196,7 +196,10 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
     matched: found
       .map((f, i) => ({ f, i }))
       .filter(({ i }) => tookF.has(i))
-      .map(({ f }) => ({ step: where(f.x, f.y).step, beats: f.beats })),
+      .map(({ f }) => ({
+        x: Math.round(f.x * work.width), y: Math.round(f.y * work.height),
+        step: where(f.x, f.y).step, beats: f.beats,
+      })),
     falsePositives: found
       .map((f, i) => ({ f, i }))
       .filter(({ i }) => !tookF.has(i))

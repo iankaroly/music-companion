@@ -19,6 +19,7 @@
 
 import { beamLayer, readValues } from './scan-stems.js';
 import { clefFeatures, classifyClef, MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW } from './scan-clef.js';
+import { findKeyBand } from './scan-key.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -855,11 +856,21 @@ function offStaveIsCredible(ink, w, h, staff, stripW, space, head) {
 // flats found by their own shape in the band after the clef — which is owed
 // anyway, since naming a pitch means knowing the B is flat and no amount of
 // counting repetitions can say so. scan-key.js is waiting for it.
-function dropFurniture(found, edges, clefs) {
+function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
   for (const [i, sys] of found.entries()) {
     const from = edges[i];
     if (from === null || !clefs[i].clef) continue;
-    const wide = Math.max(3, sys.staff.space * CLEF_WIDE);
+    const space = sys.staff.space;
+    let wide = Math.max(3, space * CLEF_WIDE);
+    // …and the key signature after it, when there is one. Found by walking
+    // right until something that is not an accidental turns up, so the band
+    // ends where the music starts rather than at a width somebody chose.
+    const at = (index, x) => sys.staff.lines[index].at[
+      Math.min(sys.staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+    ];
+    const key = findKeyBand(ink, w, h, (k) => at(k, from + wide), space, from + wide);
+    if (key) wide = key.x1 - from;
+    sys.keyBand = key;
     sys.heads = sys.heads.filter((head) => head.x < from || head.x > from + wide);
   }
 }
@@ -1193,7 +1204,7 @@ export function readPage(source, naturalWidth, naturalHeight) {
   }));
   // …and then the clef itself, taken out before the values are read so nothing
   // spends a beam count on it and the values stay index-aligned with the heads.
-  dropFurniture(found, edges, clefs);
+  dropFurniture(ink, w, h, found, edges, clefs, stripW);
 
   const perStaff = readValues(ink, beams, w, h, found);
 
