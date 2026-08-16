@@ -118,6 +118,19 @@ const added = await rings();
 check('clicking paper adds a cross', added.crosses === 1, `${added.crosses} crosses`);
 check('the tally counts it in', /1 missed/.test(added.tally), added.tally);
 
+// The same spot again. A page marked by hand collects double-clicks, and three
+// crosses on one notehead came back from the first real page as three missed
+// notes.
+await page.evaluate(() => {
+  const sheet = document.querySelector('#overlay rect[fill="transparent"]');
+  const b = sheet.getBoundingClientRect();
+  sheet.dispatchEvent(new MouseEvent('click', {
+    bubbles: true, clientX: b.x + b.width * 0.5, clientY: b.y + b.height * 0.93,
+  }));
+});
+const twice = await rings();
+check('a second cross on the same spot is refused', twice.crosses === 1, `${twice.crosses} crosses`);
+
 // Undo, twice, back to where it started.
 await page.click('#undo');
 await page.click('#undo');

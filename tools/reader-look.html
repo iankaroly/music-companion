@@ -331,8 +331,24 @@ function draw() {
     sheet.addEventListener('click', (e) => {
       const at = pointIn(e);
       if (!at) return;
+      const x = at.x / width;
+      const y = at.y / height;
+      // One note, one mark. A page marked by hand collects double-clicks, and
+      // three crosses on one notehead came back from the first real page as
+      // three missed notes — a recall figure nearly half of which was a slip of
+      // the mouse. The tolerance is the same half space everything else uses, so
+      // what cannot be told apart when scoring cannot be entered twice either.
+      if (nearestMark(marks.added, x, y, space) >= 0) {
+        els.hint.textContent = 'There is already a mark there.';
+        return;
+      }
+      if (notesInOrder(read).some((n) => !isRejected(n, space)
+        && Math.hypot((n.x - x) * width, (n.y - y) * height) < space * NEAR)) {
+        els.hint.textContent = 'The reader already found that one — it is not missed.';
+        return;
+      }
       remember();
-      marks.added.push({ x: at.x / width, y: at.y / height });
+      marks.added.push({ x, y });
       draw();
     });
     svg.append(sheet);

@@ -161,6 +161,13 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
     found: found.length,
     truth: want.length,
     hit: tookT.size,
+    // The matched ones too, and their step — because a rule that throws away
+    // what sits outside the stave is only worth having if the notes do not.
+    // Ledger notes are notes, and this is the number that says how many.
+    matched: found
+      .map((f, i) => ({ f, i }))
+      .filter(({ i }) => tookF.has(i))
+      .map(({ f }) => ({ step: where(f.x, f.y).step, beats: f.beats })),
     falsePositives: found
       .map((f, i) => ({ f, i }))
       .filter(({ i }) => !tookF.has(i))

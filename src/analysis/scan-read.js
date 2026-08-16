@@ -714,6 +714,84 @@ function findBars(ink, w, h, staff, stripW, space) {
   return bars.map((group) => group.reduce((a, b) => a + b, 0) / group.length);
 }
 
+// A notehead away from the stave stands on a ledger line — and on nothing
+// longer than one.
+//
+// MEASURED, on a page of the Bärenreiter Bach marked up by somebody who can see
+// it. Of the reader's 417 heads, 363 were real and 54 were not, and eighty of
+// them sit outside the stave, where the notes and the marks separate cleanly:
+//
+//     horizontal rule through the head     notes   not-notes
+//     under half a space                       3           3
+//     1.5 to 2.5 spaces                       35           6
+//     2.5 to 3.0 spaces                        2           3
+//     over 3 spaces                            0          24
+//
+// The rule that was expected here was the opposite one — require a ledger line,
+// reject a head that has none — and measuring it is what stopped it being
+// shipped. It removes three marks and costs five real notes, because a ledger
+// line on a photographed page is one grey pixel and misses as often as it hits.
+//
+// What separates them is the rule being TOO LONG. An engraver draws a ledger
+// line barely wider than the head it carries, about two staff spaces; nothing
+// legitimate outside the stave sits on more. The heads with six spaces of ink
+// under them are standing on the slurs a cello part is covered in, and on the
+// heading, whose letters bridge into one run at photograph resolution. Both are
+// facts about how music is printed rather than about this page's range, so a
+// part in any clef for any instrument is read by the same rule — which a cut on
+// height, the other tempting answer here, would not be: step 14 is the editor's
+// title on a cello part and an ordinary note on a violin one.
+//
+// The first space either side of the stave — step 9 and step -1 — is written
+// without a ledger line and is never asked about.
+const LEDGER_LONGEST = 3;   // staff spaces; the notes on that page reach 2.9
+const LEDGER_GAP = 2;       // pixels of break tolerated, for a photographed line
+
+// How wide the horizontal rule through this head runs, in staff spaces, at the
+// ledger line it would stand on. Separated from the verdict so the distribution
+// can be measured before a threshold is chosen — the last discriminator
+// proposed for this looked obvious, was applied on a hunch and cost a quarter
+// of the notes on the page. See tools/ledger-audit.mjs.
+export function ledgerRun(ink, w, h, staff, stripW, space, head) {
+  const at = (index, x) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+  ];
+  const bottom = at(4, head.x);
+  const step = Math.round((bottom - head.y) / (space / 2));
+  // The ledger line this head is nearest, counting inward: a head ON a line
+  // wants that line, a head in the space beyond one wants the line below it.
+  const line = step % 2 === 0 ? step : step + (step > 0 ? -1 : 1);
+  const y0 = Math.round(bottom - (line * space) / 2);
+  const x = Math.round(head.x);
+  let best = 0;
+  for (let dy = -1; dy <= 1; dy++) {
+    const y = y0 + dy;
+    if (y < 1 || y >= h - 1) continue;
+    const lit = (px) => ink[y * w + px] || ink[(y - 1) * w + px] || ink[(y + 1) * w + px];
+    if (!lit(x)) continue;
+    let left = x;
+    for (let gap = 0; left > 0 && gap <= LEDGER_GAP;) {
+      if (lit(left - 1)) { left--; gap = 0; } else { gap++; left--; }
+    }
+    let right = x;
+    for (let gap = 0; right < w - 1 && gap <= LEDGER_GAP;) {
+      if (lit(right + 1)) { right++; gap = 0; } else { gap++; right++; }
+    }
+    best = Math.max(best, right - left);
+  }
+  return best / space;
+}
+
+// Is a head this far from the stave believable?
+function offStaveIsCredible(ink, w, h, staff, stripW, space, head) {
+  const at = (index, x) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+  ];
+  const step = Math.round((at(4, head.x) - head.y) / (space / 2));
+  if (step >= -1 && step <= 9) return true;
+  return ledgerRun(ink, w, h, staff, stripW, space, head) <= LEDGER_LONGEST;
+}
+
 // Noteheads by SHAPE, not by connected components. A beamed page fuses heads,
 // stems and beams into one blob per group — flood fill returns the pencilled
 // fingerings, which is exactly the wrong thing to find. A notehead is instead a
@@ -982,7 +1060,24 @@ export function readPage(source, naturalWidth, naturalHeight) {
   const found = staves.map((staff) => ({
     staff,
     bars: findBars(ink, w, h, staff, stripW, space),
-    heads: findHeads(body, w, h, staff, staff.space, gray, background),
+    // Found by shape, then asked for the ledger line anything this far from the
+    // stave is drawn with. Filtered HERE rather than in the returned page, so
+    // readValues never spends a beam count on ink that is not a note and the
+    // values stay index-aligned with the heads.
+    //
+    // `ink` and not `body`: body has the beams masked out of it, and a ledger
+    // line is a horizontal rule, which is the shape the beam mask is looking
+    // for. Asked of the masked image the question answers itself, no.
+    // Found by shape, then — outside the stave only — asked whether the ink it
+    // stands on is a ledger line or something far longer. Filtered HERE rather
+    // than in the returned page, so readValues never spends a beam count on ink
+    // that is not a note and the values stay index-aligned with the heads.
+    //
+    // `ink` and not `body`: body has the beams masked out of it, and the mask is
+    // looking for horizontal rules, which is the shape being measured. Asked of
+    // the masked image the question answers itself.
+    heads: findHeads(body, w, h, staff, staff.space, gray, background)
+      .filter((head) => offStaveIsCredible(ink, w, h, staff, stripW, staff.space, head)),
     space: staff.space,
     // Where this stave's five lines sit under any given x — a stem crosses
     // them and they must not be counted as the beams it is looking for.
