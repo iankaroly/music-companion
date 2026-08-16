@@ -40,7 +40,8 @@
     "scan:bars": "node tools/scan-bars-check.mjs",
     "scan:clef": "node tools/scan-clef-check.mjs",
     "scan:clef-hard": "node tools/scan-clef-hard.mjs",
-    "scan:real": "node tools/real-check.mjs"
+    "scan:real": "node tools/real-check.mjs",
+    "scan:heads-audit": "node tools/head-audit.mjs"
   },
   "keywords": [],
   "author": "",
