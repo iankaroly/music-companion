@@ -107,11 +107,19 @@ const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer, truth
   }
 
   let heads = [];
+  let bars = [];
   if (marks) {
     const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
     const read = readPage(work, work.width, work.height);
     if (read) {
       heads = notesInOrder(read).map((n) => [n.x * work.width, n.y * work.height]);
+      // Barlines too, because a page can have every notehead right and still
+      // look wrong: the bar a note is in is what the timing hangs off.
+      for (const st of read.staves) {
+        const top = st.lines[0][0] * work.height;
+        const bottom = st.lines[4][st.lines[4].length - 1] * work.height;
+        for (const bx of st.bars ?? []) bars.push([bx * work.width, top, bottom]);
+      }
     }
   }
 
@@ -140,6 +148,15 @@ const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer, truth
       if (hx < x - p || hx > x + p || hy < y - p || hy > y + p) continue;
       g.beginPath();
       g.arc((hx - (x - p)) * zoom, (hy - (y - p)) * zoom, 5.5 * zoom, 0, Math.PI * 2);
+      g.stroke();
+    }
+    // Barlines the reader found.
+    g.strokeStyle = '#ff9f4d'; g.lineWidth = 3;
+    for (const [bx, bt, bb] of bars) {
+      if (bx < x - p || bx > x + p) continue;
+      g.beginPath();
+      g.moveTo((bx - (x - p)) * zoom, Math.max(0, (bt - (y - p)) * zoom));
+      g.lineTo((bx - (x - p)) * zoom, Math.min(c.height, (bb - (y - p)) * zoom));
       g.stroke();
     }
     // …and a ring at the point asked about, so the crop says what is meant.

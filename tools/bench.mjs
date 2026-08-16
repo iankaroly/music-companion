@@ -35,6 +35,9 @@ for (const page of index) {
       f1: j.f1,
       invented: j.falsePositives.length,
       missed: j.missed.length,
+      bars: j.bars,
+      systems: j.systems,
+      clefs: j.clefs,
     });
   } catch (e) {
     rows.push({ name: page.name, error: e.message.split('\n')[0] });
@@ -45,13 +48,14 @@ if (wantJson) {
   console.log(JSON.stringify(rows, null, 2));
 } else {
   console.log('\nMARKED PAGES — the reader against what a person can see\n');
-  console.log('  page          space  found  really  precision  recall     F1   invented  missed');
+  console.log('  page          space  found  really  precision  recall     F1   invented  missed   bars  clefs');
   for (const r of rows) {
     if (r.error) { console.log(`  ${r.name.padEnd(12)}  ${r.error}`); continue; }
     console.log(`  ${r.name.padEnd(12)}  ${String(r.space).padStart(5)}  ${String(r.found).padStart(5)}`
       + `  ${String(r.truth).padStart(6)}  ${`${(r.precision * 100).toFixed(1)}%`.padStart(9)}`
       + `  ${`${(r.recall * 100).toFixed(1)}%`.padStart(6)}  ${`${(r.f1 * 100).toFixed(1)}%`.padStart(5)}`
-      + `  ${String(r.invented).padStart(8)}  ${String(r.missed).padStart(6)}`);
+      + `  ${String(r.invented).padStart(8)}  ${String(r.missed).padStart(6)}`
+      + `  ${String(r.bars).padStart(5)}  ${`${r.clefs}/${r.systems}`.padStart(5)}`);
   }
   const ok = rows.filter((r) => !r.error);
   if (ok.length) {

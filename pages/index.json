@@ -1,12 +1,5 @@
 [
-  {
-    "name": "Bach",
-    "file": "/Users/iankaroly/Downloads/Menuet.pdf",
-    "truth": "/Users/iankaroly/Downloads/Menuet.clean.truth.json"
-  },
-  {
-    "name": "Mozart",
-    "file": "/Users/iankaroly/Downloads/Concerto.pdf",
-    "truth": "/Users/iankaroly/Downloads/Concerto.truth.json"
-  }
+  { "name": "Bach",   "file": "/Users/iankaroly/Downloads/Menuet.pdf",       "truth": "/Users/iankaroly/Downloads/Menuet.clean.truth.json" },
+  { "name": "Mozart", "file": "/Users/iankaroly/Downloads/Concerto.pdf",     "truth": "/Users/iankaroly/Downloads/Concerto.truth.json" },
+  { "name": "Scanned", "file": "/Users/iankaroly/Downloads/Scanned score.pdf", "truth": "/Users/iankaroly/Downloads/Scanned score.truth.json" }
 ]

@@ -659,23 +659,82 @@ function bandHasInk(column) {
   return false;
 }
 
+// How much of the column between the top and bottom lines has to be ink.
+const BAR_FILL = 0.88;
+// How much of it may have something wide hanging off it.
+const BAR_ATTACHED = 0.4;
+// How wide the thing hanging off it has to be before it counts.
+const BAR_WIDE = 1.2;
+// How far it may run past the stave before it is a stem going somewhere.
+const BAR_OVERHANG = 0.5;
+
 // A barline is a column of ink that spans the stave from the top line to the
 // bottom one — and nothing else on a single-staff part does that. Thick columns
 // (a final double bar, a repeat) come out as one barline, which is right.
+// Why is there no barline here?
+//
+// The same job headProbe does for noteheads, and needed for the same reason: a
+// crop shows a barline the reader did not draw, and the only way to find out
+// which of findBars' three tests turned it down is to ask. Mirrors them in
+// order, with the numbers each one saw.
+export function barProbe(ink, w, h, staff, stripW, space, x) {
+  const lineY = (index, at) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(at / stripW)))
+  ];
+  const top = Math.round(lineY(0, x));
+  const bottom = Math.round(lineY(4, x));
+  if (bottom <= top) return { verdict: 'no stave here' };
+  let filled = 0;
+  for (let y = top; y <= bottom; y++) if (y >= 0 && y < h && ink[y * w + x]) filled++;
+  const fill = filled / (bottom - top + 1);
+  const out = { fill: +fill.toFixed(3) };
+  if (fill <= BAR_FILL) return { ...out, verdict: `column only ${(fill * 100).toFixed(0)}% inked between the lines` };
+
+  const lines = [0, 1, 2, 3, 4].map((k) => lineY(k, x));
+  const wide = Math.max(3, Math.round(space * BAR_WIDE));
+  let looked = 0;
+  let attached = 0;
+  for (let y = top; y <= bottom; y++) {
+    if (y < 0 || y >= h) continue;
+    if (lines.some((line) => Math.abs(y - line) <= Math.max(1, space * 0.22))) continue;
+    looked += 1;
+    let across = 1;
+    for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
+    for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
+    if (across >= wide) attached += 1;
+  }
+  out.attached = looked ? +(attached / looked).toFixed(3) : 0;
+  if (looked > 0 && attached / looked > BAR_ATTACHED) {
+    return { ...out, verdict: 'something wide is hanging off it — a stem with a head or a beam' };
+  }
+  const over = Math.round(space * 1.4);
+  let above = 0; let below = 0;
+  for (let k = 1; k <= over; k++) {
+    if (top - k >= 0 && ink[(top - k) * w + x]) above += 1;
+    if (bottom + k < h && ink[(bottom + k) * w + x]) below += 1;
+  }
+  out.above = above; out.below = below;
+  const overhang = Math.max(1, Math.round(space * BAR_OVERHANG));
+  if (above > overhang || below > overhang) {
+    return { ...out, verdict: `runs on past the stave — ${above} above, ${below} below, ${overhang} allowed` };
+  }
+  return { ...out, verdict: 'accepted' };
+}
+
 function findBars(ink, w, h, staff, stripW, space) {
   const lineY = (index, x) => staff.lines[index].at[
     Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
   ];
   const columns = [];
   // How wide is too wide for something a barline is touching.
-  const wide = Math.max(3, Math.round(space * 1.2));
+  const wide = Math.max(3, Math.round(space * BAR_WIDE));
   for (let x = 0; x < w; x++) {
     const top = Math.round(lineY(0, x));
     const bottom = Math.round(lineY(4, x));
     if (bottom <= top) continue;
     let filled = 0;
     for (let y = top; y <= bottom; y++) if (y >= 0 && y < h && ink[y * w + x]) filled++;
-    if (filled / (bottom - top + 1) <= 0.88) continue;
+    if (filled / (bottom - top + 1) <= BAR_FILL) continue;
 
     // A full column is not a barline if something is hanging off it.
     //
@@ -704,7 +763,7 @@ function findBars(ink, w, h, staff, stripW, space) {
       for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
       if (across >= wide) attached += 1;
     }
-    if (looked > 0 && attached / looked > 0.12) continue;
+    if (looked > 0 && attached / looked > BAR_ATTACHED) continue;
 
     // And a barline STOPS at the stave.
     //
@@ -724,7 +783,7 @@ function findBars(ink, w, h, staff, stripW, space) {
     }
     // A little overhang is how a barline is drawn by hand and printed by a
     // press; half a staff space of it either way is not a stem.
-    const overhang = Math.max(1, Math.round(space * 0.5));
+    const overhang = Math.max(1, Math.round(space * BAR_OVERHANG));
     if (above > overhang || below > overhang) continue;
     columns.push(x);
   }

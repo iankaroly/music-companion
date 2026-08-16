@@ -187,6 +187,14 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
     size: `${work.width}x${work.height}`,
     space: +space.toFixed(1),
     suspect,
+    // Barlines have no ground truth here, but the COUNT belongs in the report
+    // anyway. This tool measured noteheads and nothing else, and while it read
+    // 90% on a page the reader was finding four barlines on it where there are
+    // thirty-five — which is what somebody looking at the screen actually sees,
+    // and it stayed invisible for a day because no number went near it.
+    bars: read.staves.reduce((a, st) => a + (st.bars?.length ?? 0), 0),
+    systems: read.staves.length,
+    clefs: read.staves.filter((st) => st.clef).length,
     found: found.length,
     truth: want.length,
     hit: tookT.size,
