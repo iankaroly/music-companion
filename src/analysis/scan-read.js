@@ -742,13 +742,25 @@ function findBars(ink, w, h, staff, stripW, space) {
 // the absolute minimum below which nothing is a head whatever the page says —
 // a stem is a fifth of a space — and CAP stops a page of beams talking the
 // floor up past its own notes.
-// How sure the classifier has to be. Chosen from the cross-page tests in
-// head-model.js, where a low cut costs almost nothing in precision and every
-// step up costs real notes on the harder page: at 0.3 the Mozart keeps 92.5% of
-// its notes and at 0.6 only 78.8%. A missed note breaks the alignment a take
+// How sure the classifier has to be.
+//
+// CHOSEN FROM THE CROSS-PAGE TABLE, NOT FROM npm run bench.
+//
+// The shipped weights are fitted to both marked pages, so on those two pages
+// the model is more confident than it will ever be on a new one, and a cut
+// tuned against them is tuned against a confidence the next upload will not
+// produce. The bench reads its best at 0.7 — and on a page held out of
+// training, 0.7 throws away a fifth of the notes.
+//
+//   held-out page      cut 0.3        cut 0.4        cut 0.7
+//   Bach            97.2 / 99.4    98.1 / 99.4    99.7 / 99.4
+//   Mozart          90.9 / 94.3    93.3 / 89.5    96.2 / 77.7
+//
+// So 0.4, which is where the harder of the two still keeps nine notes in ten
+// when it has never been trained on. A missed note breaks the alignment a take
 // depends on; an extra circle is cosmetic.
 const HEAD_JUDGE = true;
-const HEAD_CUT = 0.3;
+const HEAD_CUT = 0.4;
 
 // How close two candidates have to be before the weaker is taken as the same
 // head found twice. A notehead is about 1.2 spaces wide, so a pair of adjacent
