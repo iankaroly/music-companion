@@ -303,7 +303,7 @@ export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor =
 // bulge.
 //
 // Slurs go too, being longer and thinner still, and they were noise.
-export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8 } = {}) {
+export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8, join = 0.55, stack = 1.8 } = {}) {
   const body = new Uint8Array(ink);
   const runFloor = Math.max(3, Math.round(space * run));
   // The contiguous ink this pixel belongs to, up and down its own column.
@@ -342,10 +342,25 @@ export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8 } = {}) {
         const base = talls[Math.floor((talls.length - 1) * 0.25)];
         // Ink taller than a notehead everywhere along a long run is not a beam
         // at all — it is a black chord, a bracket, or the edge of the page.
-        if (median <= space * 1.4) {
+        if (median <= space * stack) {
           for (let k = x; k < end; k++) {
             const { top, bottom, tall } = extent(k, y);
-            if (tall > base * bulge) continue;    // a head joins here
+            // A head joins here.
+            //
+            // Asked two ways, and spared if EITHER says so. `bulge` is a
+            // multiple of the beam's own thickness, and that is the wrong shape
+            // of question on its own: it makes the bar for "a head is attached"
+            // depend on how thick this edition draws its beams, so a thin beam
+            // spares almost anything and a thick double beam spares almost
+            // nothing. Measured on a photographed Mozart flute part, whose
+            // double beams are thick and whose staff space is 10 pixels, the
+            // multiplicative bar landed ABOVE a notehead's own height and the
+            // mask erased whole beamed runs straight through their heads.
+            //
+            // A notehead adds about a space of height wherever it meets a beam,
+            // and that is true of every engraving because it is what a staff
+            // space means. So the additive test is the one that travels.
+            if (tall > base * bulge || tall > base + space * join) continue;
             for (let yy = top; yy <= bottom; yy++) body[yy * w + k] = 0;
           }
         }
@@ -721,6 +736,15 @@ function findBars(ink, w, h, staff, stripW, space) {
   return bars.map((group) => group.reduce((a, b) => a + b, 0) / group.length);
 }
 
+// The width a notehead has to reach before it is believed, expressed as what
+// the page itself measures rather than as one number for every page. FLOOR is
+// the absolute minimum below which nothing is a head whatever the page says —
+// a stem is a fifth of a space — and CAP stops a page of beams talking the
+// floor up past its own notes.
+const HEAD_WIDE_FLOOR = 0.55;
+const HEAD_WIDE_SHARE = 0.75;
+const HEAD_WIDE_CAP = 1.2;
+
 // A notehead away from the stave stands on a ledger line — and on nothing
 // longer than one.
 //
@@ -892,6 +916,91 @@ function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
 // solid ellipse about a staff space tall and half again as wide, with white
 // above and below it; a beam is thinner, a stem far narrower, a slur thinner
 // still.
+// The head geometry, built once and shared.
+//
+// findHeads inlines its own loops for speed, but the SHAPES it measures — the
+// ellipse, the rim band, the core — are the definition of a notehead in this
+// reader, and a second copy of them in a diagnostic tool would drift from the
+// first the day either changed. So they are built here and both use them.
+export function headShapes(space) {
+  const hw = Math.max(2, Math.round(space * 0.62));
+  const hh = Math.max(2, Math.round(space * 0.45));
+  const inside = [];
+  const rim = [];
+  const core = [];
+  for (let dy = -hh; dy <= hh; dy++) {
+    for (let dx = -hw; dx <= hw; dx++) {
+      const d = (dx / hw) ** 2 + (dy / hh) ** 2;
+      if (d <= 1) inside.push([dx, dy]);
+      if (d >= 0.62 && d <= 1.3) rim.push([dx, dy]);
+      if (d <= 0.25) core.push([dx, dy]);
+    }
+  }
+  return { hw, hh, inside, rim, core };
+}
+
+// Why is there no notehead here?
+//
+// A crop says a notehead is at x,y and the reader drew no ring on it. This says
+// which test turned it down and by how much — the fill it scored, what its rim
+// and core came to, how far its ink runs sideways. Every head test in this file
+// was written against a page where it mattered, and without this the only way
+// to find out which one is firing is to guess and re-measure the whole page.
+//
+// Mirrors findHeads in the same order, using the same shapes. Verified against
+// it by tools/head-probe.mjs, which checks that the points the reader DID find
+// come back "accepted".
+export function headProbe(ink, w, h, space, gray, background, x, y) {
+  const { hw, hh, inside, rim, core } = headShapes(space);
+  if (x < hw + 1 || x >= w - hw - 1 || y < hh + 1 || y >= h - hh - 1) {
+    return { verdict: 'off the page' };
+  }
+  const solidCentre = ink[y * w + x];
+  const inner = Math.max(1, Math.round(hw * 0.78));
+  const leftInk = ink[y * w + x - hw] || ink[y * w + x - inner];
+  const rightInk = ink[y * w + x + hw] || ink[y * w + x + inner];
+  const out = { solidCentre: !!solidCentre, leftInk: !!leftInk, rightInk: !!rightInk };
+  if (!solidCentre && !(leftInk && rightInk)) {
+    return { ...out, verdict: 'not a candidate: centre is paper and there is no ring either side' };
+  }
+  let filled = 0;
+  for (const [dx, dy] of inside) filled += ink[(y + dy) * w + x + dx];
+  out.fill = +(filled / inside.length).toFixed(3);
+  let rimInk = 0;
+  for (const [dx, dy] of rim) rimInk += ink[(y + dy) * w + x + dx];
+  let coreInk = 0;
+  for (const [dx, dy] of core) coreInk += ink[(y + dy) * w + x + dx];
+  let paper = 0;
+  for (const [dx, dy] of core) {
+    const at = (y + dy) * w + x + dx;
+    if (gray[at] >= background[at] - 6) paper += 1;
+  }
+  out.rim = +(rimInk / rim.length).toFixed(3);
+  out.core = +(coreInk / core.length).toFixed(3);
+  out.paper = +(paper / core.length).toFixed(3);
+  let solid = out.fill >= 0.86;
+  let hollow = false;
+  if (!solid && out.fill >= 0.3 && out.fill < 0.86) {
+    if (out.core >= 0.9 && out.fill >= 0.8) solid = true;
+    const ring = out.rim >= 0.68 && out.core <= 0.42;
+    hollow = ring && out.paper >= 0.7;
+    if (ring && !hollow) solid = true;
+  }
+  out.solid = solid;
+  out.hollow = hollow;
+  if (!solid && !hollow) {
+    return { ...out, verdict: out.fill < 0.3 ? 'too little ink to be a head'
+      : 'rim or core failed: not solid enough, not ring enough' };
+  }
+  let across = 1;
+  for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
+  for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
+  out.across = +(across / space).toFixed(2);
+  if (across > space * 2.6) return { ...out, verdict: 'ink runs too far sideways — a beam, not a head' };
+  if (solid && across < space * 1.05) return { ...out, verdict: 'ink too narrow for a head — a stem or a speck' };
+  return { ...out, verdict: 'accepted' };
+}
+
 function findHeads(ink, w, h, staff, space, gray, background) {
   const hw = Math.max(2, Math.round(space * 0.62));
   const hh = Math.max(2, Math.round(space * 0.45));
@@ -987,7 +1096,14 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // in a beam, which are dark all through or light all through.
       let solid = fill >= 0.86;
       let hollow = false;
-      if (!solid && fill >= 0.3 && fill <= 0.82) {
+      // Up to the solid test's own floor, with no gap between them.
+      //
+      // This read `fill <= 0.82` against a solid test of `fill >= 0.86`, which
+      // leaves a band where a candidate is neither: too inky to be offered to
+      // the ring test, not inky enough to be called solid, and dropped without
+      // any test having actually rejected it. On a photographed Mozart flute
+      // part — greyer paper, a 10px staff space — real noteheads land in it.
+      if (!solid && fill >= 0.3 && fill < 0.86) {
         let rimInk = 0;
         for (const [dx, dy] of rim) rimInk += ink[(y + dy) * w + x + dx];
         let coreInk = 0;
@@ -1017,6 +1133,21 @@ function findHeads(ink, w, h, staff, space, gray, background) {
           const at = (y + dy) * w + x + dx;
           if (gray[at] >= background[at] - 6) paper += 1;
         }
+        // A SOLID HEAD WHOSE EDGES HAVE ERODED is still a solid head.
+        //
+        // `fill >= 0.86` asks the whole ellipse to be ink, and the whole
+        // ellipse is the part a blurred, greyed, downscaled scan loses first —
+        // the edges go pale, the threshold drops them, and a perfectly solid
+        // notehead scores 0.77 to 0.84. Probed on a photographed Mozart flute
+        // part, the heads that came back missing read `core 1` every time: the
+        // middle completely inked, the rim eaten away.
+        //
+        // The middle is the robust half of the measurement, and it is also the
+        // half that carries the meaning — a solid head is solid IN THE MIDDLE,
+        // and a minim is exactly the same shape with the middle left white.
+        // The `paper` test below is what tells those apart, and it is asked of
+        // the same pixels, so nothing here can make a minim solid.
+        if ((coreInk / core.length) >= 0.9 && fill >= 0.8) solid = true;
         const ring = (rimInk / rim.length) >= 0.68 && (coreInk / core.length) <= 0.42;
         hollow = ring && (paper / core.length) >= 0.7;
         // A ring whose middle is grey rather than white is not a ring at all —
@@ -1077,7 +1208,9 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // Only the SOLID branch is floored. A ring is judged by its rim and its
       // paper centre and has its own tests; measured on the corpus the same
       // floor applied to rings costs real minims and buys nothing.
-      if (solid && across < space * 1.05) continue;
+      // The width floor is not applied here. It is applied below, against a
+      // width this page measured for itself — see the note at HEAD_WIDE.
+      if (solid && across < space * HEAD_WIDE_FLOOR) continue;
       let clear = 0;
       for (const [dx, dy] of ring) {
         const yy = y + dy;
@@ -1090,12 +1223,38 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // it IS a ring rather than by how dark it is, or a fat one would always
       // lose to the smudge beside it.
       const quality = solid ? fill : 0.86;
-      scored.push({ x, y, score: quality + open, hollow });
+      scored.push({ x, y, score: quality + open, hollow, across });
     }
   }
-  scored.sort((a, b) => b.score - a.score);
+  // HOW WIDE A NOTEHEAD IS ON THIS PAGE, asked of this page.
+  //
+  // A solid candidate narrower than a notehead is a stem crossing a beam, the
+  // dot of a fingering, a letter of a heading. The floor for that was a constant
+  // — 1.05 staff spaces — and a constant is exactly what cannot be right twice:
+  // measured with tools/scan-why, the noteheads on a photographed Mozart flute
+  // part run 1.0 spaces wide and the ones on the Bärenreiter Bach run 1.24. The
+  // constant was fitted to the second and threw away the first, which is a
+  // whole engraving's worth of notes rejected for being the size they were
+  // printed.
+  //
+  // The page has hundreds of heads on it and they are all the same width, so it
+  // can be asked. The low quartile of what the shape tests accepted is the
+  // narrowest a head on this page honestly gets; three quarters of that is the
+  // floor, which leaves room for the blur and keeps out a stem, since a stem is
+  // a fifth of a space and no page draws heads four times narrower than each
+  // other.
+  //
+  // Two passes over a list already in memory, and no second scan of the image.
+  const widths = scored.filter((c) => !c.hollow).map((c) => c.across).sort((a, b) => a - b);
+  const typical = widths.length >= 12
+    ? widths[Math.floor((widths.length - 1) * 0.25)] * HEAD_WIDE_SHARE
+    : space * HEAD_WIDE_FLOOR;
+  const floor = Math.max(space * HEAD_WIDE_FLOOR, Math.min(space * HEAD_WIDE_CAP, typical));
+  const wide = scored.filter((c) => c.hollow || c.across >= floor);
+
+  wide.sort((a, b) => b.score - a.score);
   const kept = [];
-  for (const point of scored) {
+  for (const point of wide) {
     if (kept.some((k) => Math.abs(k.x - point.x) < space * 1.1
       && Math.abs(k.y - point.y) < space * 0.9)) continue;
     kept.push(point);
