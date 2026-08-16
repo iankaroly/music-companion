@@ -1036,6 +1036,108 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
   return { ...out, verdict: 'accepted' };
 }
 
+// Notes found by their STEMS, for the ones the shape tests never offer.
+//
+// The shape tests scan for ellipses and the classifier judges what they find,
+// so a note the scan never proposes cannot be recovered by any amount of
+// judging: measured, the Mozart's recall of 89% was EXACTLY the number of real
+// candidates the scan produced, meaning the classifier was losing none of them
+// and every missing note was one that was never offered.
+//
+// A stem is the way back to them. It is the easiest thing on a page to find —
+// a thin vertical run, and nothing else on a stave is thin and vertical and
+// three spaces long — and it points at its own notehead: an engraver puts the
+// head at one end of it, on the left of a stem that goes up and the right of
+// one that goes down. Measured on the two marked pages, 76% of the Mozart's
+// missing notes and 60% of the Bach's have a stem of two spaces or more
+// standing next to them.
+//
+// This costs nothing in precision because it does not accept anything. It
+// PROPOSES, and the classifier decides, which is the same division of labour
+// that made showing it the stem worth doing in the first place.
+const STEM_TALL = 2;      // staff spaces; shorter than this is a flag or a bar
+const STEM_WIDE = 0.35;   // staff spaces; wider than this is not a stem
+const STEM_HUNT = 0.5;    // how far around the proposal to look for the best fit
+// A HIGHER BAR than the scan's own candidates, because these scores are the
+// best of a hundred-odd positions rather than the score at one. Taking the
+// maximum over a neighbourhood biases it upward — somewhere in a square of
+// paper there is always a spot that scores well — so judging a max-selected
+// candidate at the same cut as a single-position one accepts a great deal of
+// nothing. Measured at 0.4 it read the Mozart's recall up three points and its
+// precision down twenty-one.
+const STEM_CUT = 0.95;
+
+function stemHeads(ink, w, h, staff, space, gray, background, taken) {
+  const found = [];
+  const tall = Math.round(space * STEM_TALL);
+  const wide = Math.max(1, Math.round(space * STEM_WIDE));
+  const top = Math.max(1, Math.round(staff.lines[0].mid - space * 7));
+  const bottom = Math.min(h - 2, Math.round(staff.lines[4].mid + space * 7));
+  const near = (x, y) => taken.some((k) => Math.abs(k.x - x) < space * CLUSTER_X
+    && Math.abs(k.y - y) < space * CLUSTER_Y);
+
+  for (let x = wide + 1; x < w - wide - 1; x++) {
+    let y = top;
+    while (y <= bottom) {
+      if (!ink[y * w + x]) { y++; continue; }
+      let end = y;
+      while (end < bottom && ink[(end + 1) * w + x]) end++;
+      const run = end - y + 1;
+      if (run < tall) { y = end + 1; continue; }
+      // Thin, or it is a barline or the edge of something.
+      let across = 1;
+      const mid = Math.round((y + end) / 2);
+      for (let k = x - 1; k >= 0 && ink[mid * w + k]; k--) across++;
+      for (let k = x + 1; k < w && ink[mid * w + k]; k++) across++;
+      if (across > wide) { y = end + 1; continue; }
+
+      // A head at either end — except the end the BEAM is on.
+      //
+      // A stem runs from its notehead to whatever joins it to its neighbours,
+      // so one end has a head and the other has a beam, and proposing at both
+      // asks for a notehead in the middle of a beam once per note. On the
+      // synthetic corpus, whose beamed groups are perfectly regular, that was
+      // forty-odd spurious heads on a page.
+      //
+      // The beam end is the one with a long horizontal run across it, which is
+      // the same measurement the ledger rule and the width test already use.
+      const beamAt = (at) => {
+        let run = 1;
+        const reach = Math.round(space * 1.5);
+        for (let k = x - 1; k >= 0 && ink[at * w + k] && run <= reach; k--) run++;
+        for (let k = x + 1; k < w && ink[at * w + k] && run <= reach; k++) run++;
+        return run > reach;
+      };
+      for (const [at, side] of [[y, 1], [end, -1]]) {
+        if (beamAt(at)) continue;
+        let best = null;
+        for (let dy = -Math.round(space * STEM_HUNT); dy <= Math.round(space * STEM_HUNT); dy++) {
+          for (let dx = -Math.round(space * STEM_HUNT); dx <= Math.round(space * STEM_HUNT); dx++) {
+            const hx = Math.round(x + side * space * 0.5) + dx;
+            const hy = at + dy;
+            if (hx < 1 || hx >= w - 1 || hy < 1 || hy >= h - 1) continue;
+            if (near(hx, hy)) continue;
+            const score = headScore(headPatch(gray, background, w, h, space, hx, hy));
+            if (!best || score > best.score) best = { x: hx, y: hy, score };
+          }
+        }
+        if (best && best.score >= STEM_CUT) found.push(best);
+      }
+      y = end + 1;
+    }
+  }
+
+  // One per place, strongest first — the same rule the shape tests use.
+  found.sort((a, b) => b.score - a.score);
+  const kept = [];
+  for (const c of found) {
+    if (kept.some((k) => Math.abs(k.x - c.x) < space * CLUSTER_X
+      && Math.abs(k.y - c.y) < space * CLUSTER_Y)) continue;
+    kept.push({ x: c.x, y: c.y, score: c.score, hollow: false });
+  }
+  return kept;
+}
+
 function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   const hw = Math.max(2, Math.round(space * 0.62));
   const hh = Math.max(2, Math.round(space * 0.45));
@@ -1308,6 +1410,12 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
       && Math.abs(k.y - point.y) < space * CLUSTER_Y)) continue;
     kept.push(point);
   }
+  // …and then the notes the scan never offered, hunted from their stems and
+  // judged by the same classifier. Only when the judge is on: with it off this
+  // would accept everything a stem points at, and the one caller that turns it
+  // off is the trainer, which wants the scan's own candidates and nothing else.
+  if (judge && HEAD_JUDGE) kept.push(...stemHeads(ink, w, h, staff, space, gray, background, kept));
+
   return kept.sort((a, b) => a.x - b.x);
 }
 
