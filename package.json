@@ -48,7 +48,8 @@
     "scan:key": "node tools/key-audit.mjs",
     "scan:crop": "node tools/crop.mjs",
     "scan:res": "node tools/res-sweep.mjs",
-    "scan:why": "node tools/head-probe.mjs"
+    "scan:why": "node tools/head-probe.mjs",
+    "bench": "node tools/bench.mjs"
   },
   "keywords": [],
   "author": "",

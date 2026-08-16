@@ -10,6 +10,10 @@
 //   CROP_MARKS=1 npm run scan:crop -- <page.pdf> 700,300     every head it found
 //   CROP_LAYER=body npm run scan:crop -- …                  what findHeads sees
 //   CROP_LAYER=ink  npm run scan:crop -- …                  what it thresholds to
+//   CROP_TRUTH=<f.truth.json> …    a marked page: ring = found, dot = really
+//                                  there. A ring with no dot is invented, a dot
+//                                  with no ring is missed, and both at once is
+//                                  the reader being right.
 //
 import { readFile, writeFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
@@ -28,13 +32,16 @@ if (!file || !spots.length) {
 }
 
 const bytes = await readFile(file);
+const truth = process.env.CROP_TRUTH
+  ? JSON.parse(await readFile(process.env.CROP_TRUTH, 'utf8')).notes
+  : null;
 const browser = await puppeteer.launch({ executablePath: SHELL, headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
 await page.setViewport({ width: 1400, height: 1800 });
 await page.goto(`http://localhost:${process.env.PORT ?? '5199'}/`, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1400));
 
-const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer }) => {
+const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer, truth }) => {
   const binary = Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
   const pdfjs = await import('/node_modules/pdfjs-dist/build/pdf.mjs');
   pdfjs.GlobalWorkerOptions.workerSrc = '/node_modules/pdfjs-dist/build/pdf.worker.mjs';
@@ -116,6 +123,17 @@ const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer }) => 
     g.imageSmoothingEnabled = false;
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
     g.drawImage(work, x - p, y - p, p * 2, p * 2, 0, 0, c.width, c.height);
+    // What is really there, when a marked page has been given.
+    if (truth) {
+      g.fillStyle = '#e0245e';
+      for (const t of truth) {
+        const tx = t.x * work.width; const ty = t.y * work.height;
+        if (tx < x - p || tx > x + p || ty < y - p || ty > y + p) continue;
+        g.beginPath();
+        g.arc((tx - (x - p)) * zoom, (ty - (y - p)) * zoom, 2.2 * zoom, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
     // Everything the reader found inside this crop.
     g.strokeStyle = '#12b886'; g.lineWidth = 2.5;
     for (const [hx, hy] of heads) {
@@ -131,7 +149,7 @@ const images = await page.evaluate(async ({ b64, at, pad: p, marks, layer }) => 
     }
     return c.toDataURL('image/png').split(',')[1];
   });
-}, { b64: bytes.toString('base64'), at: spots, pad, marks: process.env.CROP_MARKS === '1', layer: process.env.CROP_LAYER ?? null });
+}, { b64: bytes.toString('base64'), at: spots, pad, marks: process.env.CROP_MARKS === '1' || !!truth, layer: process.env.CROP_LAYER ?? null, truth });
 
 await browser.close();
 for (const [i, data] of images.entries()) {

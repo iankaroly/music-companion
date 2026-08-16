@@ -776,9 +776,12 @@ const HEAD_WIDE_CAP = 1.2;
 // The first space either side of the stave — step 9 and step -1 — is written
 // without a ledger line and is never asked about.
 const LEDGER_LONGEST = 3;   // staff spaces; the notes on that page reach 2.9
+// Out where only a ledger note can be, there has to be a ledger line: an
+// engraver draws one because otherwise nobody could tell which line the note is
+// on. Text, dynamics, rests and ornaments have none.
 const LEDGER_SHORTEST = 1.2;
 const FAR_ABOVE = 14;
-const FAR_BELOW = -4;
+const FAR_BELOW = -2;
 const LEDGER_GAP = 2;       // pixels of break tolerated, for a photographed line
 
 // How wide the horizontal rule through this head runs, in staff spaces, at the
@@ -823,7 +826,11 @@ function offStaveIsCredible(ink, w, h, staff, stripW, space, head) {
   ];
   const step = Math.round((at(4, head.x) - head.y) / (space / 2));
   if (step >= -1 && step <= 9) return true;
-  return ledgerRun(ink, w, h, staff, stripW, space, head) <= LEDGER_LONGEST;
+  const run = ledgerRun(ink, w, h, staff, stripW, space, head);
+  if (run > LEDGER_LONGEST) return false;
+  // …and out where only a ledger note can be, there has to be a ledger line.
+  if (step >= FAR_ABOVE || step <= FAR_BELOW) return run >= LEDGER_SHORTEST;
+  return true;
 }
 
 // Ink printed at the start of every system is furniture, not music.
