@@ -137,14 +137,33 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
   // and a half spaces apart. The first version of this measured exactly that
   // and stopped at the first column it looked at, on every system of every
   // page, which is a filter that quietly does nothing.
-  const lines = [0, 1, 2, 3, 4].map((k) => Math.round(lineY(k)));
-  const tol = Math.max(1, Math.round(space * 0.16));
-  const onLine = (y) => lines.some((at) => Math.abs(y - at) <= tol);
+  // A staff line is FOUND, not predicted.
+  //
+  // Masking the five rows the stave model puts the lines on does not survive a
+  // photograph: the model is a curve fitted across forty strips, it is a pixel
+  // or three out here and there, the mask misses, and the column then measures
+  // from the top line to the bottom one. On four of the ten systems of the
+  // Bärenreiter page EVERY column came back four and a half spaces tall — the
+  // whole stave, against a ceiling of 3.2 — so the scan stopped at the first
+  // column it looked at and the key signature was circled as two noteheads.
+  // Following the model more carefully does not help: strip by strip and
+  // interpolated between strips both read worse than holding it still.
+  //
+  // What a staff line IS needs no model. It is ink that runs a long way
+  // sideways, and an accidental's strokes are a space or so across and stop.
+  const RULE = 3;   // staff spaces of horizontal run that mean a line, not a glyph
+  const far = Math.round(space * RULE);
+  const onRule = (x, y) => {
+    let run = 1;
+    for (let k = x - 1; k >= 0 && ink[y * w + k] && run <= far; k--) run++;
+    for (let k = x + 1; k < w && ink[y * w + k] && run <= far; k++) run++;
+    return run > far;
+  };
   const column = (x) => {
     let first = -1;
     let last = -1;
     for (let y = top; y <= bottom; y++) {
-      if (!ink[y * w + x] || onLine(y)) continue;
+      if (!ink[y * w + x] || onRule(x, y)) continue;
       if (first < 0) first = y;
       last = y;
     }
@@ -166,13 +185,10 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
   // overhangs its band, not a licence to hunt rightwards for something better.
   let from = start;
   const overhang = start + Math.round(space * 2);
-  if (column(from)) {
-    let blank = 0;
-    while (from <= overhang && blank <= 1) {
-      from++;
-      if (column(from)) blank = 0; else blank++;
-    }
-  }
+  // Stopped at the FIRST blank column, not the second: allowed the blank column
+  // of tolerance the glyph scan itself carries, this walked through the key
+  // signature and out the other side, and reported a band two spaces past it.
+  while (from <= overhang && column(from)) from++;
 
   const glyphs = [];
   const adjacent = from + space * KEY_ADJACENT;
