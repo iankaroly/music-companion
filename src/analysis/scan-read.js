@@ -606,6 +606,21 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   return out;
 }
 
+// Is there anything in this band to read at all?
+//
+// Not "is this a clef" — that is scan-clef.js's job and it is entitled to say
+// no. This is the far cruder question of whether the band holds ink, which
+// distinguishes a clef the classifier cannot name from a piece of blank margin
+// nobody drew anything on. A stave alone puts five rows across the full width
+// of the band, so the bar is set below one line and far above paper.
+const BAND_INK = 0.35;
+
+function bandHasInk(column) {
+  if (!column) return false;
+  for (const v of column) if (v >= BAND_INK) return true;
+  return false;
+}
+
 // A barline is a column of ink that spans the stave from the top line to the
 // bottom one — and nothing else on a single-staff part does that. Thick columns
 // (a final double bar, a repeat) come out as one barline, which is right.
@@ -984,12 +999,10 @@ export function readPage(source, naturalWidth, naturalHeight) {
   //
   // The same trick fillMissedStaves uses on the vertical — the page has a
   // rhythm, so use it — with the statistic chosen for which way the errors run.
-  const starts = found
-    .map(({ staff }) => staveStart(ink, w, h, staff, stripW))
-    .filter((x) => x !== null)
-    .sort((a, b) => a - b);
-  const margin = starts.length
-    ? starts[Math.floor((starts.length - 1) * 0.25)]
+  const starts = found.map(({ staff }) => staveStart(ink, w, h, staff, stripW));
+  const ranked = starts.filter((x) => x !== null).sort((a, b) => a - b);
+  const margin = ranked.length
+    ? ranked[Math.floor((ranked.length - 1) * 0.25)]
     : null;
 
   const out = found.map(({ staff, bars, heads }, staffIndex) => {
@@ -1001,12 +1014,35 @@ export function readPage(source, naturalWidth, naturalHeight) {
     // See staveStart. Null when it cannot be told, and null must stay null: a
     // cello part is in bass clef most of the time, and assuming so is what
     // turns the other times into a page of confident verdicts a sixth out.
-    const clefFrom = margin === null ? null : margin + staff.space * 0.25;
-    const read = clefFrom === null
+    // …with ONE system allowed to disagree with it, when it is looking at
+    // blank paper.
+    //
+    // An engraver indents the first system of a piece to leave room for the
+    // title, and the page-wide margin is then right for every system but that
+    // one. Measured on the Bärenreiter Bach: nine staves begin around x = 32 and
+    // the first begins at x = 135, so the band sampled for its clef held no ink
+    // at all — not a faint clef, not a doubtful one, NOTHING — and the reader
+    // refused. That refusal is a false negative dressed as honesty: there is a
+    // clef on that system, and it is in the same place it is on every other
+    // page ever engraved, just further right.
+    //
+    // So an empty band is not an answer, it is a wrong place to have looked, and
+    // the system's OWN start is the second place to try. The test is deliberately
+    // absolute — a band with any ink in it is a band with something to classify,
+    // and is left alone, so the eight systems that read correctly off the page
+    // margin never reach this branch.
+    const bandAt = (from) => (from === null ? null
+      : clefColumn(ink, w, h, staff, stripW, staff.space, from + staff.space * 0.25));
+    let clefAt = margin;
+    let column = bandAt(margin);
+    if (!bandHasInk(column) && starts[staffIndex] !== null && starts[staffIndex] !== margin) {
+      const retry = bandAt(starts[staffIndex]);
+      if (bandHasInk(retry)) { clefAt = starts[staffIndex]; column = retry; }
+    }
+    const clefFrom = clefAt === null ? null : clefAt + staff.space * 0.25;
+    const read = column === null
       ? { clef: null, confidence: 0 }
-      : classifyClef(clefFeatures(
-        clefColumn(ink, w, h, staff, stripW, staff.space, clefFrom), staff.space,
-      ));
+      : classifyClef(clefFeatures(column, staff.space));
     return {
       clef: read.clef,
       clefConfidence: read.confidence,
