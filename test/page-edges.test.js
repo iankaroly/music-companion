@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
-import { findPage, homography, through, rectFor } from '../src/analysis/page-edges.js';
+import {
+  findPage, findPages, coverageOf, quadsMoved, homography, through, rectFor,
+} from '../src/analysis/page-edges.js';
 
 // A photograph, as luma: a dark table with a bright quadrilateral of paper on
 // it, tilted the way a phone held over a book tilts it.
@@ -29,6 +31,59 @@ function photograph(w, h, quad, { table = 40, paper = 220, ink = true } = {}) {
   return luma;
 }
 
+// Several sheets in one frame, with music printed on them at a size that goes
+// with the PAGE rather than with the picture — which is what a camera does, and
+// what makes ink a problem close up and no problem at all at arm's length.
+function photographOf(w, h, quads, { table = 40, paper = 220, fold = null } = {}) {
+  const luma = new Float32Array(w * h).fill(table);
+  for (const quad of quads) {
+    const xs = quad.map((p) => p[0]);
+    const ys = quad.map((p) => p[1]);
+    const left = Math.min(...xs);
+    const top = Math.min(...ys);
+    const pw = Math.max(...xs) - left;
+    const ph = Math.max(...ys) - top;
+    const inside = (x, y) => {
+      let hits = 0;
+      for (let i = 0; i < 4; i++) {
+        const a = quad[i];
+        const b = quad[(i + 1) % 4];
+        if ((a[1] > y) !== (b[1] > y)
+          && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) hits++;
+      }
+      return hits % 2 === 1;
+    };
+    const space = ph / 44;
+    const thick = Math.max(1, Math.round(ph / 110));
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (!inside(x + 0.5, y + 0.5)) continue;
+        const u = (x - left) / pw;
+        const v = (y - top) / ph;
+        let value = paper;
+        const line = Math.round((y - top) / space);
+        const onStaff = Math.abs((y - top) - line * space) < thick / 2 && line % 8 < 5 && line > 3;
+        if (onStaff && u > 0.1 && u < 0.9) value = 45;
+        // a beamed group and a title: solid ink, wider than any closing kernel
+        if (v > 0.03 && v < 0.06 && u > 0.25 && u < 0.75) value = 50;
+        if (v > 0.3 && v < 0.34 && u > 0.4 && u < 0.6) value = 50;
+        luma[y * w + x] = value;
+      }
+    }
+  }
+  // The fold of a book: a dark line down the middle, as wide and as deep as
+  // asked for. Bright enough and it is a crease the paper survives; dark enough
+  // and it cuts the picture into two sheets.
+  if (fold) {
+    for (let y = fold.top; y < fold.bottom; y++) {
+      for (let x = Math.round(fold.at - fold.wide / 2); x < Math.round(fold.at + fold.wide / 2); x++) {
+        if (x >= 0 && x < w) luma[y * w + x] = fold.value;
+      }
+    }
+  }
+  return luma;
+}
+
 const W = 160;
 const H = 210;
 const TILTED = [[14, 20], [146, 12], [150, 196], [10, 190]];
@@ -52,9 +107,8 @@ describe('finding the sheet of paper', () => {
     expect(findPage(luma, W, H)).toBeNull();
   });
 
-  it('refuses two pages of an open book rather than warping both', () => {
-    // Left page mostly out of frame, right page in it: one bright region whose
-    // corners describe a shape no sheet of paper has.
+  it('refuses half a page hanging off the edge of the frame', () => {
+    // One bright region whose corners describe a shape no sheet of paper has.
     const luma = photograph(W, H, [[0, 30], [150, 14], [152, 198], [70, 205]]);
     expect(findPage(luma, W, H)).toBeNull();
   });
@@ -62,6 +116,122 @@ describe('finding the sheet of paper', () => {
   it('refuses a photograph that is already nothing but paper', () => {
     const luma = photograph(W, H, [[0, 0], [W, 0], [W, H], [0, H]]);
     expect(findPage(luma, W, H)).toBeNull();
+  });
+
+  // The bug this was written for: the outline only came up with the phone held
+  // far enough away that the page was a small bright slab in the middle of the
+  // frame, so what got kept was a page at a fraction of the resolution the
+  // camera was holding. Close up, the ink is thick enough to cut the bright
+  // region into strips, and a page whose corners sit near the picture's own was
+  // thrown away as "already nothing but paper".
+  it('finds a page held close enough to nearly fill the frame', () => {
+    const margin = 0.02;
+    const quad = [
+      [W * margin, H * margin], [W * (1 - margin), H * margin],
+      [W * (1 - margin), H * (1 - margin)], [W * margin, H * (1 - margin)],
+    ];
+    const found = findPages(photographOf(W, H, [quad]), W, H);
+    expect(found).toHaveLength(1);
+    expect(coverageOf(found)).toBeGreaterThan(0.85);
+  });
+
+  it('finds a page with heavy ink on it, which a close-up page has', () => {
+    const quad = [[10, 14], [150, 14], [150, 196], [10, 196]];
+    const found = findPages(photographOf(W, H, [quad]), W, H);
+    expect(found).toHaveLength(1);
+    const [tl, , br] = found[0].map(([x, y]) => [x * W, y * H]);
+    expect(Math.hypot(tl[0] - 10, tl[1] - 14)).toBeLessThan(9);
+    expect(Math.hypot(br[0] - 150, br[1] - 196)).toBeLessThan(9);
+  });
+
+  it('says how much of the frame the page fills, so a distant one can be named', () => {
+    const near = findPages(photographOf(W, H, [[[8, 10], [152, 10], [152, 200], [8, 200]]]), W, H);
+    const far = findPages(photographOf(W, H, [[[46, 58], [114, 58], [114, 152], [46, 152]]]), W, H);
+    expect(coverageOf(near)).toBeGreaterThan(0.75);
+    expect(coverageOf(far)).toBeLessThan(0.3);
+  });
+});
+
+// An open book is the way music actually arrives at a scanner, and two pages
+// warped onto one rectangle is a page bent down the middle that no reader can
+// follow. Both pages, separately, or it is not worth doing.
+describe('an open book', () => {
+  const LEFT = [[8, 22], [76, 22], [76, 190], [8, 190]];
+  const RIGHT = [[84, 22], [152, 22], [152, 190], [84, 190]];
+
+  it('finds both pages when the fold is dark enough to part them', () => {
+    const luma = photographOf(W, H, [LEFT, RIGHT]);
+    const found = findPages(luma, W, H);
+    expect(found).toHaveLength(2);
+    const [left, right] = found;
+    expect(left[0][0]).toBeLessThan(right[0][0]);          // left page first
+    expect(left[1][0] * W).toBeLessThan(84);               // and it stops at the fold
+    expect(right[0][0] * W).toBeGreaterThan(76);
+  });
+
+  it('finds both pages when the fold is only a crease', () => {
+    // One sheet of paper across the frame with a soft dark seam down it: the
+    // book is flat enough that the bright region never comes apart.
+    const spread = [[8, 50], [152, 50], [152, 160], [8, 160]];
+    const luma = photographOf(W, H, [spread], {
+      fold: { at: 80, wide: 6, top: 50, bottom: 160, value: 170 },
+    });
+    const found = findPages(luma, W, H);
+    expect(found).toHaveLength(2);
+    const [left, right] = found;
+    expect(left[1][0] * W).toBeGreaterThan(70);
+    expect(left[1][0] * W).toBeLessThan(90);
+    expect(right[0][0] * W).toBeCloseTo(left[1][0] * W, 0);
+  });
+
+  it('keeps one wide page in one piece when there is no fold in it', () => {
+    const wide = [[8, 40], [152, 40], [152, 168], [8, 168]];
+    expect(findPages(photographOf(W, H, [wide]), W, H)).toHaveLength(1);
+  });
+
+  // A spread is twice as wide as it is tall and a phone's frame is not, so a
+  // book held as close as the frame allows still covers much less of it than a
+  // single page does. The scanner's shutter waits for a fraction of the frame to
+  // be filled before it lights, and this is what a book can actually offer it:
+  // an open spread across almost the whole width of a tall phone frame.
+  it('fills enough of a tall frame for the shutter to light on a book', () => {
+    const w = 120;
+    const h = 260;
+    const luma = photographOf(w, h, [
+      [[6, 90], [57, 90], [57, 167], [6, 167]],
+      [[63, 90], [114, 90], [114, 167], [63, 167]],
+    ]);
+    const found = findPages(luma, w, h);
+    expect(found).toHaveLength(2);
+    // FILL_FRAME * FILL_SPREAD in src/ui/scanner.js
+    expect(coverageOf(found)).toBeGreaterThan(0.225);
+  });
+
+  it('will not hand a spread to a caller that can only keep one page', () => {
+    expect(findPage(photographOf(W, H, [LEFT, RIGHT]), W, H)).toBeNull();
+  });
+});
+
+// Whether the page is being held still, asked of the page rather than of the
+// picture. The picture's own frame-to-frame difference grows with how much of
+// the frame the paper fills — the same hand-shake reads three times as big with
+// the phone close — so the shutter used to light up only at arm's length.
+describe('holding it still', () => {
+  const page = [[0.1, 0.1], [0.9, 0.1], [0.9, 0.9], [0.1, 0.9]];
+  const nudged = page.map(([x, y]) => [x + 0.004, y]);
+  const shifted = page.map(([x, y]) => [x + 0.09, y]);
+
+  it('calls a page that has barely moved still, however big it is in frame', () => {
+    expect(quadsMoved([page], [nudged])).toBeLessThan(0.02);
+  });
+
+  it('calls a page that swung across the frame moved', () => {
+    expect(quadsMoved([page], [shifted])).toBeGreaterThan(0.05);
+  });
+
+  it('is not settled when there was nothing before, or when a page appeared', () => {
+    expect(quadsMoved([page], null)).toBe(Infinity);
+    expect(quadsMoved([page, page], [page])).toBe(Infinity);
   });
 });
 
