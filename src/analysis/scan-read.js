@@ -531,6 +531,12 @@ export function staveStart(ink, w, h, staff, stripW) {
 // 2.65 to 2.89 spaces across all of them, which is one bass clef nine times. Only
 // the zero point moved. And the first inch is the ONLY place a clef is ever read,
 // which is why this error costs the clef and costs nothing else.
+// How wide a clef band is, in staff spaces. Wide enough for a clef and no
+// wider — see clefColumn. Named because three places need to agree about it:
+// where the clef is read, where the overlay draws that band, and which heads
+// are the clef rather than notes.
+export const CLEF_WIDE = 3.6;
+
 const REGISTER = 0.9;        // reach, in staff spaces — strictly under one
 const REGISTER_FLOOR = 0.4;  // below this the band has no stave to register on
 
@@ -580,7 +586,7 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
   // bass clef's dots and the key signature that follows do not separate by a
   // clean gap at photograph resolution. Kept simple until there is a real
   // corpus to tune against; see the note in the plan about what this costs.
-  const across = Math.max(3, Math.round(space * 3.6));
+  const across = Math.max(3, Math.round(space * CLEF_WIDE));
   const x0 = Math.max(0, Math.round(fromX));
   const x1 = Math.min(w - 1, x0 + across);
   if (x1 <= x0) return null;
@@ -790,6 +796,72 @@ function offStaveIsCredible(ink, w, h, staff, stripW, space, head) {
   const step = Math.round((at(4, head.x) - head.y) / (space / 2));
   if (step >= -1 && step <= 9) return true;
   return ledgerRun(ink, w, h, staff, stripW, space, head) <= LEDGER_LONGEST;
+}
+
+// Ink printed at the start of every system is furniture, not music.
+//
+// MEASURED, on the marked-up Bärenreiter page. Sixty-one heads were not notes,
+// and eighteen of them were one pair per system — systems two to ten, every one
+// at x = 80 to 93, every one at steps 4/5 and 7/8, every one reported as a
+// semiquaver. System one had the same pair at x = 142, because system one is
+// indented. That is the KEY SIGNATURE, read as noteheads ten times over, and it
+// is a fifth of everything the reader invents on the page.
+//
+// A key signature cannot be told from a chord by shape — a sharp has two thick
+// strokes at notehead height and no amount of looking at one of them settles
+// it. What settles it is that it is printed in the same place on every system,
+// and music is not: a page whose every system carried the same two pitches at
+// the same distance from the barline would be a page nobody wrote.
+//
+// So the systems vote. A position is measured from each stave's OWN start —
+// which is why the indented first system agrees with the other nine rather than
+// looking like a tenth exception — and a head whose position and height are
+// shared by most of the page is dropped from all of them.
+//
+// This asks nothing about what the mark IS, which is the point: it takes out
+// the time signature and the editor's rehearsal letters on the same evidence,
+// and it will take out a five-flat key signature it has never seen. A real key
+// signature reader is still worth building, because naming a pitch needs to
+// know that the B is flat and this cannot say so — but that is a different job
+// from not drawing a circle round it.
+// Where a clef is printed there is no note.
+//
+// MEASURED, on the marked-up Bärenreiter page: the reader drew a ring on the
+// bass clef of nine systems out of ten, at x = 39 to 50, step 6 to 8, on a
+// stave whose left end is 34. Music does not begin four tenths of a space after
+// the stave does — a clef alone is three and a half spaces wide — so a head in
+// that band is the clef, every time. Certain, so it needs no agreement across
+// the page and works on a single-system fragment.
+//
+// ONLY WHERE A CLEF WAS ACTUALLY READ. A page of bare staves — a cropped
+// photograph, a fragment, most of the synthetic corpus — has music where a clef
+// would be, and excluding the band unconditionally cost real notes: CORE 99% to
+// 94%, HARD 91% to 84%.
+//
+// WHAT THIS DELIBERATELY DOES NOT DO
+//
+// The key signature is the other furniture read as noteheads, and it is worth
+// eighteen false heads a page — a pair on every system, at the same distance
+// past the stave's start, at the same two heights. Recognising it by that
+// repetition was built and measured and then taken out again. It works on the
+// real page, 85.1% precision to 89.4%, and it costs four to eight points of
+// RECALL across the synthetic corpus, because music near the start of a system
+// is often similar system to system and a rule that cannot tell "printed twice"
+// from "played twice" will take the notes as well. A missing note breaks the
+// alignment a take depends on; an extra circle is cosmetic. The trade is the
+// wrong way round.
+//
+// What that population actually needs is a key signature READER — sharps and
+// flats found by their own shape in the band after the clef — which is owed
+// anyway, since naming a pitch means knowing the B is flat and no amount of
+// counting repetitions can say so. scan-key.js is waiting for it.
+function dropFurniture(found, edges, clefs) {
+  for (const [i, sys] of found.entries()) {
+    const from = edges[i];
+    if (from === null || !clefs[i].clef) continue;
+    const wide = Math.max(3, sys.staff.space * CLEF_WIDE);
+    sys.heads = sys.heads.filter((head) => head.x < from || head.x > from + wide);
+  }
 }
 
 // Noteheads by SHAPE, not by connected components. A beamed page fuses heads,
@@ -1057,17 +1129,50 @@ export function readPage(source, naturalWidth, naturalHeight) {
   // stave of twenty notes is too small a sample to measure that off a bad
   // photograph. Read together, the whole page measures its own engraving once.
   // See readValues.
+  const starts = staves.map((staff) => staveStart(ink, w, h, staff, stripW));
+  const ranked = starts.filter((x) => x !== null).sort((a, b) => a - b);
+  const margin = ranked.length
+    ? ranked[Math.floor((ranked.length - 1) * 0.25)]
+    : null;
+
+  // Where each system begins — the page's answer, and the one system entitled
+  // to disagree with it.
+  //
+  // Decided ONCE and shared, because two things need it and they must not
+  // disagree: the clef is read just past this point, and the furniture printed
+  // at every system's start is recognised by being the same distance past it.
+  // The per-system answers are not usable on their own — on this page they come
+  // back 136, 133, 86, 36, 34, 32, 31, 35, 192, 183 against a truth near 32 —
+  // which is why the page decides, by low quartile. See the note above `starts`
+  // and the one on bandHasInk.
+  const edges = staves.map((staff, i) => {
+    if (margin === null) return starts[i];
+    const band = (from) => clefColumn(ink, w, h, staff, stripW, staff.space, from + staff.space * 0.25);
+    if (bandHasInk(band(margin))) return margin;
+    const own = starts[i];
+    if (own !== null && own !== margin && bandHasInk(band(own))) return own;
+    return margin;
+  });
+
+  // The clef on each system, read here rather than at the end, because two
+  // things need it and one of them runs before the heads are settled: a head
+  // inside a clef's band is the clef, and dropping it is only safe where a clef
+  // was actually printed. A page of bare staves — a cropped photograph, a
+  // fragment, most of the synthetic corpus — has music where a clef would be,
+  // and excluding the band there costs real notes: measured, CORE 99% to 94%
+  // and HARD 91% to 84% when the band was excluded unconditionally.
+  const clefs = staves.map((staff, i) => {
+    const from = edges[i];
+    if (from === null) return { clef: null, confidence: 0 };
+    return classifyClef(clefFeatures(
+      clefColumn(ink, w, h, staff, stripW, staff.space, from + staff.space * 0.25),
+      staff.space,
+    ));
+  });
+
   const found = staves.map((staff) => ({
     staff,
     bars: findBars(ink, w, h, staff, stripW, space),
-    // Found by shape, then asked for the ledger line anything this far from the
-    // stave is drawn with. Filtered HERE rather than in the returned page, so
-    // readValues never spends a beam count on ink that is not a note and the
-    // values stay index-aligned with the heads.
-    //
-    // `ink` and not `body`: body has the beams masked out of it, and a ledger
-    // line is a horizontal rule, which is the shape the beam mask is looking
-    // for. Asked of the masked image the question answers itself, no.
     // Found by shape, then — outside the stave only — asked whether the ink it
     // stands on is a ledger line or something far longer. Filtered HERE rather
     // than in the returned page, so readValues never spends a beam count on ink
@@ -1086,6 +1191,10 @@ export function readPage(source, naturalWidth, naturalHeight) {
       return staff.lines.map((line) => line.at[strip]);
     },
   }));
+  // …and then the clef itself, taken out before the values are read so nothing
+  // spends a beam count on it and the values stay index-aligned with the heads.
+  dropFurniture(found, edges, clefs);
+
   const perStaff = readValues(ink, beams, w, h, found);
 
   // Where the staves start, decided for the PAGE and not for each system.
@@ -1109,11 +1218,6 @@ export function readPage(source, naturalWidth, naturalHeight) {
   //
   // The same trick fillMissedStaves uses on the vertical — the page has a
   // rhythm, so use it — with the statistic chosen for which way the errors run.
-  const starts = found.map(({ staff }) => staveStart(ink, w, h, staff, stripW));
-  const ranked = starts.filter((x) => x !== null).sort((a, b) => a - b);
-  const margin = ranked.length
-    ? ranked[Math.floor((ranked.length - 1) * 0.25)]
-    : null;
 
   const out = found.map(({ staff, bars, heads }, staffIndex) => {
     const values = perStaff[staffIndex];
@@ -1141,18 +1245,9 @@ export function readPage(source, naturalWidth, naturalHeight) {
     // absolute — a band with any ink in it is a band with something to classify,
     // and is left alone, so the eight systems that read correctly off the page
     // margin never reach this branch.
-    const bandAt = (from) => (from === null ? null
-      : clefColumn(ink, w, h, staff, stripW, staff.space, from + staff.space * 0.25));
-    let clefAt = margin;
-    let column = bandAt(margin);
-    if (!bandHasInk(column) && starts[staffIndex] !== null && starts[staffIndex] !== margin) {
-      const retry = bandAt(starts[staffIndex]);
-      if (bandHasInk(retry)) { clefAt = starts[staffIndex]; column = retry; }
-    }
-    const clefFrom = clefAt === null ? null : clefAt + staff.space * 0.25;
-    const read = column === null
-      ? { clef: null, confidence: 0 }
-      : classifyClef(clefFeatures(column, staff.space));
+    const clefFrom = edges[staffIndex] === null ? null
+      : edges[staffIndex] + staff.space * 0.25;
+    const read = clefs[staffIndex];
     return {
       clef: read.clef,
       clefConfidence: read.confidence,
@@ -1164,9 +1259,14 @@ export function readPage(source, naturalWidth, naturalHeight) {
       // top of it, and every dead end came from reasoning about what the code
       // probably does. The reader now reports its own clef zone so the next
       // question can be asked of a picture. Drawn by tools/reader-look.html.
+      // Where this stave begins, which is not where its clef band does — the
+      // band starts a quarter space in. Reported because anything reasoning
+      // about "the furniture at the start of a system" needs the stave's own
+      // left end, and reconstructing it from the band lands three pixels out.
+      edge: edges[staffIndex] === null ? null : edges[staffIndex] / w,
       clefZone: clefFrom === null ? null : {
         x: clefFrom / w,
-        w: Math.min(w - clefFrom, Math.max(3, Math.round(staff.space * 3.6))) / w,
+        w: Math.min(w - clefFrom, Math.max(3, Math.round(staff.space * CLEF_WIDE))) / w,
       },
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),

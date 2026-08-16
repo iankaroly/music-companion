@@ -280,8 +280,19 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
   const falling = (grp) => [6, 4, 2, 0].map((s) => (s + grp) % 8);
   // The shape the core block draws: 1, 2 or 3 beams varying group by group so
   // one page carries quavers, semiquavers and demisemiquavers together.
+  // `rising(grp + sys)`, not `rising(grp)`.
+  //
+  // It used to be the latter, and that made every system of every page in this
+  // corpus a pitch-for-pitch copy of the one above it, at the same distance
+  // across — which is not a page anyone has ever engraved, and made the fixture
+  // an odd one out beside `dense`, which had varied by system all along. It
+  // matters because a reader is entitled to treat ink printed identically on
+  // every system as furniture rather than music, and against a page where the
+  // MUSIC is printed identically on every system that inference cannot be told
+  // from a wrong one. Same note count, same shapes, same cameras; only the
+  // pitches differ system to system, as they do on a page.
   const ordinary = (sys) => [0, 1, 2, 3, 4].map((grp) => ({
-    beams: 1 + ((sys + grp) % 3), steps: rising(grp), dir: up,
+    beams: 1 + ((sys + grp) % 3), steps: rising(grp + sys), dir: up,
   }));
   const PHOTO = { blur: 1.0, contrast: 0.6, tint: [212, 194, 158], jpeg: 0.6, scale: 0.62 };
   const PHOTO_DRAW = { space: 18, warp: 0.7, tilt: 0.004 };

@@ -26,7 +26,7 @@
 // about a build of the reader and is void the moment the detector changes, which
 // is the one thing the labels exist to permit.
 
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 import puppeteer from 'puppeteer-core';
 
@@ -155,9 +155,38 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
     };
   };
 
+  // Labels that sit where a clef is drawn.
+  //
+  // Marking a page by hand is not error-free, and one error is systematic: the
+  // reader draws a ring on the bass clef of every system, and a ring on a clef
+  // looks exactly like a ring on a note to somebody clicking through four
+  // hundred of them. Nine such labels came back on the first marked page. They
+  // are not a judgement call — there is no music between a stave's left end and
+  // its key signature — so they are reported, and `--clean` writes a corrected
+  // copy rather than anybody hand-editing four hundred coordinates.
+  const suspect = [];
+  for (const [ti, t] of want.entries()) {
+    for (const s of read.staves) {
+      if (!s.clefZone) continue;
+      // From the stave's own left end, not from the band: the band starts a
+      // quarter space in and labels turned up in that quarter space too. Taken
+      // from the reader rather than reconstructed — subtracting the quarter
+      // space back off landed three pixels out and missed four of them.
+      const x0 = s.edge ?? s.clefZone.x;
+      const x1 = s.clefZone.x + s.clefZone.w;
+      const top = s.lines[0][0] - s.space * 4;
+      const bottom = s.lines[4][0] + s.space * 4;
+      if (t.x >= x0 && t.x <= x1 && t.y >= top && t.y <= bottom) {
+        suspect.push({ i: ti, x: Math.round(t.x * work.width), y: Math.round(t.y * work.height), ...where(t.x, t.y) });
+        break;
+      }
+    }
+  }
+
   return {
     size: `${work.width}x${work.height}`,
     space: +space.toFixed(1),
+    suspect,
     found: found.length,
     truth: want.length,
     hit: tookT.size,
@@ -239,4 +268,26 @@ function group(rows, title) {
 
 group(report.falsePositives, 'INVENTED — ink the reader called a notehead');
 group(report.missed, 'MISSED — notes on the page the reader never offered');
+
+if (report.suspect?.length) {
+  console.log(`  SUSPECT LABELS — ${report.suspect.length} marked notes sit inside a clef band,`);
+  console.log('  where no music is ever printed. They are almost certainly rings drawn on');
+  console.log('  the clef and accepted by mistake.');
+  for (const t of report.suspect.slice(0, 12)) {
+    console.log(`      system ${String(t.system).padStart(2)}  x=${String(t.x).padStart(4)}`
+      + ` y=${String(t.y).padStart(4)}  step ${String(t.step).padStart(3)}`);
+  }
+  if (report.suspect.length > 12) console.log(`      …and ${report.suspect.length - 12} more`);
+  const clean = flag('clean');
+  if (clean) {
+    const drop = new Set(report.suspect.map((t) => t.i));
+    const out = { ...truth, notes: truth.notes.filter((_, i) => !drop.has(i)) };
+    out.cleaned = `${report.suspect.length} labels inside a clef band removed`;
+    await writeFile(clean, JSON.stringify(out, null, 2));
+    console.log(`\n  written to ${clean}: ${out.notes.length} notes, ${report.suspect.length} removed`);
+  } else {
+    console.log('\n  pass --clean <out.json> to write a copy without them.');
+  }
+  console.log('');
+}
 if (errors.length) console.log('page errors:', errors.slice(0, 3));
