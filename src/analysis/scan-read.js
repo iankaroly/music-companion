@@ -20,6 +20,7 @@
 import { beamLayer, readValues } from './scan-stems.js';
 import { clefFeatures, classifyClef, MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW } from './scan-clef.js';
 import { findKeyBand } from './scan-key.js';
+import { headPatch, headScore } from './head-model.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -741,6 +742,14 @@ function findBars(ink, w, h, staff, stripW, space) {
 // the absolute minimum below which nothing is a head whatever the page says —
 // a stem is a fifth of a space — and CAP stops a page of beams talking the
 // floor up past its own notes.
+// How sure the classifier has to be. Chosen from the cross-page tests in
+// head-model.js, where a low cut costs almost nothing in precision and every
+// step up costs real notes on the harder page: at 0.3 the Mozart keeps 92.5% of
+// its notes and at 0.6 only 78.8%. A missed note breaks the alignment a take
+// depends on; an extra circle is cosmetic.
+const HEAD_JUDGE = true;
+const HEAD_CUT = 0.3;
+
 const HEAD_WIDE_FLOOR = 0.55;
 const HEAD_WIDE_SHARE = 0.75;
 const HEAD_WIDE_CAP = 1.2;
@@ -1008,7 +1017,7 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
   return { ...out, verdict: 'accepted' };
 }
 
-function findHeads(ink, w, h, staff, space, gray, background) {
+function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   const hw = Math.max(2, Math.round(space * 0.62));
   const hh = Math.max(2, Math.round(space * 0.45));
   const inside = [];
@@ -1259,9 +1268,23 @@ function findHeads(ink, w, h, staff, space, gray, background) {
   const floor = Math.max(space * HEAD_WIDE_FLOOR, Math.min(space * HEAD_WIDE_CAP, typical));
   const wide = scored.filter((c) => c.hollow || c.across >= floor);
 
-  wide.sort((a, b) => b.score - a.score);
+  // …and then asked, of each survivor, whether there is actually a notehead
+  // there. See head-model.js: the shape tests find the candidates and this
+  // judges them, which is the division of labour the measurements kept pointing
+  // at — the reader localises well and judges badly.
+  //
+  // Applied AFTER the shape tests rather than instead of them, because the
+  // shape tests are what keep the number of patches to score down to the
+  // hundreds. Two hundred and fifty-six multiply-adds on four hundred
+  // candidates is nothing; on every pixel of the page it would be a different
+  // kind of program.
+  const judged = judge && HEAD_JUDGE
+    ? wide.filter((c) => headScore(headPatch(gray, background, w, h, space, c.x, c.y)) >= HEAD_CUT)
+    : wide;
+
+  judged.sort((a, b) => b.score - a.score);
   const kept = [];
-  for (const point of wide) {
+  for (const point of judged) {
     if (kept.some((k) => Math.abs(k.x - point.x) < space * 1.1
       && Math.abs(k.y - point.y) < space * 0.9)) continue;
     kept.push(point);
@@ -1285,7 +1308,13 @@ export function realStaff(staff) {
 }
 
 // The whole reading, normalised. `source` is anything drawImage accepts.
-export function readPage(source, naturalWidth, naturalHeight) {
+// `judge` turns the notehead classifier off, and it exists for exactly one
+// caller: tools/patch-dump.mjs, which collects the training data. With the
+// judge on, the dump only ever sees candidates the judge already passed — so
+// each round of training would be fitted to the survivors of the last one, the
+// negative examples would vanish, and the model would eat its own tail. Nothing
+// in the app passes it.
+export function readPage(source, naturalWidth, naturalHeight, { judge = true } = {}) {
   const w = Math.min(WORK_WIDTH, naturalWidth);
   const h = Math.round(naturalHeight * (w / naturalWidth));
   const canvas = document.createElement('canvas');
@@ -1387,7 +1416,7 @@ export function readPage(source, naturalWidth, naturalHeight) {
     // `ink` and not `body`: body has the beams masked out of it, and the mask is
     // looking for horizontal rules, which is the shape being measured. Asked of
     // the masked image the question answers itself.
-    heads: findHeads(body, w, h, staff, staff.space, gray, background)
+    heads: findHeads(body, w, h, staff, staff.space, gray, background, judge)
       .filter((head) => offStaveIsCredible(ink, w, h, staff, stripW, staff.space, head)),
     space: staff.space,
     // Where this stave's five lines sit under any given x — a stem crosses

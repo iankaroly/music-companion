@@ -49,7 +49,9 @@
     "scan:crop": "node tools/crop.mjs",
     "scan:res": "node tools/res-sweep.mjs",
     "scan:why": "node tools/head-probe.mjs",
-    "bench": "node tools/bench.mjs"
+    "bench": "node tools/bench.mjs",
+    "scan:patches": "node tools/patch-dump.mjs",
+    "scan:train": "node tools/patch-train.mjs"
   },
   "keywords": [],
   "author": "",
