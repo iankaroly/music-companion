@@ -106,7 +106,14 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
   const read = readPage(work, work.width, work.height);
   if (!read) return { failed: 'the reader found no stave on this page' };
   const found = notesInOrder(read);
-  const space = (read.space ?? 0.012) * work.height;
+  // The staves' own space, not the page-wide estimate the comb was built from —
+  // that comes out about a sixth low, so half of it is 0.41 of a space, not
+  // half. reader-look.html computes this identically and the two MUST agree:
+  // a label made at one tolerance and scored at another means two things.
+  const spaces = read.staves.map((s) => s.space * work.height).sort((a, b) => a - b);
+  const space = spaces.length
+    ? spaces[Math.floor((spaces.length - 1) / 2)]
+    : (read.space ?? 0.012) * work.height;
   const near = space * 0.5;
 
   // Greedy nearest matching, closest pairs first, so a detection cannot claim a

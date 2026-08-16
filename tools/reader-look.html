@@ -219,6 +219,20 @@ let markKey = null;   // which file these marks belong to
 // noteheads on this page are about two spaces apart at their closest.
 const NEAR = 0.5;
 
+// The staff space the STAVES report, not the one the page-wide fit does.
+//
+// read.space is the estimate the comb was built from and comes out about a
+// sixth low on a real page — 10px where every stave then measures 12.1 — so
+// half of it is not half a space, it is 0.41 of one, and the tolerance errs
+// toward calling a note both invented and missed. The median of the staves is
+// the number the reader itself went on to use. tools/truth-check.mjs computes
+// it the same way, and the two MUST agree or a label means one thing when it is
+// made and another when it is scored.
+function spaceOf(read, height) {
+  const spaces = (read.staves ?? []).map((s) => s.space * height).sort((a, b) => a - b);
+  return spaces.length ? spaces[Math.floor((spaces.length - 1) / 2)] : (read.space ?? 0.012) * height;
+}
+
 function nearestMark(list, x, y, space) {
   let best = -1;
   let gap = Infinity;
@@ -243,13 +257,19 @@ function remember() {
   marking.undo.disabled = false;
 }
 
+// The count on screen has to be arithmetic that adds up, and rejections are not
+// rings: one mark strikes EVERY candidate standing on it, so a duplicate pair
+// goes to a single click. Reporting marks.rejected.length here printed
+// "50 real = 52 found − 1 false" on exactly the page this tool exists for.
 function tally() {
   if (!last) return;
-  const space = (last.read.space ?? 0.012) * last.height;
+  const space = spaceOf(last.read, last.height);
   const found = notesInOrder(last.read);
   const kept = found.filter((n) => !isRejected(n, space)).length;
+  const struck = found.length - kept;
   marking.tally.textContent = `${kept + marks.added.length} real`
-    + ` = ${found.length} found − ${marks.rejected.length} false + ${marks.added.length} missed`;
+    + ` = ${found.length} found − ${struck} false + ${marks.added.length} missed`
+    + (struck > marks.rejected.length ? ` (${marks.rejected.length} marks)` : '');
 }
 
 // The clef the reader read is wrong on a good half of a real page, and the note
@@ -301,7 +321,7 @@ function draw() {
   svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
   svg.replaceChildren();
 
-  const space = (read.space ?? 0.012) * height;
+  const space = spaceOf(read, height);
 
   // Bare paper, listening. Appended first so every ring and marker sits on top
   // of it and gets the click instead.
@@ -478,6 +498,8 @@ marking.on.addEventListener('change', () => {
   els.note.style.display = 'none';
   els.hint.textContent = marking.on.checked
     ? 'Click a ring that is not a note. Click bare paper where a note was missed.'
+      + ' A click strikes every ring standing on that spot, so if the reader drew'
+      + ' two on one notehead, reject it and then click the notehead back in.'
       + ' Z undoes. Save when the page is right — it is remembered as you go.'
     : 'Click any ring to see what the reader thinks that note is.';
   draw();
@@ -512,7 +534,7 @@ document.addEventListener('keydown', (e) => {
 // `notes`, which is the same shape tools/head-audit.mjs already scores against.
 marking.save.addEventListener('click', () => {
   if (!last) return;
-  const space = (last.read.space ?? 0.012) * last.height;
+  const space = spaceOf(last.read, last.height);
   const kept = notesInOrder(last.read)
     .filter((n) => !isRejected(n, space))
     .map((n) => ({ x: +n.x.toFixed(5), y: +n.y.toFixed(5) }));
@@ -602,6 +624,8 @@ async function load(file) {
     <span>space <b>${(read.space * canvas.height).toFixed(1)}</b>px</span>`;
   els.hint.textContent = marking.on.checked
     ? 'Click a ring that is not a note. Click bare paper where a note was missed.'
+      + ' A click strikes every ring standing on that spot, so if the reader drew'
+      + ' two on one notehead, reject it and then click the notehead back in.'
       + ' Z undoes. Save when the page is right — it is remembered as you go.'
     : 'Click any ring to see what the reader thinks that note is.';
   els.stage.hidden = false;

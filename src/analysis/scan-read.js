@@ -613,6 +613,21 @@ export function clefColumn(ink, w, h, staff, stripW, space, fromX) {
 // distinguishes a clef the classifier cannot name from a piece of blank margin
 // nobody drew anything on. A stave alone puts five rows across the full width
 // of the band, so the bar is set below one line and far above paper.
+//
+// MEASURED ACROSS THE BAND'S WIDTH, and that is what makes it shadow-proof.
+//
+// The obvious worry about any ink test at the left margin is the page-edge
+// shadow, which is what killed an earlier attempt to find the clef by hunting
+// tall ink — that one read the shadow on nine systems in ten. Two things stop
+// it here. `ink` is thresholded against a LOCAL rolling background, so a smooth
+// shadow carries its own background with it and never becomes ink at all; and
+// what does survive it, a hard shadow EDGE, is a vertical line one or two
+// columns wide against a band some forty across, which comes to about 0.05 of a
+// row. A staff line comes to 1.0. There is no way to confuse the two at 0.35.
+//
+// Confirmed on tools/scan-clef-hard.mjs, whose page carries a shadow, a gutter
+// and an indented first system: the relocation fires, and taking the shadow
+// away does not change the score.
 const BAND_INK = 0.35;
 
 function bandHasInk(column) {

@@ -106,10 +106,19 @@
 // measured rather than as hoped:
 //
 //   removed             score   what it says
+//   the indent          7/10    <-- the first system, and it is now the EASIEST
 //   the gutter          9/10    <-- almost the whole difficulty is here
 //   the curl            8/10    warp, tilt and the drifting left margin
 //   the camera          8/10    blur, tint, contrast, JPEG, downscale
 //   the shadow          5/10    HARDER without it, by one system
+//
+// The indent row is the odd one: taking the indented first system away makes
+// the page WORSE, 8/10 down to 7/10, because a system readPage has relocated is
+// being read at the x its own stave starts at rather than at a page margin
+// fitted to nine other systems through a gutter. That is not an argument for
+// relocating everything — the relocation only fires on a band with no ink in it
+// at all, and eight of these systems have a clef in theirs — but it does say
+// the fallback is sound rather than lucky.
 //   key signature       6/10    no change
 //   bar numbers         6/10    no change
 //   pencil              6/10    no change
@@ -319,7 +328,13 @@ const report = await page.evaluate(async ({
 
     for (let sys = 0; sys < SYSTEMS; sys++) {
       const t = SYSTEMS === 1 ? 0 : sys / (SYSTEMS - 1);
-      const x0 = SPACE * (on.curl ? edgeAt(t) : 3.6);
+      // The first system of a piece is indented, because the engraver leaves
+      // room for the title. It is the one system on the page for which the
+      // page-wide margin points at bare paper, and it is the case readPage's
+      // relocation exists for — so the hard page has to contain it or the
+      // relocation is never actually tested against a shadow.
+      const indent = on.indent && sys === 0 ? SPACE * 8 : 0;
+      const x0 = SPACE * (on.curl ? edgeAt(t) : 3.6) + indent;
       const top = SPACE * 25 + sys * SPACE * SYS_GAP;
       // How far this system's left end falls into the gutter. Deepest at the
       // top of the page and at the bottom, where a bound page lifts least.
@@ -616,6 +631,7 @@ const report = await page.evaluate(async ({
   const ALL = {
     curl: true, gutter: true, shadow: true, keysig: true, barNumbers: true,
     pencil: true, slurs: true, accidentals: true, heading: true, camera: true,
+    indent: true,
   };
 
   // Everything the harness reports about one page, drawn or photographed. The
