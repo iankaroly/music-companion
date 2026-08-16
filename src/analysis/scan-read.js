@@ -750,8 +750,15 @@ function findBars(ink, w, h, staff, stripW, space) {
 const HEAD_JUDGE = true;
 const HEAD_CUT = 0.3;
 
+// How close two candidates have to be before the weaker is taken as the same
+// head found twice. A notehead is about 1.2 spaces wide, so a pair of adjacent
+// heads on a dense page are barely more than that apart — and a radius set for
+// deduplication doubles as a radius for deleting the neighbour.
+const CLUSTER_X = 1.1;
+const CLUSTER_Y = 0.9;
+
 const HEAD_WIDE_FLOOR = 0.55;
-const HEAD_WIDE_SHARE = 0.75;
+const HEAD_WIDE_SHARE = 0.45;
 const HEAD_WIDE_CAP = 1.2;
 
 // A notehead away from the stave stands on a ledger line — and on nothing
@@ -1285,8 +1292,8 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   judged.sort((a, b) => b.score - a.score);
   const kept = [];
   for (const point of judged) {
-    if (kept.some((k) => Math.abs(k.x - point.x) < space * 1.1
-      && Math.abs(k.y - point.y) < space * 0.9)) continue;
+    if (kept.some((k) => Math.abs(k.x - point.x) < space * CLUSTER_X
+      && Math.abs(k.y - point.y) < space * CLUSTER_Y)) continue;
     kept.push(point);
   }
   return kept.sort((a, b) => a.x - b.x);
