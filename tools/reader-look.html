@@ -12,8 +12,14 @@
   notes, fingerings, the same head found twice, or real notes missed. This is for
   looking, which is the only way to answer that.
 
-  Drop a photograph or a PDF page on it. Nothing is uploaded and nothing is
-  stored; it runs the shipped reader in the browser and draws what came back.
+  Drop a photograph or a PDF page on it. Nothing is uploaded; it runs the shipped
+  reader in the browser and draws what came back.
+
+  MARKING MODE turns the looking into ground truth. Click a ring that is not a
+  note, click bare paper where a note was missed, and save — what comes out is
+  the set of real notehead positions on that page, which tools/truth-check.mjs
+  then scores any run of the reader against. Marks are kept in localStorage per
+  file so a reload does not cost the work.
 
     npm run dev        (port 5199)
     open http://localhost:5199/tools/reader-look.html
@@ -30,6 +36,7 @@
     --bar: #ff9f4d;
     --stave: #6ea8ff;
     --bad: #ff6b8a;
+    --add: #c9a4ff;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; }
@@ -80,6 +87,16 @@
   }
   .hint { color: var(--muted); max-width: 60ch; }
   .swatch { display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; vertical-align: -1px; }
+  button {
+    font: inherit; font-size: 0.85rem; background: var(--panel); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: 5px; padding: 0.2rem 0.6rem; cursor: pointer;
+  }
+  button:hover { border-color: var(--head); }
+  button[disabled] { opacity: 0.45; cursor: default; border-color: var(--rule); }
+  label.toggle.arm { color: var(--add); font-weight: 600; }
+  #marking { display: none; gap: 0.6rem; align-items: center; }
+  #marking.on { display: flex; }
+  #tally { font-family: var(--mono); font-size: 0.8rem; color: var(--add); }
 </style>
 </head>
 <body>
@@ -111,8 +128,15 @@
       <option value="-3">3 flats (E♭)</option>
     </select>
   </label>
+  <label class="toggle arm"><input type="checkbox" id="markOn"> marking mode</label>
   <div class="spacer"></div>
   <div id="counts"></div>
+  <div id="marking">
+    <span id="tally"></span>
+    <button id="undo" disabled>undo</button>
+    <button id="clear">clear</button>
+    <button id="save">save truth</button>
+  </div>
 </header>
 
 <main>
@@ -153,6 +177,80 @@ const toggles = {
 };
 const forceClef = document.querySelector('#forceClef');
 const forceKey = document.querySelector('#forceKey');
+const marking = {
+  on: document.querySelector('#markOn'),
+  bar: document.querySelector('#marking'),
+  tally: document.querySelector('#tally'),
+  undo: document.querySelector('#undo'),
+  clear: document.querySelector('#clear'),
+  save: document.querySelector('#save'),
+};
+
+// MARKING — what is actually on the page, said by somebody who can see it.
+//
+// Every filter proposed for the false noteheads has been argued about and two
+// were nearly shipped on a hunch; one of them, applied without measurement,
+// collapsed a page from 477 heads to 190. The reason that could happen is that
+// there was no way to tell a filter that removed junk from a filter that removed
+// the music: the count says 417 against about 320 and a count cannot say WHICH
+// ninety-seven, so every candidate fix was graded on synthetic pages that have
+// no pencil, no fingerings and no heading on them — exactly the marks that
+// matter.
+//
+// This is the missing half. The reader's own candidates are drawn as usual;
+// clicking one says "that is not a note", and clicking bare paper says "there is
+// a note here you missed". What comes out is the set of real notehead positions
+// on this page, which is ground truth, and every filter after it is arithmetic.
+//
+// STORED AS POSITIONS, NOT INDICES, and that is the whole point.
+//
+// An index into "the notes the reader found" is a label about a particular
+// build of the reader, and is void the moment the detector changes — which is
+// the very thing the labels exist to allow. A position on the page is a fact
+// about the PAGE. So a rejection is remembered as where it was, and matched
+// back by proximity on any later run, exactly the way tools/head-audit.mjs
+// matches to what it drew.
+let marks = { rejected: [], added: [] };
+let history = [];
+let markKey = null;   // which file these marks belong to
+
+// Half a staff space. Wide enough that a detector that moves a head slightly
+// still meets its old label, tight enough that it cannot meet its neighbour's:
+// noteheads on this page are about two spaces apart at their closest.
+const NEAR = 0.5;
+
+function nearestMark(list, x, y, space) {
+  let best = -1;
+  let gap = Infinity;
+  for (const [i, m] of list.entries()) {
+    const d = Math.hypot((m.x - x) * last.width, (m.y - y) * last.height);
+    if (d < space * NEAR && d < gap) { gap = d; best = i; }
+  }
+  return best;
+}
+
+function isRejected(note, space) {
+  return nearestMark(marks.rejected, note.x, note.y, space) >= 0;
+}
+
+// The undo stack takes a copy of the marks BEFORE the change, which is what
+// undo means. Storing them is a separate job and belongs after the change —
+// doing both here wrote the previous state to localStorage every time, so a
+// reload lost the last mark made and nothing on the screen said so.
+function remember() {
+  history.push(JSON.stringify(marks));
+  if (history.length > 400) history.shift();
+  marking.undo.disabled = false;
+}
+
+function tally() {
+  if (!last) return;
+  const space = (last.read.space ?? 0.012) * last.height;
+  const found = notesInOrder(last.read);
+  const kept = found.filter((n) => !isRejected(n, space)).length;
+  marking.tally.textContent = `${kept + marks.added.length} real`
+    + ` = ${found.length} found − ${marks.rejected.length} false + ${marks.added.length} missed`;
+}
 
 // The clef the reader read is wrong on a good half of a real page, and the note
 // names all hang off it. Rather than show names that are confidently a sixth
@@ -205,6 +303,21 @@ function draw() {
 
   const space = (read.space ?? 0.012) * height;
 
+  // Bare paper, listening. Appended first so every ring and marker sits on top
+  // of it and gets the click instead.
+  if (marking.on.checked) {
+    const sheet = svgEl('rect', { x: 0, y: 0, width, height, fill: 'transparent' });
+    sheet.style.cursor = 'crosshair';
+    sheet.addEventListener('click', (e) => {
+      const at = pointIn(e);
+      if (!at) return;
+      remember();
+      marks.added.push({ x: at.x / width, y: at.y / height });
+      draw();
+    });
+    svg.append(sheet);
+  }
+
   for (const [i, staff] of (read.staves ?? []).entries()) {
     if (toggles.staves.checked) {
       // The five lines as the reader tracked them — bent, because the page is.
@@ -253,13 +366,33 @@ function draw() {
     for (const [i, note] of notesInOrder(read).entries()) {
       const cx = note.x * width;
       const cy = note.y * height;
+      const struck = isRejected(note, space);
       const dot = svgEl('circle', {
         cx, cy, r: space * 0.62,
-        fill: 'none', stroke: 'var(--head)', 'stroke-width': 1.8, opacity: 0.9,
+        fill: marking.on.checked ? 'rgba(0,0,0,0.01)' : 'none',
+        stroke: struck ? 'var(--bad)' : 'var(--head)',
+        'stroke-width': 1.8,
+        'stroke-dasharray': struck ? '3 2' : 'none',
+        opacity: struck ? 0.95 : 0.9,
       });
       dot.style.cursor = 'pointer';
       const clef = clefFor(note.clef);
       const pitch = pitchOf(note.step, clef, keyNow());
+      // In marking mode a ring is a claim to agree or disagree with, and
+      // clicking it disagrees. The note panel is for reading, and reading is
+      // what the other mode is for.
+      if (marking.on.checked) {
+        dot.addEventListener('click', (e) => {
+          e.stopPropagation();
+          remember();
+          const at = nearestMark(marks.rejected, note.x, note.y, space);
+          if (at >= 0) marks.rejected.splice(at, 1);
+          else marks.rejected.push({ x: note.x, y: note.y });
+          draw();
+        });
+        svg.append(dot);
+        continue;
+      }
       dot.addEventListener('click', () => {
         els.note.style.display = 'block';
         const name = pitch ? midiToName(pitch.midi) : null;
@@ -293,11 +426,113 @@ function draw() {
       }
     }
   }
+
+  // Notes the reader never offered. Drawn as a cross so they cannot be mistaken
+  // for a ring at a glance — a missed note and a found one are opposite
+  // findings and the picture has to say which is which without being read.
+  for (const m of marks.added) {
+    const cx = m.x * width;
+    const cy = m.y * height;
+    const r = space * 0.55;
+    const cross = svgEl('path', {
+      d: `M${cx - r},${cy - r}L${cx + r},${cy + r}M${cx + r},${cy - r}L${cx - r},${cy + r}`,
+      stroke: 'var(--add)', 'stroke-width': 2.2, fill: 'none', opacity: 0.95,
+    });
+    cross.style.cursor = 'pointer';
+    if (marking.on.checked) {
+      cross.addEventListener('click', (e) => {
+        e.stopPropagation();
+        remember();
+        marks.added.splice(marks.added.indexOf(m), 1);
+        draw();
+      });
+    }
+    svg.append(cross);
+  }
+
+  tally();
+  // Whatever is on the screen is what is stored. One place, after every change,
+  // rather than at each of the four that make one.
+  if (markKey) localStorage.setItem(markKey, JSON.stringify(marks));
+}
+
+// A click on the overlay, in the overlay's own coordinates. The image is shown
+// at whatever width the window allows, so screen pixels are not page pixels and
+// the browser's own transform is the only honest way back.
+function pointIn(event) {
+  const svg = els.overlay;
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const p = svg.createSVGPoint();
+  p.x = event.clientX;
+  p.y = event.clientY;
+  return p.matrixTransform(ctm.inverse());
 }
 
 for (const t of Object.values(toggles)) t.addEventListener('change', draw);
 forceClef.addEventListener('change', draw);
 forceKey.addEventListener('change', draw);
+
+marking.on.addEventListener('change', () => {
+  marking.bar.classList.toggle('on', marking.on.checked);
+  els.note.style.display = 'none';
+  els.hint.textContent = marking.on.checked
+    ? 'Click a ring that is not a note. Click bare paper where a note was missed.'
+      + ' Z undoes. Save when the page is right — it is remembered as you go.'
+    : 'Click any ring to see what the reader thinks that note is.';
+  draw();
+});
+
+marking.undo.addEventListener('click', () => {
+  const was = history.pop();
+  if (!was) return;
+  marks = JSON.parse(was);
+  marking.undo.disabled = history.length === 0;
+  draw();
+});
+
+marking.clear.addEventListener('click', () => {
+  if (!confirm('Throw away every mark on this page?')) return;
+  remember();
+  marks = { rejected: [], added: [] };
+  draw();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'z' && marking.on.checked && !e.metaKey && !e.ctrlKey) marking.undo.click();
+});
+
+// SAVED AS THE ANSWER, NOT AS THE WORKING.
+//
+// What goes in the file is the set of real notehead positions — the rings that
+// survived plus the crosses that were added — because that is a fact about the
+// page and stays true however the reader changes. The rejections are kept
+// alongside it so the marking can be picked up again, but nothing downstream
+// reads them: a harness scores a run by matching its detections against
+// `notes`, which is the same shape tools/head-audit.mjs already scores against.
+marking.save.addEventListener('click', () => {
+  if (!last) return;
+  const space = (last.read.space ?? 0.012) * last.height;
+  const kept = notesInOrder(last.read)
+    .filter((n) => !isRejected(n, space))
+    .map((n) => ({ x: +n.x.toFixed(5), y: +n.y.toFixed(5) }));
+  const truth = {
+    source: last.name,
+    // Normalised, so the file does not silently assume a working width.
+    width: last.width,
+    height: last.height,
+    space: +(last.read.space ?? 0).toFixed(6),
+    marked: new Date().toISOString().slice(0, 10),
+    notes: [...kept, ...marks.added.map((m) => ({ x: +m.x.toFixed(5), y: +m.y.toFixed(5) }))],
+    rejected: marks.rejected.map((m) => ({ x: +m.x.toFixed(5), y: +m.y.toFixed(5) })),
+  };
+  const url = URL.createObjectURL(new Blob([JSON.stringify(truth, null, 2)], { type: 'application/json' }));
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${last.name.replace(/\.[^.]+$/, '')}.truth.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+});
 
 // Dropped as well as picked, because the instructions above say "drop in the
 // photograph" and a page whose copy promises something the page cannot do is
@@ -342,7 +577,20 @@ async function load(file) {
     return;
   }
 
-  last = { read, width: canvas.width, height: canvas.height };
+  last = { read, width: canvas.width, height: canvas.height, name: file.name };
+
+  // Marking a page takes a while and a reload should not cost it. Keyed by name
+  // and size rather than by name alone, so a corrected export of the same piece
+  // does not inherit marks made against the old one.
+  markKey = `reader-look:marks:${file.name}:${file.size}`;
+  history = [];
+  marking.undo.disabled = true;
+  try {
+    marks = JSON.parse(localStorage.getItem(markKey)) ?? { rejected: [], added: [] };
+  } catch { marks = { rejected: [], added: [] }; }
+  marks.rejected ??= [];
+  marks.added ??= [];
+
   const notes = notesInOrder(read);
   const clefs = read.staves.map((s) => s.clef);
   const named = clefs.filter(Boolean).length;
@@ -352,7 +600,10 @@ async function load(file) {
     <span><b>${read.staves.reduce((a, s) => a + (s.bars?.length ?? 0), 0)}</b> barlines</span>
     <span><b>${named}/${clefs.length}</b> clefs read</span>
     <span>space <b>${(read.space * canvas.height).toFixed(1)}</b>px</span>`;
-  els.hint.textContent = 'Click any ring to see what the reader thinks that note is.';
+  els.hint.textContent = marking.on.checked
+    ? 'Click a ring that is not a note. Click bare paper where a note was missed.'
+      + ' Z undoes. Save when the page is right — it is remembered as you go.'
+    : 'Click any ring to see what the reader thinks that note is.';
   els.stage.hidden = false;
   draw();
 }
