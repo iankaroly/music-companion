@@ -51,7 +51,8 @@
     "scan:why": "node tools/head-probe.mjs",
     "bench": "node tools/bench.mjs",
     "scan:patches": "node tools/patch-dump.mjs",
-    "scan:train": "node tools/patch-train.mjs"
+    "scan:train": "node tools/patch-train.mjs",
+    "scan:curve": "node tools/patch-curve.mjs"
   },
   "keywords": [],
   "author": "",
