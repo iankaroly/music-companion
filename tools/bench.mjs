@@ -23,7 +23,13 @@ const wantJson = process.argv.includes('--json');
 const rows = [];
 for (const page of index) {
   try {
-    const { stdout } = await run('node', ['tools/truth-check.mjs', page.file, '--truth', page.truth, '--json']);
+    // Truth paths may be repo-relative — the marks are OURS, tiny, and worth
+    // keeping in the repo; the music they were marked on is the user's and is
+    // not. An absolute path still works, for a page not yet copied in.
+    const truth = page.truth.startsWith('/')
+      ? page.truth
+      : new URL(`../${page.truth}`, import.meta.url).pathname;
+    const { stdout } = await run('node', ['tools/truth-check.mjs', page.file, '--truth', truth, '--json']);
     const j = JSON.parse(stdout.slice(stdout.indexOf('{')));
     rows.push({
       name: page.name,

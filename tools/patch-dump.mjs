@@ -35,7 +35,9 @@ await new Promise((r) => setTimeout(r, 1600));
 const all = [];
 for (const p of index) {
   const bytes = await readFile(p.file);
-  const truth = JSON.parse(await readFile(p.truth, 'utf8')).notes;
+  const truthAt = p.truth.startsWith('/') ? p.truth
+    : new URL(`../${p.truth}`, import.meta.url).pathname;
+  const truth = JSON.parse(await readFile(truthAt, 'utf8')).notes;
   const rows = await page.evaluate(async ({ b64, pdf, want }) => {
     const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
     // The reader's own patch, not a copy of it. A classifier trained on patches
