@@ -752,6 +752,9 @@ function findBars(ink, w, h, staff, stripW, space) {
 // The first space either side of the stave — step 9 and step -1 — is written
 // without a ledger line and is never asked about.
 const LEDGER_LONGEST = 3;   // staff spaces; the notes on that page reach 2.9
+const LEDGER_SHORTEST = 1.2;
+const FAR_ABOVE = 14;
+const FAR_BELOW = -4;
 const LEDGER_GAP = 2;       // pixels of break tolerated, for a photographed line
 
 // How wide the horizontal rule through this head runs, in staff spaces, at the
@@ -865,10 +868,18 @@ function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
     // …and the key signature after it, when there is one. Found by walking
     // right until something that is not an accidental turns up, so the band
     // ends where the music starts rather than at a width somebody chose.
+    // Held at the x the band STARTS at, rather than followed across it.
+    //
+    // Following the curve was tried both ways — strip by strip, and interpolated
+    // between strips — and both read two more false heads than holding it
+    // still. A key signature is a strip and a half wide and the lines move a
+    // pixel or two across it, which is less than the tolerance the mask already
+    // carries; what following them adds is the strip boundary's own step.
     const at = (index, x) => sys.staff.lines[index].at[
       Math.min(sys.staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
     ];
-    const key = findKeyBand(ink, w, h, (k) => at(k, from + wide), space, from + wide);
+    const held = (k) => at(k, from + wide);
+    const key = findKeyBand(ink, w, h, (k) => held(k), space, from + wide);
     if (key) wide = key.x1 - from;
     sys.keyBand = key;
     sys.heads = sys.heads.filter((head) => head.x < from || head.x > from + wide);
@@ -1031,6 +1042,24 @@ function findHeads(ink, w, h, staff, space, gray, background) {
       // A notehead is about a staff space and a half across and then it stops.
       // Ink that carries on well past that, on the head's own middle row, is
       // something the head is attached to rather than the head.
+      //
+      // WHAT THIS STILL DOES NOT CATCH, looked at rather than guessed:
+      // tools/scan-crop cut the page open at four of the false heads and the
+      // one below the stave on system 1 is a ring drawn in the white channel
+      // BETWEEN two beams — ink above, paper in the middle, ink below, which is
+      // a textbook minim except that the ink does not stop.
+      //
+      // Bounding the rim the way this bounds the middle row was written and
+      // measured and changed nothing at all: 366 heads before and after, on the
+      // page and on the corpus. So these are not being found as rings. They are
+      // solid patches of a beam that beamMask took MOST of — the mask hunts a
+      // horizontal run no taller than a notehead, and a stack of two is exactly
+      // a notehead tall, so what it leaves behind at the join is a compact blob
+      // whose middle row is short enough to pass this test honestly.
+      //
+      // The fix belongs in the mask, where the beam is, and not in another veto
+      // here. It has not been made yet because beamMask decides note VALUES as
+      // well, and changing it needs the values re-measured with it.
       let across = 1;
       for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
       for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;

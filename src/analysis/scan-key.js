@@ -111,9 +111,14 @@ const KEY_ADJACENT = 1.5;          // staff spaces from where the clef's ink end
  * clef is not an accidental — which is most pages, since most keys are C major
  * and most parts are not transposed.
  *
- * `lineY(k)` gives the y of the stave's kth line under this band; the search
- * runs from a space above the top line to a space below the bottom one, which
- * is where every accidental in a signature is written.
+ * `lineY(k)` gives the y of the stave's kth line where the band begins. Held
+ * still across the band rather than followed: a key signature is a strip and a
+ * half wide, the lines move a pixel or two over that, and following them adds
+ * the strip boundary's own step — measured both ways, and holding still read
+ * two fewer false heads.
+ *
+ * The search runs from a space above the top line to a space below the bottom
+ * one, which is where every accidental in a signature is written.
  */
 export function findKeyBand(ink, w, h, lineY, space, fromX) {
   const top = Math.max(0, Math.round(lineY(0) - space * 1.2));

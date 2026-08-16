@@ -45,7 +45,8 @@
     "scan:heads-audit": "node tools/head-audit.mjs",
     "reader:mark": "node tools/reader-mark-check.mjs",
     "scan:ledger": "node tools/ledger-audit.mjs",
-    "scan:key": "node tools/key-audit.mjs"
+    "scan:key": "node tools/key-audit.mjs",
+    "scan:crop": "node tools/crop.mjs"
   },
   "keywords": [],
   "author": "",
