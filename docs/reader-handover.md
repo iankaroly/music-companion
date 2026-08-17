@@ -344,6 +344,59 @@ The others are the Concerto's (555,779) and the Scanned score's (1259,530),
 precision column on every page is pessimistic by a note or two, and the Scanned
 score's by four.
 
+### ALL 162 WERE LOOKED AT, AND THE TWELVE-POINT SAMPLE WAS WRONG
+
+The section below concluded from a twelve-point sample that the Scanned score's
+162 stem-foot marks are mostly its own contamination — eight of twelve standing
+on a bare stem — and that re-marking the file is what unblocks every one-head-
+per-stem rule. **All 162 have since been looked at, and that conclusion does not
+survive it.**
+
+`npm run scan:sheet` lays crops out in a grid — twenty-four to a sheet, each with
+the reader's ring in pink, the hand's mark in green and a crosshair on the point
+the tile is about — so a hundred and sixty-two marks can be SEEN rather than
+sampled. Seven sheets at five times, twenty-seven candidates carried forward to
+nine times, five of those to sixteen.
+
+  **Four are contamination.** (466,779), (519,1056), (942,1331) and (1129,1331)
+  are blank paper carrying the reader's own phantom ring with a hand mark
+  accepted on top of it. They are removed, and recorded in the truth file's own
+  `removed` field.
+
+  **The other 158 are noteheads.** Dark, filled, head-shaped, with both rings on
+  them — and very often two of them stacked a third apart on one stem, which is
+  what this music is.
+
+**THE SAMPLE FAILED IN THE EXACT WAY THIS DOCUMENT ALREADY WARNS ABOUT.** The
+entry below says it in as many words: "at 3x a beam and a stem foot are the same
+smudge". At five times a notehead sitting ON a staff line and a stem crossing
+that line are also the same smudge, and the first pass over these sheets called
+about a fifth of them suspect on that basis. At nine times most of the suspects
+were plainly heads. **Magnification is not a detail of the method, it is the
+method** — and a sample of twelve is not a measurement of a hundred and sixty-two
+when the error rate of the eye at that zoom is itself twenty percent.
+
+**SO THE 39% IS REAL, AND THREE THINGS FOLLOW.**
+
+- **One head per stem is dead for a REAL reason.** The notes those rules lose are
+  notes. Nothing about re-marking the file rescues the idea.
+- **The Scanned score genuinely prints 39% of its heads at another note's stem
+  end.** The argument from "it is the same music as the Concerto, so it cannot
+  have thirteen times the rate" is weaker than it looks: it is a different page
+  of that music, in a different edition, with 436 heads against 332, and the
+  classification also depends on the reader finding the stems.
+- **The classifier work is not blocked on the truth file.** When a model rejects
+  those heads it is losing real notes, and the number is what it says.
+
+**Next-step item 2 — "re-mark that file" — is struck.** The file's known
+contamination is now sixteen marks on the key signature, one on a bass clef, two
+on a quarter rest and these four: twenty-three, all removed, all cropped first.
+
+Removing the four cost precision, and that is the measurement becoming more
+truthful rather than the reader becoming worse: the Scanned score reads
+**90.3% / 94.3%** against 91.2% / 94.3%, because the reader had been credited
+with four circles drawn on blank paper.
+
 ### THE CORRECT-HEAD COLUMN IS THE ONE THAT DECIDES WHETHER ANY OF THIS IS FIXABLE
 
 A rule that removes circles standing in a stem is only worth having if real
