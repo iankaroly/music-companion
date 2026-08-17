@@ -22,7 +22,7 @@ import { clefFeatures, classifyClef, MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_
 import {
   findKeyBand, agreeKeyCount, agreeKeyReach, trimKeyBand, readKeySignature, agreeKey,
 } from './scan-key.js';
-import { headPatch, headScore } from './head-model.js';
+import { headPatch, headScore, headScoreMlp } from './head-model.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -1989,8 +1989,54 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   // hundreds. Two hundred and fifty-six multiply-adds on four hundred
   // candidates is nothing; on every pixel of the page it would be a different
   // kind of program.
+  // …AND A SECOND OPINION WHERE THE FIRST ONE IS UNSURE.
+  //
+  // head-model.js now carries two judges. The logistic fit that has always
+  // shipped, and a twenty-four unit hidden layer trained on the three marked
+  // pages plus a hundred and twenty pages that tools/engrave.mjs drew with real
+  // Bravura and knows the answer to. Leaving one real page out and scoring it on
+  // the page the model never saw, the second reads about NINE POINTS of
+  // precision above the first — 77.4% to 95.6% on the held-out Concerto.
+  //
+  // IT CANNOT SIMPLY REPLACE THE FIRST, and that was measured before this was
+  // written. In headScore's place it costs two to three points of recall on the
+  // marked pages at every cut from 0.05 to 0.9, swept in eight combinations with
+  // STEM_CUT: bench 92.5/95.2 becomes 89.7/92.6. It is trained mostly on drawn
+  // pages and it refuses eroded printed heads that the logistic fit keeps — and
+  // those heads are real, because all 162 of the photographed page's stem-foot
+  // marks were cropped and looked at and only four were contamination.
+  //
+  // So it is asked ONLY about the candidates the logistic fit is unsure of, and
+  // it can only ever say no. Above 0.95 the first judge is confident and the
+  // second is not consulted; below HEAD_CUT the candidate is already gone.
+  // Between them the second judge must not be CERTAIN it is wrong — 0.15, which
+  // is a veto on what it is sure about rather than a vote on what it prefers.
+  //
+  // MEASURED, and every page gains precision while recall stays where it was:
+  //
+  //   page      before          after
+  //   Bach      98.1 / 99.7     98.8 / 99.7
+  //   Mozart    89.1 / 91.6     91.8 / 91.6
+  //   Scanned   90.3 / 94.3     90.9 / 94.0
+  //   mean      +1.29 precision, -0.08 recall
+  //
+  // The veto threshold was swept: 0.02 does nothing, 0.1 reads +1.04/-0.08,
+  // 0.2 reads +1.45/-0.25 and starts taking real notes off two pages. 0.15 is
+  // the last point where no page loses a note it had.
+  //
+  // The stem pass is deliberately NOT changed. It scores the best of a hundred
+  // positions rather than one, so its numbers mean something different, and it
+  // carries the photographed page's recall.
+  const HEAD_UNSURE = 0.95;   // above this the first judge is not second-guessed
+  const HEAD_VETO = 0.15;     // the second judge must be SURE to overrule
   const judged = judge && HEAD_JUDGE
-    ? wide.filter((c) => headScore(headPatch(gray, background, w, h, space, c.x, c.y)) >= HEAD_CUT)
+    ? wide.filter((c) => {
+      const patch = headPatch(gray, background, w, h, space, c.x, c.y);
+      const first = headScore(patch);
+      if (first < HEAD_CUT) return false;
+      if (first >= HEAD_UNSURE) return true;
+      return headScoreMlp(patch) >= HEAD_VETO;
+    })
     : wide;
 
   judged.sort((a, b) => b.score - a.score);
