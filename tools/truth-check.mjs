@@ -70,7 +70,7 @@ await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1600));
 
 const report = await page.evaluate(async ({ b64, pdf, want }) => {
-  const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
+  const { readPage, notesInOrder, beamMask } = await import('/src/analysis/scan-read.js');
 
   // The app's own path to pixels. sips and pdf.js do not agree and the reader
   // can tell; see tools/real-check.mjs, which learned that the hard way.
@@ -196,6 +196,253 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
       step: Math.round((bottom - y) * work.height / (staff.space * work.height / 2)),
     };
   };
+
+  // WHAT IS THE INK UNDER THIS CIRCLE ARRANGED AS?
+  //
+  // The user's first complaint, in their words, is that "many false circles
+  // still happen oftentimes in the stem at the bottom". Every round so far has
+  // answered that with the `by pass` line above — shape against stem — and that
+  // line is NOT a measurement of it. `by pass` says which code path PROPOSED a
+  // head; the complaint is about WHERE THE CIRCLE SITS. The two are different
+  // populations and the difference is not small: hand-classified, 45 of the 83
+  // false circles on the three marked pages sit in a stem, and only 13 of those
+  // 45 came from the stem pass. Quoting `by pass` at the user understates their
+  // complaint by a factor of three, and five candidate rules have been rejected
+  // after being scored against the wrong population.
+  //
+  // The Bach's circle at (117,1815) is the case that settles it: it is a ring at
+  // the foot of a stem where the stem meets the beam, and `by pass` calls it
+  // `shape`. So this asks the page instead. A circle "at the foot of a stem" is
+  // an arrangement of ink and is detectable as one:
+  //
+  //   - a thin vertical run of ink passes through or ends at the candidate;
+  //   - a real notehead stands on that same run, a note's height away or more;
+  //   - and the candidate is therefore somewhere along the stem rather than on
+  //     the head the stem belongs to.
+  //
+  // THE HEADS IT ASKS ABOUT ARE THE TRUTH MARKS, not the reader's own output,
+  // so the classification cannot be moved by the thing being measured. On a page
+  // whose truth file is incomplete that costs a label: a stem whose head nobody
+  // marked comes back `stem` rather than `stem-foot`. That is the safe
+  // direction — it can only ever UNDER-count the population being complained
+  // about — and it is why both lines are printed.
+  //
+  // Every bound below is the reader's own, taken from `stemHeads` in
+  // scan-read.js, except where a comment says otherwise:
+  //   STEM_TALL 2.0 spaces — shorter than this is a flag or a bar
+  //   STEM_WIDE 0.35      — wider than this is not a stem
+  // The width test is applied to the LOW QUARTILE of the width down the run,
+  // where the reader asks it of the width at the run's MIDPOINT. That is not a
+  // liberty, it is the same correction `beamMask` already makes about its own
+  // baseline four hundred lines above: "the low quartile is the beam where it is
+  // only itself". A stem is wide exactly where something joins it — its own
+  // head at one end, the beam at the other — and the midpoint of a short
+  // photographed stem is inside one of those. MEASURED on the Bach's circle at
+  // (117,1815), which is the case that started this round: the columns at
+  // x = 112..114 run 3.29 to 3.46 spaces and their MEDIAN width is 1.07 spaces
+  // against a stem's 0.35, because the beam under them is a third of the run.
+  // Their low quartile is 0.25. The median rejects the named example; the low
+  // quartile finds it, at the reader's own 0.35.
+  const shapeOf = (() => {
+    const px = work.getContext('2d', { willReadFrequently: true })
+      .getImageData(0, 0, work.width, work.height).data;
+    const W = work.width; const H = work.height;
+    const gray = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) {
+      gray[i] = px[i * 4] * 0.299 + px[i * 4 + 1] * 0.587 + px[i * 4 + 2] * 0.114;
+    }
+    // The same local threshold findHeads works from — box blur, then ink is
+    // anything 16 grey levels under its own neighbourhood. Copied from
+    // tools/head-probe.mjs, which copied it from scan-read.js; nothing in
+    // src/analysis is touched by this tool.
+    const rad = Math.max(4, Math.round(W / 36)); const span = rad * 2 + 1;
+    const t1 = new Float32Array(W * H); const bg = new Float32Array(W * H);
+    for (let y = 0; y < H; y++) {
+      let s = 0;
+      for (let x = -rad; x <= rad; x++) s += gray[y * W + Math.min(W - 1, Math.max(0, x))];
+      for (let x = 0; x < W; x++) {
+        t1[y * W + x] = s / span;
+        s += gray[y * W + Math.min(W - 1, x + rad + 1)] - gray[y * W + Math.max(0, x - rad)];
+      }
+    }
+    for (let x = 0; x < W; x++) {
+      let s = 0;
+      for (let y = -rad; y <= rad; y++) s += t1[Math.min(H - 1, Math.max(0, y)) * W + x];
+      for (let y = 0; y < H; y++) {
+        bg[y * W + x] = s / span;
+        s += t1[Math.min(H - 1, y + rad + 1) * W + x] - t1[Math.max(0, y - rad) * W + x];
+      }
+    }
+    const ink = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) ink[i] = gray[i] < bg[i] - 16 ? 1 : 0;
+    // The beams, by difference. beamMask erases a long horizontal run of short
+    // columns and spares any column with something tall joining it, so ink the
+    // mask removed is beam or rule with nothing attached — which is precisely
+    // "the circle is sitting on a beam BETWEEN the stems" as opposed to at the
+    // junction where a stem meets one.
+    const body = beamMask(ink, W, H, space);
+
+    // THE STEM IS MEASURED IN `body`, NOT IN `ink`, and that is the single
+    // change that made this instrument work at all. In `ink` a stem crosses a
+    // staff line every space, and a staff line is a horizontal run hundreds of
+    // pixels long — so "how wide is the ink across this stem" answers three
+    // hundred at every line it crosses, and on a page whose stems are short
+    // (the Concerto's are two spaces between head and beam) most of the run is
+    // line-crossing rather than stem. MEASURED on the Concerto's circle at
+    // (238,686): in `ink` the stem columns at x = 241..243 run 3.8 spaces with a
+    // low-quartile width of 1.10 spaces — wider than a notehead, so no stem is
+    // recognised and the point is filed as `beam`. The same columns in `body`
+    // run the same 3.8 spaces at a low-quartile width of 0.40. Fifteen of the
+    // Concerto's thirty-seven false circles moved on that one line.
+    //
+    // `body` is also the layer `findHeads` itself looks at, which is the honest
+    // choice for a measurement about what the head finder did.
+    // A SECOND LOOK IN THE RAW INK WAS TRIED AND IS NOT WORTH KEEPING. The case
+    // it was written for is the Scanned score's circle at (306,1100), where
+    // `body`'s columns at x = 299..301 run only 1.76 spaces because the mask
+    // erased the beam column the stem was hanging from. Searching both layers and
+    // keeping the longer qualifying run changed NOT ONE of the 83 false circles
+    // or the 1037 correct heads on the three pages, and the reason is that the
+    // raw ink puts the staff lines back: those same columns read a low-quartile
+    // width of 3.11 spaces. Cropped, that circle turns out not to be a stem case
+    // at all — it stands on the beam 1.2 spaces to the right of the stem, which
+    // is what `beam` already says about it.
+    const inBody = (x, y) => (x >= 0 && x < W && y >= 0 && y < H ? body[y * W + x] : 0);
+    const inInk = (x, y) => (x >= 0 && x < W && y >= 0 && y < H ? ink[y * W + x] : 0);
+    // THE WALK STEPS OVER A BREAK, and it has to. A photographed stem at a
+    // ten-pixel staff space is four pixels wide and thresholds into pieces: the
+    // Concerto's stem at x = 977 comes back as a run of 2.41 spaces that STOPS
+    // 1.3 spaces short of its own notehead, so a strict walk says the head is
+    // not on the stem and the arrangement goes unrecognised. Two pixels — a
+    // fifth of a space — is the same bridge `ledgerRun` uses and it is bounded
+    // by the thing it must not do: a fifth of a space cannot join one staff line
+    // to the next, which are a whole space apart.
+    const BRIDGE = Math.max(1, Math.round(space * 0.2));
+    const column = (on, x, y) => {
+      if (!on(x, y)) return null;
+      let t = y;
+      for (;;) {
+        let step = 0;
+        while (step < BRIDGE && t - step - 1 >= 0 && !on(x, t - step - 1)) step++;
+        const to = t - step - 1;
+        if (!on(x, to)) break;
+        t = to;
+      }
+      let b = y;
+      for (;;) {
+        let step = 0;
+        while (step < BRIDGE && b + step + 1 < H && !on(x, b + step + 1)) step++;
+        const to = b + step + 1;
+        if (!on(x, to)) break;
+        b = to;
+      }
+      return { t, b };
+    };
+    const across = (on, x, y) => {
+      if (!on(x, y)) return 0;
+      let n = 1;
+      for (let k = x - 1; k >= 0 && on(k, y); k--) n++;
+      for (let k = x + 1; k < W && on(k, y); k++) n++;
+      return n;
+    };
+
+    // Every truth mark in working pixels, which is what "a real notehead" means
+    // on a marked page.
+    const heads = want.map((t) => [t.x * W, t.y * H]);
+
+    const STEM_TALL = 2.0;     // spaces — the reader's own floor
+    // THE READER'S OWN 0.35 IS TOO TIGHT TO SEE ITS OWN MISTAKE, and that is
+    // measured rather than assumed. `stemHeads` computes `wide =
+    // max(1, round(space * 0.35))`, which is 3 pixels at the Concerto's
+    // ten-pixel staff space, and that page's printed stems measure 4 — so the
+    // reader's stem scan cannot see them at all, which is why the Concerto's
+    // stem pass proposes four heads on a page of six hundred stem runs. Half a
+    // space is still unambiguously thin: a notehead is a whole space across.
+    // Rounded to whole pixels, the way `stemHeads` rounds its own `wide`, because
+    // at the Concerto's 9.97-pixel space half a space is 4.985 and a printed stem
+    // there measures exactly 5 — an unrounded comparison rejects the page's own
+    // stems by fifteen thousandths of a pixel.
+    const STEM_WIDE = 0.5;     // spaces — asked of the low quartile down the run
+    // Nine tenths of a space either side, because the circle is not required to
+    // be ON the stem: a false head is drawn where a notehead would be, which is
+    // half a head off the stem, and the head finder then re-centres it on its own
+    // ink. Still well under the two spaces that separate consecutive stems in a
+    // beamed group at this repertoire's speed.
+    const LOOK_X = 0.9;        // spaces — how far either side of the circle to look
+    const OWN_HEAD = 0.9;      // spaces — nearer than this and the head IS this circle
+    const HEAD_X = 1.0;        // spaces — how far a head's centre stands off its stem
+
+    return (cx, cy) => {
+      const x0 = Math.round(cx); const y0 = Math.round(cy);
+      // The stem: the longest thin vertical run whose ink reaches this point.
+      let stem = null;
+      const reach = Math.max(1, Math.round(space * LOOK_X));
+      const slack = Math.max(1, Math.round(space * 0.5));
+      {
+        const on = inBody;
+        for (let x = x0 - reach; x <= x0 + reach; x++) {
+          let col = null;
+          for (let dy = 0; dy <= slack && !col; dy++) {
+            col = column(on, x, y0 - dy) ?? column(on, x, y0 + dy);
+          }
+          if (!col) continue;
+          const len = col.b - col.t + 1;
+          if (len < space * STEM_TALL) continue;
+          // Only the inked rows: a bridged row is zero wide and would drag the
+          // quartile to nothing, which would let anything through.
+          const ws = [];
+          for (let y = col.t; y <= col.b; y++) if (on(x, y)) ws.push(across(on, x, y));
+          if (!ws.length) continue;
+          ws.sort((a, b) => a - b);
+          const thin = ws[Math.floor((ws.length - 1) * 0.25)];
+          if (thin > Math.max(2, Math.round(space * STEM_WIDE))) continue;
+          if (!stem || len > stem.len) stem = { x, t: col.t, b: col.b, len, wide: thin };
+        }
+      }
+      // A real notehead standing on that same stem, far enough away to be a
+      // different note from whatever this circle is on.
+      let head = null;
+      if (stem) {
+        for (const [hx, hy] of heads) {
+          if (Math.abs(hx - stem.x) > space * HEAD_X) continue;
+          if (hy < stem.t - space * 0.6 || hy > stem.b + space * 0.6) continue;
+          const away = Math.hypot(hx - cx, hy - cy) / space;
+          if (away < OWN_HEAD) continue;
+          if (!head || away < head.away) head = { x: hx, y: hy, away };
+        }
+      }
+      // What the point is standing on, when it is not a stem. Asked of the raw
+      // ink, because a beam and a printed rule are precisely what `body` erases.
+      let bar = null;
+      for (let dy = 0; dy <= slack && !bar; dy++) {
+        for (const y of [y0 - dy, y0 + dy]) {
+          if (!inInk(x0, y)) continue;
+          let t = y; while (t > 0 && ink[(t - 1) * W + x0]) t--;
+          let b = y; while (b < H - 1 && ink[(b + 1) * W + x0]) b++;
+          bar = { run: across(inInk, x0, y) / space, thick: (b - t + 1) / space, y };
+          break;
+        }
+      }
+      // Ink the beam mask took out: a beam or a printed rule with nothing
+      // joining it. Thickness tells the two apart — a beam is about half a
+      // space and a staff line is a tenth of one.
+      const wiped = bar != null && !body[bar.y * W + x0] && inInk(x0, bar.y) === 1;
+
+      let shape;
+      if (stem && head) shape = 'stem-foot';
+      else if (stem) shape = 'stem';
+      else if (bar && bar.run >= 2.4 && bar.thick >= 0.3) shape = 'beam';
+      else if (bar && bar.run >= 2.4) shape = 'rule';
+      else if (!bar) shape = 'paper';
+      else shape = 'other';
+      return {
+        shape,
+        stem: stem ? +(stem.len / space).toFixed(2) : 0,
+        away: head ? +head.away.toFixed(2) : 0,
+        beamInk: wiped ? 1 : 0,
+      };
+    };
+  })();
 
   // Labels that sit where a clef is drawn.
   //
@@ -363,6 +610,7 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
       .map(({ f }) => ({
         x: Math.round(f.x * work.width), y: Math.round(f.y * work.height),
         step: where(f.x, f.y).step, beats: f.beats, via: f.via ?? 'shape',
+        ...shapeOf(f.x * work.width, f.y * work.height),
       })),
     falsePositives: found
       .map((f, i) => ({ f, i }))
@@ -371,6 +619,7 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
         x: Math.round(f.x * work.width), y: Math.round(f.y * work.height),
         beats: f.beats, via: f.via ?? 'shape',
         on: furniture(where(f.x, f.y).system - 1, f.x), ...where(f.x, f.y),
+        ...shapeOf(f.x * work.width, f.y * work.height),
       })),
     missed: want
       .map((t, i) => ({ t, i }))
@@ -394,7 +643,24 @@ const recall = report.hit / report.truth;
 const f1 = (2 * precision * recall) / (precision + recall || 1);
 
 if (wantJson) {
-  console.log(JSON.stringify({ file, precision, recall, f1, ...report, errors }, null, 2));
+  // WAIT FOR THE WRITE BEFORE EXITING, and this is not tidiness — it is a bug
+  // that cost `npm run bench` two of its three pages.
+  //
+  // `console.log` to a PIPE is asynchronous in node. `process.exit` does not
+  // flush it: whatever has not reached the operating system is thrown away, and
+  // the pipe's own buffer is 64 kB. So a report over 64 kB arrived at bench
+  // truncated at exactly that byte, and bench — which does
+  // `JSON.parse(stdout.slice(stdout.indexOf('{')))` — reported "Unexpected end
+  // of JSON input" against the PAGE, then computed its mean from the pages that
+  // happened to fit. Redirecting the same command to a file hid it completely,
+  // because a write to a file IS synchronous.
+  //
+  // It was latent for as long as this tool has printed JSON. The Scanned score's
+  // report measured 52 kB of the 64 available, and the round that added a third
+  // breakdown took it to 90.
+  await new Promise((done) => {
+    process.stdout.write(`${JSON.stringify({ file, precision, recall, f1, ...report, errors }, null, 2)}\n`, done);
+  });
   process.exit(0);
 }
 
@@ -428,6 +694,8 @@ function group(rows, title) {
       console.log(`        x=${String(r.x).padStart(4)} y=${String(r.y).padStart(4)}`
         + `  bar ${String(r.bar).padStart(2)}  step ${String(r.step).padStart(3)}`
         + (r.via ? `  ${r.via.padEnd(5)}` : '')
+        + (r.shape ? `  ${(`${r.shape}${r.stem ? ` ${r.stem}sp` : ''}`
+          + `${r.away ? ` head ${r.away}sp` : ''}`).padEnd(28)}` : '')
         + (r.on ? `  on the ${r.on}` : '')
         + (r.beats != null ? `  ${r.beats} beats` : ''));
     }
@@ -461,6 +729,60 @@ function group(rows, title) {
     console.log(`    outside the stave  ${outside} of ${fp.length}\n`);
   }
   const hit = report.matched ?? [];
+  // WHERE THE CIRCLE SITS, which is a different question from which pass
+  // proposed it, and it is the one the user asked. See the long note above
+  // `shapeOf` in the browser half of this file.
+  //
+  // THE CORRECT HEADS ARE SCORED THE SAME WAY, and that column is the whole
+  // point of the line: a rule that removes circles standing in a stem is only
+  // worth having if real noteheads do not also stand there. A notehead at the
+  // far end of ANOTHER note's stem is a real arrangement in engraved music —
+  // a chord, or two voices sharing a stem — and until this line existed nobody
+  // had measured how often it happens.
+  {
+    const label = {
+      'stem-foot': 'in a stem, a real head on it',
+      stem: 'in a stem, no head on it',
+      beam: 'on a beam',
+      rule: 'on a printed rule',
+      paper: 'on bare paper',
+      other: 'on ink of some other shape',
+    };
+    const tally = (rows) => {
+      const m = new Map();
+      for (const r of rows) m.set(r.shape ?? 'other', (m.get(r.shape ?? 'other') ?? 0) + 1);
+      return m;
+    };
+    const bad = tally(fp); const good = tally(hit);
+    const pct = (n, d) => (d ? `${((n / d) * 100).toFixed(1)}%` : '   — ');
+    console.log('  BY SHAPE OF ERROR — what the ink under the circle is arranged as');
+    console.log('                                    invented              correct');
+    for (const k of ['stem-foot', 'stem', 'beam', 'rule', 'paper', 'other']) {
+      const a = bad.get(k) ?? 0; const b = good.get(k) ?? 0;
+      if (!a && !b) continue;
+      console.log(`    ${label[k].padEnd(30)}${String(a).padStart(4)}  ${pct(a, fp.length).padStart(6)}`
+        + `  ${String(b).padStart(5)}  ${pct(b, hit.length).padStart(6)}`);
+    }
+    // THE SMOKE ALARM, and it is the reason this breakdown can be trusted at all.
+    //
+    // Almost every notehead in this repertoire has a stem — a semibreve does not
+    // and nothing else is exempt — so the share of CORRECT heads under which this
+    // code finds a stem is a measurement of the stem finder itself, on a
+    // population of a thousand points that are known to be noteheads. It reads
+    // 96% on the Bach, 97% on the Concerto and 95% on the Scanned score. If a
+    // later change drops it, the `stem-foot` column has stopped meaning what it
+    // says and nothing below it should be quoted. Written the same way
+    // tools/head-probe.mjs checks itself against findHeads: an instrument that
+    // cannot say when it has drifted is worse than none.
+    const anyStem = hit.filter((r) => r.shape === 'stem-foot' || r.shape === 'stem').length;
+    console.log(`    a stem is found under ${anyStem} of ${hit.length} CORRECT heads`
+      + ` (${((anyStem / (hit.length || 1)) * 100).toFixed(0)}%) — a notehead has a stem, so`
+      + ` a\n    number well below 90 here means the stem finder has drifted and this table is void`);
+    const beamy = fp.filter((r) => r.shape === 'stem-foot' && r.beamInk).length;
+    console.log(`    of the invented in a stem with a head on it, ${beamy} also carry beam ink`);
+    const cross = fp.filter((r) => r.shape === 'stem-foot' && (r.via ?? 'shape') !== 'stem').length;
+    console.log(`    …and ${cross} of them were proposed by the SHAPE pass, not the stem pass\n`);
+  }
   const stemHits = hit.filter((r) => r.via === 'stem').length;
   const stemFp = fp.filter((r) => r.via === 'stem').length;
   if (stemHits || stemFp) {

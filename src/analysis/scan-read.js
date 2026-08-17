@@ -1319,30 +1319,46 @@ function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
     // here not measured off this system's own ink. WIDEN ONLY: a system whose
     // own band already reaches further keeps it, so no system can lose
     // suppression to the page's agreement and this cannot narrow anything.
-    // A BAND THE READER REFUSED TO READ A KEY FROM DOES NOT GET TO DELETE
-    // NOTEHEADS EITHER.
+    // A BAND THE READER COULD NOT NAME A KEY FROM STILL SUPPRESSES.
     //
-    // findKeyBand marks a band `cut` when the scan stopped on a speck or ran out
-    // of reach rather than on a clean blank — and readKeySignature already
-    // refuses such a band outright, because a prefix of a key signature is a
-    // valid key signature and a signature cut short reads as a different, wrong
-    // key. The suppression was not asking. It took `key.x1` whatever the scan
-    // thought of it.
+    // This read `key && !key.cut ? key.x1 : 0` for part of one night, on the
+    // argument that a band good enough to name a key is good enough to suppress
+    // and nothing else is. findKeyBand marks a band `cut` when its scan stopped
+    // on a speck or ran out of reach, readKeySignature refuses such a band
+    // outright, and it seemed to follow that the suppression should too.
     //
-    // That is the same loaded gun pointed at the music instead of at the answer.
-    // On a stave with NO signature at all — bare staves with music where the
-    // furniture would be, which is most of the synthetic corpus and every
-    // cropped photograph — a phantom band that ends on a speck reaches into the
-    // first bar, and dropFurniture deletes real noteheads inside it. Measured on
-    // pages drawn by tools/key-safety-check.mjs's own recipe: three of forty
-    // heads gone at space 12, two at space 16, and they do not appear in the
-    // reading at all rather than being merely mislabelled.
+    // IT DOES NOT FOLLOW, AND THE COST IS LARGE. The two questions are not the
+    // same question. Naming a key from a signature cut short is dangerous
+    // because a prefix of a key signature is a valid key signature — four sharps
+    // cut to two reads as D major and puts a semitone on the wrong notes.
+    // Suppressing a notehead inside a band cut short is not dangerous at all: it
+    // covers less of the furniture than it should, and covering less is the
+    // failure it was supposed to prevent.
     //
-    // So the two questions are answered by one rule: a band good enough to name
-    // a key is good enough to suppress, and nothing else is. The clef band still
-    // applies on its own, which is what covers the furniture on a system whose
-    // signature could not be read.
-    const usable = key && !key.cut ? key.x1 : 0;
+    // MEASURED, over every signature from none to seven, in both clefs, both
+    // sharps and flats — six systems and forty-eight plain crotchets each, which
+    // is a test the three marked pages cannot perform because all three are in
+    // ONE SHARP. False circles standing on the furniture, summed over the four
+    // clef-and-kind combinations:
+    //
+    //   accidentals in the signature   0   1   2   3   4   5   6   7
+    //   with the cut gate             28  41  45  72  96 132 120 144
+    //   without it                    16  11  15  30  36  66  60  78
+    //
+    // It doubles them at every length. A long signature is exactly the one whose
+    // band runs out of reach, so the gate switches the suppression off precisely
+    // where there is most to suppress — and every number that said the gate was
+    // free came from three pages whose signature is one sharp and whose bands are
+    // not cut.
+    //
+    // The danger it was added for is real and is NOT fixed by this gate: a
+    // phantom band on a signature-less stave can still reach into the first bar.
+    // Measured, A/B: the count of heads a band's own scan reaches is identical
+    // with the gate and without it — 13 of 1320 in tools/key-safety-check.mjs —
+    // because those bands end cleanly and were never `cut` in the first place.
+    // The gate cost a great deal and bought nothing. That residual is a separate
+    // open problem and belongs to `column()`'s measurement window, not here.
+    const usable = key ? key.x1 : 0;
     const lo = from;
     const hi = Math.max(
       from + Math.max(3, space * CLEF_WIDE),
@@ -1509,6 +1525,9 @@ const STEM_HUNT = 0.5;    // how far around the proposal to look for the best fi
 // about the heads the shape pass ALREADY accepted on this page, which moves
 // with the model instead of being invalidated by it.
 const STEM_CUT = 0.95;
+// How long a vertical run can be and still be ONE stem, in staff spaces.
+// Above this the run has gone through more than one object and both of its ends
+// may be real noteheads — see the note in stemHeads on `oneStem`.
 
 function stemHeads(ink, w, h, staff, space, gray, background, taken) {
   const found = [];
@@ -1598,6 +1617,41 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
         for (let k = x + 1; k < w && ink[at * w + k] && run <= reach; k++) run++;
         return run > reach;
       };
+      // A STEM HAS ONE NOTEHEAD — AND USING THAT COSTS MORE THAN IT SAVES.
+      //
+      // The user reported "many false circles still happen oftentimes in the
+      // stem at the bottom", and a page drawn for the purpose reproduces it
+      // exactly: plain crotchets, bare stems, no beams, no flags, no clutter,
+      // and about a third of the stems carry a ring at the far TIP three spaces
+      // from their own notehead. `owned` does not stop it, because `owned` asks
+      // about the proposal point and the tip is three spaces from the head that
+      // was found.
+      //
+      // An engraver puts the head at one end of a stem, so a stem whose head the
+      // shape pass has already found should propose nothing at all. Written,
+      // measured, and REVERTED — the trade is the wrong way round at every bound:
+      //
+      //   rule                                   Scanned precision / recall
+      //   none (shipped)                              91.2 / 94.3
+      //   one head per stem, any run length           91.8 / 91.4   -13 real notes
+      //   …only when the run is <= 4.5 spaces         91.9 / 92.3
+      //   …only when the run is <= 3.5 spaces         91.5 / 93.2
+      //   …and taking only the better of two ends     90.7 / 93.2   worse on BOTH
+      //
+      // Every version buys a few tenths of precision and pays one to three
+      // points of recall. What it takes is real: a column of ink through TWO
+      // noteheads — two notes a third apart, an up-stem under a down-stem, a
+      // stem crossing a ledger line into the head below — has a found head at one
+      // end and a genuinely missing one at the other, and the rule surrenders
+      // the second. A missing note breaks the alignment a take depends on and an
+      // extra circle is cosmetic, so this is the trade this reader must not make.
+      //
+      // THE PHANTOM IS A JUDGING FAILURE, NOT A GEOMETRY ONE. The bare tip of a
+      // stem scores 0.95 and over from the classifier, which is what admits it;
+      // no arrangement of the ends fixes a judge that likes the wrong patch. It
+      // belongs with the classifier — see the engraved-corpus work, where one
+      // hidden layer over twenty thousand patches reads nine points of held-out
+      // precision above the logistic fit — and not in a sixth geometric veto.
       for (const [at, side] of [[y, 1], [end, -1]]) {
         if (beamAt(at)) continue;
         // This end already has its head. See the note on `owned` above.

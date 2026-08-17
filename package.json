@@ -60,7 +60,13 @@
     "scan:stems": "node tools/stem-audit.mjs",
     "scan:bar-why": "node tools/bar-probe.mjs",
     "scan:spread": "node tools/scan-spread-check.mjs",
-    "scan:key-why": "node tools/key-probe.mjs"
+    "scan:key-why": "node tools/key-probe.mjs",
+    "scan:pdf-glyphs": "node tools/pdf-glyphs.mjs",
+    "scan:heads-shape": "node tools/head-shape-check.mjs",
+    "engrave": "node tools/engrave.mjs",
+    "train:big": "node tools/train-big.mjs",
+    "scan:whatif": "node tools/whatif.mjs",
+    "scan:engraved": "node tools/engraved-bench.mjs"
   },
   "keywords": [],
   "author": "",
