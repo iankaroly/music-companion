@@ -1,5 +1,6 @@
-import { describe, test, expect } from 'vitest';
+import { describe, test, it, expect } from 'vitest';
 import { pitchOf, BOTTOM_LINE } from '../src/analysis/scan-notes.js';
+import { notesInOrder } from '../src/analysis/scan-read.js';
 import { keyFromCount } from '../src/analysis/scan-key.js';
 
 const NONE = keyFromCount(0, 'sharp');
@@ -90,5 +91,48 @@ describe('pitchOf', () => {
     // …and F3 is the SECOND line, step 2, which is what the old table put on
     // the bottom one.
     expect(pitchOf(2, 'tenor', NONE).midi).toBe(53);
+  });
+});
+
+// The wiring, not the arithmetic. pitchOf has been correct for a while and
+// notesInOrder did not call it: every note came out of the reader as a POSITION
+// with a clef and a key sitting unused beside it. These pin the join.
+describe('notesInOrder names the note', () => {
+  const page = (clef, key, steps) => ({
+    key,
+    staves: [{
+      clef,
+      clefConfidence: 1,
+      key,
+      keyConfidence: 1,
+      bars: [],
+      heads: steps.map((step, i) => ({ x: 0.1 * (i + 1), y: 0.5, step, beats: 1, beams: 0, via: 'shape' })),
+    }],
+  });
+  const oneSharp = keyFromCount(1, 'sharp');
+
+  it('reads the bottom line of each clef', () => {
+    expect(notesInOrder(page('bass', oneSharp, [0]))[0].midi).toBe(43);    // G2
+    expect(notesInOrder(page('treble', oneSharp, [0]))[0].midi).toBe(64);  // E4
+    expect(notesInOrder(page('tenor', oneSharp, [0]))[0].midi).toBe(50);   // D3
+  });
+
+  it('applies the key signature — one sharp makes the F below bass G an F sharp', () => {
+    // Step -1 in bass clef is the F below the bottom line: F2 is 41, F#2 is 42.
+    expect(notesInOrder(page('bass', keyFromCount(0, 'sharp'), [-1]))[0].midi).toBe(41);
+    expect(notesInOrder(page('bass', oneSharp, [-1]))[0].midi).toBe(42);
+  });
+
+  it('propagates null rather than assuming a clef', () => {
+    // A cello part is in bass clef most of the time, and "most of the time" is
+    // what turns the other times into confident verdicts a sixth out.
+    const n = notesInOrder(page(null, oneSharp, [0, 4]));
+    expect(n.map((x) => x.midi)).toEqual([null, null]);
+  });
+
+  it('prefers the PAGE key to a single system that could not read one', () => {
+    const p = page('bass', null, [-1]);
+    p.key = oneSharp;                       // the page agreed; this system did not
+    expect(notesInOrder(p)[0].midi).toBe(42);
   });
 });

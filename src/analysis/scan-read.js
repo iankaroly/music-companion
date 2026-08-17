@@ -23,6 +23,7 @@ import {
   findKeyBand, agreeKeyCount, agreeKeyReach, trimKeyBand, readKeySignature, agreeKey,
 } from './scan-key.js';
 import { headPatch, headScore, headScoreMlp } from './head-model.js';
+import { pitchOf } from './scan-notes.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -2537,6 +2538,38 @@ export function notesInOrder(page) {
         // and is the better fallback.
         key: staff.key ?? null,
         keyConfidence: staff.keyConfidence ?? 0,
+        // …AND THE NOTE ITSELF, which is what all of that was for.
+        //
+        // Every piece of this has existed for a while and nothing joined them
+        // up: scan-clef.js reads which line is which note, scan-key.js reads
+        // which of those names the signature alters, scan-notes.js turns a step
+        // and those two into a MIDI number — and notesInOrder handed downstream
+        // a position and left it to guess. scan-pitch.js still opens by saying
+        // "no clef, no key signature, no accidental… none of them is read",
+        // which was true when it was written and is now two thirds wrong.
+        //
+        // THE PAGE'S KEY, NOT THIS SYSTEM'S. A printed signature is the same on
+        // every system, so the page's agreed answer is the better one — on the
+        // three marked pages it is read by 4, 5 and 9 systems out of ten or
+        // eleven, unanimously, where any single system may be one of the ones
+        // that could not read it. The stave's own is the fallback.
+        //
+        // NULL IS PROPAGATED AND NEVER DEFAULTED. A cello part is in bass clef
+        // most of the time, and "most of the time" is the assumption that turns
+        // the other times into a page of confident verdicts a sixth out. A
+        // caller that gets null must treat it as unknown, not as C major.
+        //
+        // WHAT THIS STILL DOES NOT KNOW is an accidental standing in front of
+        // the note in its own bar. Those are not read at all — the reader only
+        // ever meets them as things it wrongly circles — so a note whose bar
+        // carries one comes back a semitone out. That is the next thing owed
+        // here, and until it exists a pitch from this is right about the key and
+        // silent about the bar.
+        ...(() => {
+          const key = page?.key ?? staff.key ?? null;
+          const p = pitchOf(head.step, staff.clef ?? null, key);
+          return p ? { midi: p.midi, degree: p.degree } : { midi: null, degree: null };
+        })(),
       });
     }
   }
