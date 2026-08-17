@@ -6,10 +6,6 @@
   "marked": "2026-08-16",
   "notes": [
     {
-      "x": 0.07143,
-      "y": 0.14727
-    },
-    {
       "x": 0.15429,
       "y": 0.16817
     },
@@ -290,10 +286,6 @@
       "y": 0.29976
     },
     {
-      "x": 0.22286,
-      "y": 0.35677
-    },
-    {
       "x": 0.24714,
       "y": 0.30309
     },
@@ -416,10 +408,6 @@
     {
       "x": 0.19929,
       "y": 0.3639
-    },
-    {
-      "x": 0.22214,
-      "y": 0.35677
     },
     {
       "x": 0.22571,
@@ -1620,5 +1608,22 @@
       "y": 0.8247
     }
   ],
-  "cleaned": "12 labels inside a clef band removed"
+  "cleaned": "12 labels inside a clef band removed; 3 labels on furniture removed (1 bass clef head, 2 duplicate clicks on a quarter rest) — each cropped and looked at",
+  "removed": [
+    {
+      "x": 100,
+      "y": 310,
+      "on": "clef"
+    },
+    {
+      "x": 312,
+      "y": 751,
+      "on": "rest"
+    },
+    {
+      "x": 311,
+      "y": 751,
+      "on": "rest"
+    }
+  ]
 }

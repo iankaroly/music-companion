@@ -123,8 +123,17 @@ function reading(rows, f, cut = 0.3) {
 console.log('\nWHAT IS THE BOTTLENECK — data, or the model?\n');
 console.log(`  ${data.rows.length} labelled patches from ${pages.length} pages, scored only on pages held out\n`);
 
+// ONE COLUMN PER PAGE, WHOEVER THE PAGES ARE. This printed `per.Bach` and
+// `per.Mozart` by name while averaging the mean over every page in the file,
+// which was harmless while pages/index.json listed two pages and became a lie
+// the day a third was added: the mean moved and the column that moved it was
+// not on the screen. The columns are now built from `pages`, so adding a fourth
+// marked page shows up here without an edit.
+const col = (v) => `${(v * 100).toFixed(1)}%`.padStart(9);
+const header = pages.map((p) => `${p} F1`.padStart(9)).join('  ');
+
 console.log('  HOW MUCH DOES MORE DATA BUY? (logistic, held-out page)');
-console.log('  training patches   Bach F1   Mozart F1   mean');
+console.log(`  training patches  ${header}       mean`);
 const fracs = [0.15, 0.3, 0.5, 0.75, 1];
 for (const frac of fracs) {
   const per = {};
@@ -137,40 +146,53 @@ for (const frac of fracs) {
     per[held] = reading(data.rows.filter((r) => r.page === held), logistic(trainRows)).f1;
   }
   const mean = pages.reduce((a, p) => a + per[p], 0) / pages.length;
-  console.log(`  ${String(Math.round(used / pages.length)).padStart(16)}`
-    + `   ${`${(per.Bach * 100).toFixed(1)}%`.padStart(7)}   ${`${(per.Mozart * 100).toFixed(1)}%`.padStart(9)}`
-    + `   ${`${(mean * 100).toFixed(1)}%`.padStart(5)}`);
+  console.log(`  ${String(Math.round(used / pages.length)).padStart(16)}  `
+    + `${pages.map((p) => col(per[p])).join('  ')}  ${col(mean)}`);
 }
 
 console.log('\n  DOES A BIGGER MODEL DO BETTER ON THE SAME DATA? (held-out page)');
-console.log('  model                Bach F1   Mozart F1   mean');
+console.log(`  model                ${header}       mean`);
 for (const [name, fit] of [['logistic (shipped)', logistic], ['one hidden layer, 24', network]]) {
   const per = {};
   for (const held of pages) {
     per[held] = reading(data.rows.filter((r) => r.page === held), fit(data.rows.filter((r) => r.page !== held))).f1;
   }
   const mean = pages.reduce((a, p) => a + per[p], 0) / pages.length;
-  console.log(`  ${name.padEnd(20)} ${`${(per.Bach * 100).toFixed(1)}%`.padStart(7)}`
-    + `   ${`${(per.Mozart * 100).toFixed(1)}%`.padStart(9)}   ${`${(mean * 100).toFixed(1)}%`.padStart(5)}`);
+  console.log(`  ${name.padEnd(19)}  ${pages.map((p) => col(per[p])).join('  ')}  ${col(mean)}`);
 }
 console.log('');
 
 // WHAT THE ANSWER WAS, so nobody runs this and draws the opposite conclusion.
+// Both readings are kept: the two-page one that set the project's direction,
+// and the three-page one measured after the Scanned score was marked.
 //
-//   more patches      60 patches gave 94.3% and 397 gave 95.1%. Flat. Extra
-//                     examples from a page already in the set are redundant —
-//                     the four hundredth notehead on the Bach looks like the
-//                     first.
-//   more capacity     a hidden layer of 24 reads 87.8% on the held-out Mozart
-//                     against logistic regression's 92.0%. It memorises the
-//                     page it trained on, which is what more parameters buy
-//                     you on eight hundred examples.
+//   more patches      TWO PAGES: 60 patches gave 94.3% and 397 gave 95.1%.
+//                     THREE PAGES: 127 gave 93.5% and 845 gave 95.0%, and it is
+//                     not even monotone on the way (253 reads 93.9%, 423 reads
+//                     93.7%). Flat both times. Extra examples from a page
+//                     already in the set are redundant — the four hundredth
+//                     notehead on the Bach looks like the first.
+//   more capacity     TWO PAGES: a hidden layer of 24 read 87.8% on the
+//                     held-out Mozart against logistic regression's 92.0%, a
+//                     gap of 4.2 points, and it was memorising the page it
+//                     trained on. THREE PAGES: 94.7% against 95.0% in the mean
+//                     — the gap has closed to 0.3, and the hidden layer now
+//                     WINS on the held-out Mozart (92.7% against 92.1%) and
+//                     loses on the Scanned score (93.0% against 94.2%).
+//                     Logistic still wins, but "capacity is obviously wrong for
+//                     this much data" is no longer what the numbers say, and a
+//                     fourth page is the measurement that would settle it.
 //
-// Neither is the lever, and that leaves the one thing this cannot measure with
-// two pages: whether a THIRD kind of page helps. The evidence that it does is
-// the asymmetry — the Bach contributes 46 negative examples, the Mozart 152,
-// and the model trained on the richer set travels much better in both
-// directions. What is short is not examples, it is KINDS of example: a page
-// with handwriting on it, a piano score, a phone photograph rather than a scan.
-// Each new kind is a column in this table, and this file is how you find out
-// whether it bought anything.
+// Neither is the lever, and the third page has NOT answered the question this
+// could not answer with two — because the Scanned score is the same music as
+// the Concerto, photographed rather than typeset. It is a third SCAN and not a
+// third KIND. What is short is still KINDS of example: a page with handwriting
+// on it, a piano score, a phone photograph of something not already here. Each
+// new kind is a column in this table, and this file is how you find out whether
+// it bought anything.
+//
+// One warning that belongs with this table. It scores the CLASSIFIER, on the
+// candidate list the shape tests hand it, and a model that reads better here
+// can still read worse as a whole reader: the three-page refit is better in
+// every column above and costs npm run bench two points of both precision and
+// recall, through a constant this table cannot see. See head-model.js.

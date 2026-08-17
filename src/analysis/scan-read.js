@@ -19,11 +19,17 @@
 
 import { beamLayer, readValues } from './scan-stems.js';
 import { clefFeatures, classifyClef, MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW } from './scan-clef.js';
-import { findKeyBand } from './scan-key.js';
+import {
+  findKeyBand, agreeKeyCount, agreeKeyReach, trimKeyBand, readKeySignature, agreeKey,
+} from './scan-key.js';
 import { headPatch, headScore } from './head-model.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
+// How good a comb curve is allowed to be in ABSOLUTE terms and still be a
+// stave, whatever the crispest thing on the page reads. See trackCombs, which
+// is the only caller and carries the measurement that fixed the value.
+const STAVE_FLOOR = 0.45;
 
 function toGray(canvas) {
   const { width, height } = canvas;
@@ -174,17 +180,175 @@ export function trackCombs(perStrip, pitch, { drift = 0.6, cross = 0.5 } = {}) {
       }
       if (!best) continue;
       taken.add(best);
-      curve.points.push([s, best.y0, best.step]);
+      curve.points.push([s, best.y0, best.step, best.score]);
       curve.y0 = best.y0;
       curve.last = s;
     }
     for (const c of perStrip[s]) {
       if (taken.has(c)) continue;
-      curves.push({ points: [[s, c.y0, c.step]], y0: c.y0, last: s });
+      curves.push({ points: [[s, c.y0, c.step, c.score]], y0: c.y0, last: s });
     }
   }
-  return curves
-    .filter((c) => c.points.length >= strips * cross)
+  // ONE STAVE, BROKEN INTO PIECES, IS STILL ONE STAVE.
+  //
+  // A curve claims the nearest comb in the next strip and gives up after three
+  // strips without one. On a comfortable page that never happens — every stave
+  // answers in all forty strips and this pass does nothing whatever. On a small
+  // photograph it happens constantly: measured on the size sweep's `photo8`, a
+  // page whose six staves stand at y = 100, 230, 359, 488, 617 and 746 in nearly
+  // every strip, the comb slips a line here and there (the top stave reads 96,
+  // 97, 98, 97, 93, 91, 90, 100, 109, 100, 100 …) and every slip larger than
+  // `drift` starts a NEW curve. Six staves came back as thirty-odd fragments of
+  // five to seven points each, not one of them long enough to survive the
+  // crossing test, and `trackCombs` returned ZERO curves — `readPage` then
+  // returned null and the page read as blank paper. That was the whole of the
+  // reader's failure at a working staff space of six and eight.
+  //
+  // So fragments that CONTINUE one another are joined before the length test.
+  // The bound is scale-free and it is safe for a reason that is worth writing
+  // down: `combPeaks` already refuses to report two peaks within 4.2 pitches of
+  // each other in the same strip, so two staves are never nearer than that, and
+  // a fragment whose y agrees with another's to within a pitch and a half cannot
+  // belong to a different stave — there is no other stave it could belong to.
+  // Nothing here can invent a stave: a join only ever makes an existing curve
+  // longer, and every point in it was measured in the strip it came from.
+  //
+  // No bound on HOW FAR APART in strips the two pieces may be, deliberately. A
+  // stave runs the width of the page, so two pieces at the same height that do
+  // not overlap in strips are the same printed line however wide the hole
+  // between them is; and the hole is exactly what the crossing test is there to
+  // punish, which it still does — a stave rebuilt from two short fragments is
+  // still short, and is still thrown away.
+  const joined = [];
+  for (const c of curves) {
+    let host = null;
+    let nearest = pitch * 1.5;
+    for (const m of joined) {
+      if (m.points.at(-1)[0] >= c.points[0][0]) continue;   // they overlap: two staves
+      const d = Math.abs(m.points.at(-1)[1] - c.points[0][1]);
+      if (d < nearest) { nearest = d; host = m; }
+    }
+    if (host) host.points.push(...c.points);
+    else joined.push(c);
+  }
+
+  // HOW FAR A CURVE HAS TO GET, asked of the page as well as carried.
+  //
+  // Half the strips is what a stave has to cross that a chance answer in one
+  // corner does not, and on any page the reader currently reads well every stave
+  // crosses all forty. The trouble is the page where nothing crosses twenty: on
+  // a close-up — a phone held near two bars on a stand — the best curve on the
+  // page reaches nineteen strips of forty, and half is then not a bar a stave
+  // has to clear, it is a bar NO stave clears, and `readPage` returns null and
+  // the page reads as blank paper.
+  //
+  // So the page's own longest curve gets a vote. The errors here run one way and
+  // that is what makes the longest curve an honest yardstick: a real stave goes
+  // missing in a strip — a beam, the gutter, a black chord — but nothing
+  // produces a NON-stave answer in more strips than a real stave does, so the
+  // longest thing on the page is the best evidence available about how far a
+  // stave gets on this page. Three fifths of it is the bar.
+  //
+  // TAKEN AS THE LOWER OF THE TWO, deliberately. This can only ever LOOSEN the
+  // test, never tighten it: on the three marked pages the longest curve is forty
+  // and three fifths of that is twenty-four, so the old half-the-page rule is
+  // the one that binds and nothing whatever changes. A rule that could also
+  // tighten would be able to throw away a stave the reader finds today, and no
+  // page here would show it.
+  //
+  // THE FALLBACK IS THE CONSTANT THAT WAS THERE — `strips * cross` — and it is
+  // what binds on every page that works at all.
+  //
+  // `longest` IS TAKEN OVER EVERY CURVE, JUNK INCLUDED, AND THAT IS SAFE — which
+  // is worth stating because the score test two paragraphs down had exactly that
+  // shape and it was a bug there. The difference is the `min`. A junk curve can
+  // only ever make `longest` bigger, which can only ever push `reach` back UP
+  // towards `strips * cross`, and the `min` stops it there. So the worst a long
+  // junk curve can do is cancel the close-up rescue and leave the old constant
+  // standing: a page whose real staves reach nineteen strips beside a forty-strip
+  // edge artefact is read exactly as it was before this rule existed. It cannot
+  // throw away a stave the old code kept, which is the property that matters.
+  // Filtering the junk out by score first would tighten it further and there is
+  // no page in the corpus that shows the difference, so it is not done — and on
+  // `scan:sizes` photo6, whose longest curve is a REAL stave scoring 0.400, such
+  // a filter would have thrown away the honest yardstick along with the junk.
+  const longest = joined.reduce((a, c) => Math.max(a, c.points.length), 0);
+  const reach = Math.min(strips * cross, longest * 0.6);
+
+  // AND HOW MUCH LIKE A STAVE IT HAS TO LOOK, measured against the best thing on
+  // this page rather than against a number.
+  //
+  // Until the fragments were joined, a curve was tested on LENGTH alone —
+  // `combPeaks` had already applied an absolute floor of 0.3 to each point, and
+  // anything that got most of the way across the page was taken to be a stave.
+  // Joining made that too generous, and the page it broke was the top EDGE of
+  // the image: the background blur is built from a clamped window there, so the
+  // first few rows carry an artefact that answers the comb weakly in scattered
+  // strips. Those scraps used to be too short to survive and now they assemble.
+  // Measured on tools/scan-clef-check.mjs's end-to-end page — four photographed
+  // systems at y = 52, 208, 364 and 520 — the reader came back with a fifth
+  // stave at y = 0, spanning the top edge, and read `treble` off it on a page of
+  // basses.
+  //
+  // A comb score is a fraction of a strip's columns, so an absolute floor is a
+  // statement about how black this photograph happens to be. The page's own best
+  // curve is not: whatever the exposure, the clearest stave on the page is what
+  // a stave looks like HERE, and three fifths of it is the bar. The edge artefact
+  // reads a small fraction of that; every real stave on every page measured this
+  // round reads most of it.
+  //
+  // THE MEDIAN of a curve's points, not the mean: a beamed run, the gutter or a
+  // black chord costs a stave its score in a handful of strips, and a mean lets
+  // those few strips speak for the whole curve.
+  //
+  // `best` IS TAKEN OVER THE CURVES THAT PASS THE LENGTH TEST, and taking it
+  // over all of them was a bug that could return a BLANK PAGE. A two-strip
+  // scrap — a bracket, a black chord, the frame of a photograph — is thrown
+  // away by the very next line for being too short, and it was setting the bar
+  // for the whole page before it went: six real staves answering in all forty
+  // strips at 0.52 beside one scrap at 0.95 leaves 0.52 < 0.57, all six are
+  // deleted, `trackCombs` returns nothing, `fillMissedStaves` bails at its own
+  // three-stave floor and `readPage` returns null. It is not hypothetical:
+  // `scan:sizes` photo6 took the page's best from a ONE-strip scrap at 0.686
+  // where its longest curves read 0.40 to 0.457, and one of its six real staves
+  // was being deleted here and put back by `fillMissedStaves` — the row reads
+  // 94% recall before this and 96% after.
+  //
+  // AND THE BAR HAS AN ABSOLUTE FLOOR UNDER IT, because relative alone has no
+  // lower bound and the fallback the comment used to claim does not exist.
+  // `combPeaks`' 0.3 is a floor on each POINT, so every curve's median has
+  // already cleared it and a conjunctive floor here would be a no-op; the
+  // relative test is strictly tightening and nothing was holding the line under
+  // it. A legitimately faint system among crisp ones was therefore dropped
+  // however good it was in absolute terms — and on a two- or three-system page,
+  // which is exactly the close-up the camera scanner produces, `fillMissedStaves`
+  // returns early below three staves and the system is gone for good. That page
+  // now exists in the corpus: the FEW block in tools/scan-corpus.mjs, whose
+  // `few2faint` and `few3faint` rows read 50% and 67% recall before this and
+  // 100% after.
+  //
+  // 0.45 IS A MEASURED WINDOW AND NOT A GUESS, and the window is narrow enough
+  // that it is worth writing down where both edges came from. Dumping every
+  // joined curve's median: the clef page's top-edge artefact reads 0.400 over
+  // exactly 20 strips — it passes the length test and only this bar stops it —
+  // and the faint system the FEW block draws reads 0.471 to 0.479. Swept, every
+  // floor from 0.41 to 0.47 keeps the artefact out AND rescues the faint system;
+  // 0.40 lets the artefact back (five staves, `treble` read on a page of basses)
+  // and 0.48 loses the faint system again. It is the middle of that window.
+  //
+  // A PAGE-RELATIVE VERSION WAS CONSIDERED AND IS WORSE, so it is not left as an
+  // obvious idea: measuring against the MEDIAN of the long curves instead of the
+  // best would separate both fixtures too — the clef page's four staves out-vote
+  // its one artefact — but on a page with two long curves the median IS the
+  // lower of them and the test becomes vacuous, and a two-system page is the
+  // page this whole rule is for.
+  const median = (xs) => xs.slice().sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)];
+  const scores = new Map(joined.map((c) => [c, median(c.points.map((p) => p[3] ?? 0))]));
+  const long = joined.filter((c) => c.points.length >= reach);
+  const best = Math.max(0, ...long.map((c) => scores.get(c)));
+
+  return long
+    .filter((c) => scores.get(c) >= best * 0.6 || scores.get(c) >= STAVE_FLOOR)
     .map((c) => {
       const y0 = new Float32Array(strips);
       const step = new Float32Array(strips);
@@ -818,6 +982,28 @@ function findBars(ink, w, h, staff, stripW, space) {
 // So 0.4, which is where the harder of the two still keeps nine notes in ten
 // when it has never been trained on. A missed note breaks the alignment a take
 // depends on; an extra circle is cosmetic.
+//
+// THE TABLE ABOVE IS THE ONE THAT GOVERNS, because it is the table for the
+// weights actually shipped in head-model.js. There is now a second one, printed
+// by npm run scan:train against pages/patches.json as it stands — three pages,
+// 1267 patches — and it belongs to a model that was measured and NOT installed:
+//
+//   held out   cut 0.3        0.4            0.5            0.6
+//   Bach       97.8 / 99.4    99.1 / 99.4    99.7 / 99.4    100.0 / 99.4
+//   Mozart     85.8 / 99.3    89.6 / 98.0    93.9 / 97.3     96.3 / 95.0
+//   Scanned    95.7 / 92.8    96.2 / 90.9    96.4 / 89.2     96.4 / 88.1
+//
+// Its mean F1 is flat from 0.4 to 0.6 (95.45, 95.93, 95.78) and its mean recall
+// is 96.1 at 0.4 against 94.2 at 0.6, so even for that model the asymmetry the
+// paragraph above states — a lost note is expensive and a spare circle is not —
+// picks 0.4 again. Read the long note in head-model.js before using either.
+//
+// One thing that table does NOT say, and it is the difference between "a third
+// page was a big win" and "a page of a different KIND is still the next step":
+// the held-out Mozart row is trained on the Bach AND THE SCANNED SCORE, and the
+// Scanned score is the same music as the Concerto photographed differently. Its
+// 89.5 -> 98.0 recall is flattered by that. The only clean independent row is
+// the Bach, and it moves 98.1 / 99.4 to 99.1 / 99.4.
 const HEAD_JUDGE = true;
 const HEAD_CUT = 0.4;
 
@@ -977,15 +1163,66 @@ function offStaveIsCredible(ink, w, h, staff, stripW, space, head) {
 // flats found by their own shape in the band after the clef — which is owed
 // anyway, since naming a pitch means knowing the B is flat and no amount of
 // counting repetitions can say so. scan-key.js is waiting for it.
+//
+// BOTH SUPPRESSIONS WAIT FOR A CLEF, AND THE SECOND ONE DOES SO BY MEASUREMENT
+// RATHER THAN BY INHERITANCE.
+//
+// The single gate below — `if (from === null || !clefs[i].clef) continue;` —
+// looks like an accident of how this function grew: the clef band plainly needs
+// a clef, the key band has its own evidence, and a system whose clef cannot be
+// named therefore gets no suppression of ANY kind. That is two systems of the
+// three marked pages, the first of the Concerto and the first of the Scanned
+// score, both clef null at confidence zero.
+//
+// So it was split and measured, and the answer is that it should not be. Run
+// findKeyBand wherever the stave's left end is known, and:
+//
+//   the three marked pages            NO CHANGE AT ALL
+//     Bach 97.5/98.8, Mozart 87.0/91.0, Scanned 90.2/91.4 either way
+//   the synthetic corpus              CORE mean 99% -> 98%
+//     clean, small, tiny, blurred, faint, jpeg, tilted, creased and shrunk all
+//     fall from 100% recall to 98–99%; photograph 96% -> 95%; HARD heavyBlur
+//     97% -> 93%, denseSemis 100% -> 99%, halfSpace 100% -> 98%
+//
+// The corpus is a page of bare staves, which is what a cropped photograph and a
+// fragment are too, and on a bare stave the music starts where the furniture
+// would be. The key scan is good enough that it usually refuses — but "usually"
+// costs a note per page there, and a note is the thing this reader is not
+// allowed to lose. The two systems it was supposed to rescue turn out to be
+// worth nothing measured: with the width ceiling now in scan-key.js both of
+// them return no band at all, because neither is standing on a key signature —
+// the Scanned score's first system is a stave fillMissedStaves invented over
+// the title block, and its false heads are on the printed words rather than in
+// the furniture zone.
+//
+// Which leaves the clef band, and the same conditional guards it for the reason
+// already written above: excluding it unconditionally cost CORE 99% to 94% and
+// HARD 91% to 84%. What would lift it is a test for CLEF-SHAPED INK that does
+// not depend on scan-clef being able to name which clef — a band with a tall
+// confident glyph in it is furniture either way. That test is not built. The
+// obvious candidate, height, does not separate: clefFeatures already discards
+// the staff lines and a notehead with a stem measures about three and a half
+// spaces, over SHORTEST, which is exactly why the unconditional drop cost what
+// it did. See docs/reader-handover.md.
 function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
-  for (const [i, sys] of found.entries()) {
+  // Read every system's band FIRST, then let the page agree, then suppress.
+  //
+  // Three passes rather than one because the middle one needs the whole page:
+  // a key signature is the same on every system, so a system reporting five
+  // accidentals on a page whose other nine report one has run past the
+  // signature into the music, and trimming it back is the difference between
+  // suppressing a sharp and suppressing the first two notes of the bar. See
+  // agreeKeyCount in scan-key.js for why the trim can only ever narrow a band —
+  // and note that the page's agreement now does one more thing than trim, which
+  // is documented at the widening below and above agreeKeyReach.
+  const bands = found.map((sys, i) => {
     const from = edges[i];
-    if (from === null || !clefs[i].clef) continue;
+    if (from === null || !clefs[i].clef) return null;
     const space = sys.staff.space;
-    let wide = Math.max(3, space * CLEF_WIDE);
-    // …and the key signature after it, when there is one. Found by walking
-    // right until something that is not an accidental turns up, so the band
-    // ends where the music starts rather than at a width somebody chose.
+    const wide = Math.max(3, space * CLEF_WIDE);
+    // The key signature after the clef band, when there is one. Found by
+    // walking right until something that is not an accidental turns up, so the
+    // band ends where the music starts rather than at a width somebody chose.
     // Held at the x the band STARTS at, rather than followed across it.
     //
     // Following the curve was tried both ways — strip by strip, and interpolated
@@ -997,11 +1234,124 @@ function dropFurniture(ink, w, h, found, edges, clefs, stripW) {
       Math.min(sys.staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
     ];
     const held = (k) => at(k, from + wide);
-    const key = findKeyBand(ink, w, h, (k) => held(k), space, from + wide);
-    if (key) wide = key.x1 - from;
+    return { at: held, band: findKeyBand(ink, w, h, (k) => held(k), space, from + wide) };
+  });
+
+  const agreed = agreeKeyCount(bands.map((b) => b?.band?.count ?? 0));
+
+  for (const [i, sys] of found.entries()) {
+    const from = edges[i];
+    if (from === null) continue;
+    const space = sys.staff.space;
+    // WHICH key, read off this system's OWN band and not off the trimmed one.
+    //
+    // The trim exists to keep a suppression narrow and it acts on the count the
+    // PAGE agreed, so a system that over-read comes out of it holding a prefix
+    // of what it saw. A prefix of a key signature is a valid key signature —
+    // three sharps trimmed from five still reads F, C, G in order — so reading
+    // the trimmed band would turn an over-read into a confident wrong answer
+    // that the order test cannot see. The untrimmed band is what this system
+    // actually found, readKeySignature refuses it if it is not a signature, and
+    // agreeKey then does the cross-system arithmetic on ANSWERS rather than on
+    // extents. Two agreements about two different things, kept apart.
+    sys.key = readKeySignature(bands[i]?.band, bands[i]?.at, space, clefs[i].clef);
+    const key = trimKeyBand(bands[i]?.band, agreed);
     sys.keyBand = key;
-    sys.heads = sys.heads.filter((head) => head.x < from || head.x > from + wide);
   }
+
+  // HOW FAR THE PAGE'S SIGNATURE REACHES, for the systems whose own band stopped
+  // inside it.
+  //
+  // The band scan can end in the middle of a printed sharp, and when it does the
+  // right-hand half of the glyph is outside the suppression and gets circled. It
+  // is the whole of the residual the user reports as false circles on the key
+  // signature: `npm run scan:key-why` names the cause on every one of them —
+  // the Concerto's systems 5, 7 and 11 return bands 0.40, 0.40 and 0.81 staff
+  // spaces wide where the same page's readable systems return 1.39, and the
+  // Bach's system 3 returns no band at all while its neighbours return 1.14 to
+  // 1.16. Cropped, the Concerto's narrow bands are not the sharp read short:
+  // they are the treble clef's own trailing ink, and the sharp stands fifteen
+  // pixels further right untouched.
+  //
+  // A key signature is printed at the same distance past every system's left
+  // end, so the systems that read one know how far it reaches. See
+  // agreeKeyReach in scan-key.js for why this is not the cross-system voting
+  // that is measured and dead, and for the safety argument that replaces the
+  // invariant it breaks.
+  //
+  // TWO GATES, and the second one is what keeps this off the synthetic corpus.
+  // agreeKeyReach itself needs MIN_KEY_WITNESSES systems to have read a key;
+  // this additionally refuses a page whose systems did not AGREE on one. A
+  // corpus page is bare staves with music where the furniture would be, a clef
+  // is often named on one anyway, and two such systems inventing a signature
+  // out of their first notehead is exactly the shape that would reach a
+  // suppression into the music on all six. Measured: the reach is null on every
+  // page of CORE, HARD, SIZES and FEW, so this never fires there at all.
+  const pageKey = agreeKey(found.map((sys) => sys.key));
+  const reach = pageKey.key
+    ? agreeKeyReach(found.map((sys, i) => (edges[i] === null ? null : {
+      key: sys.key,
+      reach: (sys.keyBand ? sys.keyBand.x1 - edges[i] : NaN) / sys.staff.space,
+    })))
+    : null;
+
+  for (const [i, sys] of found.entries()) {
+    const from = edges[i];
+    if (from === null) continue;
+    const space = sys.staff.space;
+    const key = sys.keyBand;
+    if (!clefs[i].clef) continue;
+    // ONE range, from the stave's left end to whichever of the two bands ends
+    // further right, because the key signature is printed hard against the clef
+    // and there is nothing between them.
+    //
+    // The version this replaces wrote `wide = key.x1 - from`, which REPLACED the
+    // clef band's width with the key band's end rather than taking whichever is
+    // greater — so a system whose signature was read narrow suppressed LESS than
+    // the clef band alone, and the clef went back to being circled. Taking the
+    // greater is wider than that was, so it was measured both ways before it
+    // was kept, and the two are indistinguishable: identical on all three marked
+    // pages and on every page of the corpus, CORE and HARD alike. The furthest
+    // right this can reach is still whatever ink this system printed, since
+    // findKeyBand's every bound is measured off that ink.
+    //
+    // …AND WHICHEVER OF THOSE THE PAGE ITSELF REACHES, which is the only bound
+    // here not measured off this system's own ink. WIDEN ONLY: a system whose
+    // own band already reaches further keeps it, so no system can lose
+    // suppression to the page's agreement and this cannot narrow anything.
+    // A BAND THE READER REFUSED TO READ A KEY FROM DOES NOT GET TO DELETE
+    // NOTEHEADS EITHER.
+    //
+    // findKeyBand marks a band `cut` when the scan stopped on a speck or ran out
+    // of reach rather than on a clean blank — and readKeySignature already
+    // refuses such a band outright, because a prefix of a key signature is a
+    // valid key signature and a signature cut short reads as a different, wrong
+    // key. The suppression was not asking. It took `key.x1` whatever the scan
+    // thought of it.
+    //
+    // That is the same loaded gun pointed at the music instead of at the answer.
+    // On a stave with NO signature at all — bare staves with music where the
+    // furniture would be, which is most of the synthetic corpus and every
+    // cropped photograph — a phantom band that ends on a speck reaches into the
+    // first bar, and dropFurniture deletes real noteheads inside it. Measured on
+    // pages drawn by tools/key-safety-check.mjs's own recipe: three of forty
+    // heads gone at space 12, two at space 16, and they do not appear in the
+    // reading at all rather than being merely mislabelled.
+    //
+    // So the two questions are answered by one rule: a band good enough to name
+    // a key is good enough to suppress, and nothing else is. The clef band still
+    // applies on its own, which is what covers the furniture on a system whose
+    // signature could not be read.
+    const usable = key && !key.cut ? key.x1 : 0;
+    const lo = from;
+    const hi = Math.max(
+      from + Math.max(3, space * CLEF_WIDE),
+      usable,
+      reach === null ? 0 : from + reach * space,
+    );
+    sys.heads = sys.heads.filter((head) => head.x < lo || head.x > hi);
+  }
+  return reach;
 }
 
 // Noteheads by SHAPE, not by connected components. A beamed page fuses heads,
@@ -1124,6 +1474,40 @@ const STEM_HUNT = 0.5;    // how far around the proposal to look for the best fi
 // candidate at the same cut as a single-position one accepts a great deal of
 // nothing. Measured at 0.4 it read the Mozart's recall up three points and its
 // precision down twenty-one.
+//
+// AND IT IS THE ONE CONSTANT IN THIS FILE THAT NO HONEST MEASUREMENT COVERS,
+// which is worth understanding before anyone retrains the classifier.
+//
+// HEAD_CUT below is chosen from the cross-page table that npm run scan:train
+// prints — trained on some pages, scored on a page held out. This one cannot
+// be, because npm run scan:patches dumps with the judge OFF and stemHeads only
+// runs with the judge ON, so not one stem-pass candidate has ever appeared in
+// pages/patches.json. There is no held-out table for it. 0.95 was read off the
+// bench, on the three pages the shipped weights are fitted to, and it is a
+// point in the extreme tail of one particular model's score distribution.
+//
+// That makes it fragile in a way a threshold on a fixed measurement is not. The
+// three marked pages were re-dumped and the model refitted over all three (see
+// the long note in head-model.js), and the stem pass fell over: on the Scanned
+// score it reads 48 real / 14 invented with the shipped weights and 26 / 22
+// with the refit, which is 22 real notes — most of that page's whole regression.
+// Swept, with the refit installed, mean precision / mean recall over the three
+// marked pages against 92.12 / 93.98 for what is shipped here:
+//
+//   STEM_CUT   mean P / mean R    Scanned stem pass (real / invented)
+//     0.80      85.42 / 93.10          37 / 89
+//     0.90      88.53 / 92.73          32 / 45
+//     0.95      89.99 / 92.09          26 / 22
+//     0.98      90.87 / 91.15          16 /  7
+//     0.99      91.15 / 90.93          13 /  4
+//
+// No value of it recovers what a different set of weights took away, and the
+// best joint attempt — HEAD_CUT 0.5 with STEM_CUT 0.85 — reads 89.34 / 92.92,
+// still below both halves of the baseline. The proposal that has not been built
+// is to stop carrying a number at all and ask the page: the bar for a
+// max-selected candidate should be a quantile of what this same model says
+// about the heads the shape pass ALREADY accepted on this page, which moves
+// with the model instead of being invalidated by it.
 const STEM_CUT = 0.95;
 
 function stemHeads(ink, w, h, staff, space, gray, background, taken) {
@@ -1134,6 +1518,53 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
   const bottom = Math.min(h - 2, Math.round(staff.lines[4].mid + space * 7));
   const near = (x, y) => taken.some((k) => Math.abs(k.x - x) < space * CLUSTER_X
     && Math.abs(k.y - y) < space * CLUSTER_Y);
+  // ONE HEAD PER STEM END, asked before the hunt rather than during it.
+  //
+  // `near` above vetoes a PIXEL, and that is the wrong shape of veto. The hunt
+  // takes the maximum score over a square of a staff space, so when the shape
+  // pass has already found this stem's notehead the square is mostly inside its
+  // cluster box — and instead of concluding that this stem already has its
+  // head, the hunt simply slides to the edge of the box and reports the best
+  // score it is ALLOWED. What comes back is an empty ring standing on the bare
+  // stem, roughly a space below a notehead that is already correctly circled.
+  //
+  // Looked at: `CROP_MARKS=1 CROP_TRUTH=pages/truth/scanned.truth.json npm run
+  // scan:crop -- "Scanned score.pdf" 749,937` and the same at 839,522 and
+  // 1203,1478 — a beamed group with its heads on top, every head ringed with
+  // its truth dot on it, and one more empty ring partway down a stem.
+  //
+  // So the question is asked of the stem END, at the point the proposal is
+  // aimed at, and if a head is already standing there nothing is proposed.
+  //
+  // THE BOUND IN X IS TIGHT AND THE REASON IS NOT PRETTY. A chord of a third is
+  // two heads one space apart in y at the SAME x, which is geometrically the
+  // same picture as a phantom — so this cannot separate them and no rule of
+  // this shape can. The Scanned score prints exactly one such third, at
+  // 609,353 and 613,344, and its two heads are four pixels apart in x at a
+  // staff space of 9.6. Everything the veto is aimed at is nearer than that in
+  // x, because it is the same stem. Swept, with mean precision / mean recall
+  // over the three pages against a baseline of 91.59 / 93.70:
+  //
+  //   |dx| < 0.30, |dy| < 2.0    91.86 / 93.70    4 circles gone, no note lost
+  //   |dx| < 0.45, |dy| < 2.0    92.05 / 93.63    7 gone, the third goes too
+  //   |dx| < 0.60, |dy| < 2.0    92.05 / 93.63    the same seven, the same loss
+  //   round radius 1.2 spaces    91.85 / 93.63    4 gone, the third goes too
+  //   round radius 1.4 spaces    91.98 / 93.56    6 gone, and a second note
+  //
+  // Three extra circles are not worth a note, so it is 0.30 — and 0.30 is a
+  // number this page measured rather than a principle, which is why it is
+  // written down here with the pair that set it. A page whose chords are
+  // printed less squarely will want it looser and will pay a note for it.
+  //
+  // ALSO MEASURED AND DEAD: sparing a chord by putting a FLOOR under |dy| as
+  // well — veto only a head 1.15 to 2.5 spaces away, on the theory that a chord
+  // stacks in thirds and a phantom sits further down the stem. It loses three
+  // real notes and removes no more circles than the tight bound does
+  // (90.9 / 90.7 on the Scanned score against 91.0 / 91.4).
+  const STEM_OWN_X = 0.30;
+  const STEM_OWN_Y = 2.0;
+  const owned = (x, y) => taken.some((k) => Math.abs(k.x - x) < space * STEM_OWN_X
+    && Math.abs(k.y - y) < space * STEM_OWN_Y);
 
   for (let x = wide + 1; x < w - wide - 1; x++) {
     let y = top;
@@ -1169,6 +1600,8 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
       };
       for (const [at, side] of [[y, 1], [end, -1]]) {
         if (beamAt(at)) continue;
+        // This end already has its head. See the note on `owned` above.
+        if (owned(Math.round(x + side * space * 0.5), at)) continue;
         let best = null;
         for (let dy = -Math.round(space * STEM_HUNT); dy <= Math.round(space * STEM_HUNT); dy++) {
           for (let dx = -Math.round(space * STEM_HUNT); dx <= Math.round(space * STEM_HUNT); dx++) {
@@ -1192,7 +1625,7 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
   for (const c of found) {
     if (kept.some((k) => Math.abs(k.x - c.x) < space * CLUSTER_X
       && Math.abs(k.y - c.y) < space * CLUSTER_Y)) continue;
-    kept.push({ x: c.x, y: c.y, score: c.score, hollow: false });
+    kept.push({ x: c.x, y: c.y, score: c.score, hollow: false, via: 'stem' });
   }
   return kept;
 }
@@ -1419,7 +1852,14 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
       // it IS a ring rather than by how dark it is, or a fat one would always
       // lose to the smudge beside it.
       const quality = solid ? fill : 0.86;
-      scored.push({ x, y, score: quality + open, hollow, across });
+      // Which PASS proposed this — carried all the way out to the reports.
+      //
+      // The shape pass and the stem pass both drop their answers into the same
+      // list, and a false circle in the finished reading says nothing about
+      // which of them made it. That is not a detail: the two are tuned
+      // separately, judged at different cuts, and a fix aimed at the wrong one
+      // is a day spent moving a number that was never the number.
+      scored.push({ x, y, score: quality + open, hollow, across, via: 'shape' });
     }
   }
   // HOW WIDE A NOTEHEAD IS ON THIS PAGE, asked of this page.
@@ -1475,6 +1915,83 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   // off is the trainer, which wants the scan's own candidates and nothing else.
   if (judge && HEAD_JUDGE) kept.push(...stemHeads(ink, w, h, staff, space, gray, background, kept));
 
+  // AND THEN CENTRED ON THE INK, because what is kept above is a PIXEL and not
+  // a notehead.
+  //
+  // Everything up to here scores positions and keeps the winning one. That is
+  // the right way to choose and it is the wrong place to stop: `fill + open` is
+  // nearly flat across the middle of a solid head, so which pixel wins is
+  // settled by a stray bit of blur at the rim, and the answer lands a pixel or
+  // two off the head's real centre. Nobody looking at the screen can see it.
+  // The measurement can, and it charges for it TWICE:
+  //
+  //   mark  704,1200   ring  709,1200    0.50 spaces apart
+  //   mark 1123,1485   ring 1118,1486    0.51
+  //   mark  574,759    ring  579,758     0.53
+  //   mark  647,1191   ring  649,1186    0.56
+  //   mark 1304,1350   ring 1307,1345    0.61
+  //
+  // Ground truth matches at half a staff space, so each of those is ONE
+  // notehead scoring as one false circle AND one missed note — eight such pairs
+  // across the two hard pages, sixteen errors made of eight objects. Widening
+  // the match radius would hide them and must not be done: one staff space is
+  // two steps of pitch, so an error of half a space is half a wrong note, and a
+  // tolerance that swallowed this would swallow a real defect with it. So the
+  // point is moved and the ruler is left alone.
+  //
+  // The centre of the ink inside the head's OWN ellipse-sized box — not of the
+  // connected component it belongs to, which on a beamed page is the whole
+  // beamed group and would send the point flying off down the beam.
+  //
+  // SIDEWAYS ONLY, and that is measured rather than tidy. Look at the pairs
+  // above: every one of them is a horizontal offset, and the reason is that the
+  // scan walks x fastest, so a plateau of equal scores is broken in x. Run on
+  // each axis and on both, as mean precision / mean recall over the three pages
+  // against 91.86 / 93.70:
+  //
+  //   x alone      92.12 / 93.98      and the corpus's note values do not move
+  //   x and y      92.19 / 94.05      and five of them do
+  //   y alone      91.86 / 93.70      nothing at all
+  //
+  // The extra 0.07 that y adds is one head on one page, and it is not free.
+  // beamMask decides note VALUES as well as positions, and readValues counts
+  // beams by looking along the stem from the head — so moving a head vertically
+  // moves it toward or away from the beam it is being counted against. Measured
+  // on the synthetic corpus, adding the y move takes the photographed CORE case
+  // from 95% of its beams to 90% (six notes read wrong, then eleven), barMixPhoto
+  // from 92% to 89% and heavyBlur from 86% to 85%. One head is not worth five
+  // wrong note values, so the y move is not made. With x alone every beam column
+  // of both corpus blocks is identical to what it was before this existed.
+  //
+  // CLAMPED, and the clamp is read off a plateau rather than off a peak. Both
+  // axes, swept, so the numbers are comparable with the table above:
+  //
+  //   0.10 spaces   92.19 / 94.05        0.30 spaces   92.09 / 93.95
+  //   0.20 spaces   92.19 / 94.05        0.50 spaces   91.51 / 93.36
+  //   0.25 spaces   92.19 / 94.05
+  //
+  // Everything from 0.10 to 0.25 is the same answer — the offsets this is for
+  // are a pixel or two and the clamp is not binding on them at all. It starts
+  // binding at 0.30, where it costs the Bach a note, and by 0.50 it is dragging
+  // heads onto the ink beside them. 0.20 sits in the middle of the flat part, a
+  // whole plateau's width from the edge, which is the only honest reason to
+  // prefer one number on a plateau to another.
+  const HEAD_CENTRE_CAP = 0.2;
+  for (const point of kept) {
+    let sx = 0; let n = 0;
+    for (let dy = -hh; dy <= hh; dy++) {
+      for (let dx = -hw; dx <= hw; dx++) {
+        const yy = point.y + dy; const xx = point.x + dx;
+        if (yy < 0 || yy >= h || xx < 0 || xx >= w) continue;
+        if (!ink[yy * w + xx]) continue;
+        sx += dx; n += 1;
+      }
+    }
+    if (!n) continue;
+    const cap = space * HEAD_CENTRE_CAP;
+    point.x = Math.round(point.x + Math.max(-cap, Math.min(cap, sx / n)));
+  }
+
   return kept.sort((a, b) => a.x - b.x);
 }
 
@@ -1509,6 +2026,17 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
   canvas.getContext('2d', { willReadFrequently: true }).drawImage(source, 0, 0, w, h);
 
   const gray = toGray(canvas);
+
+  // THE BLUR BOX IS A SHARE OF THE PAGE'S WIDTH, AND IT WAS MEASURED THIS ROUND
+  // AND LEFT ALONE. The local threshold divides the page's own lighting out, and
+  // that only holds while the box is comfortably larger than a glyph — once it
+  // is about one staff space across, the background follows the ink into the
+  // middle of a solid notehead and the head stops binarising. w/36 is 39 pixels
+  // at WORK_WIDTH, which is 3.2 to 4.0 staff spaces on the three marked pages
+  // and 0.9 on a photograph of two bars, so it looks like the wrong units. It
+  // was converted to staff spaces, twice, and both readings are in the handover:
+  // measured in staff spaces the box is right for the three pages and WRONG for
+  // the size sweep, which is the failure the size sweep exists to catch.
   const background = boxBlur(gray, w, h, Math.max(4, Math.round(w / 36)));
   const ink = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) ink[i] = gray[i] < background[i] - 16 ? 1 : 0;
@@ -1614,7 +2142,7 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
   }));
   // …and then the clef itself, taken out before the values are read so nothing
   // spends a beam count on it and the values stay index-aligned with the heads.
-  dropFurniture(ink, w, h, found, edges, clefs, stripW);
+  const keyReach = dropFurniture(ink, w, h, found, edges, clefs, stripW);
 
   const perStaff = readValues(ink, beams, w, h, found);
 
@@ -1640,7 +2168,7 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
   // The same trick fillMissedStaves uses on the vertical — the page has a
   // rhythm, so use it — with the statistic chosen for which way the errors run.
 
-  const out = found.map(({ staff, bars, heads }, staffIndex) => {
+  const out = found.map(({ staff, bars, heads, keyBand, key }, staffIndex) => {
     const values = perStaff[staffIndex];
     // The clef, read from the paper rather than fitted from a recording.
     //
@@ -1689,6 +2217,43 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
         x: clefFrom / w,
         w: Math.min(w - clefFrom, Math.max(3, Math.round(staff.space * CLEF_WIDE))) / w,
       },
+      // The band the key signature occupies, when one was found — normalised
+      // like everything else here. Reported so a tool can ask whether a false
+      // circle is standing on an accidental, which is a different bug from a
+      // false circle in the music and wants a different fix.
+      keyBand: keyBand
+        ? {
+          x: keyBand.x0 / w,
+          w: (keyBand.x1 - keyBand.x0) / w,
+          count: keyBand.count,
+          // What ended the scan, and how far the last run it looked at stood
+          // from the last accidental it took. Carried so `npm run scan:key-why`
+          // can say WHY a system's key was refused rather than only that it was.
+          why: keyBand.why,
+          cut: !!keyBand.cut,
+          inkGap: keyBand.inkGap == null ? null : keyBand.inkGap / w,
+        }
+        : null,
+      // WHICH key signature, when it could be read — and null when it could not,
+      // which is most pages, because most parts are in C major and every reading
+      // this cannot confirm against the printed order is refused.
+      //
+      // `alter[degree]` is +1, 0 or -1 for C, D, E, F, G, A, B, so a caller
+      // turning a step into a note name adds `alter[degree]` semitones and stops
+      // there. Carried at the STAVE and not only at the page because a clef can
+      // change system to system and a key read against the wrong clef is worth
+      // nothing; the page's own agreed answer is on the return value below.
+      //
+      // This is a reading, not a naming. `step` still means what it always meant
+      // and nothing here turns one into a pitch — see notesInOrder.
+      key: key ? {
+        sharps: key.sharps, flats: key.flats, alter: key.alter,
+        count: key.count, kind: key.kind, degrees: key.degrees,
+      } : null,
+      // How squarely this system's accidentals sat on their degrees: 1 means
+      // every one landed exactly on its line or in its space, 0 means one of
+      // them was half a step from being rounded onto its neighbour.
+      keyConfidence: key ? key.confidence : 0,
       // the five lines, sampled across the page and normalised
       lines: staff.lines.map((line) => [...line.at].map((y) => y / h)),
       space: staff.space / h,
@@ -1717,6 +2282,9 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
           x: head.x / w,
           y: head.y / h,
           step: Math.round((bottom - head.y) / (staff.space / 2)),
+          // 'shape' or 'stem' — which pass proposed it. Diagnostic, and the
+          // reports break the invented heads down by it.
+          via: head.via ?? 'shape',
           // How long the note is, in crotchets — read from the head's own
           // shape, its stem and the beams crossing it. Whether to believe it
           // is a separate question with its own file.
@@ -1727,7 +2295,31 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
     };
   });
 
-  return { staves: out.filter(realStaff), strips: STRIPS, space: space / h };
+  const real = out.filter(realStaff);
+  // THE PAGE'S KEY, ONCE, with the arithmetic that produced it.
+  //
+  // A key signature is printed at the head of every system and it is the same
+  // one every time, so eleven systems are eleven readings of one object. What a
+  // caller needs is not just the answer but how much of the page stood behind
+  // it: "eleven of eleven agree" and "one of eleven guessed" are the difference
+  // between a key worth acting on and a coincidence, and only the second number
+  // can tell them apart. See agreeKey for why a page whose systems disagree is
+  // reported as no key at all rather than as the commoner half.
+  const key = agreeKey(real.map((s) => s.key));
+  return {
+    staves: real,
+    strips: STRIPS,
+    space: space / h,
+    key: key.key,
+    keyAgreement: { systems: key.systems, read: key.read, agreed: key.agreed },
+    // How far past each system's left end the PAGE agreed its key signature
+    // reaches, in staff spaces, or null where it did not agree one. Reported
+    // because it is the one bound in the suppression that is not measured off
+    // the ink of the system it is applied to, and a reader of npm run
+    // scan:key-why is entitled to see it rather than infer it. See
+    // agreeKeyReach in scan-key.js.
+    keyReach,
+  };
 }
 
 // Every notehead on a page, in reading order, with the bar it belongs to.
@@ -1743,12 +2335,20 @@ export function notesInOrder(page) {
       // top of it. Dropping it here is how the whole alignment came out blind.
       notes.push({
         staff: staffIndex, bar, x: head.x, y: head.y, step: head.step,
-        beats: head.beats, beams: head.beams,
+        beats: head.beats, beams: head.beams, via: head.via ?? 'shape',
         // Carried down from the stave, because a note's pitch is its position
         // AND the clef that names the lines it sits between — and by the time
         // anything downstream has a note it no longer has the stave.
         clef: staff.clef ?? null,
         clefConfidence: staff.clefConfidence ?? 0,
+        // …and the key signature with it, for the same reason: a note's pitch
+        // is its position, the clef that names the lines, AND which of those
+        // names the signature has altered. Null where this system's signature
+        // could not be read, which the caller must treat as "unknown" rather
+        // than as C major — the page's own agreed answer is on the page object
+        // and is the better fallback.
+        key: staff.key ?? null,
+        keyConfidence: staff.keyConfidence ?? 0,
       });
     }
   }

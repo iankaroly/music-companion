@@ -31,10 +31,30 @@
 // Their means are reported separately and deliberately not averaged together:
 // they are different questions, and a change can win one and lose the other.
 //
+// SIZES is the third block and it asks the question neither of the others can:
+// HOW BIG IS THE PAGE. Every number in this project until it was written came
+// from a staff space between 9.6 and 12.1 pixels — the three marked pages sit in
+// that band, `clean` draws 14, `tiny` draws 8 — and a phone held closer or
+// further away moves that number by a factor of four. A reader whose constants
+// are pixels rather than staff spaces reads perfectly across that whole band and
+// then falls off a cliff just outside it, and nothing in CORE or HARD would ever
+// see the cliff. So this block draws ONE page shape at nine sizes and reports
+// precision and recall for each, which is the only measurement in the corpus
+// whose x-axis is scale.
+//
+// Read the WORKING space column, not the drawn one. `readPage` clamps the page
+// to WORK_WIDTH = 1400 pixels, so a page drawn at a large staff space on a wide
+// canvas is handed to the reader shrunk; and the photographed variants are drawn
+// large and then scaled down by the camera, which is how a phone photograph
+// arrives. The working column is what the reader actually saw, measured off its
+// own fitted staves.
+//
 //   npm run dev            (in another terminal, on port 5199)
 //   node tools/scan-corpus.mjs            # everything, both blocks
 //   node tools/scan-corpus.mjs --json     # machine-readable, for a harness
 //   node tools/scan-corpus.mjs --core     # the ten spoilings only
+//   node tools/scan-corpus.mjs --sizes    # the size sweep on its own
+//   node tools/scan-corpus.mjs --few      # the few-systems block on its own
 //   node tools/scan-corpus.mjs blurred    # one page
 //
 import puppeteer from 'puppeteer-core';
@@ -45,6 +65,8 @@ const SHELL = process.env.CHROME_SHELL
 const PORT = process.env.PORT ?? '5199';
 const wantJson = process.argv.includes('--json');
 const coreOnly = process.argv.includes('--core');
+const sizesOnly = process.argv.includes('--sizes');
+const fewOnly = process.argv.includes('--few');
 const only = process.argv.slice(2).filter((a) => !a.startsWith('--'));
 
 const browser = await puppeteer.launch({ executablePath: SHELL, headless: true, args: ['--no-sandbox'] });
@@ -55,7 +77,9 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1600));
 
-const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
+const report = await page.evaluate(async ({
+  pick, coreOnly: justCore, sizesOnly: justSizes, fewOnly: justFew,
+}) => {
   const { readPage, notesInOrder } = await import('/src/analysis/scan-read.js');
 
   // --- drawing a page, and remembering what was drawn ----------------------
@@ -72,7 +96,7 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
   // against it and one of the winners had a rule fitted to that accident.
   function drawPage({
     space = 14, systems = 6, sysGap = 16, warp = 0, tilt = 0,
-    gapSpaces = 6.6, noteGap = 2.2, plan,
+    gapSpaces = 6.6, noteGap = 2.2, plan, lineDuty = () => 5,
   }) {
     const layouts = [];
     for (let sys = 0; sys < systems; sys++) layouts.push(plan(sys));
@@ -100,9 +124,17 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
 
       g.fillStyle = '#111';
       // Staff lines, drawn as short segments so they can bend.
+      //
+      // HOW MUCH OF THE LINE IS INKED is `lineDuty`, and the segments are laid
+      // down every four pixels: five wide is the solid line every page here has
+      // always drawn (they overlap), and two wide is a line inked half the time
+      // — which is what a faint system on a photograph thresholds into. It is
+      // per SYSTEM because the case worth drawing is one faint system among
+      // crisp ones, which nothing in CORE, HARD or SIZES contains. See FEW.
+      const duty = lineDuty(sys);
       for (let l = 0; l < 5; l++) {
         for (let x = space * 3; x < W - space * 3; x += 4) {
-          g.fillRect(x, lineY(l, x), 5, Math.max(1, space * 0.1));
+          g.fillRect(x, lineY(l, x), duty, Math.max(1, space * 0.1));
         }
       }
       // A barline at each end.
@@ -226,14 +258,22 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
   }
 
   // --- grading -------------------------------------------------------------
-  function grade(truth, canvas, read) {
+  // `near` — how close a detection has to be to count as the drawn note.
+  //
+  // The default is a share of the page's WIDTH, which is fine while every page
+  // in a block is drawn at about the same size and is exactly wrong across a
+  // size sweep: at a staff space of 6 the floor of six pixels is a whole staff
+  // space of slack, and at 28 the same rule is a third of one. A tolerance that
+  // tightens as the page grows would show a cliff at the large end that is the
+  // RULER moving, not the reader. So the size block passes its own radius,
+  // measured in staff spaces the way tools/truth-check.mjs measures its own.
+  function grade(truth, canvas, read, near = Math.max(6, canvas.width / 160)) {
     const found = [];
     if (read) {
       for (const note of notesInOrder(read)) {
         found.push({ x: note.x * canvas.width, y: note.y * canvas.height, beams: note.beams });
       }
     }
-    const near = Math.max(6, canvas.width / 160);
     const taken = new Set();
     let matched = 0;
     let rightBeams = 0;
@@ -265,6 +305,10 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
       spurious: found.length - matched,
       rightBeams,
       recall: +(matched / truth.length).toFixed(3),
+      // Reported as well as `spurious` because a count of false circles is not
+      // comparable between pages that carry different numbers of notes, and the
+      // size sweep compares nine pages that do.
+      precision: found.length ? +(matched / found.length).toFixed(3) : 0,
       beamAccuracy: matched ? +(rightBeams / matched).toFixed(3) : 0,
       // What matters end to end: of every note on the page, how many were both
       // found AND given the right value.
@@ -477,8 +521,110 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
     },
   };
 
-  const BLOCKS = justCore ? { core: CORE } : { core: CORE, hard: HARD };
-  const out = { core: {}, hard: {} };
+  // --- SIZES: one shape, nine sizes ----------------------------------------
+  //
+  // THREE GROUPS TO A SYSTEM, and that is a constraint of the drawing code
+  // rather than a taste: drawPage sizes its canvas at
+  // `space * max(50, 12 + widest span)`, and `readPage` clamps whatever it is
+  // given to 1400 pixels across. So a page whose music spans 59 staff spaces —
+  // which is what `ordinary` draws — is 71 spaces wide, and past a drawn space
+  // of about 19 the clamp shrinks it back down and the sweep stops sweeping.
+  // Three groups span 33, the page is 50 spaces wide, and the working space
+  // then follows the drawn one all the way to 1400/50 = 28. That is the corpus
+  // ceiling and it cannot be raised without narrowing the page further; the
+  // cliff measured on real pages is above it, at about 35, and this block
+  // cannot reach it. Said plainly in the handover rather than hidden here.
+  const sparse = (sys) => [0, 1, 2].map((grp) => ({
+    beams: 1 + ((sys + grp) % 3), steps: rising(grp + sys), dir: up,
+  }));
+  // A phone photograph arrives having been scaled down by the camera, so the
+  // photographed rows are DRAWN large and shrunk to land on the same working
+  // sizes as the clean ones. Drawn at target/0.62, which is PHOTO's own scale.
+  const SIZES = {};
+  for (const target of [6, 8, 10, 12, 14, 16, 20, 24, 28]) {
+    SIZES[`clean${target}`] = { draw: { space: target, plan: sparse }, spoil: {}, target };
+  }
+  for (const target of [6, 8, 10, 12, 14, 16, 20]) {
+    SIZES[`photo${target}`] = {
+      draw: { space: Math.round(target / 0.62), warp: 0.7, tilt: 0.004, plan: sparse },
+      spoil: PHOTO,
+      target,
+    };
+  }
+
+  // --- FEW: two and three systems, one of them printed faint ---------------
+  //
+  // Every other page in this file has SIX systems, all printed alike, and that
+  // hides two rules of the stave tracker at once.
+  //
+  // ONE: `fillMissedStaves` returns early below three staves — two points are
+  // not a rhythm — so on a six-system page a stave the tracker drops is put
+  // back and nothing downstream ever knows. On a two- or three-system page
+  // there is no rescue, and a dropped system is gone for good. That page is not
+  // a curiosity: it is the close-up the app's own camera scanner produces, a
+  // phone held near two bars on a stand.
+  //
+  // TWO: `trackCombs` decides how much like a stave a curve has to look by
+  // comparing it with the BEST curve on the same page — three fifths of it —
+  // and with every system printed alike there is nothing for that comparison to
+  // get wrong. One faint system among crisp ones is the case that can break it,
+  // and until this block there was no such page anywhere in the corpus.
+  //
+  // THE FAINT SYSTEM IS CALIBRATED, not chosen by eye. `lineDuty: 2` was picked
+  // by dumping every joined curve's median comb score: it puts the faint
+  // system's curve at 0.47 against 0.94 for the crisp ones, which is above
+  // `combPeaks`' own 0.3 floor — so every point of it is admitted as a stave —
+  // and below three fifths of the best. That is exactly the window where the
+  // relative bar, and only the relative bar, decides whether the page is read.
+  // Fainter (duty 1.5 and below) and the curve shatters into fragments that die
+  // on LENGTH instead, which measures a different rule; darker (duty 2.5) and
+  // it clears the bar and the case tests nothing.
+  //
+  // The heads are drawn at full ink on every system. A faint NOTEHEAD would
+  // confound the recall column with a head-detection loss; the comb only ever
+  // looks at staff lines, so faint lines isolate the rule under test and the
+  // recall column reads as a step — the system is kept and all twelve of its
+  // notes are found, or it is dropped and all twelve are missed.
+  const faint = (which) => (s) => (s === which ? 2 : 5);
+  const FEW = {
+    few2: { draw: { systems: 2, sysGap: 11, plan: sparse }, spoil: {} },
+    few2faint: { draw: { systems: 2, sysGap: 11, plan: sparse, lineDuty: faint(1) }, spoil: {} },
+    few2photo: {
+      draw: { systems: 2, sysGap: 11, space: 23, warp: 0.7, tilt: 0.004, plan: sparse },
+      spoil: PHOTO,
+    },
+    few2faintPhoto: {
+      draw: {
+        systems: 2, sysGap: 11, space: 23, warp: 0.7, tilt: 0.004, plan: sparse,
+        lineDuty: faint(1),
+      },
+      spoil: PHOTO,
+    },
+    few3: { draw: { systems: 3, sysGap: 11, plan: sparse }, spoil: {} },
+    few3faint: { draw: { systems: 3, sysGap: 11, plan: sparse, lineDuty: faint(1) }, spoil: {} },
+    few3photo: {
+      draw: { systems: 3, sysGap: 11, space: 23, warp: 0.7, tilt: 0.004, plan: sparse },
+      spoil: PHOTO,
+    },
+    few3faintPhoto: {
+      draw: {
+        systems: 3, sysGap: 11, space: 23, warp: 0.7, tilt: 0.004, plan: sparse,
+        lineDuty: faint(1),
+      },
+      spoil: PHOTO,
+    },
+    // The control, and it is the row that says what the rescue is worth: the
+    // same faint system on a page with enough systems for `fillMissedStaves` to
+    // have a rhythm to predict from. If this row reads 6/6 while `few3faint`
+    // reads 2/3, the difference between them is the rescue and nothing else.
+    few6faint: { draw: { systems: 6, sysGap: 11, plan: sparse, lineDuty: faint(3) }, spoil: {} },
+  };
+
+  const BLOCKS = justFew ? { few: FEW }
+    : justSizes ? { sizes: SIZES }
+      : justCore ? { core: CORE }
+        : { core: CORE, hard: HARD, sizes: SIZES, few: FEW };
+  const out = { core: {}, hard: {}, sizes: {}, few: {} };
   for (const [block, pages] of Object.entries(BLOCKS)) {
     for (const [name, recipe] of Object.entries(pages)) {
       if (pick.length && !pick.includes(name)) continue;
@@ -490,17 +636,53 @@ const report = await page.evaluate(async ({ pick, coreOnly: justCore }) => {
       let read = null;
       let error = null;
       try { read = readPage(spoiled, spoiled.width, spoiled.height); } catch (e) { error = String(e); }
+      // The staff space the READER worked at, off its own fitted staves — which
+      // is the honest x-axis of the sweep and is not the drawn one: the camera
+      // shrinks the page and WORK_WIDTH clamps it.
+      const spaces = (read?.staves ?? []).map((st) => st.space * spoiled.height)
+        .sort((a, b) => a - b);
+      const working = spaces.length ? spaces[Math.floor((spaces.length - 1) / 2)] : 0;
+      // In the size block the match radius is measured in staff spaces, at the
+      // size the page was DRAWN and then scaled — not off the reader's own
+      // answer, which would make the ruler depend on the thing being measured.
+      const near = block === 'sizes'
+        ? Math.max(2, (recipe.draw.space ?? 14) * s * 0.6)
+        : undefined;
       out[block][name] = {
-        ...grade(moved, spoiled, read),
+        ...grade(moved, spoiled, read, near),
         staves: read?.staves.length ?? 0,
         wantStaves: recipe.draw.systems ?? 6,
         size: `${spoiled.width}x${spoiled.height}`,
+        drawnSpace: recipe.draw.space ?? 14,
+        target: recipe.target ?? null,
+        workingSpace: +working.toFixed(1),
+        // Did the page's agreed key reach fire here?
+        //
+        // A corpus page is bare staves with music where the furniture would be,
+        // and the one rule in the reader that lets one system's evidence widen
+        // another system's suppression is the one that could eat a note on all
+        // six at once. It is gated on the page agreeing a KEY, which a page with
+        // no signature printed on it should never do — and "should never" is
+        // exactly the kind of claim this file exists to replace with a number.
+        // See agreeKeyReach in src/analysis/scan-key.js.
+        keyReach: read?.keyReach ?? null,
         error,
       };
     }
   }
   return out;
-}, { pick: only, coreOnly });
+}, { pick: only, coreOnly, sizesOnly, fewOnly });
+
+// The one cross-system rule in the reader, counted rather than assumed safe.
+function reachFired(report) {
+  const fired = [];
+  for (const block of ['core', 'hard', 'sizes', 'few']) {
+    for (const [name, r] of Object.entries(report[block] ?? {})) {
+      if (r.keyReach != null) fired.push(`${name} ${r.keyReach.toFixed(2)}`);
+    }
+  }
+  return fired;
+}
 
 function mean(pages) {
   const values = Object.values(pages);
@@ -511,10 +693,14 @@ function mean(pages) {
 if (wantJson) {
   console.log(JSON.stringify({
     ...report,
-    means: { core: mean(report.core), hard: mean(report.hard) },
+    means: {
+      core: mean(report.core), hard: mean(report.hard),
+      sizes: mean(report.sizes), few: mean(report.few),
+    },
   }, null, 2));
 } else {
-  const all = [...Object.keys(report.core), ...Object.keys(report.hard)];
+  const all = [...Object.keys(report.core), ...Object.keys(report.hard),
+    ...Object.keys(report.sizes), ...Object.keys(report.few)];
   if (!all.length) console.log('\nno pages matched');
   const pad = Math.max(4, ...all.map((n) => n.length));
   for (const [block, label] of [['core', 'CORE — one shape, ten cameras'], ['hard', 'HARD — one camera, many shapes']]) {
@@ -536,6 +722,44 @@ if (wantJson) {
     }
     console.log(`${'mean'.padEnd(pad)}  ${'  '.padStart(6)}${' '.repeat(14)}${String(Math.round(mean(pages) * 100)).padStart(3)}%`);
   }
+  if (Object.keys(report.sizes).length) {
+    console.log('\nSIZES — one shape, nine sizes. Read the WORKING column.');
+    console.log(`${'page'.padEnd(pad)}  drawn  working  staves  precision  recall  beams  overall   found/drawn`);
+    for (const [name, r] of Object.entries(report.sizes)) {
+      console.log(
+        `${name.padEnd(pad)}  ${String(r.drawnSpace).padStart(5)}`
+        + `  ${String(r.workingSpace).padStart(7)}`
+        + `    ${String(r.staves).padStart(2)}/${r.wantStaves}`
+        + `      ${String(Math.round(r.precision * 100)).padStart(3)}%`
+        + `    ${String(Math.round(r.recall * 100)).padStart(3)}%`
+        + `   ${String(Math.round(r.beamAccuracy * 100)).padStart(3)}%`
+        + `    ${String(Math.round(r.overall * 100)).padStart(3)}%`
+        + `      ${String(r.found).padStart(3)}/${r.drawn}`,
+      );
+    }
+    console.log(`${'mean'.padEnd(pad)}${' '.repeat(41)}${String(Math.round(mean(report.sizes) * 100)).padStart(3)}%`);
+  }
+  if (Object.keys(report.few).length) {
+    console.log('\nFEW — two and three systems, one of them printed faint.');
+    console.log('Read the STAVES column: below three staves nothing rescues a dropped system.');
+    console.log(`${'page'.padEnd(pad)}  working  staves  precision  recall  beams  overall   found/drawn`);
+    for (const [name, r] of Object.entries(report.few)) {
+      console.log(
+        `${name.padEnd(pad)}  ${String(r.workingSpace).padStart(7)}`
+        + `    ${String(r.staves).padStart(2)}/${r.wantStaves}`
+        + `      ${String(Math.round(r.precision * 100)).padStart(3)}%`
+        + `    ${String(Math.round(r.recall * 100)).padStart(3)}%`
+        + `   ${String(Math.round(r.beamAccuracy * 100)).padStart(3)}%`
+        + `    ${String(Math.round(r.overall * 100)).padStart(3)}%`
+        + `      ${String(r.found).padStart(3)}/${r.drawn}`,
+      );
+    }
+    console.log(`${'mean'.padEnd(pad)}${' '.repeat(32)}${String(Math.round(mean(report.few) * 100)).padStart(3)}%`);
+  }
+  const fired = reachFired(report);
+  console.log(`\nTHE PAGE-AGREED KEY REACH fired on ${fired.length} of ${
+    ['core', 'hard', 'sizes', 'few'].reduce((a, b) => a + Object.keys(report[b] ?? {}).length, 0)
+  } pages${fired.length ? `: ${fired.join(', ')}` : ' — no corpus page agrees a key, so no band here is ever widened'}`);
 }
 if (errors.length) console.log('\nerrors:', errors.slice(0, 4).join(' | '));
 await browser.close();

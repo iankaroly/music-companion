@@ -69,6 +69,26 @@ describe('pitchOf', () => {
   test('the degree comes back with the pitch', () => {
     expect(pitchOf(0, 'bass', NONE).degree).toBe(4); // bottom line of bass is G
     expect(pitchOf(0, 'treble', NONE).degree).toBe(2); // treble is E
-    expect(pitchOf(0, 'tenor', NONE).degree).toBe(3); // tenor is F
+    expect(pitchOf(0, 'tenor', NONE).degree).toBe(1); // tenor is D
+  });
+
+  // THE ONE NOTE A TENOR CLEF ACTUALLY NAMES, which is the check that would
+  // have caught the two-degree error this test file used to assert. A C-clef in
+  // tenor position puts middle C on the FOURTH line, and the fourth line is
+  // step 6 — lines stand at steps 0, 2, 4, 6 and 8. So this is not a fact about
+  // the table, it is the definition of the clef, and the table has to follow it.
+  //
+  // The bottom line then follows by counting down: D3 F3 A3 C4 E4. It read F3
+  // for both numbers, so every note on a tenor page came out a third high — and
+  // in scan-key.js the same error read a lone sharp standing on D as F sharp,
+  // which is the commonest signature there is and therefore the one nobody
+  // would question.
+  test('a tenor clef puts middle C on the fourth line, which is step 6', () => {
+    expect(pitchOf(6, 'tenor', NONE).midi).toBe(60);
+    expect(pitchOf(6, 'tenor', NONE).degree).toBe(0); // C
+    expect(BOTTOM_LINE.tenor).toBe(50); // D3, four degrees below it
+    // …and F3 is the SECOND line, step 2, which is what the old table put on
+    // the bottom one.
+    expect(pitchOf(2, 'tenor', NONE).midi).toBe(53);
   });
 });

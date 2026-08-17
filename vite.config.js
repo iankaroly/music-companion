@@ -63,6 +63,14 @@ const stamp = [
 
 export default defineConfig({
   plugins: [pdfjsAssets()],
+  // Every measuring tool in tools/ talks to localhost:5199, so the dev server
+  // has to BE there. Vite's own default moved with an upgrade, and the whole
+  // bench went red with a connection refused rather than a reading — which
+  // looks exactly like a reader that stopped working.
+  // PORT overrides it, so a second checkout can be measured at the same time
+  // without the two servers fighting over the socket — the tools take the same
+  // variable.
+  server: { port: Number(process.env.PORT ?? 5199), strictPort: true },
   define: {
     __BUILD__: JSON.stringify(stamp),
   },

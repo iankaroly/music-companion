@@ -37,6 +37,8 @@
     "score:heads": "node tools/scan-heads-check.mjs",
     "score:pdf": "node tools/scan-pdf-check.mjs",
     "scan:corpus": "node tools/scan-corpus.mjs",
+    "scan:sizes": "node tools/scan-corpus.mjs --sizes",
+    "scan:few": "node tools/scan-corpus.mjs --few",
     "scan:bars": "node tools/scan-bars-check.mjs",
     "scan:clef": "node tools/scan-clef-check.mjs",
     "scan:clef-hard": "node tools/scan-clef-hard.mjs",
@@ -46,6 +48,8 @@
     "reader:mark": "node tools/reader-mark-check.mjs",
     "scan:ledger": "node tools/ledger-audit.mjs",
     "scan:key": "node tools/key-audit.mjs",
+    "scan:key-read": "node tools/key-read-check.mjs",
+    "scan:key-safety": "node tools/key-safety-check.mjs",
     "scan:crop": "node tools/crop.mjs",
     "scan:res": "node tools/res-sweep.mjs",
     "scan:why": "node tools/head-probe.mjs",
@@ -55,7 +59,8 @@
     "scan:curve": "node tools/patch-curve.mjs",
     "scan:stems": "node tools/stem-audit.mjs",
     "scan:bar-why": "node tools/bar-probe.mjs",
-    "scan:spread": "node tools/scan-spread-check.mjs"
+    "scan:spread": "node tools/scan-spread-check.mjs",
+    "scan:key-why": "node tools/key-probe.mjs"
   },
   "keywords": [],
   "author": "",

@@ -6,13 +6,29 @@
 // to the Bärenreiter Bach, which read 1.24 spaces, was perfect on that page and
 // threw away a Mozart flute part printed at 1.0.
 //
-// So this never scores a page it trained on. Train on the Bach, test on the
-// Mozart; train on the Mozart, test on the Bach. If the numbers hold up both
-// ways the shape of a notehead is what was learned. If they collapse, two pages
-// is not enough data and no amount of tuning here will change that — which is
-// also worth knowing, and cheaper to find out now.
+// So this never scores a page it trained on. Each page in pages/index.json is
+// held out in turn and the model is fitted to the others — three pages now, so
+// three blocks. If the numbers hold up every way round, the shape of a notehead
+// is what was learned. If they collapse, this is not enough data and no amount
+// of tuning here will change that — which is also worth knowing, and cheaper to
+// find out now.
 //
 //   npm run scan:train
+//
+// TWO THINGS IT DOES NOT DO, both of which have caught somebody out:
+//
+//   IT DOES NOT DESCRIBE THE MODEL THE READER USES. src/analysis/head-model.js
+//   ships a fit over Bach and Mozart from a dump that no longer exists; every
+//   block below is fitted to the CURRENT pages/patches.json. Not one of them is
+//   a held-out measurement of the shipped weights. Read the long note at the
+//   top of head-model.js before quoting anything from here as "what the reader
+//   scores".
+//
+//   THE FILE IT WRITES IS NOT LOADED BY ANYTHING. pages/head-model.json is an
+//   artifact of this tool alone — grep says nothing imports it — so running
+//   this command cannot change how the reader behaves. Installing a fit means
+//   pasting BIAS and WEIGHTS into head-model.js by hand, deliberately, and the
+//   note there says why that has not been done.
 //
 import { readFile, writeFile } from 'node:fs/promises';
 
@@ -20,7 +36,8 @@ const data = JSON.parse(await readFile(new URL('../pages/patches.json', import.m
 const N = data.grid * data.grid;
 
 // Logistic regression, plain gradient descent. Deliberately the simplest thing
-// that could work: 793 examples is not enough to fit anything with a lot of
+// that could work: a low four figures of examples (1267 in the current dump; it
+// was 793 when this was written) is not enough to fit anything with a lot of
 // parameters, and a model small enough to reason about is a model whose failure
 // can be read off its weights.
 function train(rows, { steps = 3000, rate = 0.5, decay = 0.002 } = {}) {
@@ -92,9 +109,12 @@ for (const held of pages) {
   console.log('');
 }
 
-// Shipped weights are trained on EVERYTHING, since by then the question of
-// whether it travels has already been answered above.
+// A fit over EVERYTHING, since by then the question of whether it travels has
+// already been answered above. "Shipped" is what this used to say and it is not
+// true: nothing imports pages/head-model.json, and head-model.js currently
+// carries an older fit on purpose. This writes a candidate, not a release.
 const full = train(data.rows);
 await writeFile(new URL('../pages/head-model.json', import.meta.url),
   JSON.stringify({ grid: data.grid, span: data.span, w: full.w.map((v) => +v.toFixed(5)), b: +full.b.toFixed(5) }));
-console.log('  weights over both pages written to pages/head-model.json\n');
+console.log(`  weights over all ${pages.length} pages (${pages.join(', ')}) written to pages/head-model.json`);
+console.log('  NOT installed — nothing imports that file. See src/analysis/head-model.js.\n');

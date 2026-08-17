@@ -128,10 +128,54 @@ describe('trackCombs', () => {
   });
 
   test('two staves stay two staves, top first', () => {
-    const perStrip = sagging().map((c, s) => [...c, { y0: 300 + s * 0.1, step: 12, score: 1 }]);
+    const perStrip = sagging().map((c, s) => [...c, { y0: 300 + s * 0.1, score: 1, step: 12 }]);
     const staves = trackCombs(perStrip, 12);
     expect(staves).toHaveLength(2);
     expect(staves[0].y0[0]).toBeLessThan(staves[1].y0[0]);
+  });
+
+  // A SCRAP MUST NOT SET THE BAR FOR THE PAGE. How much like a stave a curve
+  // has to look is measured against the best curve on the page, and if that
+  // "best" is allowed to come from a two-strip fragment the very next test
+  // throws away — a bracket, a black chord, the frame of a photograph — then a
+  // page of honest staves can be deleted in its entirety. Six staves at 0.52
+  // beside one scrap at 0.95: 0.52 < 0.95 * 0.6, every stave goes, trackCombs
+  // returns nothing, fillMissedStaves bails below three and readPage hands back
+  // null. The page reads as blank paper, which is the worst answer this reader
+  // has.
+  test('a two-strip scrap does not delete the whole page', () => {
+    const perStrip = Array.from({ length: 40 }, () => []);
+    for (let s = 0; s < 40; s++) {
+      for (let i = 0; i < 6; i++) perStrip[s].push({ y0: 100 + i * 160, step: 12, score: 0.52 });
+    }
+    perStrip[0].push({ y0: 1200, step: 12, score: 0.95 });
+    perStrip[1].push({ y0: 1200, step: 12, score: 0.95 });
+    expect(trackCombs(perStrip, 12)).toHaveLength(6);
+  });
+
+  // AND THE BAR HAS A FLOOR UNDER IT. A system printed faint among crisp ones
+  // scores well below three fifths of the best and is a stave all the same;
+  // below three staves fillMissedStaves cannot put it back, and a two-system
+  // page is exactly the close-up the camera scanner produces.
+  test('one faint system among crisp ones is still a system', () => {
+    const perStrip = Array.from({ length: 40 }, (_, s) => [
+      { y0: 100, step: 12, score: 0.94 },
+      { y0: 260 + s * 0.05, step: 12, score: 0.47 },
+    ]);
+    expect(trackCombs(perStrip, 12)).toHaveLength(2);
+  });
+
+  // The floor is not a licence: the top-edge blur artefact this rule was written
+  // for reads 0.40 over half the page, and it still goes.
+  test('the edge artefact is still thrown away', () => {
+    const perStrip = Array.from({ length: 40 }, (_, s) => [
+      { y0: 100, step: 12, score: 0.92 },
+      { y0: 260 + s * 0.05, step: 12, score: 0.92 },
+      ...(s < 22 ? [{ y0: 900, step: 12, score: 0.4 }] : []),
+    ]);
+    const staves = trackCombs(perStrip, 12);
+    expect(staves).toHaveLength(2);
+    expect(staves.every((st) => st.y0[0] < 400)).toBe(true);
   });
 });
 

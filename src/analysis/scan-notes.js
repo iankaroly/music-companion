@@ -19,10 +19,25 @@ const DEGREE_SEMITONES = [0, 2, 4, 5, 7, 9, 11];
 // A clef does exactly one thing: it names a line. Every other note on the page
 // follows from that one number, which is why reading three symbols correctly
 // settles a whole page and why reading one wrong ruins one.
-export const BOTTOM_LINE = { bass: 43, tenor: 53, treble: 64 };
+// TENOR WAS WRONG BY TWO DEGREES HERE TOO, and this is the copy that names an
+// actual pitch. Both numbers said the bottom line is F3: MIDI 53 and degree 3.
+// A tenor clef puts middle C on the FOURTH line, so the five lines counting
+// down from it are D3 F3 A3 C4 E4 — the bottom line is D3, MIDI 50, degree 1,
+// and F3 is the SECOND line. Every note of a tenor-clef page came out a third
+// too high, silently and confidently, in the clef a cello part spends its high
+// register in.
+//
+// Checked the way the table should have been written in the first place, by
+// deriving the one note the clef actually names: step 6 is the fourth line, and
+// pitchOf(6, 'tenor', NONE) must be MIDI 60, middle C. It is.
+//
+// scan-key.js carries the degree half of this table for its own use and was
+// wrong in the same way. Two copies of one assumption; both are now derived
+// from where the C-clef sits rather than remembered.
+export const BOTTOM_LINE = { bass: 43, tenor: 50, treble: 64 };
 
-// Which diatonic degree that bottom line is. Bass is G, tenor F, treble E.
-const BOTTOM_DEGREE = { bass: 4, tenor: 3, treble: 2 };
+// Which diatonic degree that bottom line is. Bass is G, tenor D, treble E.
+const BOTTOM_DEGREE = { bass: 4, tenor: 1, treble: 2 };
 
 /**
  * The note a notehead at `step` represents.
