@@ -256,6 +256,176 @@ on the Concerto, 13 on the Scanned score). It is a per-system symptom count for
 comparing systems on one page — a system whose band came back null carries a
 visibly bigger number than its neighbours — and the table above is the score.
 
+### WHERE THE CIRCLE SITS — and why `by pass` was never a measurement of it
+
+**THE USER'S FIRST COMPLAINT HAS BEEN SCORED AGAINST THE WRONG POPULATION FOR
+EVERY ROUND SO FAR, AND THE ERROR IS A FACTOR OF THREE.** "Many false circles
+still happen oftentimes in the stem at the bottom." Every round has answered
+that with `by pass` — shape against stem — and `by pass` says which CODE PATH
+proposed a head, not WHERE THE CIRCLE SITS. The Bach's remaining circle at
+(117,1815) settles it: it is a ring at the foot of a stem where the stem meets
+the beam, and `by pass` calls it `shape`. Five candidate rules were rejected
+after being scored against a population defined by which pass proposed a head.
+
+`node tools/truth-check.mjs "<pdf>" --truth pages/truth/<page>.truth.json` now
+prints a third breakdown, **`BY SHAPE OF ERROR`**, beside `by pass` and `by
+furniture`. It asks the ink, not the code path:
+
+- a thin vertical run passes through or ends at the candidate — the reader's own
+  `STEM_TALL` of 2 spaces, and a width test on the LOW QUARTILE down the run
+  rather than at its midpoint;
+- a real notehead — **a truth mark**, so nothing the reader did can move the
+  label — stands on that same run, at least 0.9 of a space away;
+- so the circle is somewhere along a stem rather than on the head it belongs to.
+
+```
+                                    invented           correct
+  page        total            stem-foot   stem     stem-foot     of
+  Bach            6              3          3          0        318
+  Mozart         37             18          3          9        304
+  Scanned        40             20          8        162        415
+  all three      83             41         14        171       1037
+```
+
+`stem-foot` is "in a stem with a real head on it"; `stem` is a thin vertical run
+with no other head on it, which is what a notehead's OWN stem looks like and is
+therefore not evidence of anything. The other rows are `beam` (0 / 4 / 1
+invented) and `other` (0 / 12 / 11).
+
+**HOW BIG THE USER'S COMPLAINT ACTUALLY IS: 41 of the 83 false circles on the
+three marked pages — half of them — stand in a stem, and 28 of those 41 were
+proposed by the SHAPE pass rather than the stem pass.** `by pass` calls 15 of
+the 83 `stem`. So the number quoted at the user until now was a lower bound on
+the wrong population, low by a factor of 2.7, and the shape pass — not the stem
+hunt — is where most of it comes from.
+
+**THE TALLY IS HAND-MADE FIRST AND THE INSTRUMENT AGREES WITH IT.** All 83 were
+cropped and classified by eye before the detector existed
+(`tools/crop.mjs`-style crops at 4x to 8x, plus wide-context crops for the
+thirty-five that were not obvious). The hand tally:
+
+```
+                                              Bach  Mozart  Scanned  total
+  at the foot of a stem                          3      18       21     42
+  on a beam, no stem through it                  0       4        1      5
+  a rest                                         0       5        0      5
+  an accidental                                  2       1        0      3
+  text, a dynamic or an ornament                 0       7       11     18
+  a printed time signature                       0       0        1      1
+  A REAL NOTEHEAD THE TRUTH FILE DOES NOT MARK   1       1        4      6
+  a second circle on a head already circled      0       0        2      2
+  something else                                 0       1        0      1
+                                                 6      37       40     83
+```
+
+**Hand and instrument agree on 41 of the 42, and the `beam` row matches exactly
+at 5.** The single disagreement is the Scanned score's (525,481), a ring on a
+stem whose own notehead is 0.73 of a space away — inside the 0.9-space floor
+that separates "another note's head" from "this circle's own", so the instrument
+files it as `stem`.
+
+**Eight points were adjudicated a second time, at 7x, because the first pass and
+the instrument disagreed, and in seven of the eight THE INSTRUMENT WAS RIGHT.**
+(306,1100) on the Scanned score and (825,967), (1059,1107), (1229,1243),
+(1232,1224) on the Concerto are rings standing on a BEAM about a space to the
+right of the nearest stem, which the eye at 3x had generously called stem feet;
+(869,1332) and (1147,650) are stem feet the eye had left unclassified. The tally
+above is the corrected one. **This is the reason the instrument had to exist: at
+3x a beam and a stem foot are the same smudge.**
+
+**SIX OF THE 83 ARE THE READER BEING RIGHT.** Cropped one at a time, they are
+plainly printed noteheads with no truth mark on them, or with a mark more than
+half a space away:
+`CROP_PAD=110 CROP_MARKS=1 CROP_TRUTH=pages/truth/bach.truth.json npm run
+scan:crop -- Menuet.pdf 200,1120` shows the Bach's (137,1097) — the first note
+of the bar, on the middle line, down-stem into the beam, ringed and unmarked.
+The others are the Concerto's (555,779) and the Scanned score's (1259,530),
+(589,906), (1188,1311) and (1306,1345); two of those are minims. So the
+precision column on every page is pessimistic by a note or two, and the Scanned
+score's by four.
+
+### THE CORRECT-HEAD COLUMN IS THE ONE THAT DECIDES WHETHER ANY OF THIS IS FIXABLE
+
+A rule that removes circles standing in a stem is only worth having if real
+noteheads do not also stand there. **Nobody had measured that. They do, and the
+rate is the difference between the two clean pages and the contaminated one:**
+
+```
+  correct heads at the far end of another note's stem
+    Bach          0 of 318     0.0%
+    Concerto      9 of 304     3.0%
+    Scanned     162 of 415    39.0%
+```
+
+**The Concerto's nine are GENUINE and were cropped one at a time: they are
+chords.** Its opening bars print two and three noteheads stacked on one stem and
+the truth file marks every one of them, so a real notehead at the far end of
+another note's stem is a real arrangement in engraved music. That is the
+viability number, and it is 3%.
+
+**The Scanned score's 162 are mostly its own truth file, and a twelve-point
+sample says so.** Cropped: eight of the twelve have their collinear "notehead"
+standing on a BARE STEM with a truth dot on it and no head-shaped ink under it —
+the fourth contamination class already recorded in "Known broken", where a hand
+clicking through four hundred rings accepted the reader's own phantom. One is a
+genuine chord (the same music as the Concerto's opening) and three are
+unresolved. **The Scanned score is the same music as the Concerto**, so it
+cannot have thirteen times the Concerto's rate of stem-collinear noteheads; the
+difference is in the marks, not in the engraving.
+
+**Which is the mechanism behind a fact this document has been recording for
+rounds without an explanation: every one-head-per-stem variant "loses real
+notes" on that page and on no other.** The notes it loses are marks on stem
+feet. Item 2 of "The next step" — re-mark that file — is what unblocks this, and
+the `stem-foot` column of `BY SHAPE OF ERROR` is now the fastest way to find the
+marks that need removing.
+
+### What the instrument is, and how it says when it has drifted
+
+Three things had to be got right and each is written above `shapeOf` in
+`tools/truth-check.mjs` with the measurement that forced it:
+
+- **the stem is measured in `body`, not in `ink`.** In the raw ink a stem crosses
+  a staff line every space and a staff line is a horizontal run hundreds of
+  pixels long, so "how wide is this stem" answers three hundred at every
+  crossing. The Concerto's (238,686) reads a low-quartile width of 1.10 spaces in
+  `ink` and 0.40 in `body`. Fifteen of that page's thirty-seven moved on that
+  line. `body` is also the layer `findHeads` looks at.
+- **the width test asks the LOW QUARTILE down the run, not the midpoint.** This
+  is the same correction `beamMask` already makes about its own baseline. A stem
+  is wide exactly where something joins it, and the midpoint of a short
+  photographed stem is inside the beam: the Bach's (117,1815) — the case that
+  started this round — medians 1.07 spaces and quartiles 0.25.
+- **the walk steps over a two-pixel break**, because a four-pixel photographed
+  stem thresholds into pieces and a strict walk stops short of its own head.
+
+**And it carries its own smoke alarm, the way `tools/head-probe.mjs` does.**
+Almost every notehead has a stem, so the share of CORRECT heads under which this
+code finds one is a measurement of the stem finder on a thousand points known to
+be noteheads: **96% on the Bach, 97% on the Concerto, 95% on the Scanned score**,
+printed every run. Below about 90 the `stem-foot` column has stopped meaning
+what it says.
+
+**MEASURED AND NOT KEPT: a second look in the raw ink.** `body` loses a stem
+when beamMask erases the beam column it hangs from — the Scanned score's
+(306,1100) reads 1.76 spaces there. Searching both layers and keeping the longer
+qualifying run changed **not one** of the 83 false circles or the 1037 correct
+heads, because the raw ink puts the staff lines back and those columns read a
+low-quartile width of 3.11 spaces. Cropped, that circle is not a stem case at
+all: it stands on the beam 1.2 spaces right of the stem, which is what `beam`
+already says. The entry is left in the code above `inBody`.
+
+**AND `npm run bench` WAS SILENTLY DROPPING PAGES, WHICH IS FIXED.**
+`truth-check --json` called `process.exit(0)` straight after `console.log`, and
+`console.log` to a PIPE is asynchronous in node — so anything past the pipe's
+64 kB buffer was thrown away. The Scanned score's report was 52 kB of the 64
+available; adding this breakdown took it to 90, and two of bench's three pages
+came back as "Unexpected end of JSON input" with the mean computed from the one
+that fitted. Redirecting the same command to a FILE hid it completely, because a
+file write is synchronous. It now waits for the write callback. **`bench` is
+identical to the digit afterwards — 98.1/99.7, 89.1/91.6, 91.2/94.3, mean
+92.8/95.2 — and 563 tests pass.**
+
 The key signature is now READ and not merely located: all three pages come back
 ONE SHARP, F sharp, G major or E minor, unanimously among the systems that read
 one, and no system on any page reads anything else. The live counts are in "The
