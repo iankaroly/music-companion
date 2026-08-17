@@ -137,6 +137,131 @@ const KEY_REACH = 9;               // spaces past the clef; seven flats and slac
 const KEY_ADJACENT = 1.5;          // staff spaces from where the clef's ink ends
 
 /**
+ * What SHAPE is the ink in this box, in the terms classifyKeyGlyph asks about.
+ *
+ * LIFTED OUT OF findKeyBand SO THE MUSIC CAN USE IT TOO. An accidental standing
+ * in front of a note in a bar is the same object as one in a key signature —
+ * same font, same size, same three shapes — and it was measurable only inside
+ * the signature scan, where it was a closure. A second copy of these
+ * measurements would be wrong in one of the two the day either changed, which
+ * is the rule this file states about BOTTOM_DEGREE and applies here to itself.
+ *
+ * `mark(x, y)` is the ink with the staff lines already discounted; `hardTop`
+ * and `hardBottom` bound how far a column may follow its own ink out of the
+ * box. Nothing here decides anything — it reports a shape and
+ * classifyKeyGlyph names it.
+ */
+export function describeGlyph(mark, gx0, gx1, ry0, ry1, hardTop, hardBottom) {
+  const shapeMark = mark;
+  {
+    let gy0 = ry0;
+    let gy1 = ry1;
+    let ran = false;
+    for (let x = gx0; x <= gx1; x++) {
+      let first = -1;
+      let last = -1;
+      for (let y = ry0; y <= ry1; y++) {
+        if (!shapeMark(x, y)) continue;
+        if (first < 0) first = y;
+        last = y;
+      }
+      if (first < 0) continue;
+      let up = first;
+      while (up - 1 >= hardTop && shapeMark(x, up - 1)) up--;
+      let down = last;
+      while (down + 1 <= hardBottom && shapeMark(x, down + 1)) down++;
+      if ((up <= hardTop && shapeMark(x, hardTop))
+        || (down >= hardBottom && shapeMark(x, hardBottom))) ran = true;
+      if (up < gy0) gy0 = up;
+      if (down > gy1) gy1 = down;
+    }
+    const gw = gx1 - gx0 + 1;
+    const gh = gy1 - gy0 + 1;
+    const third = Math.max(1, Math.ceil(gh / 3));
+    const sideW = Math.max(1, Math.ceil(gw / 3));
+    const rightFrom = Math.max(gx0, gx1 - sideW + 1);
+    const leftTo = Math.min(gx1, gx0 + sideW - 1);
+    const rowHas = (y, from, to) => {
+      for (let x = from; x <= to; x++) if (shapeMark(x, y)) return true;
+      return false;
+    };
+    // COUNTED OVER THE ROWS THE GLYPH ACTUALLY HAS INK IN, not over every row of
+    // the box, and the difference is the third sharp of a signature.
+    //
+    // Where a printed staff line crosses an upright, the two merge into one long
+    // horizontal run and shapeMark takes the whole row out — correctly, because
+    // that row IS mostly line. A sharp centred in the space above the top line
+    // has its bottom third sitting squarely on that line, so a third of its rows
+    // vanish, and against a denominator of every row in the band its bottom-left
+    // corner read 0.53 where the same sharp lower down the stave read 0.87. It
+    // was called a natural on every size of both clefs, which is why every
+    // signature of three sharps or more was refused.
+    //
+    // Dividing by the rows that have any ink at all asks the question the corner
+    // is meant to ask — of the rows where this glyph is present down here, how
+    // many reach into the left third — and an erased row then drops out of the
+    // numerator and the denominator together instead of counting against it.
+    //
+    // TWO CORNERS AND NOT FOUR, and the other two were measured this round and
+    // are not worth their cost — recorded here so nobody has to measure them
+    // twice. Both uprights of a sharp run the full height of the glyph, so a
+    // sharp ought to fill all four corners while a down-stemmed crotchet has
+    // nothing whatever in its bottom right; that is true about the GLYPHS and
+    // false about these BOXES, because the box is whatever the contiguity walk
+    // above joined and the bottom third of a real sharp is often not the sharp.
+    // On the 352 drawn signatures against 288 bare staves carrying one crotchet:
+    // requiring the bottom-right corner costs 14 real signatures of 167 and
+    // removes 21 phantom keys of 26, requiring the top-left costs 4 and removes
+    // 2, and requiring all four costs 102. `ran` above removes 11 for nothing.
+    let rtRows = 0;
+    let rtSeen = 0;
+    for (let y = gy0; y <= Math.min(gy1, gy0 + third - 1); y++) {
+      if (!rowHas(y, gx0, gx1)) continue;
+      rtSeen++;
+      if (rowHas(y, rightFrom, gx1)) rtRows++;
+    }
+    let lbRows = 0;
+    let lbSeen = 0;
+    for (let y = Math.max(gy0, gy1 - third + 1); y <= gy1; y++) {
+      if (!rowHas(y, gx0, gx1)) continue;
+      lbSeen++;
+      if (rowHas(y, gx0, leftTo)) lbRows++;
+    }
+    // …and where the ink sits, over the whole box and over its right half.
+    let all = 0;
+    let allY = 0;
+    let right = 0;
+    let rightY = 0;
+    const half = gx0 + Math.floor(gw / 2);
+    for (let y = gy0; y <= gy1; y++) {
+      for (let x = gx0; x <= gx1; x++) {
+        if (!shapeMark(x, y)) continue;
+        all++; allY += y;
+        if (x >= half) { right++; rightY += y; }
+      }
+    }
+    return {
+      y0: gy0,
+      y1: gy1,
+      // DID THE GLYPH'S INK RUN OUT OF THE WINDOW? This is what says NOTEHEAD,
+      // and it is the only thing measured here that does. See classifyKeyGlyph.
+      //
+      // The window is the one this function already grows in — 2.4 spaces past
+      // each end of the stave, which is a whole accidental clear of the 1.9 the
+      // tallest one needs. An accidental in a signature is printed ON the stave
+      // and its ink stops; a NOTE has a stem three and a bit spaces long, so a
+      // note standing where the signature should be reaches the bound with ink
+      // still under it and this comes back true.
+      ran,
+      rt3: rtSeen ? rtRows / rtSeen : 0,
+      lb3: lbSeen ? lbRows / lbSeen : 0,
+      inkY: all ? allY / all : (gy0 + gy1) / 2,
+      rightY: right ? rightY / right : (gy0 + gy1) / 2,
+    };
+  }
+}
+
+/**
  * The band the key signature occupies, measured from `fromX` rightwards.
  *
  * Returns { x0, x1, count } in pixels, or null when the first thing past the
@@ -463,113 +588,7 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
   // the 1.9 the tallest one needs.
   const hardTop = Math.max(0, Math.round(lineY(0) - space * 2.4));
   const hardBottom = Math.min(h - 1, Math.round(lineY(4) + space * 2.4));
-  const describe = (gx0, gx1, ry0, ry1) => {
-    let gy0 = ry0;
-    let gy1 = ry1;
-    let ran = false;
-    for (let x = gx0; x <= gx1; x++) {
-      let first = -1;
-      let last = -1;
-      for (let y = ry0; y <= ry1; y++) {
-        if (!shapeMark(x, y)) continue;
-        if (first < 0) first = y;
-        last = y;
-      }
-      if (first < 0) continue;
-      let up = first;
-      while (up - 1 >= hardTop && shapeMark(x, up - 1)) up--;
-      let down = last;
-      while (down + 1 <= hardBottom && shapeMark(x, down + 1)) down++;
-      if ((up <= hardTop && shapeMark(x, hardTop))
-        || (down >= hardBottom && shapeMark(x, hardBottom))) ran = true;
-      if (up < gy0) gy0 = up;
-      if (down > gy1) gy1 = down;
-    }
-    const gw = gx1 - gx0 + 1;
-    const gh = gy1 - gy0 + 1;
-    const third = Math.max(1, Math.ceil(gh / 3));
-    const sideW = Math.max(1, Math.ceil(gw / 3));
-    const rightFrom = Math.max(gx0, gx1 - sideW + 1);
-    const leftTo = Math.min(gx1, gx0 + sideW - 1);
-    const rowHas = (y, from, to) => {
-      for (let x = from; x <= to; x++) if (shapeMark(x, y)) return true;
-      return false;
-    };
-    // COUNTED OVER THE ROWS THE GLYPH ACTUALLY HAS INK IN, not over every row of
-    // the box, and the difference is the third sharp of a signature.
-    //
-    // Where a printed staff line crosses an upright, the two merge into one long
-    // horizontal run and shapeMark takes the whole row out — correctly, because
-    // that row IS mostly line. A sharp centred in the space above the top line
-    // has its bottom third sitting squarely on that line, so a third of its rows
-    // vanish, and against a denominator of every row in the band its bottom-left
-    // corner read 0.53 where the same sharp lower down the stave read 0.87. It
-    // was called a natural on every size of both clefs, which is why every
-    // signature of three sharps or more was refused.
-    //
-    // Dividing by the rows that have any ink at all asks the question the corner
-    // is meant to ask — of the rows where this glyph is present down here, how
-    // many reach into the left third — and an erased row then drops out of the
-    // numerator and the denominator together instead of counting against it.
-    //
-    // TWO CORNERS AND NOT FOUR, and the other two were measured this round and
-    // are not worth their cost — recorded here so nobody has to measure them
-    // twice. Both uprights of a sharp run the full height of the glyph, so a
-    // sharp ought to fill all four corners while a down-stemmed crotchet has
-    // nothing whatever in its bottom right; that is true about the GLYPHS and
-    // false about these BOXES, because the box is whatever the contiguity walk
-    // above joined and the bottom third of a real sharp is often not the sharp.
-    // On the 352 drawn signatures against 288 bare staves carrying one crotchet:
-    // requiring the bottom-right corner costs 14 real signatures of 167 and
-    // removes 21 phantom keys of 26, requiring the top-left costs 4 and removes
-    // 2, and requiring all four costs 102. `ran` above removes 11 for nothing.
-    let rtRows = 0;
-    let rtSeen = 0;
-    for (let y = gy0; y <= Math.min(gy1, gy0 + third - 1); y++) {
-      if (!rowHas(y, gx0, gx1)) continue;
-      rtSeen++;
-      if (rowHas(y, rightFrom, gx1)) rtRows++;
-    }
-    let lbRows = 0;
-    let lbSeen = 0;
-    for (let y = Math.max(gy0, gy1 - third + 1); y <= gy1; y++) {
-      if (!rowHas(y, gx0, gx1)) continue;
-      lbSeen++;
-      if (rowHas(y, gx0, leftTo)) lbRows++;
-    }
-    // …and where the ink sits, over the whole box and over its right half.
-    let all = 0;
-    let allY = 0;
-    let right = 0;
-    let rightY = 0;
-    const half = gx0 + Math.floor(gw / 2);
-    for (let y = gy0; y <= gy1; y++) {
-      for (let x = gx0; x <= gx1; x++) {
-        if (!shapeMark(x, y)) continue;
-        all++; allY += y;
-        if (x >= half) { right++; rightY += y; }
-      }
-    }
-    return {
-      y0: gy0,
-      y1: gy1,
-      // DID THE GLYPH'S INK RUN OUT OF THE WINDOW? This is what says NOTEHEAD,
-      // and it is the only thing measured here that does. See classifyKeyGlyph.
-      //
-      // The window is the one this function already grows in — 2.4 spaces past
-      // each end of the stave, which is a whole accidental clear of the 1.9 the
-      // tallest one needs. An accidental in a signature is printed ON the stave
-      // and its ink stops; a NOTE has a stem three and a bit spaces long, so a
-      // note standing where the signature should be reaches the bound with ink
-      // still under it and this comes back true.
-      ran,
-      rt3: rtSeen ? rtRows / rtSeen : 0,
-      lb3: lbSeen ? lbRows / lbSeen : 0,
-      inkY: all ? allY / all : (gy0 + gy1) / 2,
-      rightY: right ? rightY / right : (gy0 + gy1) / 2,
-    };
-  };
-
+  const describe = (gx0, gx1, ry0, ry1) => describeGlyph(shapeMark, gx0, gx1, ry0, ry1, hardTop, hardBottom);
   // Past the clef's own ink first.
   //
   // The band a clef is read in is three and a half spaces wide, which is a
@@ -1322,8 +1341,8 @@ export function classifyKeyGlyph(glyph) {
 // The biases are small — 0.13 of a half-step is a sixteenth of a staff space —
 // and they are subtracted rather than ignored because they are the same sign on
 // every one of the 204 and they buy back a third of the rounding margin.
-const INK_BIAS = 0.13;    // half-steps: a sharp's and a natural's ink sits this high
-const FLAT_BOWL = 0.40;   // half-steps: a flat's bowl sits this high of its note
+export const INK_BIAS = 0.13;    // half-steps: a sharp's and a natural's ink sits this high
+export const FLAT_BOWL = 0.40;   // half-steps: a flat's bowl sits this high of its note
 
 // Which note the BOTTOM LINE of the stave is, as a diatonic degree — C=0, D=1,
 // E=2, F=3, G=4, A=5, B=6. This is the whole of what a clef does, and it is the

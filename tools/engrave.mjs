@@ -175,6 +175,7 @@ const pages = await page.evaluate(async ({ b64, n, seed0, camera }) => {
     g.fillStyle = '#fff'; g.fillRect(0, 0, W, H);
     g.fillStyle = grey();
     const truth = [];
+    const accidentals = [];
 
     const em = space * 4;                        // SMuFL: one em is four spaces
     const put = (glyph, x, y, size = em) => {
@@ -292,10 +293,13 @@ const pages = await page.evaluate(async ({ b64, n, seed0, camera }) => {
         placed.push({ cx, y, step, w, hollow, whole: glyph === G.noteheadWhole, beamed: false });
 
         // An accidental in front of it, which is the other population the reader
-        // circles by mistake.
+        // circles by mistake — AND IS WRITTEN DOWN, because scan-accidental.js
+        // needs ground truth and a drawn page is the only place it is free.
         if (r() < 0.12) {
-          const acc = pick([G.sharp, G.flat, G.natural]);
+          const kind = pick(['sharp', 'flat', 'natural']);
+          const acc = kind === 'sharp' ? G.sharp : kind === 'flat' ? G.flat : G.natural;
           put(acc, cx - w / 2 - widthOf(acc) - space * 0.15, y);
+          accidentals.push({ x: cx / W, y: y / H, kind });
         }
         // A dot after it.
         if (r() < 0.12) put(G.augmentationDot, cx + w * 0.7, stepY(step % 2 === 0 ? step + 1 : step, cx));
@@ -516,7 +520,7 @@ const pages = await page.evaluate(async ({ b64, n, seed0, camera }) => {
         W * between(0.25, 0.45), space * 4);
     }
 
-    if (!camera) return { canvas: c, truth, W, H, space, jpeg: null };
+    if (!camera) return { canvas: c, truth, accidentals, W, H, space, jpeg: null };
 
     // The camera. The same degradations scan-corpus uses, applied together and
     // with varied strength, because a photograph is not one effect.
@@ -545,18 +549,19 @@ const pages = await page.evaluate(async ({ b64, n, seed0, camera }) => {
     // ringing round a black notehead on white paper is the artefact the reader
     // actually meets. A PNG of a drawing is the one thing no uploaded page ever is.
     return {
-      canvas: out, truth, W, H, space,
+      canvas: out, truth, accidentals, W, H, space,
       jpeg: between(0, 1) < 0.7 ? +between(0.4, 0.85).toFixed(2) : null,
     };
   }
 
   const made = [];
   for (let i = 0; i < n; i++) {
-    const { canvas, truth, W, H, space, jpeg } = engrave(seed0 + i * 7919);
+    const { canvas, truth, accidentals, W, H, space, jpeg } = engrave(seed0 + i * 7919);
     made.push({
       i,
       png: jpeg ? canvas.toDataURL('image/jpeg', jpeg) : canvas.toDataURL('image/png'),
       jpeg,
+      accidentals,
       truth,
       W,
       H,
@@ -579,6 +584,10 @@ for (const p of pages) {
     space: p.space,
     size: `${p.W}x${p.H}`,
     notes: p.truth,
+    // Every accidental drawn in the MUSIC, with the note it belongs to. Ground
+    // truth for scan-accidental.js, free and exact, which is the whole reason
+    // this file exists.
+    accidentals: p.accidentals,
   }, null, 2)}\n`);
   index.push({
     name,

@@ -24,6 +24,7 @@ import {
 } from './scan-key.js';
 import { headPatch, headScore, headScoreMlp } from './head-model.js';
 import { pitchOf } from './scan-notes.js';
+import { accidentalFor, applyAccidentals } from './scan-accidental.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -2333,6 +2334,28 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
   // spends a beam count on it and the values stay index-aligned with the heads.
   const keyReach = dropFurniture(ink, w, h, found, edges, clefs, stripW);
 
+  // THE ACCIDENTAL IN FRONT OF EACH NOTE, which is the last thing between a
+  // position and a pitch. See scan-accidental.js and acc-model.js.
+  //
+  // Read AFTER dropFurniture, so the key signature's own accidentals are already
+  // out of the head list and cannot be asked which note they belong to.
+  //
+  // The geometry here is now trivial on purpose — a patch a fixed distance left
+  // of the head, which a model judges. Four attempts at separating the glyph
+  // from its notehead by ink are recorded in scan-accidental.js and every one
+  // failed, because at engraved spacing the two TOUCH and a flat's bowl is a
+  // loop with the note's own row running through the hole.
+  for (const sys of found) {
+    const staff = sys.staff;
+    const space = staff.space;
+    const at = (index, x) => staff.lines[index].at[
+      Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(x / stripW)))
+    ];
+    for (const head of sys.heads) {
+      head.accidental = accidentalFor(gray, background, w, h, space, head, at(4, head.x));
+    }
+  }
+
   const perStaff = readValues(ink, beams, w, h, found);
 
   // Where the staves start, decided for the PAGE and not for each system.
@@ -2471,6 +2494,10 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
           x: head.x / w,
           y: head.y / h,
           step: Math.round((bottom - head.y) / (staff.space / 2)),
+          // The accidental standing in front of it, or null. See
+          // scan-accidental.js — this is what makes a B flat a B flat on a page
+          // whose signature says otherwise.
+          accidental: head.accidental ?? null,
           // 'shape' or 'stem' — which pass proposed it. Diagnostic, and the
           // reports break the invented heads down by it.
           via: head.via ?? 'shape',
@@ -2565,13 +2592,37 @@ export function notesInOrder(page) {
         // carries one comes back a semitone out. That is the next thing owed
         // here, and until it exists a pitch from this is right about the key and
         // silent about the bar.
+        accidental: head.accidental ?? null,
         ...(() => {
           const key = page?.key ?? staff.key ?? null;
           const p = pitchOf(head.step, staff.clef ?? null, key);
-          return p ? { midi: p.midi, degree: p.degree } : { midi: null, degree: null };
+          return p
+            // What the SIGNATURE contributed, kept so an accidental in the bar
+            // can REPLACE it rather than add to it: a natural in a page of one
+            // sharp is a natural, and adding zero to a sharpened F leaves it
+            // sharp.
+            ? { midi: p.midi, degree: p.degree, keyAlter: key?.alter?.[p.degree] ?? 0 }
+            : { midi: null, degree: null, keyAlter: 0 };
         })(),
       });
     }
   }
-  return notes;
+  // …AND THEN THE BAR'S OWN ACCIDENTALS, one bar at a time.
+  //
+  // An accidental applies to its note and to every later note in THAT BAR at the
+  // same line or space, and stops at the barline. Applying it bar by bar is what
+  // makes the last part true rather than asserted — see applyAccidentals, which
+  // is handed one bar and cannot see past it.
+  const bars = new Map();
+  for (const note of notes) {
+    const k = `${note.staff}:${note.bar}`;
+    if (!bars.has(k)) bars.set(k, []);
+    bars.get(k).push(note);
+  }
+  const out = [];
+  for (const bar of bars.values()) out.push(...applyAccidentals(bar));
+  // Back into reading order: the bars were walked in the order the notes came,
+  // but a note's place on the page is what every caller downstream sorts by.
+  out.sort((a, b) => (a.staff - b.staff) || (a.x - b.x));
+  return out;
 }

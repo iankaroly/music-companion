@@ -67,7 +67,8 @@
     "train:big": "node tools/train-big.mjs",
     "scan:whatif": "node tools/whatif.mjs",
     "scan:engraved": "node tools/engraved-bench.mjs",
-    "scan:sheet": "node tools/contact-sheet.mjs"
+    "scan:sheet": "node tools/contact-sheet.mjs",
+    "acc:train": "node tools/acc-train.mjs"
   },
   "keywords": [],
   "author": "",
