@@ -127,6 +127,10 @@ const GLYPH_FLOOR = 0.5;           // staff spaces
 // RUN and not the band: seven flats is ten spaces of band, and each flat in it
 // is a space and a bit on its own.
 const GLYPH_WIDE = 1.9;            // staff spaces
+// How far a speck may sit from the glyph it is rejoined to, in staff spaces.
+// The two halves of one sharp broken by thresholding are one or two columns
+// apart; the bass clef's dots are six. See the rejoin in findKeyBand.
+const SPECK_GAP = 0.3;
 const GLYPH_GAP = 1.1;             // spaces of blank that end the run
 const KEY_REACH = 9;               // spaces past the clef; seven flats and slack
 // A key signature is set hard against the clef. Anything that starts a couple
@@ -835,7 +839,34 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
     let x0 = x;
     let gy0 = hi;
     let gy1 = lo;
+    // …AND ONLY IF THE SPECK IS ACTUALLY NEXT TO IT.
+    //
+    // Sharing a centre is not enough, and the F CLEF is what proves it. Its two
+    // dots straddle the F line — which in bass clef is exactly where the FIRST
+    // SHARP of every sharp signature is printed. Same centre, to a pixel. So a
+    // pair of dots 0.21 of a space wide is filed as a speck, the sharp arrives,
+    // the centres agree, and the two are joined into one box 1.71 spaces wide
+    // whose left third is dots and gap. Its bottom-left corner then reads 0.33
+    // where a sharp reads 1, classifyKeyGlyph falls through to `natural`, and
+    // the whole signature is refused.
+    //
+    // MEASURED on 32 real cello studies engraved from MusicXML in fourteen keys,
+    // the same studies read once as written and once forced into treble:
+    //
+    //                            key signature right   pitches right
+    //   bass clef, as written          6 of 32             35.4%
+    //   the same music in treble      15 of 32             76.6%
+    //
+    // Bass clef is where a cello part lives, so the reader was at its worst on
+    // exactly the music this app is for.
+    //
+    // The two halves of one broken sharp are ONE OR TWO blank columns apart —
+    // that is what the dump behind this rule records. The clef's dots are SIX,
+    // 0.43 of a space. So a gap bound separates them where a centre cannot, and
+    // it cannot separate two accidentals from each other, which is the thing
+    // this rule must never start doing.
     if (pending
+      && (x - pending.x1 - 1) <= space * SPECK_GAP
       && Math.abs((pending.hi + pending.lo) / 2 - (hi + lo) / 2) <= space * SAME_GLYPH
       && (end - pending.x0 + 1) / space <= GLYPH_WIDE) {
       x0 = pending.x0;

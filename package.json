@@ -68,7 +68,8 @@
     "scan:whatif": "node tools/whatif.mjs",
     "scan:engraved": "node tools/engraved-bench.mjs",
     "scan:sheet": "node tools/contact-sheet.mjs",
-    "acc:train": "node tools/acc-train.mjs"
+    "acc:train": "node tools/acc-train.mjs",
+    "scan:studies": "node tools/study-check.mjs"
   },
   "keywords": [],
   "author": "",
