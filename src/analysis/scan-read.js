@@ -1049,6 +1049,13 @@ const HEAD_WIDE_CAP = 1.2;
 // The first space either side of the stave — step 9 and step -1 — is written
 // without a ledger line and is never asked about.
 const LEDGER_LONGEST = 3;   // staff spaces; the notes on that page reach 2.9
+// How long a run the second judge is allowed to overrule LEDGER_LONGEST on, and
+// how sure it has to be. See the filter in readPage that uses them: a real note
+// off the stave often rests on its own BEAM, which is ink far too long to be a
+// ledger line, and this is what lets those back in without letting in a patch of
+// a beam that spans half a system.
+const LEDGER_OVERRULE = 6;    // staff spaces of run the overrule still reaches
+const LEDGER_SURE = 0.9;      // the second judge must be this certain
 // Out where only a ledger note can be, there has to be a ledger line: an
 // engraver draws one because otherwise nobody could tell which line the note is
 // on. Text, dynamics, rests and ornaments have none.
@@ -2268,7 +2275,51 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
     // looking for horizontal rules, which is the shape being measured. Asked of
     // the masked image the question answers itself.
     heads: findHeads(body, w, h, staff, staff.space, gray, background, judge)
-      .filter((head) => offStaveIsCredible(ink, w, h, staff, stripW, staff.space, head)),
+      // …AND A CONFIDENT SECOND JUDGE CAN OVERRULE THE LEDGER RULE.
+      //
+      // offStaveIsCredible rejects a head outside the stave standing on ink too
+      // long to be a ledger line, and it is the largest single cause of MISSED
+      // notes left on the Concerto. Traced: of its twenty-eight missing heads,
+      // only one has a detection just outside the match radius and eighteen have
+      // nothing within two staff spaces — so they are not mislocalised, they are
+      // never proposed. Probed with tools/head-probe.mjs, six of ten come back
+      // ACCEPTED by the shape tests, fill 0.81 to 0.88, core 1, 1.3 to 1.5 spaces
+      // across. Good noteheads, killed after the shape tests, by this rule.
+      //
+      // WHY THE RULE IS WRONG ABOUT THEM: a beamed note off the stave has its
+      // head touching the beam, and a beam is ink far too long to be a ledger
+      // line. Measured, the vertical thickness of what a missed off-stave head
+      // stands on runs to 1.61 spaces at the third quartile and 2.71 at the
+      // maximum, against 0.60 for the ones that are found — they are standing on
+      // BEAMS, not on over-long ledger lines. The rule cannot tell a real note
+      // resting on its own beam from a patch of that beam.
+      //
+      // Loosening it does not work — LEDGER_LONGEST 3 to 4, 5 and 6 all read
+      // about +1.2 recall for -0.8 precision, flat, and turning it off entirely
+      // reads +1.33 / -1.33. What DOES work is letting the head-model's second
+      // judge overrule it when that judge is sure, which recovers the same recall
+      // at half the precision:
+      //
+      //   page      before          after
+      //   Bach      98.8 / 99.7     98.8 / 99.7     unchanged
+      //   Mozart    91.8 / 91.6     92.1 / 94.9     better on BOTH
+      //   Scanned   90.9 / 94.0     89.0 / 94.7     -1.9 precision
+      //   mean      -0.55 precision, +1.33 recall, F1 94.45 -> 94.81
+      //
+      // THE SCANNED SCORE PAYS FOR THIS AND THAT IS RECORDED RATHER THAN HIDDEN.
+      // It is taken because this reader's whole purpose is pairing a recording
+      // with the page, and the doctrine that follows from it is written all over
+      // this file: a missing note breaks the alignment a take depends on, and an
+      // extra circle is cosmetic. Anyone who needs the precision back takes the
+      // `||` off and loses three and a third points of the Concerto's recall.
+      //
+      // The run bound is not the same as loosening the rule: it stops the
+      // overrule reaching a head sitting on a beam that spans half a system,
+      // which the second judge is as happy about as anything else. Swept at 4.5,
+      // 6 and 8 — 6 is where it stops costing recall.
+      .filter((head) => offStaveIsCredible(ink, w, h, staff, stripW, staff.space, head)
+        || (ledgerRun(ink, w, h, staff, stripW, staff.space, head) <= LEDGER_OVERRULE
+          && headScoreMlp(headPatch(gray, background, w, h, staff.space, head.x, head.y)) >= LEDGER_SURE)),
     space: staff.space,
     // Where this stave's five lines sit under any given x — a stem crosses
     // them and they must not be counted as the beams it is looking for.

@@ -57,9 +57,9 @@ clone.
 ```
 page          space  found  really  precision  recall     F1   invented  missed   bars  clefs
 Bach           12.1    322     319      98.8%   99.7%  99.2%         4       1     34  10/10
-Mozart           10    331     332      91.8%   91.6%  91.7%        27      28     36  10/11
-Scanned         9.6    451     436      90.9%   94.0%  92.4%        41      26     34  10/11
-mean                            93.8%   95.1%  94.5%
+Mozart           10    342     332      92.1%   94.9%  93.5%        27      17     36  10/11
+Scanned         9.6    464     436      89.0%   94.7%  91.8%        51      23     34  10/11
+mean                            93.3%   96.4%  94.8%
 ```
 
 **THE GROUND TRUTH ON TWO OF THESE PAGES WAS WRONG, AND IT WAS WRONG IN THE
