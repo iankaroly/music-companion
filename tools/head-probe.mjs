@@ -75,13 +75,27 @@ const out = await page.evaluate(async ({ b64, pdf, at }) => {
   const spaces = read.staves.map((s) => s.space * h).sort((a, b) => a - b);
   const space = spaces[Math.floor(spaces.length / 2)];
   const body = beamMask(ink, w, h, space);
-  const found = notesInOrder(read).map((n) => [n.x * w, n.y * h]);
+  // WITH THE PASS THAT PROPOSED EACH ONE, because headProbe can only mirror one
+  // of them. The stem hunt never runs the shape tests — it scores a patch with
+  // the classifier and takes the best of a neighbourhood — so a stem-pass head
+  // failing this probe is not drift, it is the probe being asked the wrong
+  // question. Counting them together buried a real 105-head regression in the
+  // width test under a residual nobody could account for.
+  const found = notesInOrder(read).map((n) => [n.x * w, n.y * h, n.via ?? 'shape']);
 
   // The probe must agree with the reader on the heads the reader accepted.
   let agree = 0;
-  for (const [hx, hy] of found) {
+  let agreeShape = 0;
+  let shape = 0;
+  for (const [hx, hy, via] of found) {
     const r = headProbe(body, w, h, space, gray, bg, Math.round(hx), Math.round(hy));
-    if (r.verdict === 'accepted') agree++;
+    // The BOOLEAN, not the string. headProbe's width verdict is a sentence now,
+    // because the width floor is the page's decision and a per-point probe can
+    // only report the measurement — and a check for `verdict === 'accepted'`
+    // read every one of those as a rejection, which took this agreement figure
+    // from 367 of 455 to what it should be.
+    if (r.accepted) agree++;
+    if (via === 'shape') { shape++; if (r.accepted) agreeShape++; }
   }
 
   const reports = at.map(([x, y]) => {
@@ -89,13 +103,13 @@ const out = await page.evaluate(async ({ b64, pdf, at }) => {
     for (let dy = -3; dy <= 3; dy++) {
       for (let dx = -3; dx <= 3; dx++) {
         const r = headProbe(body, w, h, space, gray, bg, x + dx, y + dy);
-        if (r.verdict === 'accepted') return { x, y, at: `${x + dx},${y + dy}`, ...r };
+        if (r.accepted) return { x, y, at: `${x + dx},${y + dy}`, ...r };
         if (!best || (r.fill ?? 0) > (best.fill ?? 0)) best = { x, y, at: `${x + dx},${y + dy}`, ...r };
       }
     }
     return best;
   });
-  return { space: +space.toFixed(1), found: found.length, agree, reports };
+  return { space: +space.toFixed(1), found: found.length, agree, agreeShape, shape, reports };
 }, { b64: bytes.toString('base64'), pdf: /\.pdf$/i.test(file), at: spots });
 
 await browser.close();
@@ -106,7 +120,9 @@ console.log(`\nstaff space ${out.space}px · the reader found ${out.found} heads
 // the whole page's heads, which one point cannot know. So the agreement is a
 // smoke alarm, not a checksum — a sudden collapse in it means the probe has
 // stopped mirroring findHeads and its verdicts should not be trusted.
-console.log(`the probe agrees with it on ${out.agree}/${out.found} of them`
+console.log(`the probe agrees with it on ${out.agreeShape}/${out.shape} of the heads the`
+  + ' SHAPE pass proposed, which is the only population it mirrors'
+  + `\n  (${out.agree}/${out.found} counting the stem pass, which never runs these tests)`
   + `${out.agree < out.found * 0.5 ? '  <-- too low: the probe has drifted from findHeads' : ''}\n`);
 for (const r of out.reports) {
   console.log(`  ${r.x},${r.y}  ${r.verdict}`);

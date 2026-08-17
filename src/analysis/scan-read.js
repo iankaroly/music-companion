@@ -1413,7 +1413,7 @@ export function headShapes(space) {
 export function headProbe(ink, w, h, space, gray, background, x, y) {
   const { hw, hh, inside, rim, core } = headShapes(space);
   if (x < hw + 1 || x >= w - hw - 1 || y < hh + 1 || y >= h - hh - 1) {
-    return { verdict: 'off the page' };
+    return { accepted: false, verdict: 'off the page' };
   }
   const solidCentre = ink[y * w + x];
   const inner = Math.max(1, Math.round(hw * 0.78));
@@ -1421,7 +1421,7 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
   const rightInk = ink[y * w + x + hw] || ink[y * w + x + inner];
   const out = { solidCentre: !!solidCentre, leftInk: !!leftInk, rightInk: !!rightInk };
   if (!solidCentre && !(leftInk && rightInk)) {
-    return { ...out, verdict: 'not a candidate: centre is paper and there is no ring either side' };
+    return { ...out, accepted: false, verdict: 'not a candidate: centre is paper and there is no ring either side' };
   }
   let filled = 0;
   for (const [dx, dy] of inside) filled += ink[(y + dy) * w + x + dx];
@@ -1449,16 +1449,53 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
   out.solid = solid;
   out.hollow = hollow;
   if (!solid && !hollow) {
-    return { ...out, verdict: out.fill < 0.3 ? 'too little ink to be a head'
+    return { ...out, accepted: false, verdict: out.fill < 0.3 ? 'too little ink to be a head'
       : 'rim or core failed: not solid enough, not ring enough' };
   }
   let across = 1;
   for (let k = x - 1; k >= 0 && ink[y * w + k]; k--) across += 1;
   for (let k = x + 1; k < w && ink[y * w + k]; k++) across += 1;
   out.across = +(across / space).toFixed(2);
-  if (across > space * 2.6) return { ...out, verdict: 'ink runs too far sideways — a beam, not a head' };
-  if (solid && across < space * 1.05) return { ...out, verdict: 'ink too narrow for a head — a stem or a speck' };
-  return { ...out, verdict: 'accepted' };
+  if (across > space * 2.6) return { ...out, accepted: false, verdict: 'ink runs too far sideways — a beam, not a head' };
+  // THE WIDTH FLOOR IS THE PAGE'S DECISION AND THIS PROBE CANNOT MAKE IT.
+  //
+  // findHeads does not reject a narrow candidate here. It collects every
+  // survivor, asks the page how wide its own noteheads are — the low quartile of
+  // what the shape tests accepted, times HEAD_WIDE_SHARE — and applies THAT.
+  // The comment there says so in as many words: "The width floor is not applied
+  // here. It is applied below, against a width this page measured for itself."
+  //
+  // This probe applied the constant instead, and the constant is exactly what
+  // that measurement replaced because it cannot be right twice: noteheads run
+  // 1.0 spaces wide on a photographed flute part and 1.24 on a Bärenreiter Bach.
+  //
+  // SO THE PROBE HAS BEEN LYING, and about a lot: measured with
+  // tools/head-probe.mjs, which exists to check that the points the reader DID
+  // find come back `accepted`, it agreed with findHeads on 262 of 455 heads on
+  // the photographed page. One hundred and ninety-three heads the reader
+  // accepted were reported as "ink too narrow for a head — a stem or a speck",
+  // with a fabricated reason, by the tool the handover calls the fastest-paying
+  // in the project. Anybody asking `npm run scan:why` why a head was rejected
+  // was being told about a test that no longer runs at this point.
+  //
+  // A per-point probe has no page to ask, so it reports the width and says who
+  // decides. That is the honest answer and it is also the useful one: `across`
+  // is printed either way, and the caller can compare it to the page's own floor.
+  out.floor = 'the page decides — see HEAD_WIDE_SHARE in findHeads';
+  out.narrowFor = +(1 * HEAD_WIDE_FLOOR).toFixed(2);
+  if (solid && across < space * HEAD_WIDE_FLOOR) {
+    return {
+      ...out,
+      // ACCEPTED, with a caveat — the shape tests passed and only the page-level
+      // width floor is in doubt. A caller testing `verdict === 'accepted'` would
+      // read this as a rejection, which is why the boolean exists.
+      accepted: true,
+      verdict: `accepted by shape; ${out.across} spaces across is under the`
+        + ` ${HEAD_WIDE_FLOOR}-space fallback floor, so whether findHeads keeps it`
+        + ' depends on the width this page measured for itself',
+    };
+  }
+  return { ...out, accepted: true, verdict: 'accepted' };
 }
 
 // Notes found by their STEMS, for the ones the shape tests never offer.
