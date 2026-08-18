@@ -406,10 +406,6 @@
       "y": 0.50082
     },
     {
-      "x": 0.89214,
-      "y": 0.42386
-    },
-    {
       "x": 0.92071,
       "y": 0.42606
     },
@@ -516,10 +512,6 @@
     {
       "x": 0.67786,
       "y": 0.50632
-    },
-    {
-      "x": 0.69929,
-      "y": 0.50082
     },
     {
       "x": 0.71929,
@@ -754,10 +746,6 @@
       "y": 0.663
     },
     {
-      "x": 0.66143,
-      "y": 0.6597
-    },
-    {
       "x": 0.72143,
       "y": 0.69654
     },
@@ -956,10 +944,6 @@
     {
       "x": 0.49286,
       "y": 0.82738
-    },
-    {
-      "x": 0.54286,
-      "y": 0.81143
     },
     {
       "x": 0.595,
@@ -1902,6 +1886,37 @@
     {
       "x": 0.95714,
       "y": 0.92139
+    }
+  ],
+  "cleaned": "4 suspect labels removed (0 clef, 0 key signature, 4 marked twice) — each cropped with CROP_MARKS and looked at: one filled ledger-line head, two overlapping dots, in eight of nine two concentric rings",
+  "removed": [
+    {
+      "x": 1249,
+      "y": 771,
+      "system": 5,
+      "on": "twice",
+      "apart": 2
+    },
+    {
+      "x": 979,
+      "y": 911,
+      "system": 6,
+      "on": "twice",
+      "apart": 0
+    },
+    {
+      "x": 926,
+      "y": 1200,
+      "system": 8,
+      "on": "twice",
+      "apart": 4.1
+    },
+    {
+      "x": 760,
+      "y": 1476,
+      "system": 10,
+      "on": "twice",
+      "apart": 3.1
     }
   ]
 }

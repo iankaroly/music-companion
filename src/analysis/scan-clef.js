@@ -214,3 +214,110 @@ export function classifyClef(features) {
   }
   return { clef: null, confidence: 0 };
 }
+
+// A CLEF PRINTED IN THE MIDDLE OF A SYSTEM, which is what a cello part does
+// every time it goes up into its high register and comes back down.
+//
+// WHY classifyClef CANNOT DO THIS JOB, measured before anything was written.
+// It is a CHOOSER, not a detector: treble needs ink below the bottom line,
+// tenor needs ink above the top one, and BASS IS THE RESIDUAL, guarded only by
+// "taller than a speck". So it always answers. Slid along one drawn system with
+// no clef change anywhere in it, the reader's own clef window read `bass` at
+// 201 x-positions out of 651 and `tenor` at 30. Anything that walks a window
+// along a stave and asks classifyClef will find clefs in the music.
+//
+// It is also, at this size, right by an accident too small to build on. A
+// C-clef engraved at three quarters size — which is what an engraver prints
+// mid-system — measured a top of -0.61 against ABOVE_STAVE's -0.60. One
+// hundredth of a staff space is not a measurement, it is a coin landing on its
+// edge, and the coin is a whole system of a cello part named a ninth wrong.
+//
+// SO THIS IS A DIFFERENT TEST, AND IT IS SIZE-INDEPENDENT BY CONSTRUCTION. A
+// C-clef is the only glyph on a page built symmetrically about its own waist
+// with that waist standing ON the line it names. Everything else follows from
+// those two facts rather than from a height in spaces:
+//
+//   symmetric         the centre of MASS sits at the middle of the extent
+//   waist on a line   within a quarter space of line 1 (tenor) or 2 (alto)
+//   continuous        no paper across its height — it is one glyph, not two
+//                     noteheads with a gap
+//   half a stave to a whole stave tall
+//
+// WHAT IT WAS TESTED AGAINST, because a detector with no false-fire count gets
+// re-broken by the next round. Every window of the three marked photographs —
+// 13,148 of them, none of which has a clef change — fires ZERO times. So does
+// every one of twenty-four pieces of drawn furniture printed mid-system, clean
+// and photographed: a sharp, a flat and a natural inflecting a note ON EACH OF
+// THE FIVE LINES (the case whose waist lands exactly where a C-clef's would), a
+// thick-and-thin repeat barline with its dots, a double barline, a plain
+// barline, a fermata, a forte, a common-time C, a quarter rest, a multi-bar
+// rest with its number, and a chord of thirds. `npm run scan:clef` prints the
+// count and fails the build if it is not zero.
+//
+// THE ONE THING THAT BEAT THE SHAPE TESTS was a chord of three notes a third
+// apart on a photograph: as tall, as solid and as symmetric as a small C-clef,
+// reading height 3.51, symmetry 0.98, continuity 0.97. What it could not fake
+// was the WAIST — it came out 1.71, a third of a space off the line — where
+// every real C-clef measured here lands within 0.06 of one. That is why naming
+// is part of the gate rather than a step after it, and why there is no
+// "something is here that I cannot name" refusal: the shape half on its own is
+// not specific enough to carry one, and a refusal that fired on every double
+// stop would blank half of the Bach suites.
+const WAIST_NEAR = 0.25;   // how near the named line the waist must sit
+const MIN_HALF = 1.30;     // half-height, in spaces: a clef half a stave tall
+const MAX_HALF = 2.20;     // …and no taller than a stave and a bit
+const SYM_MIN = 0.90;
+const SOLID_MIN = 0.95;    // share of its height with ink across the band
+// A row this much of the band inked is ink; below it the row is the paper
+// between two separate glyphs. Deliberately well under the 1.0 a staff line
+// scores and well over the 0.03 a stem does.
+const SOLID_INK = 0.25;
+
+/**
+ * The two C-clefs, by where their waist sits, or null.
+ *
+ * `column` is what clefColumn built: one value per row, the fraction of the
+ * band's width inked, beginning MARGIN staff spaces above the top line.
+ *
+ * Returns { clef, confidence, waist, height } or null. Null is the answer for
+ * a barline, an accidental, a rest, a chord, and for a real C-clef too small
+ * or too smeared to be sure of — see the note above for what refusing costs
+ * and why it is cheaper than the alternative.
+ */
+export function midClefAt(column, space) {
+  const f = clefFeatures(column, space);
+  if (!f) return null;
+  const half = f.height / 2;
+  if (!(half >= MIN_HALF && half <= MAX_HALF)) return null;
+  if (!(f.symmetry >= SYM_MIN)) return null;
+
+  // Continuity, measured over the extent clefFeatures settled on. This is what
+  // says one glyph rather than two things stacked with paper between them.
+  const from = Math.max(0, Math.round((f.top + MARGIN) * space));
+  const to = Math.min(column.length - 1, Math.round((f.bottom + MARGIN) * space));
+  let inked = 0;
+  let rows = 0;
+  for (let r = from; r <= to; r++) { rows++; if (column[r] >= SOLID_INK) inked++; }
+  if (!rows || inked / rows < SOLID_MIN) return null;
+
+  // …and the waist, which is the whole reading. A C-clef names the line its
+  // waist stands on: line 1 counting down from the top is tenor, line 2 alto.
+  // Reported as tenor and alto rather than as a line number because that is
+  // what the rest of the reader speaks, and because a cello in a C-clef is in
+  // tenor — alto belongs to the viola, and the difference between them is a
+  // whole space against a quarter-space tolerance, which is why naming which
+  // of the two it is costs nothing.
+  const waist = (f.top + f.bottom) / 2;
+  const line = Math.abs(waist - 1) <= Math.abs(waist - 2) ? 1 : 2;
+  const off = Math.abs(waist - line);
+  if (off > WAIST_NEAR) return null;
+  return {
+    clef: line === 1 ? 'tenor' : 'alto',
+    // How near the waist sat to the line it names, as a fraction of the
+    // tolerance it had to clear. Every C-clef measured here reads 0.76 or
+    // better; the chord that beat every other test would have read 0.
+    confidence: Math.max(0, Math.min(1, 1 - off / WAIST_NEAR)),
+    waist,
+    height: f.height,
+  };
+}

@@ -34,10 +34,21 @@ const DEGREE_SEMITONES = [0, 2, 4, 5, 7, 9, 11];
 // scan-key.js carries the degree half of this table for its own use and was
 // wrong in the same way. Two copies of one assumption; both are now derived
 // from where the C-clef sits rather than remembered.
-export const BOTTOM_LINE = { bass: 43, tenor: 50, treble: 64 };
+//
+// ALTO was added when the reader learned to see a clef printed part way along a
+// system (findClefChanges in scan-read.js): the same scan that finds a tenor
+// C-clef finds an alto one, and there is no honest way to detect a glyph and
+// then refuse to name it. Derived the same way rather than remembered — an alto
+// clef puts middle C on the THIRD line, so counting down from it the five lines
+// are F3 A3 C4 E4 G4, the bottom line is F3, MIDI 53, degree 3. Checked the way
+// this table should always be checked, by deriving the one note the clef names:
+// the third line is step 4, and pitchOf(4, 'alto', NONE) must be MIDI 60.
+// 53 + (0 - 5) + 12 = 60. It is.
+export const BOTTOM_LINE = { bass: 43, tenor: 50, alto: 53, treble: 64 };
 
-// Which diatonic degree that bottom line is. Bass is G, tenor D, treble E.
-const BOTTOM_DEGREE = { bass: 4, tenor: 1, treble: 2 };
+// Which diatonic degree that bottom line is. Bass is G, tenor D, alto F,
+// treble E.
+const BOTTOM_DEGREE = { bass: 4, tenor: 1, alto: 3, treble: 2 };
 
 /**
  * The note a notehead at `step` represents.

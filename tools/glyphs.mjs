@@ -18,6 +18,15 @@ export const GLYPH = {
   sharp: '\u{E262}',
   flat: '\u{E260}',
   natural: '\u{E261}',
+  // Everything below is here for ONE job: the block in scan-clef-check.mjs that
+  // proves a mid-system clef detector does not fire on things that are not
+  // clefs. Each was chosen because it is tall, or symmetric about a staff line,
+  // or both — which is what the detector looks for.
+  noteheadBlack: '\u{E0A4}',
+  repeatDots: '\u{E043}',
+  fermata: '\u{E4C0}',
+  dynamicForte: '\u{E522}',
+  restQuarter: '\u{E4E5}',
 };
 
 // Where each clef's glyph origin sits, counted in staff spaces DOWN from the

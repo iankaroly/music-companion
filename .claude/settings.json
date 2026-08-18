@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npx vitest:*)",
+      "Bash(node tools/:*)",
+      "Bash(node --check:*)",
+      "Bash(git diff:*)",
+      "Bash(git status:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(curl -sf -o /dev/null http://localhost:5199/)",
+      "Bash(python3 -c:*)",
+      "Bash(lilypond:*)",
+      "Read(//Users/iankaroly/Downloads/**)",
+      "Read(//private/tmp/claude-501/**)",
+      "Write(//private/tmp/claude-501/**)"
+    ],
+    "deny": [
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git checkout:*)",
+      "Bash(rm -rf /:*)"
+    ]
+  }
+}

@@ -76,6 +76,48 @@
 // carries thousands. It draws the music after the signature and never through
 // it. And the residue it DOES report is real — see "a speck of grain in the
 // same column as a notehead" in the note above `column` in scan-key.js.
+//
+// AND A THIRD BLOCK, FOR THE PAGE THAT PRINTS NO SIGNATURE AT ALL. `agreeNoKey`
+// in scan-key.js lets such a page name itself C major, which is the only place
+// in this reader where a key is decided by an ABSENCE, and it is therefore the
+// place where a wrong key would be cheapest to introduce and dearest to have:
+// a page in five flats called C major puts a semitone on every note of five
+// degrees.
+//
+// IT IS HERE BECAUSE IT CANNOT BE ANYWHERE ELSE. The reader's key gate is
+// tools/key-read-check.mjs's "0 read as the WRONG key", and that tool draws ONE
+// stave and calls findKeyBand directly — a rule that needs two systems to agree
+// is structurally invisible to it, so its zero stays zero however wrong this
+// rule goes. The same argument as the widening block above, for the same
+// reason, and the same answer: whole pages through readPage.
+//
+// It sweeps both clefs, clean and photographed, signatures of 0, 1, 2, 4 and 7
+// accidentals, pages of 1, 2, 3 and 5 systems, and — the case that matters most
+// — pages whose signature is printed FAINT on every system, where the reader
+// knows a signature is there and cannot say which. Three gates, all at zero: a
+// page with a signature must never say 'bare'; a CLEAN bare page of two systems
+// or more must always say it; and a bare page of ONE system must never say it,
+// because a fragment has no page key.
+//
+// AND THE MARGIN IS PRINTED RATHER THAN ARGUED. The block counts the SYSTEMS of
+// signature pages whose own scan came back saying the place was bare — three of
+// them, all photographed — because every one of those is a system a PER-SYSTEM
+// version of this rule would have named C major. None of their pages fires,
+// because the rule needs every system to agree, and that is the whole of why it
+// is a page rule.
+//
+// THE PHOTOGRAPHED BARE PAGE IS A DEBT AND IS PRINTED, NOT GATED, in the same
+// idiom as the grain debt above. Six of twelve photographed bare pages stay
+// silent, and the cause is measured: the camera smears the clef, the overhang
+// walk steps further right, and the first note of the bar then stands inside
+// KEY_ADJACENT of where the scan starts — so the scan measures the note, finds
+// it too wide or too tall to be an accidental, and ends on it. Swept at space
+// 14, 20 and 28 photographed, the ending is 'wide' or 'tall' while the music
+// stands 3 to 5 spaces past the clef band, 'gap' at 8, and 'none' past 12. The
+// refusal is CORRECT — there is ink where a signature would be and the reader
+// cannot name it — and it costs a photographed C-major page its pitches.
+// Closing it means measuring where the clef ends better; it does not mean
+// loosening this rule.
 
 import { readFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
@@ -312,7 +354,11 @@ const out = await page.evaluate(async ({ b64 }) => {
       // handover under the FEW block), so it is printed grey AND thin — the
       // engraver's glyph at 55% scale, which is what a worn plate or a
       // photocopy leaves and what makes findKeyBand stop inside it.
-      const weak = sys === faint;
+      // 'all' prints EVERY system's signature faint, which is the page where a
+      // signature is plainly there and no system reads it — the case the
+      // bare-page rule below must refuse. A number picks out one system, which
+      // is what the widening block above needs.
+      const weak = faint === 'all' || sys === faint;
       let at = edge + space * 3.9;
       const places = PLACE[clef][kind];
       for (let i = 0; i < count; i++) {
@@ -362,7 +408,13 @@ const out = await page.evaluate(async ({ b64 }) => {
     }
     let read = null;
     try { read = readPage(shot, shot.width, shot.height); } catch { read = null; }
-    if (!read) return { clef, kind, count, space, spoil, gap, systems, staves: 0, reach: null, eaten: 0, heads: drawn.length, worst: null };
+    if (!read) {
+      return {
+        clef, kind, count, space, spoil, gap, systems, faint,
+        staves: 0, reach: null, eaten: 0, heads: drawn.length, worst: null,
+        keySource: null, pageKey: null, scanned: 0, empty: 0, readAKey: 0,
+      };
+    }
 
     // dropFurniture's own range, rebuilt from what the page reports.
     const SW = shot.width; const SH = shot.height;
@@ -418,11 +470,27 @@ const out = await page.evaluate(async ({ b64 }) => {
         if (hx > best.plain) byWidening += 1;
       }
     }
+    // THE PAGE'S NAME FOR ITS OWN KEY, and the arithmetic behind it.
+    //
+    // Read off the page rather than recomputed here, and asserted rather than
+    // defaulted: a page that stops reporting keySource must break this check,
+    // not pass it with a silent undefined. The block below gates on these.
+    if (!('keySource' in read)) throw new Error('readPage no longer reports keySource');
+    for (const st of read.staves) {
+      for (const field of ['keyScanned', 'keyEmpty']) {
+        if (!(field in st)) throw new Error(`readPage no longer reports stave.${field}`);
+      }
+    }
     return {
-      clef, kind, count, space, spoil, gap, systems,
+      clef, kind, count, space, spoil, gap, systems, faint,
       staves: read.staves.length,
       reach: read.keyReach ?? null,
       eaten, byWidening, heads: drawn.length, worst,
+      keySource: read.keySource ?? null,
+      pageKey: read.key ? `${read.key.count} ${read.key.kind}` : null,
+      scanned: read.staves.filter((s) => s.keyScanned).length,
+      empty: read.staves.filter((s) => s.keyEmpty).length,
+      readAKey: read.staves.filter((s) => s.key).length,
     };
   }
 
@@ -446,6 +514,69 @@ const out = await page.evaluate(async ({ b64 }) => {
   wide.push(await wholePage({
     clef: 'treble', kind: 'sharp', count: 4, space: 14, spoil: false, gap: 3, systems: 5, faint: -1,
   }));
+
+  // A THIRD BLOCK, FOR THE PAGE THAT PRINTS NO KEY SIGNATURE AT ALL.
+  //
+  // `agreeNoKey` lets a page whose every system found bare paper where a
+  // signature is printed name itself C major, and that is a WRONG KEY waiting
+  // to happen: a page in five flats called C major puts a semitone on every
+  // note of five degrees, which is the one failure this whole family of checks
+  // exists to prevent.
+  //
+  // AND NOTHING ELSE CAN SEE IT. tools/key-read-check.mjs — the tool whose
+  // "0 read as the WRONG key" is the reader's key gate — draws ONE stave and
+  // calls findKeyBand directly. A rule that needs two systems to agree cannot
+  // fire there, so that zero stays zero whatever this rule does and citing it
+  // as evidence of safety would be citing nothing. The gate has to be here,
+  // through readPage, on whole pages.
+  //
+  // Both halves are gated, because a rule that never fires is as useless as one
+  // that fires wrongly:
+  //
+  //   a page with a signature PRINTED must never say 'bare'  — at any length,
+  //     in either clef, clean or photographed, and INCLUDING the pages whose
+  //     signature is printed faint enough that the systems refuse to read it.
+  //     That last population is the whole argument: it is the page where the
+  //     reader knows there is a signature and cannot say which, and calling it
+  //     C major would be exactly the mistake.
+  //   a page with NO signature and two systems or more must say 'bare' — this
+  //     is the 84 notes the rule is for, and if it stops firing the studies
+  //     lose them silently.
+  //   a page with NO signature and ONE system must say nothing. A fragment has
+  //     no page key; one witness naming a page is the failure agreeKey grew
+  //     MIN_KEY_WITNESSES to stop.
+  const bare = [];
+  for (const clef of ['treble', 'bass']) {
+    for (const spoil of [false, true]) {
+      // 0 is the page the rule is FOR; 1, 2, 4 and 7 are the pages it must
+      // never touch, at both ends of the length range — one accidental is the
+      // shortest signature there is and seven the longest, and seven is also
+      // the one whose own scan most often runs out of reach.
+      for (const count of [0, 1, 2, 4, 7]) {
+        // ONE system as well as several, because the floor is the whole of the
+        // rule's safety and a sweep that never draws a one-system page cannot
+        // show what the floor buys.
+        for (const systems of [1, 2, 3, 5]) {
+          bare.push(await wholePage({
+            clef, kind: 'sharp', count, space: 14, spoil, gap: 3, systems, faint: -1,
+          }));
+        }
+      }
+    }
+  }
+  // …and the same pages with a signature printed FAINT on system after system,
+  // which is how a signature stops being read without stopping being there. On
+  // a two-system page every system is faint, so nothing on the page reads a key
+  // — the exact shape the rule must refuse.
+  for (const clef of ['treble', 'bass']) {
+    for (const count of [2, 4, 7]) {
+      for (const systems of [2, 3]) {
+        bare.push(await wholePage({
+          clef, kind: 'sharp', count, space: 14, spoil: false, gap: 3, systems, faint: 'all',
+        }));
+      }
+    }
+  }
 
   const rows = [];
   // Where the heads are put: on a line, in a space, straddling the top line and
@@ -485,13 +616,13 @@ const out = await page.evaluate(async ({ b64 }) => {
       }
     }
   }
-  return { rows, named: grainFleck(), wide };
+  return { rows, named: grainFleck(), wide, bare };
 }, { b64: fontBase64 });
 
 await browser.close();
 if (errors.length) { console.error(errors.join('\n')); process.exit(1); }
 
-const { rows, named, wide } = out;
+const { rows, named, wide, bare } = out;
 
 // WHAT THE GATE COVERS, AND THE TWO THINGS IT HONESTLY CANNOT.
 //
@@ -639,8 +770,78 @@ if (wideFired < WIDE_FLOOR) {
   console.log('  WARNING: it fired on too few pages to have measured the widening at all.');
 }
 
-const fail = named.eaten || gatedEaten > 0 || wideBy > 0 || wideFired < WIDE_FLOOR;
+// THE PAGE THAT PRINTS NO KEY SIGNATURE — the third block, and the only gate
+// there is on `agreeNoKey`. See the note beside the sweep above for why
+// scan:key-read cannot answer this question at all.
+console.log('\n  A PAGE WITH NO KEY SIGNATURE — may it name itself C major?');
+console.log('  \'bare\' means every system that ran the key scan found the place a signature');
+console.log('  is printed empty, and nothing on the page read a key.\n');
+console.log('  clef    signature    camera  systems  scanned  empty  read a key  page key   keySource   verdict');
+const bareRows = bare.map((r) => {
+  // What this page SHOULD say, from what was printed on it and nothing else.
+  // A PHOTOGRAPHED bare page is measured and NOT required to fire — see the
+  // debt below, which is a property of the camera and not of this rule.
+  const said = r.keySource;
+  // A signature is printed: it must never say bare, whatever else it says.
+  if (r.count > 0) return { ...r, verdict: said === 'bare' ? 'WRONG' : 'ok' };
+  // Nothing printed, one system: a fragment has no page key.
+  if (r.systems === 1) return { ...r, verdict: said === null ? 'ok' : 'WRONG' };
+  // Nothing printed, two systems or more: it must fire on clean paper, and on
+  // a photograph it is measured and recorded as a debt rather than gated.
+  if (said === 'bare') return { ...r, verdict: 'ok' };
+  return { ...r, verdict: r.spoil ? 'debt' : 'WRONG' };
+});
+for (const r of bareRows) {
+  console.log(`  ${r.clef.padEnd(7)} ${(r.count === 0 ? 'none' : `${r.count} sharp${r.count === 1 ? '' : 's'}${r.faint === 'all' ? ' faint' : ''}`).padEnd(12)}`
+    + `${(r.spoil ? 'photo' : 'clean').padEnd(7)}${String(r.systems).padStart(7)}`
+    + `${String(r.scanned).padStart(9)}${String(r.empty).padStart(7)}${String(r.readAKey).padStart(12)}`
+    + `  ${(r.pageKey ?? '—').padEnd(9)}  ${(r.keySource ?? '—').padEnd(10)}  ${r.verdict}`);
+}
+// The three counted apart, because they are not the same kind of failure. A
+// page with a signature named C major is a WRONG KEY on every note of every
+// altered degree; a bare page that stays silent is a refusal, which costs the
+// caller the notes it cannot name and nothing else. Both are gated, and both
+// are printed, so that the trade cannot be made quietly in either direction.
+const printedWrong = bareRows.filter((r) => r.count > 0 && r.keySource === 'bare');
+const bareMissed = bareRows.filter((r) => r.count === 0 && r.systems >= 2 && !r.spoil && r.keySource !== 'bare');
+const oneSystem = bareRows.filter((r) => r.count === 0 && r.systems === 1 && r.keySource !== null);
+const bareFired = bareRows.filter((r) => r.keySource === 'bare').length;
+const photoMissed = bareRows.filter((r) => r.count === 0 && r.systems >= 2 && r.spoil && r.keySource !== 'bare');
+// The margin the page rule is bought with, stated as a number rather than as
+// an argument: how many SYSTEMS of a page that plainly prints a signature came
+// back saying the place was bare. Every one of those is a system a per-system
+// rule would have named C major.
+const sigSystems = bareRows.filter((r) => r.count > 0).reduce((n, r) => n + r.scanned, 0);
+const sigEmpty = bareRows.filter((r) => r.count > 0).reduce((n, r) => n + r.empty, 0);
+console.log(`\n  a page WITH a signature that named itself C major   ${printedWrong.length} of `
+  + `${bareRows.filter((r) => r.count > 0).length}   must be 0 — this is a wrong key on a whole page`);
+console.log(`  a CLEAN bare page of 2 systems or more, silent      ${bareMissed.length} of `
+  + `${bareRows.filter((r) => r.count === 0 && r.systems >= 2 && !r.spoil).length}   must be 0 — this is the rule not firing`);
+console.log(`  a bare page of ONE system that named a key          ${oneSystem.length} of `
+  + `${bareRows.filter((r) => r.count === 0 && r.systems === 1).length}   must be 0 — one witness is not a page`);
+console.log(`  the rule FIRED on ${bareFired} of ${bareRows.length} pages   (or this block measured nothing)`);
+console.log(`\n  THE MARGIN: systems of a page that PRINTS a signature which came back`);
+console.log(`  saying the place was bare                           ${sigEmpty} of ${sigSystems}`);
+console.log('  Every one of those is a system a per-system rule would have called C major,');
+console.log('  and none of their pages fired, because the rule needs ALL of them.');
+console.log(`\n  DEBT   a PHOTOGRAPHED bare page that stayed silent  ${photoMissed.length} of `
+  + `${bareRows.filter((r) => r.count === 0 && r.systems >= 2 && r.spoil).length}   printed, not gated`);
+console.log('  The cause is measured and it is not this rule: the camera smears the clef,');
+console.log('  the overhang walk steps further right, and the first note of the bar then');
+console.log('  stands INSIDE KEY_ADJACENT of where the scan starts — so the scan measures');
+console.log('  the note, finds it too wide or too tall to be an accidental, and ends there');
+console.log('  rather than on clean paper. Swept at space 14/20/28 photographed, the ending');
+console.log('  is `wide` or `tall` while the music stands 3 to 5 spaces past the clef band,');
+console.log('  `gap` at 8, and `none` past 12. The refusal is correct — there IS ink where');
+console.log('  a signature would be and the reader cannot name it — and it costs a');
+console.log('  photographed C-major page its pitches. Closing it means measuring the clef\'s');
+console.log('  end better, not loosening this rule.');
+
+const fail = named.eaten || gatedEaten > 0 || wideBy > 0 || wideFired < WIDE_FLOOR
+  || printedWrong.length > 0 || bareMissed.length > 0 || oneSystem.length > 0 || bareFired === 0;
+const keyFail = printedWrong.length > 0 || bareMissed.length > 0 || oneSystem.length > 0
+  || bareFired === 0;
 console.log(fail
-  ? `\n  FAILED — the band ate music\n`
-  : '\n  the band ate no music it was gated on\n');
+  ? `\n  FAILED — ${keyFail ? 'a page named the wrong key, or the bare-page rule stopped working' : 'the band ate music'}\n`
+  : '\n  the band ate no music it was gated on, and no page named a key it does not print\n');
 process.exit(fail ? 1 : 0);

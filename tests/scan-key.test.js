@@ -2,8 +2,9 @@ import { describe, test, expect } from 'vitest';
 import {
   keyFromCount, SHARP_ORDER, FLAT_ORDER,
   classifyKeyGlyph, keyGlyphStep, readKeySignature, agreeKey, agreeKeyCount,
-  agreeKeyReach, findKeyBand,
+  agreeKeyReach, findKeyBand, scanKeyBand, agreeNoKey, bareKey,
 } from '../src/analysis/scan-key.js';
+import { pitchOf } from '../src/analysis/scan-notes.js';
 
 describe('key signatures', () => {
   test('no accidentals is C major — nothing altered', () => {
@@ -452,6 +453,148 @@ describe('the band never eats music', () => {
       },
     });
     expect(() => findKeyBand(guarded, w, h, lineY, space, 78)).not.toThrow();
+  });
+});
+
+// THE PAGE THAT PRINTS NO KEY SIGNATURE AT ALL.
+//
+// These pin the shape of the rule rather than the pixels: what a system has to
+// report before it counts as a witness for bare paper, and what a page has to
+// hold before it may name itself C major. The pixels are gated by the third
+// block of `npm run scan:key-safety`, which draws whole pages through readPage,
+// because a rule that needs two systems cannot be seen one stave at a time —
+// the same reason the widening has a block there.
+describe('a page with no key signature', () => {
+  const space = 12;
+  const W = 260;
+  const H = 190;
+  const lineY = (k) => 60 + k * space;
+  const page = () => new Uint8Array(W * H);
+  const put = (ink, x, y) => { if (x >= 0 && x < W && y >= 0 && y < H) ink[y * W + x] = 1; };
+  const staff = (ink) => {
+    for (let k = 0; k < 5; k++) for (let x = 0; x < W; x++) put(ink, x, lineY(k));
+  };
+  const crotchet = (ink, hx, hy) => {
+    const rx = space * 0.62;
+    const ry = space * 0.46;
+    for (let dy = -Math.ceil(ry); dy <= Math.ceil(ry); dy++) {
+      for (let dx = -Math.ceil(rx); dx <= Math.ceil(rx); dx++) {
+        if ((dx / rx) ** 2 + (dy / ry) ** 2 <= 1) put(ink, hx + dx, hy + dy);
+      }
+    }
+    const sx = hx + Math.round(rx);
+    for (let k = 0; k <= Math.round(space * 3.5); k++) { put(ink, sx, hy - k); put(ink, sx + 1, hy - k); }
+  };
+
+  // The distinguishing measurement itself. Bare paper past the clef with the
+  // music well clear of it is the ONE case that counts as evidence, and it is
+  // distinguished by the SCAN'S OWN VERDICT rather than by any threshold on
+  // ink — see the note above scanKeyBand for why every ink test tried failed on
+  // a bass clef, whose two dots stand where the first sharp of every sharp
+  // signature stands.
+  test('bare paper past the clef reports itself empty', () => {
+    const ink = page();
+    staff(ink);
+    crotchet(ink, 150, lineY(4) + 18);          // six spaces clear of the scan's start
+    const scan = scanKeyBand(ink, W, H, lineY, space, 78);
+    expect(scan.band).toBeNull();
+    expect(scan.why).toBe('gap');
+    expect(scan.empty).toBe(true);
+  });
+
+  // …and the case that must NOT count, which is the whole of the difference
+  // between this and "the band came back null". A note standing where the
+  // signature would be is ink in the signature's own place that could not be
+  // identified, and calling that bare paper is how a page in five flats gets
+  // named C major.
+  test('a note standing where the signature would be is not bare paper', () => {
+    const ink = page();
+    staff(ink);
+    crotchet(ink, 96, lineY(4) + 18);           // inside KEY_ADJACENT of the scan's start
+    const scan = scanKeyBand(ink, W, H, lineY, space, 78);
+    expect(scan.band).toBeNull();               // the same null findKeyBand returns
+    expect(scan.empty).toBe(false);             // and emphatically not bare paper
+  });
+
+  test('findKeyBand still returns exactly the band, and null for both', () => {
+    const ink = page();
+    staff(ink);
+    crotchet(ink, 150, lineY(4) + 18);
+    expect(findKeyBand(ink, W, H, lineY, space, 78)).toBeNull();
+  });
+
+  // ONE SYSTEM IS NOT A PAGE. The measured price of allowing it is one drawn
+  // page in two sharps, photographed, naming itself C major — see the sweep
+  // above agreeNoKey.
+  test('one bare system does not name a page', () => {
+    expect(agreeNoKey([{ scanned: true, empty: true, key: null }]).bare).toBe(false);
+  });
+
+  test('two bare systems do', () => {
+    const say = agreeNoKey([
+      { scanned: true, empty: true, key: null },
+      { scanned: true, empty: true, key: null },
+    ]);
+    expect(say.bare).toBe(true);
+    expect(say.scanned).toBe(2);
+    expect(say.empty).toBe(2);
+  });
+
+  // The Bach's system 3 in miniature: a system that ran the scan over a plainly
+  // printed sharp and accepted nothing. One such system among bare ones must
+  // stop the page, which is why the test is "every system that looked", not
+  // "most of them".
+  test('one system that looked and did not find bare paper stops the page', () => {
+    expect(agreeNoKey([
+      { scanned: true, empty: true, key: null },
+      { scanned: true, empty: true, key: null },
+      { scanned: true, empty: false, key: null },
+    ]).bare).toBe(false);
+  });
+
+  // A system that never ran the scan — no left edge, or no clef to measure the
+  // band from — is not a witness either way, so it neither helps nor blocks.
+  test('a system that never ran the scan is not a witness', () => {
+    expect(agreeNoKey([
+      { scanned: true, empty: true, key: null },
+      { scanned: true, empty: true, key: null },
+      { scanned: false, empty: false, key: null },
+    ]).bare).toBe(true);
+    expect(agreeNoKey([
+      { scanned: true, empty: true, key: null },
+      { scanned: false, empty: false, key: null },
+    ]).bare).toBe(false);
+  });
+
+  // Stated separately from the line above because it is the property that
+  // matters and a later change to `empty` must not be able to lose it quietly.
+  test('a page where anything read a key is never bare', () => {
+    expect(agreeNoKey([
+      { scanned: true, empty: true, key: null },
+      { scanned: true, empty: true, key: { kind: 'sharp', count: 1 } },
+    ]).bare).toBe(false);
+  });
+
+  test('a page with no staves at all is not C major', () => {
+    expect(agreeNoKey([]).bare).toBe(false);
+    expect(agreeNoKey(undefined).bare).toBe(false);
+  });
+
+  // What such a page's key IS. C major alters nothing, and it says so with a
+  // kind of its own so that a caller can tell "read as empty" from "not
+  // decided" — pitchOf needs `alter`, and null is still never defaulted.
+  test('the key it names alters nothing and says where it came from', () => {
+    const k = bareKey();
+    expect(k.alter).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(k.count).toBe(0);
+    expect(k.kind).toBe('none');
+    expect(pitchOf(0, 'bass', k).midi).toBe(43);   // the bottom line of a bass stave is G2
+  });
+
+  // NO_KEY is a module-level constant, so a page carrying a key that shares its
+  // array would let one caller's mutation reach every page ever read.
+  test('each page gets its own alter array', () => {
+    expect(bareKey().alter).not.toBe(bareKey().alter);
   });
 });
 

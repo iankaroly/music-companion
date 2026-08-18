@@ -1,7 +1,9 @@
 import { describe, test, expect } from 'vitest';
 import {
   combScore, combPeaks, trackCombs, fillMissedStaves, stavesToLines, beamMask, realStaff,
+  dropDoubledHeads, clefHere,
 } from '../src/analysis/scan-read.js';
+import { pitchOf } from '../src/analysis/scan-notes.js';
 
 // A strip's profile: for each row, the fraction of that strip's columns that
 // are inked. A stave is five inked rows with clear gaps between them.
@@ -223,6 +225,75 @@ describe('fillMissedStaves', () => {
     const found = trackCombs(profiles.map((p) => combPeaks(p, 12)), 12);
     expect(fillMissedStaves(found, profiles, 12)).toHaveLength(2);
   });
+
+  // THE BAR IS THE PAGE'S OWN, and these four pin what that buys and what it
+  // must never cost. The failure they exist for is the title block: on both
+  // Mozart pages the prediction runs one system ABOVE the first real one and
+  // lands on the printed heading, where a fixed floor of 0.05 is thirteen times
+  // below the faintest honest stave on the same photograph.
+  test('a faint smear where a system is predicted is refused', () => {
+    // Four real systems, and a fifth position below them carrying a tenth of
+    // the response — the strength of printed type, not of a stave.
+    const profiles = pageStrips({ tops: [100, 260, 420, 580], height: 900 });
+    for (const p of profiles) for (let k = 0; k < 5; k++) p[Math.round(740 + k * 12)] = 0.1;
+    const found = trackCombs(profiles.map((prof) => combPeaks(prof, 12)), 12);
+    expect(found).toHaveLength(4);
+    // The smear is exactly what the old fixed floor could not see: it answers
+    // twice as loudly as 0.05 asks, and a fifth of what this page's own staves
+    // answer is 0.20.
+    expect(combScore(profiles[0], 740, 12)).toBeGreaterThan(0.05);
+    expect(combScore(profiles[0], 740, 12)).toBeLessThan(0.20);
+    expect(combScore(profiles[0], 100, 12)).toBeCloseTo(1, 5);
+    expect(fillMissedStaves(found, profiles, 12, { floor: 0.05 })).toHaveLength(4);
+  });
+
+  test('a system faint by the standards of its OWN page is still rescued', () => {
+    // This is what fillMissedStaves is for and the bar must not break it: the
+    // whole photograph is weak, so the missed system is weak too, and the ratio
+    // is what decides rather than the absolute level.
+    const profiles = Array.from({ length: 40 }, () => {
+      const p = new Float32Array(800);
+      for (const top of [100, 260, 420, 580]) for (let k = 0; k < 5; k++) p[Math.round(top + k * 12)] = 0.35;
+      return p;
+    });
+    const found = trackCombs(
+      profiles.map((p) => combPeaks(p, 12).filter((c) => Math.abs(c.y0 - 260) > 20)), 12,
+    );
+    expect(found).toHaveLength(3);
+    expect(fillMissedStaves(found, profiles, 12)).toHaveLength(4);
+  });
+
+  test('the bar only ever rises: a page whose own staves are weak keeps the floor', () => {
+    // One-directional by construction. If the page's own quartile came out
+    // below `floor`, taking it would ADMIT more than the old code did — the one
+    // direction this change is not allowed to move in.
+    // A weak page: its own staves score 0.35, so a fifth of that is 0.07 — well
+    // UNDER the 0.5 asked for here. The answer is still 0.5 and the system is
+    // still refused, because the two are combined with `Math.max`.
+    const profiles = Array.from({ length: 40 }, () => {
+      const p = new Float32Array(800);
+      for (const top of [100, 260, 420, 580]) for (let k = 0; k < 5; k++) p[Math.round(top + k * 12)] = 0.35;
+      return p;
+    });
+    const found = trackCombs(
+      profiles.map((p) => combPeaks(p, 12).filter((c) => Math.abs(c.y0 - 260) > 20)), 12,
+    );
+    expect(found).toHaveLength(3);
+    expect(fillMissedStaves(found, profiles, 12, { floor: 0.5 })).toHaveLength(3);
+  });
+
+  test('the strong page still puts a real missed system back', () => {
+    // The rescue in the first test of this block, re-asserted after the bar:
+    // a real system scores what its neighbours score, so a fifth of their low
+    // quartile is nowhere near it.
+    const profiles = pageStrips();
+    const found = trackCombs(
+      profiles.map((p) => combPeaks(p, 12).filter((c) => Math.abs(c.y0 - 260) > 20)), 12,
+    );
+    const filled = fillMissedStaves(found, profiles, 12);
+    expect(filled).toHaveLength(4);
+    expect(filled[1].y0[0]).toBeCloseTo(260, 0);
+  });
 });
 
 describe('stavesToLines', () => {
@@ -322,5 +393,190 @@ describe('realStaff', () => {
   test('missing fields are not a stave', () => {
     expect(realStaff({})).toBe(false);
     expect(realStaff(null)).toBe(false);
+  });
+});
+
+// A stave as `dropDoubledHeads` needs it: five flat lines a space apart, at a
+// given top, replicated across all forty strips. `w` is 400 so strip 10 covers
+// x = 100 to 110 and the arithmetic in the test is readable.
+function staveAt(top, space = 14, strips = 40) {
+  const at = (y) => new Array(strips).fill(y);
+  return {
+    staff: {
+      space,
+      lines: [0, 1, 2, 3, 4].map((k) => ({ at: at(top + k * space) })),
+    },
+    heads: [],
+  };
+}
+
+describe('dropDoubledHeads', () => {
+  // The bug this exists for: system 2's high ledger note is 1.5 spaces above
+  // its own stave and 7 spaces below the one before it, and both staves' search
+  // bands reach it. Two staves 13 spaces apart, the head at y = 217.
+  const twoSystems = () => [staveAt(49), staveAt(49 + 14 * 13)];
+
+  test('one piece of ink reported by two staves goes to the nearer one', () => {
+    const [A, B] = twoSystems();
+    A.heads = [{ x: 100, y: 217 }];
+    B.heads = [{ x: 100, y: 217 }];
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads).toHaveLength(0);
+    expect(B.heads).toEqual([{ x: 100, y: 217 }]);
+  });
+
+  test('…and the same the other way up: ink below system 1 stays with system 1', () => {
+    const [A, B] = twoSystems();
+    // Two spaces BELOW A's bottom line (y = 105), far above B's top (231).
+    A.heads = [{ x: 100, y: 133 }];
+    B.heads = [{ x: 100, y: 133 }];
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads).toEqual([{ x: 100, y: 133 }]);
+    expect(B.heads).toHaveLength(0);
+  });
+
+  test('a head between its own five lines always wins — it scores zero outside', () => {
+    const [A, B] = twoSystems();
+    A.heads = [{ x: 100, y: 80 }];
+    B.heads = [{ x: 100, y: 80 }];
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads).toHaveLength(1);
+    expect(B.heads).toHaveLength(0);
+  });
+
+  test('two different notes are not one piece of ink, however close the staves', () => {
+    const [A, B] = twoSystems();
+    A.heads = [{ x: 100, y: 217 }];
+    B.heads = [{ x: 140, y: 217 }];   // nearly three spaces apart in x
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads).toHaveLength(1);
+    expect(B.heads).toHaveLength(1);
+  });
+
+  test('a chord in thirds keeps every head — the rule never looks inside one stave', () => {
+    const A = staveAt(49);
+    A.heads = [{ x: 100, y: 91 }, { x: 100, y: 98 }, { x: 100, y: 105 }];
+    dropDoubledHeads([A], 400);
+    expect(A.heads).toHaveLength(3);
+  });
+
+  test('two staves that OVERLAP are one system found twice, and are left alone', () => {
+    // photo10: staves 30px apart where the real system gap is 157. Both
+    // descriptions are the same five lines, so "nearer" names nothing.
+    const A = staveAt(65, 9.7);
+    const B = staveAt(95, 9.7);
+    A.heads = [{ x: 100, y: 120 }];
+    B.heads = [{ x: 100, y: 120 }];
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads).toHaveLength(1);
+    expect(B.heads).toHaveLength(1);
+  });
+
+  test('no head is ever invented, and the count can only fall by the doubles', () => {
+    const [A, B] = twoSystems();
+    A.heads = [{ x: 100, y: 217 }, { x: 200, y: 80 }];
+    B.heads = [{ x: 100, y: 217 }, { x: 300, y: 300 }];
+    const before = A.heads.length + B.heads.length;
+    dropDoubledHeads([A, B], 400);
+    expect(A.heads.length + B.heads.length).toBe(before - 1);
+  });
+
+  test('one stave on the page is never touched', () => {
+    const A = staveAt(49);
+    A.heads = [{ x: 100, y: 217 }];
+    expect(dropDoubledHeads([A], 400)[0].heads).toHaveLength(1);
+  });
+});
+
+// WHICH CLEF NAMES THIS NOTE.
+//
+// The stave's own reading until the first mid-system change, then whichever
+// change was last printed at or before the note. Pinned as a decision rather
+// than left to a reading of the loop: on an engraved page with a C-clef printed
+// halfway through each system, twenty-four of forty-eight notes came back a
+// ninth wrong — the step right on every one — because the pitch was named from
+// `staff.clef` alone. See findClefChanges.
+describe('clefHere', () => {
+  const stave = (changes) => ({ clef: 'bass', clefConfidence: 0.8, clefChanges: changes });
+
+  test('a stave with no change answers its own clef everywhere', () => {
+    const s = stave([]);
+    expect(clefHere(s, 0.1).clef).toBe('bass');
+    expect(clefHere(s, 0.9).clef).toBe('bass');
+    expect(clefHere(s, 0.9).clefConfidence).toBe(0.8);
+  });
+
+  test('a change governs from where it is printed to the end of the system', () => {
+    const s = stave([{ x: 0.5, clef: 'tenor', confidence: 0.9 }]);
+    expect(clefHere(s, 0.49).clef).toBe('bass');
+    expect(clefHere(s, 0.5).clef).toBe('tenor');
+    expect(clefHere(s, 0.99).clef).toBe('tenor');
+    expect(clefHere(s, 0.6).clefConfidence).toBe(0.9);
+  });
+
+  test('two changes on one system each govern their own stretch', () => {
+    // What a cello part does: up into tenor for a phrase, back down to bass.
+    const s = stave([
+      { x: 0.3, clef: 'tenor', confidence: 0.9 },
+      { x: 0.7, clef: 'alto', confidence: 0.8 },
+    ]);
+    expect(clefHere(s, 0.2).clef).toBe('bass');
+    expect(clefHere(s, 0.4).clef).toBe('tenor');
+    expect(clefHere(s, 0.8).clef).toBe('alto');
+  });
+
+  test('a stave whose own clef was refused stays refused before the change', () => {
+    // Null is propagated and never defaulted — the rule everywhere else in this
+    // reader — and a change does not retroactively name what came before it.
+    const s = { clef: null, clefConfidence: 0, clefChanges: [{ x: 0.5, clef: 'tenor', confidence: 1 }] };
+    expect(clefHere(s, 0.2).clef).toBeNull();
+    expect(clefHere(s, 0.6).clef).toBe('tenor');
+  });
+
+  test('a stave with nothing on it at all does not throw', () => {
+    expect(clefHere(undefined, 0.5).clef).toBeNull();
+    expect(clefHere({}, 0.5).clef).toBeNull();
+  });
+});
+
+// The arithmetic a C-clef found mid-system feeds. ALTO was added with
+// findClefChanges: the same scan that finds a tenor C-clef finds an alto one,
+// and detecting a glyph and then refusing to name it would be a bug wearing the
+// clothes of caution. This table has been written wrong twice in this project,
+// both times for a C-clef, so it is checked the only way that works — against
+// the one note the clef names.
+describe('a C-clef names one line, and that settles the stave', () => {
+  const NONE = { alter: [0, 0, 0, 0, 0, 0, 0] };
+
+  test('tenor puts middle C on the fourth line and alto on the third', () => {
+    expect(pitchOf(6, 'tenor', NONE).midi).toBe(60);
+    expect(pitchOf(4, 'alto', NONE).midi).toBe(60);
+  });
+
+  test('the four clefs are a third apart in the order they name their lines', () => {
+    // Bottom line: bass G2, tenor D3, alto F3, treble E4.
+    expect(pitchOf(0, 'bass', NONE).midi).toBe(43);
+    expect(pitchOf(0, 'tenor', NONE).midi).toBe(50);
+    expect(pitchOf(0, 'alto', NONE).midi).toBe(53);
+    expect(pitchOf(0, 'treble', NONE).midi).toBe(64);
+  });
+
+  test('an alto page reads a third above the same steps in tenor, everywhere', () => {
+    // A THIRD IS NOT A FIXED NUMBER OF SEMITONES, which is the whole reason
+    // pitchOf carries a degree table instead of multiplying. The first draft of
+    // this test asserted a constant 3 and failed on the steps where the third
+    // is major. What IS constant is the DEGREE: two letters apart, always.
+    for (const step of [-4, 0, 3, 6, 9, 12]) {
+      const gap = pitchOf(step, 'alto', NONE).midi - pitchOf(step, 'tenor', NONE).midi;
+      expect(gap === 3 || gap === 4).toBe(true);
+      const a = pitchOf(step, 'alto', NONE).degree;
+      const t = pitchOf(step, 'tenor', NONE).degree;
+      expect(((a - t) % 7 + 7) % 7).toBe(2);
+    }
+  });
+
+  test('a clef nobody read still names nothing', () => {
+    expect(pitchOf(0, null, NONE)).toBeNull();
+    expect(pitchOf(0, 'alto', null)).toBeNull();
   });
 });

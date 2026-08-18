@@ -62,7 +62,15 @@ describe('pitchOf', () => {
 
   test('an unreadable clef or key refuses rather than assuming', () => {
     expect(pitchOf(0, null, NONE)).toBeNull();
-    expect(pitchOf(0, 'alto', NONE)).toBeNull();
+    // 'alto' USED TO STAND HERE as the example of a clef this table does not
+    // know, and it is now one of the four it does — see BOTTOM_LINE, and
+    // findClefChanges in scan-read.js for why: the scan that finds a tenor
+    // C-clef printed part way along a system finds an alto one by the same
+    // measurement, and detecting a glyph and then refusing to name it would be
+    // a bug wearing the clothes of caution. The claim this test makes is
+    // unchanged — a clef nobody read names nothing — so it needs a clef nobody
+    // reads.
+    expect(pitchOf(0, 'baritone', NONE)).toBeNull();
     expect(pitchOf(0, 'treble', null)).toBeNull();
     expect(pitchOf(null, 'bass', NONE)).toBeNull();
   });

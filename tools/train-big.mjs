@@ -422,9 +422,36 @@ for (const p of real) {
   console.log(`  ${p.name.padEnd(10)}  shipped             ${cells.join('')}`);
 }
 
-const model = train(realData.concat(data));
+// THE SHIPPING CANDIDATE, when --ship is passed: one hidden layer, trained on
+// every real page AND the engraved corpus, with the two given equal say.
+//
+// The held-out table above is what justifies it. A model fitted to all three
+// real pages cannot be validated on them, so the evidence for shipping this
+// architecture and this data is that LEAVING A PAGE OUT and adding the drawn
+// corpus reads nine points of precision above the logistic fit on the page it
+// never saw — and comes within a point of the shipped model's precision, which
+// was fitted to the very page it is scored on.
+const ship = args.includes('--ship');
+const ratioAll = data.length / Math.max(1, realData.length);
+const model = ship
+  ? trainMlp(realData.concat(data), {
+    weight: (r) => (r.tag === 'engraved' ? 1 : ratioAll),
+    steps: 400,
+  })
+  : train(realData.concat(data));
 
-await writeFile(new URL('../pages/head-model-big.json', import.meta.url), `${JSON.stringify({
+await writeFile(new URL('../pages/head-model-big.json', import.meta.url), `${JSON.stringify(model.hidden ? {
+  kind: 'mlp',
+  hidden: model.hidden,
+  trainedOn: `${use.length} engraved pages + ${real.length} real pages, ${data.length + realData.length} patches`,
+  note: 'fitted to ALL pages including the real ones — not validated on them. '
+    + 'The justification is the leave-one-out table this tool prints.',
+  b2: +model.b2.toFixed(5),
+  W2: Array.from(model.W2, (v) => +v.toFixed(5)),
+  b1: Array.from(model.b1, (v) => +v.toFixed(5)),
+  W1: model.W1.map((row) => Array.from(row, (v) => +v.toFixed(5))),
+} : {
+  kind: 'logistic',
   trainedOn: `${use.length} engraved pages, ${data.length} patches`,
   heldOut: real.map((p) => p.name),
   bias: +model.b.toFixed(5),

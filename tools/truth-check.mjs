@@ -586,6 +586,121 @@ const report = await page.evaluate(async ({ b64, pdf, want }) => {
     }
   }
 
+  // …AND A NOTE THAT WAS MARKED TWICE.
+  //
+  // The third systematic error of a marking hand, after the clef and the key
+  // signature, and the only one that is not about WHERE the click landed: two
+  // clicks on ONE printed notehead. It happens because marking is done in
+  // passes — a page is worked through once, then the misses are swept up
+  // afterwards — and a head that was already marked gets marked again. The
+  // index numbers say so out loud: on the Concerto the four pairs are notes
+  // 99/128, 85/100, 214/238 and 159/187, and on the Scanned score 163/198,
+  // 141/165, 337/371, 347/377 and 341/374. Every second member is far later in
+  // the file than its twin, which is what a second pass looks like from inside
+  // the data.
+  //
+  // THE BOUND IS NOT A NEW CONSTANT AND MUST NOT BECOME ONE. It is `near`, the
+  // radius this same file already uses to decide whether a detection matches a
+  // mark, and the argument is structural rather than fitted: two marks closer
+  // together than the matching radius CANNOT BOTH BE SCORED. One detection
+  // lands inside both radii, the greedy pass gives it to whichever is nearer,
+  // and the other is counted missed no matter what the reader does. A page can
+  // never score 100% recall while it holds such a pair, and no change to the
+  // reader can ever move it — so the pair is not measuring the reader at all.
+  //
+  // Measured, and the two populations do not touch. On the Concerto (`near` =
+  // 5.0px) the four pairs stand 0.0, 2.0, 3.1 and 4.1 pixels apart and the next
+  // closest pair on the page is 9.0. On the Scanned score (`near` = 4.8px) the
+  // five stand 0.0, 1.4, 2.2, 2.2 and 4.1 and the next closest is 8.0. The Bach
+  // has no pair inside 14px at all. So the cut sits in the middle of a gap of
+  // more than two to one, and everything above it is a real interval: dy of 8
+  // to 10 pixels at a staff space of 9.6 to 10 is two diatonic steps, which is a
+  // third, which is a chord.
+  //
+  // LOOKED AT, all nine, `CROP_MARKS=1 CROP_TRUTH=… npm run scan:crop`: every
+  // one is a single filled notehead on a ledger line above the stave with its
+  // own stem, carrying two red dots that overlap into a figure of eight, and in
+  // eight of the nine two concentric green rings as well — because the reader
+  // was reporting the same ink twice too, from two staves, which is the bug
+  // these marks were hiding. Crops kept at crop-979-911, crop-1249-770,
+  // crop-759-1474, crop-925-1198 (Concerto) and crop-989-885, crop-1246-748,
+  // crop-784-1440, crop-1026-1440, crop-919-1441 (Scanned).
+  //
+  // The LATER mark goes, not the earlier one, and not the one further from any
+  // detection: the first pass is the considered one and the sweep is where the
+  // duplicate came from. Which of two coincident points is kept cannot change a
+  // score — they are inside each other's matching radius by construction — so
+  // this is a rule about being reproducible, not about being right.
+  const already = new Set(suspect.map((s) => s.i));
+
+  // …AND A MARK IN THE TITLE BLOCK.
+  //
+  // The fourth systematic error of a marking hand, and the last one of the
+  // three this page was known to carry. `fillMissedStaves` extrapolates one
+  // system ABOVE the first real one and lands on the page's printed heading, so
+  // the reader draws twenty-one rings on the É of CARATGÉ, the o of Solo and
+  // five on W. A. MOZART — and the hand marking the page accepted thirteen of
+  // them. Looked at, all thirteen, `--zoom 14` contact sheets: every one is a
+  // ring and a mark sitting on a printed LETTER of "Édition · F. CARATGÉ ·
+  // Solo · Concert · Lamoureux · Comique" and "W. A. MOZART". Nothing in a
+  // title block is a notehead.
+  //
+  // THE BOUND IS THE READER'S OWN, in the same way `near` is above. A mark is
+  // suspect when it stands further above the topmost stave that READ A CLEF
+  // than `findHeads` will ever look — `reach = space * 7`, scan-read.js:1806,
+  // four ledger lines, as high as this repertoire goes. Two things follow from
+  // borrowing that number rather than fitting one. It is unfalsifiable in the
+  // right direction: a mark the reader cannot reach cannot be scored against
+  // it, exactly as two marks inside one matching radius cannot both be scored.
+  // And a stave with NO CLEF is not a witness — which is the whole point, since
+  // the phantom the marks were made on is precisely a stave with no clef.
+  //
+  // MEASURED, and the populations do not touch. Distance above the first
+  // clef-bearing stave's top line, in staff spaces, every mark on every page:
+  //   Scanned   13 marks at 11.9 to 19.9 spaces · the next nearest stands 2.7
+  //   Concerto   nothing past 7 · the highest mark on the page stands 2.1
+  //   Bach       nothing past 7 · the highest mark on the page stands 2.4
+  // So the cut sits in a gap of more than four to one on the page that has the
+  // population, and on the two pages that do not it fires on nothing. Note what
+  // the stave list looks like from here: the Concerto and the Scanned score
+  // both carry a top stave reading `none` at confidence 0.00 — the phantom —
+  // and every other stave on all three pages reads a clef at 0.61 or better.
+  const firstClef = read.staves
+    .filter((s) => s.clef && (s.clefConfidence ?? 0) > 0)
+    .sort((a, b) => a.lines[0][0] - b.lines[0][0])[0];
+  if (firstClef) {
+    const ceiling = firstClef.lines[0][0] - firstClef.space * 7;
+    for (const [ti, t] of want.entries()) {
+      if (already.has(ti) || suspect.some((s) => s.i === ti)) continue;
+      if (t.y >= ceiling) continue;
+      already.add(ti);
+      suspect.push({
+        i: ti, on: 'title',
+        x: Math.round(t.x * work.width), y: Math.round(t.y * work.height),
+        above: +((firstClef.lines[0][0] - t.y) / firstClef.space).toFixed(1),
+        ...where(t.x, t.y),
+      });
+    }
+  }
+
+  for (let i = 0; i < want.length; i++) {
+    for (let j = i + 1; j < want.length; j++) {
+      if (already.has(j)) continue;
+      const d = Math.hypot(
+        (want[i].x - want[j].x) * work.width,
+        (want[i].y - want[j].y) * work.height,
+      );
+      if (d >= near) continue;
+      already.add(j);
+      suspect.push({
+        i: j, on: 'twice',
+        x: Math.round(want[j].x * work.width), y: Math.round(want[j].y * work.height),
+        twin: i, apart: +d.toFixed(1),
+        ...where(want[j].x, want[j].y),
+      });
+    }
+  }
+
   return {
     size: `${work.width}x${work.height}`,
     space: +space.toFixed(1),
@@ -797,10 +912,18 @@ group(report.missed, 'MISSED — notes on the page the reader never offered');
 if (report.suspect?.length) {
   const onClef = report.suspect.filter((t) => t.on === 'clef').length;
   const onKey = report.suspect.filter((t) => t.on === 'key').length;
-  console.log(`  SUSPECT LABELS — ${report.suspect.length} marked notes sit on the furniture at the`);
-  console.log(`  head of a system: ${onClef} inside a clef band, ${onKey} on the key signature.`);
-  console.log('  No music is printed there. They are rings drawn on the clef, or on the two');
-  console.log('  crossbars of a sharp, and accepted by a hand clicking through four hundred.');
+  const onTwice = report.suspect.filter((t) => t.on === 'twice').length;
+  const onTitle = report.suspect.filter((t) => t.on === 'title').length;
+  console.log(`  SUSPECT LABELS — ${report.suspect.length}: ${onClef} inside a clef band, ${onKey} on the`);
+  console.log(`  key signature, ${onTwice} a second click on a note already marked, ${onTitle} in the title block.`);
+  console.log('  No music is printed at the head of a system. Those are rings drawn on the clef,');
+  console.log('  or on the two crossbars of a sharp, accepted by a hand clicking through four');
+  console.log('  hundred. A doubled mark is the same hand marking one head in two passes, and');
+  console.log('  it stands closer to its twin than the radius this file matches with — so the');
+  console.log('  pair can never both be scored, whatever the reader does. A title-block mark');
+  console.log('  stands further above the first stave that read a clef than findHeads ever');
+  console.log('  looks, so it cannot be scored either — and the stave it was marked on has no');
+  console.log('  clef, because it is not a stave.');
   for (const t of report.suspect.slice(0, 16)) {
     console.log(`      system ${String(t.system).padStart(2)}  x=${String(t.x).padStart(4)}`
       + ` y=${String(t.y).padStart(4)}  step ${String(t.step).padStart(3)}  on the ${t.on}`);
@@ -812,9 +935,26 @@ if (report.suspect?.length) {
     const out = { ...truth, notes: truth.notes.filter((_, i) => !drop.has(i)) };
     // The provenance survives in the file, because a truth file that quietly
     // disagrees with the marking tool is worse than one that is wrong out loud.
-    out.cleaned = `${report.suspect.length} labels on the furniture removed`
-      + ` (${onClef} clef, ${onKey} key signature)`;
-    out.removed = report.suspect.map((t) => ({ x: t.x, y: t.y, system: t.system, on: t.on }));
+    //
+    // APPENDED, never replaced. These two fields were being overwritten, and
+    // both files had already been cleaned once by hand: the Scanned score's
+    // `removed` holds seventeen entries and the Bach's three, none of which
+    // this run would reproduce, because a mark that is gone cannot be detected
+    // again. One `--clean` would have deleted the whole record of why the
+    // denominator is 436 and not 453 — the single most load-bearing sentence
+    // in either file. The history is cumulative or it is not history.
+    const already = Array.isArray(truth.removed) ? truth.removed : [];
+    out.cleaned = [truth.cleaned, `${report.suspect.length} suspect labels removed`
+      + ` (${onClef} clef, ${onKey} key signature, ${onTwice} marked twice,`
+      + ` ${onTitle} in the title block)`]
+      .filter(Boolean).join('; ');
+    out.removed = [
+      ...already,
+      ...report.suspect.map((t) => ({
+        x: t.x, y: t.y, system: t.system, on: t.on,
+        ...(t.twin != null ? { apart: t.apart } : {}),
+      })),
+    ];
     await writeFile(clean, JSON.stringify(out, null, 2));
     console.log(`\n  written to ${clean}: ${out.notes.length} notes, ${report.suspect.length} removed`);
   } else {

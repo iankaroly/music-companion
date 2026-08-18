@@ -280,11 +280,82 @@ export function describeGlyph(mark, gx0, gx1, ry0, ry1, hardTop, hardBottom) {
  *
  * The search runs from a space above the top line to a space below the bottom
  * one, which is where every accidental in a signature is written.
+ *
+ * A THIN WRAPPER, because `null` here is THREE ANSWERS WEARING ONE FACE and one
+ * caller needs to tell them apart. See scanKeyBand below: everything that only
+ * wants the band keeps the null it has always had, and nothing about this
+ * function's contract moves.
  */
 export function findKeyBand(ink, w, h, lineY, space, fromX) {
+  return scanKeyBand(ink, w, h, lineY, space, fromX).band;
+}
+
+/**
+ * The same scan, with WHY IT FOUND NOTHING carried out of it.
+ *
+ * Returns { band, why, count, empty } — `band` exactly what findKeyBand
+ * returns, `why` what ended the scan, `count` how many runs were accepted, and
+ * `empty` the one thing this function exists for:
+ *
+ *   THE SCAN LOOKED AT THE PLACE A KEY SIGNATURE IS PRINTED AND THERE WAS
+ *   NOTHING THERE.
+ *
+ * WHY THAT IS NOT THE SAME AS `band === null`, and why the difference is worth
+ * a second entry point. A null band is three states at once: the window was
+ * degenerate; the scan ran and accepted no glyph; the scan ran and accepted
+ * more than seven, which is not a signature either. Only the middle one is
+ * evidence about the MUSIC, and only one flavour of it — see `empty` below.
+ *
+ * MEASURED, and this is the whole case for the rule that consumes it. Over the
+ * 352 drawn signatures of tools/key-read-check.mjs the band comes back null on
+ * 16 cells and all 16 are the bare C-major ones: 0 of 224 printed signatures
+ * and 0 of 112 cancellations return a null band, INCLUDING all 52 signatures
+ * the reader currently refuses to name a key from, every one of which holds a
+ * band of 2 to 7 glyphs. On the 32 engraved cello studies it is null on 8 of 8
+ * C-major and A-minor systems and 0 of 42 systems with a printed signature.
+ * A signature the scan could not read does NOT look like bare paper from
+ * outside; it looks like a band the reader would not name.
+ *
+ * `empty` IS NARROWER THAN "no glyphs", and the two rejected endings are the
+ * reason it has to be. With no glyphs accepted the scan can only have ended
+ * four ways:
+ *
+ *   'gap'  — ink was found and it stands further from the clef than one
+ *            accidental ever stands from the next. The place a signature would
+ *            be printed is empty and the music begins beyond it. THIS IS THE
+ *            ONE THAT COUNTS.
+ *   'none' — no ink at all within KEY_REACH. Blank paper past the clef, which
+ *            is a system with nothing on it rather than a system in C major,
+ *            so it says nothing about a key and does not vote.
+ *   'wide' / 'tall' — the first thing past the clef WAS measured, right where a
+ *            signature would stand, and is not an accidental. A down-stemmed
+ *            crotchet pressed against the clef ends here. That is ink in the
+ *            signature's own place that could not be identified, which is the
+ *            opposite of bare paper, and it must never vote.
+ *
+ * ('speck' and 'reach' cannot occur with no glyphs: both are floored on the
+ * last glyph the scan TOOK, and `lastInkGap` is held at 0 until there is one.)
+ *
+ * WHAT A PHOTOGRAPH DOES TO THIS, because it is a real limit and not a
+ * hypothetical one. On a page in C major photographed hard, `empty` usually
+ * comes back FALSE and the ending is 'wide' or 'tall': the camera smears the
+ * clef, the overhang walk steps further right to get past it, and the first
+ * note of the bar then stands inside KEY_ADJACENT of where the scan starts, so
+ * the scan measures the note rather than reaching clean paper. Swept at space
+ * 14, 20 and 28 photographed, the ending is 'wide' or 'tall' with the music 3
+ * to 5 spaces past the clef band, 'gap' at 8, and 'none' past 12. THE REFUSAL
+ * IS CORRECT — there is ink where a signature would be and the reader cannot
+ * name it — and it costs a photographed C-major page its pitches. The way to
+ * close it is to measure where the clef ENDS better, which is the same weakness
+ * the clef band already has; it is not to widen what counts as empty.
+ * `npm run scan:key-safety` prints the cost every run as its own debt line.
+ */
+export function scanKeyBand(ink, w, h, lineY, space, fromX) {
+  // Nothing was scanned at all — a degenerate window, not an answer about ink.
+  const nowhere = { band: null, why: 'nowhere', count: 0, empty: false };
   const top = Math.max(0, Math.round(lineY(0) - space * 1.2));
   const bottom = Math.min(h - 1, Math.round(lineY(4) + space * 1.2));
-  if (bottom <= top) return null;
+  if (bottom <= top) return nowhere;
   const start = Math.max(0, Math.round(fromX));
   const limit = Math.min(w - 1, Math.round(start + space * KEY_REACH));
   const gap = Math.max(2, Math.round(space * GLYPH_GAP));
@@ -911,13 +982,20 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
   if ((why === 'gap' || why === 'none') && lastInk > lastEnd
     && lastInkGap > space * SAME_GLYPH) why = 'speck';
 
-  if (!glyphs.length || glyphs.length > 7) return null;
+  // NOTHING ACCEPTED — the one case that is worth telling apart from the rest.
+  // `why` is what ended the scan and it is the whole of the evidence; see the
+  // note on `empty` above scanKeyBand for why only 'gap' counts.
+  if (!glyphs.length) return { band: null, why, count: 0, empty: why === 'gap' };
+  // More than seven runs is not a key signature in any key there is, and it is
+  // emphatically not bare paper: it is a scan that ran into the music. Null,
+  // and never `empty`.
+  if (glyphs.length > 7) return { band: null, why, count: glyphs.length, empty: false };
   // The glyphs themselves come out too, and not as a diagnostic. A page agrees
   // with itself about how many accidentals it has (see agreeKeyCount below) and
   // the only way to act on that agreement without inventing ink is to keep the
   // FIRST n of the runs this system's own scan actually found. So the caller
   // needs the runs, not just the extent they add up to.
-  return {
+  const band = {
     x0: glyphs[0].x0,
     x1: glyphs.at(-1).x1,
     count: glyphs.length,
@@ -974,6 +1052,7 @@ export function findKeyBand(ink, w, h, lineY, space, fromX) {
     // glyph's pitch it is a real next accidental, which is a true truncation.
     inkGap: lastInk > lastEnd ? lastInkGap : -1,
   };
+  return { band, why, count: glyphs.length, empty: false };
 }
 
 // HOW MANY ACCIDENTALS THE PAGE HAS, from the systems that agree.
@@ -1583,4 +1662,145 @@ export function agreeKey(keys) {
     read: read.length,
     agreed: best,
   };
+}
+
+/**
+ * THE PAGE THAT PRINTS NO KEY SIGNATURE AT ALL, which is a reading and not a
+ * guess.
+ *
+ * A page in C major or A minor prints nothing at the head of any system, and
+ * until now that page could not name one note. `agreeKey` returns null, pitchOf
+ * refuses a null key on purpose — null is propagated and never defaulted — and
+ * so an entire study in C major came back with 29 noteheads and 29 empty
+ * pitches. On the 32 engraved cello studies that is 110 of 692 notes with NO
+ * PITCH AT ALL, and every single one of them is on one of the five C-major and
+ * A-minor studies.
+ *
+ * WHY THIS IS ALLOWED WHEN "DEFAULT TO C MAJOR" IS NOT. Refusing to default is
+ * right, and it stays right: a system whose signature could not be READ has a
+ * signature, and calling that C major puts a semitone on every note of a
+ * degree. This is the opposite claim, and it is made of evidence rather than of
+ * silence — the scan walked the place a signature is printed, on every system
+ * of the page, and found the place empty every time. That is not "I could not
+ * tell". It is "I looked, N times, and there is nothing there".
+ *
+ * THE EVIDENCE IS `empty` FROM scanKeyBand AND NOTHING ELSE, and the two
+ * reverted attempts at this are the reason to say so twice.
+ *
+ *   - "an empty band means C major" took scan:key-read from 0 keys read wrong
+ *     to 16. Those 16 are not sixteen misread signatures: they are the 16 bare
+ *     C-major cells, and tools/key-read-check.mjs requires C major to read as
+ *     SILENCE (`want = count === 0 ? null : …`), so naming it scores as a wrong
+ *     key. That harness draws ONE stave and calls findKeyBand directly, where a
+ *     rule needing several systems can never fire at all — which is why the
+ *     gate for THIS rule is a page-level block in tools/key-safety-check.mjs
+ *     and not that number.
+ *   - "ink within KEY_ADJACENT" scored 15 wrong and still failed every C-major
+ *     study, and the reason is worth keeping: on a BASS clef the two dots of
+ *     the clef itself stand 0.00 spaces past the clef band, so that test was
+ *     measuring the clef on 8 of 8 of them. No threshold on ink separates these
+ *     two populations. The band's own verdict does — see the measurement above
+ *     scanKeyBand.
+ *
+ * ONE SYSTEM IS NOT A PAGE, and this is where the rule buys its safety.
+ * `band === null` on a system that WAS scanned is three states in one face and
+ * only two of them are bare paper: on the three marked pages, all in one sharp,
+ * Bach's system 3 runs its scan over a plainly printed sharp and accepts
+ * nothing (cropped: a bass clef, a sharp straddling the F line, and one false
+ * circle at its lower left). A per-system rule would call that system C major.
+ * So the test is asked of the PAGE: every system that ran the scan must have
+ * come back empty, none may have read a key, and there must be at least
+ * MIN_BARE_WITNESSES of them. On all three marked pages that never fires — 9,
+ * 10 and 10 of their systems return a band, and 4, 5 and 9 read a key.
+ *
+ * MEASURED, on the drawn pages and on the three real ones, both ways round:
+ *
+ *   - 3 of 205 SYSTEMS of pages that plainly print a signature come back saying
+ *     the place is bare (all three photographed). Every one of those is a
+ *     system a per-system rule would have named C major; not one of their pages
+ *     fires, because the rule needs all of them.
+ *   - The three marked pages were re-read with 0, 4, 6, 8, 10 and 14 per cent
+ *     of their left margin CUT OFF — a photograph framed past its own key
+ *     signature, which is where this rule would fire wrongly if it fired at all.
+ *     Eighteen crops of three pages, every one of them in ONE SHARP, and the
+ *     rule fired on none. The closest was the Bach at 10 per cent: 5 of its 10
+ *     scanned systems said bare, against the 10 the rule needs. `empty` is what
+ *     buys that margin over a plain `band === null` test — at 4 per cent the
+ *     Bach has SIX systems with no band and only TWO of them ending on a gap.
+ *
+ * WHY THE FLOOR IS TWO, SWEPT AND NOT CHOSEN, AND BOTH HALVES OF THE SWEEP ARE
+ * HERE BECAUSE ONE HALF OF IT IS AN ARGUMENT FOR ONE. `npm run scan:studies` for
+ * the prize, and the third block of `npm run scan:key-safety` for the price —
+ * 76 drawn pages that PRINT a signature, in both clefs, 1 to 7 accidentals,
+ * clean and photographed:
+ *
+ *   floor   right pitch   no pitch at all   keys      a page with a signature
+ *           of 692        of 692            of 32     that named itself C major
+ *     1     662  95.7%      0               20        1 of 76      <- a wrong key
+ *     2     636  91.9%     26               18        0 of 76      <- shipped
+ *     3     557  80.5%    110               15        0 of 76      <- buys nothing
+ *
+ * READ THE THIRD ROW FIRST: a floor of three is the reader with no rule at all,
+ * to the digit, because the pages that print no signature have two systems and
+ * not three. So the sweep is really a choice between 1 and 2.
+ *
+ * AND THE PRICE AT ONE IS THE ONE FAILURE THIS FILE EXISTS TO PREVENT. The page
+ * that breaks is `bass, 2 sharps, photographed, ONE system`: the signature is
+ * printed, the camera takes it below the scan's floor, the one system on the
+ * page comes back saying the place is bare, and the page names itself C major —
+ * two degrees wrong on every note of it, confidently. That is the same shape as
+ * the phantom key `agreeKey` grew MIN_KEY_WITNESSES to stop, and the answer is
+ * the same: one system is not a page. Two witnesses cost 26 notes on two
+ * single-system arpeggios, which is the answer this reader already gives for a
+ * fragment.
+ *
+ * SO A ONE-SYSTEM PAGE BEHAVES TWO WAYS AND THE ASYMMETRY IS THE POINT. With a
+ * signature PRINTED, a single system still names its notes: notesInOrder reads
+ * `page?.key ?? staff.key`, and the twelve single-system arpeggio studies read
+ * 100% right pitch off the stave's own key. With nothing printed there is no
+ * staff-level answer to fall back to, and there deliberately is not one — a
+ * printed signature is positive evidence out of that system's own ink, and bare
+ * paper on one system is not evidence of anything. Putting a bare key on the
+ * STAVE would be the per-system rule, and the 3 of 205 above is what it costs.
+ *
+ * THE DENOMINATOR IS "SYSTEMS THAT RAN THE SCAN", not "systems on the page". A
+ * system with no left edge or no named clef never called findKeyBand, so it is
+ * not a witness for bare paper and it is not one against it either; a unit test
+ * pins that. The consequence worth knowing: on a page degraded enough that most
+ * systems lose their clef, this could be decided by a minority of them. Both
+ * counts are reported on the page object (`keyAgreement.systems` against
+ * `.scanned`) so the gap is visible, and no crop of the three marked pages came
+ * near it.
+ *
+ * Takes one entry per real stave — { scanned, empty, key } — and returns
+ * { bare, scanned, empty, read }, the counts included so a caller can print the
+ * arithmetic rather than assert the answer.
+ */
+const MIN_BARE_WITNESSES = 2;
+
+export function agreeNoKey(systems) {
+  const rows = systems ?? [];
+  const scanned = rows.filter((s) => s?.scanned).length;
+  const empty = rows.filter((s) => s?.scanned && s.empty).length;
+  const read = rows.filter((s) => s?.key).length;
+  // Every system that looked must have found the place empty; a single system
+  // holding a band it could not name is a signature nobody read, not bare
+  // paper. And nothing on the page may have read a key — implied by the line
+  // above, since a key needs glyphs, but stated because it is the property that
+  // matters and a later change to `empty` must not be able to lose it quietly.
+  const bare = scanned >= MIN_BARE_WITNESSES && empty === scanned && read === 0;
+  return { bare, scanned, empty, read };
+}
+
+/**
+ * What such a page's key IS: C major, printed nowhere, altering nothing.
+ *
+ * `kind: 'none'` rather than 'sharp' of zero, so that a caller can tell a page
+ * whose signature was READ as empty from one where nothing was decided at all —
+ * the page object carries `keySource` for the same reason. `alter` is copied
+ * rather than shared with NO_KEY, because NO_KEY is a module-level constant and
+ * a caller that mutated a page's key would otherwise alter every page.
+ */
+export function bareKey() {
+  return { sharps: 0, flats: 0, alter: [...NO_KEY.alter], count: 0, kind: 'none' };
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { clefFeatures, classifyClef, MARGIN } from '../src/analysis/scan-clef.js';
+import { clefFeatures, classifyClef, midClefAt, MARGIN } from '../src/analysis/scan-clef.js';
 
 // A column of ink density, one entry per row. `from` and `to` are in staff
 // spaces measured from the top line, so 0..4 is exactly the stave.
@@ -140,5 +140,79 @@ describe('bass is the residual, not a boundary', () => {
     expect(classifyClef(treble).clef).toBe('treble');
     expect(classifyClef(tenor).clef).toBe('tenor');
     expect(classifyClef(bass).clef).toBe('bass');
+  });
+});
+
+// A CLEF PRINTED PART WAY ALONG A SYSTEM.
+//
+// These pin the SHAPE of the rule, not the numbers in it. The numbers were
+// found by sliding the reader's own window along 13,148 windows of the three
+// marked photographs and along twenty-two pieces of drawn furniture; that
+// measurement lives in `npm run scan:clef`, which is where it belongs, because
+// a hand-built column cannot tell you whether a real sharp beats the gate.
+// What a unit test CAN pin is that each test is doing the job it claims — so
+// each one below moves exactly one thing away from a clef and expects a
+// refusal, which is what stops a later round loosening a bound by accident.
+describe('midClefAt — a C-clef printed in the middle of a system', () => {
+  // A tenor C-clef: waist on line 1, a space below the top line, and here 1.5
+  // spaces of glyph either side of it — the three-quarter size an engraver
+  // prints mid-system.
+  const tenor = () => column({ from: -0.5, to: 2.5 });
+  const alto = () => column({ from: 0.5, to: 3.5 });
+
+  test('names the line its waist stands on', () => {
+    expect(midClefAt(tenor(), 10).clef).toBe('tenor');
+    expect(midClefAt(alto(), 10).clef).toBe('alto');
+  });
+
+  test('is size-independent — the same clef at half again the size still reads', () => {
+    // The reason this exists at all: classifyClef separates tenor from bass by
+    // a single bound on the TOP of the ink, and a three-quarter-size C-clef
+    // measured -0.61 against that bound's -0.60. A hundredth of a space.
+    for (const half of [1.35, 1.5, 1.75, 2.0, 2.15]) {
+      expect(midClefAt(column({ from: 1 - half, to: 1 + half }), 10).clef).toBe('tenor');
+    }
+  });
+
+  test('a glyph too small to be a clef is refused, and so is one too big', () => {
+    expect(midClefAt(column({ from: -0.2, to: 2.2 }), 10)).toBeNull();   // half 1.2
+    expect(midClefAt(column({ from: -1.5, to: 3.5 }), 10)).toBeNull();   // half 2.5
+  });
+
+  test('a waist that is not on a line is refused rather than rounded onto one', () => {
+    // This is the test that carries the whole thing. It is what refuses a
+    // printed sharp — the one window of the Bach that passes every other test
+    // is an accidental, and it is an accidental inflecting a note in a SPACE.
+    // It is also what refuses a chord of thirds, which reads a waist of 1.71.
+    expect(midClefAt(column({ from: 0.2, to: 3.2 }), 10)).toBeNull();    // waist 1.7
+    expect(midClefAt(column({ from: -0.05, to: 2.95 }), 10)).toBeNull(); // waist 1.45
+  });
+
+  test('the waist is read to a quarter of a space, and 0.2 off is still a clef', () => {
+    expect(midClefAt(column({ from: -0.3, to: 2.7 }), 10).clef).toBe('tenor');
+    expect(midClefAt(column({ from: -0.3, to: 2.7 }), 10).confidence).toBeGreaterThan(0);
+  });
+
+  test('two glyphs with paper between them are not one clef', () => {
+    // A stack of noteheads with a gap: as tall and as symmetric as a C-clef,
+    // and the only thing separating them is that a clef has no hole in it.
+    const rows = column({ from: -0.5, to: 2.5 });
+    for (let r = Math.round((0.6 + MARGIN) * 10); r <= Math.round((1.4 + MARGIN) * 10); r++) rows[r] = 0;
+    expect(midClefAt(rows, 10)).toBeNull();
+  });
+
+  test('nothing to read is refused, not guessed', () => {
+    expect(midClefAt(null, 10)).toBeNull();
+    expect(midClefAt(new Float32Array(120), 10)).toBeNull();
+  });
+
+  test('it never answers treble or bass — those are not C-clefs', () => {
+    // A treble hangs to 5.6 spaces and a bass stops at 3; neither has a waist
+    // on a line, so both come back null rather than being renamed.
+    expect(midClefAt(column({ from: -1.3, to: 5.6 }), 10)).toBeNull();
+    for (const from of [-0.1, 0, 0.1]) {
+      const got = midClefAt(column({ from, to: 3.2 }), 10);
+      expect(got === null || got.clef === 'tenor' || got.clef === 'alto').toBe(true);
+    }
   });
 });

@@ -6,58 +6,6 @@
   "marked": "2026-08-16",
   "notes": [
     {
-      "x": 0.07429,
-      "y": 0.09475
-    },
-    {
-      "x": 0.08714,
-      "y": 0.10942
-    },
-    {
-      "x": 0.09714,
-      "y": 0.12578
-    },
-    {
-      "x": 0.15643,
-      "y": 0.12803
-    },
-    {
-      "x": 0.175,
-      "y": 0.11111
-    },
-    {
-      "x": 0.18286,
-      "y": 0.12803
-    },
-    {
-      "x": 0.19857,
-      "y": 0.13818
-    },
-    {
-      "x": 0.845,
-      "y": 0.12014
-    },
-    {
-      "x": 0.86643,
-      "y": 0.12014
-    },
-    {
-      "x": 0.88786,
-      "y": 0.12014
-    },
-    {
-      "x": 0.88786,
-      "y": 0.11562
-    },
-    {
-      "x": 0.91714,
-      "y": 0.11506
-    },
-    {
-      "x": 0.92929,
-      "y": 0.11957
-    },
-    {
       "x": 0.21429,
       "y": 0.21545
     },
@@ -100,10 +48,6 @@
     {
       "x": 0.35571,
       "y": 0.19346
-    },
-    {
-      "x": 0.35786,
-      "y": 0.18838
     },
     {
       "x": 0.36643,
@@ -258,10 +202,6 @@
       "y": 0.2758
     },
     {
-      "x": 0.32143,
-      "y": 0.29442
-    },
-    {
       "x": 0.32286,
       "y": 0.2837
     },
@@ -350,10 +290,6 @@
       "y": 0.29724
     },
     {
-      "x": 0.59929,
-      "y": 0.28878
-    },
-    {
       "x": 0.60286,
       "y": 0.27411
     },
@@ -380,10 +316,6 @@
     {
       "x": 0.67929,
       "y": 0.27693
-    },
-    {
-      "x": 0.69214,
-      "y": 0.29385
     },
     {
       "x": 0.69571,
@@ -638,20 +570,12 @@
       "y": 0.43034
     },
     {
-      "x": 0.53571,
-      "y": 0.44614
-    },
-    {
       "x": 0.54143,
       "y": 0.43429
     },
     {
       "x": 0.58071,
       "y": 0.43655
-    },
-    {
-      "x": 0.64857,
-      "y": 0.44501
     },
     {
       "x": 0.655,
@@ -664,10 +588,6 @@
     {
       "x": 0.87929,
       "y": 0.46701
-    },
-    {
-      "x": 0.89,
-      "y": 0.42245
     },
     {
       "x": 0.915,
@@ -758,10 +678,6 @@
       "y": 0.52171
     },
     {
-      "x": 0.52286,
-      "y": 0.51664
-    },
-    {
       "x": 0.53786,
       "y": 0.52228
     },
@@ -792,14 +708,6 @@
     {
       "x": 0.68643,
       "y": 0.50479
-    },
-    {
-      "x": 0.7,
-      "y": 0.51213
-    },
-    {
-      "x": 0.70643,
-      "y": 0.49915
     },
     {
       "x": 0.71857,
@@ -836,10 +744,6 @@
     {
       "x": 0.86429,
       "y": 0.50931
-    },
-    {
-      "x": 0.87714,
-      "y": 0.52228
     },
     {
       "x": 0.88357,
@@ -884,10 +788,6 @@
     {
       "x": 0.24071,
       "y": 0.60745
-    },
-    {
-      "x": 0.25786,
-      "y": 0.61365
     },
     {
       "x": 0.26357,
@@ -972,10 +872,6 @@
     {
       "x": 0.75286,
       "y": 0.58883
-    },
-    {
-      "x": 0.75571,
-      "y": 0.58376
     },
     {
       "x": 0.76357,
@@ -1078,10 +974,6 @@
       "y": 0.69712
     },
     {
-      "x": 0.24286,
-      "y": 0.6802
-    },
-    {
       "x": 0.24643,
       "y": 0.66497
     },
@@ -1116,10 +1008,6 @@
     {
       "x": 0.33286,
       "y": 0.67343
-    },
-    {
-      "x": 0.34929,
-      "y": 0.67287
     },
     {
       "x": 0.35357,
@@ -1218,10 +1106,6 @@
       "y": 0.69318
     },
     {
-      "x": 0.80357,
-      "y": 0.67174
-    },
-    {
       "x": 0.81429,
       "y": 0.66215
     },
@@ -1248,10 +1132,6 @@
     {
       "x": 0.91643,
       "y": 0.66385
-    },
-    {
-      "x": 0.93643,
-      "y": 0.68246
     },
     {
       "x": 0.93929,
@@ -1382,10 +1262,6 @@
       "y": 0.73773
     },
     {
-      "x": 0.69929,
-      "y": 0.75071
-    },
-    {
       "x": 0.70571,
       "y": 0.73548
     },
@@ -1432,10 +1308,6 @@
     {
       "x": 0.17,
       "y": 0.85223
-    },
-    {
-      "x": 0.175,
-      "y": 0.83869
     },
     {
       "x": 0.19643,
@@ -1490,10 +1362,6 @@
       "y": 0.82854
     },
     {
-      "x": 0.56071,
-      "y": 0.81275
-    },
-    {
       "x": 0.61071,
       "y": 0.82234
     },
@@ -1502,20 +1370,12 @@
       "y": 0.81613
     },
     {
-      "x": 0.65714,
-      "y": 0.81387
-    },
-    {
       "x": 0.695,
       "y": 0.81782
     },
     {
       "x": 0.71643,
       "y": 0.81557
-    },
-    {
-      "x": 0.73357,
-      "y": 0.81275
     },
     {
       "x": 0.75286,
@@ -1552,10 +1412,6 @@
     {
       "x": 0.88357,
       "y": 0.81839
-    },
-    {
-      "x": 0.89571,
-      "y": 0.83305
     },
     {
       "x": 0.90214,
@@ -1742,16 +1598,64 @@
       "y": 0.90525
     },
     {
-      "x": 0.96929,
-      "y": 0.91709
-    },
-    {
       "x": 0.97571,
       "y": 0.9013
+    },
+    {
+      "x": 0.89929,
+      "y": 0.29893
+    },
+    {
+      "x": 0.42,
+      "y": 0.51213
+    },
+    {
+      "x": 0.47857,
+      "y": 0.66667
+    },
+    {
+      "x": 0.29429,
+      "y": 0.74845
+    },
+    {
+      "x": 0.54143,
+      "y": 0.74563
+    },
+    {
+      "x": 0.64143,
+      "y": 0.73942
+    },
+    {
+      "x": 0.84786,
+      "y": 0.74112
+    },
+    {
+      "x": 0.53429,
+      "y": 0.82234
+    },
+    {
+      "x": 0.58429,
+      "y": 0.81669
+    },
+    {
+      "x": 0.24357,
+      "y": 0.90694
+    },
+    {
+      "x": 0.29714,
+      "y": 0.89904
+    },
+    {
+      "x": 0.32571,
+      "y": 0.89622
+    },
+    {
+      "x": 0.35286,
+      "y": 0.89791
     }
   ],
   "rejected": [],
-  "cleaned": "13 labels on the furniture removed (0 clef, 13 key signature); 4 marks on blank paper at a stem foot removed, each cropped at 16x first",
+  "cleaned": "13 labels on the furniture removed (0 clef, 13 key signature); 4 marks on blank paper at a stem foot removed, each cropped at 16x first; 5 suspect labels removed (0 clef, 0 key signature, 5 marked twice) \u2014 each cropped with CROP_MARKS and looked at: one filled ledger-line head, two overlapping dots, in eight of nine two concentric rings; 19 marks out in the music with no head-shaped ink under them removed (11 on a bare stem, 6 on blank paper, 2 on a slur) \u2014 every one cropped at 6x with CROP_MARKS and CROP_TRUTH before it went, and in every crop the note the mark belongs to is a filled head two to four spaces away carrying both a ring and a dot of its own; 13 printed noteheads the file had never marked ADDED, every one cropped at 6x first: each is a large filled head (one a hollow minim, at 1188,1313) on a ledger line above the stave with its own stem, several preceded by a printed natural or sharp, and in every crop the heads on either side of it carry a mark of their own. The falsification test is the Concerto, which prints the same passage \u2014 four ledger heads at 338,1636 / 379,1629 / 419,1625 / 460,1628 against 342,1607 / 416,1594 / 456,1589 / 494,1592, same notes, same natural-sharp-natural-sharp, same slur \u2014 and mozart.truth.json marks all four. Two truth files, one passage, opposite verdicts. THE COORDINATE IS THE PAGE'S, NOT THE READER'S: each is the darkness-weighted centroid of the ink within 0.75 of a space, which agrees with the ring the reader drew to between 0.04 and 0.29 of a staff space; 13 suspect labels removed (0 clef, 0 key signature, 0 marked twice, 13 in the title block). The thirteen are APPENDED at the end of `notes` rather than sorted into place: the file's order is its marking order, which is what the doubled-mark rule reads when it decides that the LATER of two clicks on one head is the one to drop, and re-sorting the list would destroy it",
   "removed": [
     {
       "x": 114,
@@ -1850,6 +1754,313 @@
       "x": 1129,
       "y": 1331,
       "on": "blank paper at a stem foot"
+    },
+    {
+      "x": 1246,
+      "y": 749,
+      "system": 5,
+      "on": "twice",
+      "apart": 1.4
+    },
+    {
+      "x": 989,
+      "y": 885,
+      "system": 6,
+      "on": "twice",
+      "apart": 0
+    },
+    {
+      "x": 785,
+      "y": 1441,
+      "system": 10,
+      "on": "twice",
+      "apart": 2.2
+    },
+    {
+      "x": 920,
+      "y": 1443,
+      "system": 10,
+      "on": "twice",
+      "apart": 4.1
+    },
+    {
+      "x": 1027,
+      "y": 1441,
+      "system": 10,
+      "on": "twice",
+      "apart": 2.2
+    },
+    {
+      "x": 501,
+      "y": 334,
+      "system": 2,
+      "on": "slur"
+    },
+    {
+      "x": 450,
+      "y": 522,
+      "system": 3,
+      "on": "paper"
+    },
+    {
+      "x": 839,
+      "y": 512,
+      "system": 3,
+      "on": "stem"
+    },
+    {
+      "x": 969,
+      "y": 521,
+      "system": 3,
+      "on": "stem"
+    },
+    {
+      "x": 750,
+      "y": 791,
+      "system": 5,
+      "on": "stem"
+    },
+    {
+      "x": 908,
+      "y": 789,
+      "system": 5,
+      "on": "stem"
+    },
+    {
+      "x": 732,
+      "y": 916,
+      "system": 6,
+      "on": "slur"
+    },
+    {
+      "x": 980,
+      "y": 908,
+      "system": 6,
+      "on": "stem"
+    },
+    {
+      "x": 1228,
+      "y": 926,
+      "system": 6,
+      "on": "stem"
+    },
+    {
+      "x": 361,
+      "y": 1088,
+      "system": 7,
+      "on": "stem"
+    },
+    {
+      "x": 1058,
+      "y": 1035,
+      "system": 7,
+      "on": "paper"
+    },
+    {
+      "x": 340,
+      "y": 1206,
+      "system": 8,
+      "on": "stem"
+    },
+    {
+      "x": 489,
+      "y": 1193,
+      "system": 8,
+      "on": "paper"
+    },
+    {
+      "x": 1125,
+      "y": 1191,
+      "system": 8,
+      "on": "paper"
+    },
+    {
+      "x": 1311,
+      "y": 1210,
+      "system": 8,
+      "on": "stem"
+    },
+    {
+      "x": 979,
+      "y": 1331,
+      "system": 9,
+      "on": "stem"
+    },
+    {
+      "x": 245,
+      "y": 1487,
+      "system": 10,
+      "on": "stem"
+    },
+    {
+      "x": 1254,
+      "y": 1477,
+      "system": 10,
+      "on": "paper"
+    },
+    {
+      "x": 1357,
+      "y": 1626,
+      "system": 11,
+      "on": "paper"
+    },
+    {
+      "x": 104,
+      "y": 168,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 122,
+      "y": 194,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 245,
+      "y": 197,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1284,
+      "y": 204,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1243,
+      "y": 205,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1301,
+      "y": 212,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1183,
+      "y": 213,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1213,
+      "y": 213,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 1243,
+      "y": 213,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 136,
+      "y": 223,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 219,
+      "y": 227,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 256,
+      "y": 227,
+      "system": 1,
+      "on": "title"
+    },
+    {
+      "x": 278,
+      "y": 245,
+      "system": 1,
+      "on": "title"
+    }
+  ],
+  "added": [
+    {
+      "x": 1259,
+      "y": 530,
+      "system": 3,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 588,
+      "y": 908,
+      "system": 6,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 670,
+      "y": 1182,
+      "system": 8,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 412,
+      "y": 1327,
+      "system": 9,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 758,
+      "y": 1322,
+      "system": 9,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 898,
+      "y": 1311,
+      "system": 9,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 1187,
+      "y": 1314,
+      "system": 9,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 748,
+      "y": 1458,
+      "system": 10,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 818,
+      "y": 1448,
+      "system": 10,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 341,
+      "y": 1608,
+      "system": 11,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 416,
+      "y": 1594,
+      "system": 11,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 456,
+      "y": 1589,
+      "system": 11,
+      "is": "a printed notehead the file did not mark"
+    },
+    {
+      "x": 494,
+      "y": 1592,
+      "system": 11,
+      "is": "a printed notehead the file did not mark"
     }
   ]
 }
