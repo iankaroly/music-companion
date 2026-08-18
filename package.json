@@ -35,6 +35,8 @@
     "score:playback": "node tools/scan-playback-check.mjs",
     "score:review": "node tools/scan-review-check.mjs",
     "score:heads": "node tools/scan-heads-check.mjs",
+    "score:follow": "node tools/scan-follow-check.mjs",
+    "score:hear": "node tools/press-hear-check.mjs",
     "score:pdf": "node tools/scan-pdf-check.mjs",
     "scan:corpus": "node tools/scan-corpus.mjs",
     "scan:sizes": "node tools/scan-corpus.mjs --sizes",
@@ -73,7 +75,13 @@
     "scan:chords": "node tools/chord-check.mjs",
     "scan:clef-change": "node tools/clef-change-check.mjs",
     "scan:lieder": "node tools/lieder-check.mjs",
-    "scan:steps": "node tools/step-truth.mjs"
+    "scan:steps": "node tools/step-truth.mjs",
+    "scan:values": "node tools/value-truth.mjs",
+    "scan:align": "node tools/align-check.mjs",
+    "scan:floor": "node tools/align-floor.mjs",
+    "scan:rhythm": "node tools/rhythm-check.mjs",
+    "score:agree": "node tools/reader-agree-check.mjs",
+    "scan:bars-believed": "node tools/value-bars.mjs"
   },
   "keywords": [],
   "author": "",

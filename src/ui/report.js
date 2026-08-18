@@ -1,5 +1,5 @@
 import { audioContext, masterOut, holdAudio, releaseAudio, warmAudio } from '../audio/context.js';
-import { findComparisonNote, findSameNotes } from '../audio/clips.js';
+import { buildEmphasizedClip, findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
 import { intonationStatus, intonationHue, findNoteAt } from './chart-utils.js';
@@ -9,6 +9,7 @@ import { renderLanding, hideLanding } from './landing.js';
 import { initPassages, hidePassages, offerNote } from './passages.js';
 import { scheduleClick } from '../audio/metronome.js';
 import { rhythmReport } from '../analysis/rhythm.js';
+import { stopWrittenPitch, whenWrittenPitchStarts } from '../audio/written-pitch.js';
 
 // The one status line the app has, shared with the recorder above.
 function say(root, message) {
@@ -217,6 +218,17 @@ function stopPlayback(root) {
 // `spans` are tiles that light up exactly while their note is sounding.
 // Returns the audio-clock start time (used for pause bookkeeping).
 function playClip(clip, root, timeMap, spans, onDone) {
+  // The OTHER voice on this screen, silenced first.
+  //
+  // The scanned review lets you press a notehead nobody played and hear what is
+  // WRITTEN there, synthesised (src/audio/written-pitch.js). Press one and then
+  // press play, and until this line the tone rang on over the top of the
+  // recording — two voices a second apart, one of them a real cello and one of
+  // them not, which is precisely the confusion that module exists to prevent.
+  // The reverse direction is handled from the other side: written-pitch.js
+  // announces a start and this file subscribes below, because the tone's module
+  // must not be able to reach a Recorder.
+  stopWrittenPitch();
   // Tearing down the previous clip drops its hold, so this one is taken after,
   // not before — otherwise the context would be free to sleep mid-playback.
   playbackCtx = audioContext();
@@ -286,6 +298,16 @@ function playClip(clip, root, timeMap, spans, onDone) {
   tick();
   return startTime;
 }
+
+// …and the same seam from the other side. A press on an unplayed notehead while
+// the take is playing stops the take, so the tone is heard alone — the two must
+// never sound together and only one of them can be a recording of anything.
+// Guarded on `currentSource` rather than called flat: stopPlayback also drops
+// the note drone and tells the followers the playhead is gone, and doing that
+// on every press when nothing is playing would put out a light nobody lit.
+whenWrittenPitchStarts(() => {
+  if (currentSource) stopPlayback(document);
+});
 
 // --- whole-take player: play/pause on the overview chart --------------------
 
@@ -407,6 +429,111 @@ function pauseZoom(root) {
   stopPlayback(root);
   setPlayheads(zoom.pos); // keep the marker where playback stopped
   updateZoomButton(root);
+}
+
+// PRESS A NOTEHEAD, HEAR THAT NOTE. The one sentence this whole screen is for.
+//
+// MEASURED, before this existed, by patching AudioBufferSourceNode.prototype
+// .start and OscillatorNode.prototype.start in the page and pressing a ring on
+// a photographed page: `{ buffersStarted: 0, oscillatorsStarted: 0,
+// zoomPlayButton: "play" }`. The chain scan-view.js → score.js → main.js →
+// selectFromOutside was complete and every link worked; it ended in a panel
+// that showed the note and never played it, while the tile's own title said
+// "play this note back". The check that was watching this asserted that the
+// PANEL OPENED, which is why 35 browser checks passed over a capability that
+// measured zero. `npm run score:hear` counts sources started instead.
+//
+// It goes through `playClip` rather than starting a source of its own, and that
+// is structural rather than tidy: playClip's first act is `stopWrittenPitch()`,
+// so a press that sounds the recording cannot leave the written-pitch tone of
+// some earlier press ringing under it — the one arrangement those two voices
+// must never be in. Everything else here (the playhead, the light on the page,
+// the tile that lights while its note sounds, the audio-session hold) comes
+// along for free for the same reason.
+//
+// A SHORTER LEAD-IN THAN buildEmphasizedClip'S DEFAULT, and it is the
+// difference between hearing the note you pressed and hearing the one before
+// it. `contextSec` is 1.2 s either side by default — the right window when you
+// press PLAY on a passage and want the moment in context, and the wrong one as
+// the answer to a tap. MEASURED both ways with `npm run score:hear` on the
+// Bach photograph, watching which notehead the follow-along lights:
+//
+//   contextSec 1.2   clip 2.78 s long, and the notehead that was pressed had
+//                    STILL NOT LIT 1.2 s after the press — 41 frames watched,
+//                    nothing lit at all. The whole of that window is the
+//                    previous bar, ducked.
+//   contextSec 0.35  clip 1.08 s long, and the pressed notehead lights
+//                    0.40-0.43 s after the source starts, over three runs.
+//
+// 0.35 s is still long enough that the attack is not clipped — the segmenter's
+// `start` is the first frame that carried the pitch, so the bow is already
+// moving before it — and the neighbours stay audible at `contextGain`, ducked,
+// so the note is heard IN the take rather than cut out of it.
+const PRESS_CONTEXT_SEC = 0.35;
+
+// Rule 3 lives on this function's first four lines.
+//
+// It plays the RECORDING, so the note it is handed must be a note that was
+// really played and really recorded — a notehead nobody played must never be
+// able to arrive here and be given somebody else's audio. Two things stop it.
+// Structurally, the only caller is `showPlayback`, which is only reached
+// through `selectNote`, which returns early unless the note is a key of
+// `tileByNote` — a map built from `degrees.filter(d => d.played)`, i.e. from
+// the take. An unplayed notehead on a photograph never becomes one of those:
+// scan-view.js hands it to `pickSilent`, which takes a HEAD and can reach
+// nothing but written-pitch.js. And numerically, the guard below refuses
+// anything whose times are not a real moment in THIS recording — a note copied
+// through the store without its clock, a note from another take.
+//
+// WHAT THE GUARD DELIBERATELY DOES NOT REFUSE, because the first version of it
+// did and that was a second silent press: a note whose `end` runs past the end
+// of the audio. The segmenter's `end` is a frame time and `duration` is a
+// sample count, so the last note of a take can end a frame beyond it —
+// buildEmphasizedClip already clamps both edges (`Math.min(recording.duration,
+// …)`), so that press yields a perfectly good clip and refusing it would have
+// left exactly the symptom this function exists to kill, scoped to the last
+// note of every take. `npm run score:hear` presses the LAST ring for that
+// reason. And a refusal SAYS so rather than returning quietly: a press that
+// opens a panel and makes no sound with no explanation is the bug, whatever
+// the reason for it.
+function playNoteAloud(root, recording, note, tile) {
+  if (!recording || !note) return null;
+  if (!Number.isFinite(note.start) || !Number.isFinite(note.end)
+    || !(note.end > note.start)
+    || note.start < 0 || note.start >= recording.duration) {
+    say(root, 'that note has no moment in this recording, so there is nothing to play');
+    return null;
+  }
+
+  const clip = buildEmphasizedClip(recording, note.start, note.end, {
+    contextSec: PRESS_CONTEXT_SEC,
+  });
+  // Where the clip begins in the recording. Taken back off the clip's own
+  // `targetOffset` rather than recomputed as `start - contextSec`, because at
+  // the very beginning of a take the clip is clamped at 0 and the two answers
+  // differ — and this number is the whole time map.
+  const from = note.start - clip.targetOffset;
+  const startTime = playClip(
+    clip, root,
+    (t) => from + t,
+    [{ tile, start: note.start, end: note.end, note }],
+    () => { if (zoom) zoom.playing = false; updateZoomButton(root); },
+  );
+  // Nothing started: say nothing more. playClip has already told the user why.
+  if (startTime === null) return null;
+  // The zoom transport is the visible state of "something is playing" on this
+  // panel, and it was the tell in the original measurement — `zoomPlayButton:
+  // "play"` while a press was supposed to be sounding. If this note owns the
+  // zoom inset, the press hands it the transport so ❚❚ stops what it started.
+  // `zoom.pos` is deliberately NOT moved to the clip's start: the cursor stays
+  // on the note, the playhead rides over it while the clip runs, and it comes
+  // back to the note when it ends instead of parking a third of a second early.
+  if (zoom && zoom.note === note) {
+    zoom.playing = true;
+    zoom.playInfo = { from, startTime };
+  }
+  updateZoomButton(root);
+  return startTime;
 }
 
 // mm:ss for a position in the take — how the passage list writes times too.
@@ -626,19 +753,38 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   }
 }
 
-// Selecting a note opens its cents-level detail in the zoom inset below —
-// nothing plays until the zoom's own play button is pressed. `atTime`
-// places the zoom cursor (used when the overview cursor drags in).
-function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote, atTime = null) {
+// Selecting a note opens its cents-level detail in the zoom inset below.
+// `atTime` places the zoom cursor (used when the overview cursor drags in).
+// `autoplay` is the difference between PRESSING a note and merely SELECTING
+// one. A press on a notehead — on the photograph, on the engraved page, or on
+// the tile that says "play this note back" — is a request to hear it. Dragging
+// the overview cursor or picking a note out of the landing chart is a request
+// to LOOK at it, and starting the recording under someone who is reading a
+// graph is not the same gesture at all, so those callers leave it false.
+function showPlayback(root, tile, note, name, allNotes, recording, extras, tileByNote, atTime = null, autoplay = false) {
   root.querySelector('#playback').hidden = false;
   selectedNote = note;
+
+  // WHAT TO CALL IT WHEN NOTHING NAMED IT.
+  //
+  // `name` is the degree's name, which on a take against notation is the
+  // WRITTEN note and on a free review is the played note's own `name` field.
+  // notes.js fills that field in, so this is not a case the live app reaches
+  // today — but the close-up's heading is built by string interpolation, and a
+  // note that arrives without one (a fixture, a take rebuilt by a caller, a
+  // future producer) put the word `null` in front of a player: MEASURED, in
+  // npm run score:follow, the close-up read "null up close" for a note whose
+  // pitch the panel underneath was drawing correctly as B3. Falling back to the
+  // MIDI number's own name is not a guess — it is the same arithmetic the
+  // cursor readout two lines below already does.
+  const shown = name ?? midiToName(note.midi) ?? '—';
 
   // The selected note as a box: name, cents, chord marker, status color.
   const selected = root.querySelector('#selected-note');
   selected.hidden = false;
   selected.className = note.chord ? 'degree chord' : 'degree';
   selected.dataset.state = intonationHue(note.cents);
-  selected.innerHTML = `<b>${note.chord ? '+' : ''}${name}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
+  selected.innerHTML = `<b>${note.chord ? '+' : ''}${shown}</b>${centsLabel(note.cents)}${note.chord ? ' · chord' : ''}`;
 
   // Reused by retuneCursorDrones below, which rewrites this box on every move
   // of a dragged cursor and should not be parsing HTML to do it.
@@ -721,7 +867,7 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   if (extras.readings?.length) {
     zoomLoopToken++; // any loop still pending belongs to the note we just left
     root.querySelector('#note-zoom').hidden = false;
-    root.querySelector('#zoom-label').textContent = `${name} up close`;
+    root.querySelector('#zoom-label').textContent = `${shown} up close`;
     zoom = {
       recording,
       t0: 0,
@@ -836,6 +982,12 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
   } else {
     compareBtn.hidden = true;
   }
+
+  // LAST, and that is load-bearing. Everything above this line either tears
+  // down the previous note's playback (`stopCompareDrones`, the zoom rebuild)
+  // or rewires a control, and a clip started before any of it would be stopped
+  // by its own panel finishing opening.
+  if (autoplay) playNoteAloud(root, recording, note, tile);
 }
 
 function wireSpeedButtons(root) {
@@ -877,7 +1029,11 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   wireSpeedButtons(root);
 
   const tileByNote = new Map();
-  const selectNote = (note, atTime = null) => {
+  // `tileByNote` is the gate that keeps a notehead nobody played out of the
+  // recording: it holds only notes out of THIS take (`degrees.filter(d =>
+  // d.played)`), and a note that is not in it leaves here without opening a
+  // panel and without a sound. See playNoteAloud.
+  const selectNote = (note, atTime = null, { play = false } = {}) => {
     const entry = tileByNote.get(note);
     if (!entry) return;
     // While a passage is being marked, taps name its bounds instead of playing.
@@ -886,9 +1042,14 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       return;
     }
     currentChart?.setHighlight?.(note);
-    showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote, atTime);
+    showPlayback(root, entry.tile, note, entry.name, allNotes, recording, extras, tileByNote, atTime, play);
   };
-  selectFromOutside = selectNote;
+  // A note picked in ANOTHER VIEW is a note somebody pressed on a score — the
+  // photograph's rings (scan-view.js) and the engraved noteheads (score.js)
+  // both arrive here through main.js's `selectPlayedNote`. That press is the
+  // user's own sentence, "if you click on a note on the score you hear that
+  // note in the audio", so it plays.
+  selectFromOutside = (note, atTime = null) => selectNote(note, atTime, { play: true });
 
   // Spoken form of a tile, for anyone who isn't looking at the colour.
   const spoken = (d) => {
@@ -916,8 +1077,14 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     if (playable) {
       tileByNote.set(d.played, { tile, name: d.name });
       tile.classList.add('clickable');
+      // The title and the aria-label have both promised "play this note back"
+      // since long before anything did, and MEASURED before this round a press
+      // started 0 audio sources — the tile opened the close-up and left the
+      // panel's own ▶ to be found and pressed. The promise is now kept rather
+      // than reworded, because the reworded version ("show this note") would be
+      // a worse app than the one the label described.
       tile.title = 'play this note back';
-      tile.addEventListener('click', () => selectNote(d.played));
+      tile.addEventListener('click', () => selectNote(d.played, null, { play: true }));
       // hovering a box lights up its span on the chart
       tile.addEventListener('mouseenter', () => currentChart?.setHighlight?.(d.played));
       tile.addEventListener('mouseleave', () => currentChart?.setHighlight?.(null));

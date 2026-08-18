@@ -9,13 +9,51 @@ import { validateValues } from './scan-values.js';
 // the second half is faster than the first. None of that needs a written tempo
 // and none of it needs to know a crotchet from a quaver.
 //
-// WHAT THIS DOES NOT READ
+// WHAT IS READ, WHAT IS NOT, AND WHAT IS BELIEVED — CORRECTED
 //
-// Note values. Whether a notehead is a crotchet or a semiquaver is written in
-// its stem, its flags and the beams above it, and none of those are read. So
-// this cannot say "that quaver was late" — it can say "that BAR was late", and
-// where a bar's notes are evenly spread it can say which note inside it drifted.
+// This header used to say that note values are not read. They are, and have
+// been since scan-stems.js: filled or hollow, stem or none, and how many beams
+// cross the stem. What is still NOT read is a FLAG and a DOT, and both cost
+// something measurable.
 //
+// MEASURED, npm run scan:values, against pages/truth/scanned.values.json — 52
+// hand-encoded noteheads over eight bars of the Scanned score photograph, each
+// value read off a crop at 11x to 40x: 38 right, 14 wrong, 73.1%. Of the 14:
+// beams overcounted 7, the dot missed 3 (3 of the 3 dotted quavers in the span
+// — 100% of the feature), beams undercounted 3, a hollow head missed 1. The one
+// unbeamed FLAGGED quaver in the span came back a semiquaver with beams: 2,
+// because the flag's ink is counted as two beams — so an unread flag is not the
+// harmless "call it a crotchet" that scan-stems.js's own header claimed.
+//
+// AND THE PART THAT DECIDES WHAT THIS FILE DOES: validateValues believes ZERO
+// bars on all three photographs in this repo — 0 of 39 (Bach), 0 of 38
+// (Mozart), 0 of 37 (Scanned), at coverage 21%, 18% and 11% against its
+// COVERAGE gate of 0.55. So `fromWritten` below has been false on every real
+// page and always was, and every per-note verdict any take has been given came
+// from the even-spread fallback further down. The cause is NOT the beam
+// counting: the Bach photograph reads 315 of its 318 marked heads as
+// semiquavers on a page that is twenty bars of sixteen semiquavers, 99.1%, and
+// is still refused entirely. It is that the bar GROUPING is roughly doubled —
+// notesInOrder counts barlines within a stave and Bach averages 8.3 notes per
+// bar-group where a printed bar of that page holds sixteen — plus chords, which
+// validateValues counts as two notes on one onset and which therefore cannot
+// add up however well they are read. Both sit upstream of this file.
+//
+// AND A THIRD CAUSE, MEASURED SINCE, WHICH IS BIGGER THAN EITHER: a bar sum is
+// built out of CIRCLES, not out of noteheads. `npm run scan:bars-believed`, on
+// 32 studies this repo engraved itself where every printed bar is four crotchet
+// beats: 943 things circled where 692 noteheads are printed, all 692 found, and
+// 251 of the circles are not a printed notehead — 218 of them priced at a full
+// crotchet each. The note values on those same pages are 97.7% right. So the
+// refusal below is the correct answer and not a missing feature, and the repair
+// is upstream of the values as well as upstream of the grouping. The rejected
+// regrouping experiment, with the numbers that rejected it, is in
+// tools/value-bars.mjs and in scan-values.js's header.
+//
+// So what this file can honestly say about a real page today is what it always
+// said: that BAR was late. scan-rhythm.js is the join that gives a per-note
+// verdict where a bar IS believed and falls back to here where it is not.
+
 // The even-spread assumption is the load-bearing one and it is CHECKED rather
 // than assumed. A page of continuous semiquavers satisfies it completely; a
 // page with a dotted rhythm or a held note does not, and on that page a
@@ -30,7 +68,10 @@ const EVEN_ENOUGH = 0.28;
 // stave end, a repeat sign counted twice — and they would wreck an average.
 const RUNT = 0.35;
 
-function spread(values) {
+// Exported because src/ui/score.js says the same thing about the bars it could
+// believe, and a second copy of this in the UI is how two numbers that are
+// meant to be one come to disagree by a percent and nobody can say which.
+export function spread(values) {
   if (values.length < 2) return 0;
   const mean = values.reduce((a, b) => a + b, 0) / values.length;
   if (!(mean > 0)) return 0;
@@ -71,6 +112,36 @@ export function barsOf(marks) {
   return bars;
 }
 
+// The values read for one bar's notes, in crotchets, one per note.
+//
+// Exported because scan-rhythm.js has to ask validateValues the SAME question
+// this file asks it — a join whose bar sums are built even slightly differently
+// would believe a different set of bars from the ones the fallback thinks it
+// refused, and the two would disagree about the same bar without either being
+// obviously wrong. One expression, used twice.
+//
+// A BAR WITH AN UNREAD VALUE IN IT IS NOT EVIDENCE, AND SAYS SO BY BEING NULL.
+//
+// This used to read `bar.marks?.[k]?.beats ?? 0`, on the argument that a zero
+// makes the bar sum SHORT and so gets the bar refused — refusal being the safe
+// direction. The argument holds only if sums err short, and MEASURED, they do
+// not: npm run scan:bars-believed reports 251 of 943 circles on the clean
+// engraved pages are not printed noteheads, 218 of them priced at a full
+// crotchet, so a page's sums are commonly INFLATED. A bar whose true sum is 5
+// with one unread note defaulting from 1 to 0 lands on exactly 4.0 and is
+// BELIEVED — the default turned a hole into the one number that would pass.
+// That is how 4 of the 6 bars the app believes today are not printed bars.
+//
+// So the hole propagates instead of being filled. validateValues needs no
+// change to honour it: `(bar ?? []).reduce` makes a null bar sum 0, `real`
+// drops it from the vote because it filters `s > 0`, and `trusted` never takes
+// it because a plausible mode is never 0. An unread value now costs its bar,
+// which is what rule 3 asks for.
+export function barValues(bar) {
+  const values = bar.notes.map((_, k) => bar.marks?.[k]?.beats);
+  return values.some((v) => !(v > 0)) ? null : values;
+}
+
 /**
  * How the take sat against the bars the page reader found.
  *
@@ -93,7 +164,7 @@ export function scanTiming(marks) {
     const next = bars[i + 1]?.notes[0]?.start;
     const to = Number.isFinite(next) ? next : (bar.notes.at(-1).end ?? bar.notes.at(-1).start);
     const length = to - from;
-    if (length > 0) spans.push({ ...bar, from, to, length, count: bar.notes.length });
+    if (length > 0) spans.push({ ...bar, order: i, from, to, length, count: bar.notes.length });
   }
   if (spans.length < 3) return null;
 
@@ -101,6 +172,38 @@ export function scanTiming(marks) {
   const typical = median(spans.map((s) => s.length));
   const real = spans.filter((s) => s.length >= typical * RUNT);
   if (real.length < 3) return null;
+
+  // WHAT `steadiness` IS WORTH ON A PAGE WHOSE BARLINES WERE MISCOUNTED, and a
+  // repair that was built, measured and TAKEN OUT AGAIN.
+  //
+  // MEASURED, npm run score:follow — a take synthesised on a 0.45s grid, even
+  // by construction, and the free review beside it says "100% even". Its marks
+  // group into bars of 1, 1, 1, 1, 4, 4, 3, 2, 1, 3, 1, 3, 4, 1, 3, 2, 2 notes
+  // and the review reads "47% steady across 17 bars, dragging" about a take a
+  // metronome played. A bar's length here is from its own first note to the
+  // NEXT bar's first note, so a group holding one note of a four-note bar
+  // measures a quarter of that bar and stands in the same list as groups that
+  // hold all four: the spread of that list is `steadiness`, and it is measuring
+  // the GROUPING and not the player.
+  //
+  // The repair tried: drop bars whose note count is far below the take's
+  // typical bar before computing steadiness, drift and the worst bar — the same
+  // argument as RUNT above, on notes instead of length. It does not work and
+  // the reason is worth keeping. The median count over those seventeen groups
+  // is 2, because the fragments are the majority, so a "half the typical count"
+  // filter keeps every one of them. Weighting by notes instead gives 3, which
+  // drops the seven singletons and still leaves groups of 2, 3 and 4 notes
+  // whose lengths are 0.9s, 1.35s and 1.8s — the spread barely moves, because
+  // the defect is not that fragments are short, it is that a bar-group's length
+  // is only comparable with another's when the two hold the same music.
+  //
+  // So nothing is filtered here. The number that would fix this is upstream:
+  // notesInOrder counts barlines within a stave and its groups are roughly half
+  // a printed bar (see this file's header and scan-rhythm.js's). Until that
+  // moves, `steadiness` is a statement about bar-groups the reader found and
+  // NOT one about a player's pulse, and the review's own free-review line —
+  // which measures the pulse directly and said 100% on the take above — is the
+  // one to believe where the two disagree.
 
   const lengths = real.map((s) => s.length);
   const steadiness = Math.max(0, 1 - spread(lengths));
@@ -141,7 +244,7 @@ export function scanTiming(marks) {
   // not read, or do not add up, the fallback is that the notes of a bar are
   // equal, which is true of a page of semiquavers and false of the first
   // dotted rhythm.
-  const written = validateValues(real.map((bar) => bar.notes.map((_, k) => bar.marks?.[k]?.beats ?? 0)));
+  const written = validateValues(real.map(barValues));
   const notes = [];
   const useWritten = written.ok;
   if (useWritten || evenNotes) {
@@ -163,6 +266,37 @@ export function scanTiming(marks) {
     }
   }
 
+  // THE BARS THEMSELVES, one entry each, so the join in scan-rhythm.js does not
+  // have to rebuild them.
+  //
+  // It would otherwise need its own copy of the runt filter and its own median
+  // to know which bars this file kept and what a typical bar came to, and two
+  // copies of a filter drift apart — the second one keeps a bar the first threw
+  // away and then reports a verdict about it. `order` is the index into the
+  // ungrouped bar list, which is how a caller can tell two bars that really
+  // follow each other from two that have a discarded runt between them.
+  //
+  // `ratio` is the whole bar-level verdict and it is a number rather than a
+  // word ON PURPOSE. "This bar ran 18% longer than your typical bar" needs no
+  // cutoff; "this bar dragged" needs one, and there is no take in this repo
+  // with a hand-marked rhythm to measure a cutoff against. An unmeasured
+  // constant here would be a confident-looking word standing on nothing.
+  const perBar = real.map((bar, index) => ({
+    index,
+    order: bar.order,
+    key: bar.key,
+    page: bar.page,
+    staff: bar.staff,
+    from: bar.from,
+    to: bar.to,
+    length: bar.length,
+    count: bar.count,
+    ratio: typical > 0 ? bar.length / typical : null,
+    worst: bar === worst,
+    marks: bar.marks,
+    notes: bar.notes,
+  }));
+
   const offs = notes.map((n) => Math.abs(n.offBy));
   return {
     bars: real.length,
@@ -179,6 +313,7 @@ export function scanTiming(marks) {
     // from assuming a bar's notes are equal. A different claim, said plainly.
     fromWritten: notes.length > 0 && notes.every((n) => n.fromWritten),
     beatsPerBar: written.ok ? written.beatsPerBar : null,
+    perBar,
     notes,
     meanOffMs: offs.length ? (offs.reduce((a, b) => a + b, 0) / offs.length) * 1000 : null,
   };

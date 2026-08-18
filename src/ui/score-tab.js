@@ -149,11 +149,20 @@ export function initScoreFullScreen(handler = null) {
 }
 
 // noteheadFor: played note → the SVG element drawn for it.
+//
+// The MOMENT is passed on too, as the second argument, and it is optional on
+// purpose. An engraved score is a map from note objects to noteheads and
+// ignores it (score-view.js:indexNoteheads). A photograph has no note objects
+// in it — its noteheads are places the page reader measured — so the scanned
+// page answers from the time instead, through scan-sync.js's headAt(t), which
+// is the only direction that can say "nothing is sounding here" rather than
+// leaving the last note lit. Both views are asked the same question; each
+// answers with what it actually knows.
 export function follow(noteheadFor) {
   unfollow?.();
   clearSounding();
-  unfollow = followPlayback((note) => {
-    const next = note ? noteheadFor(note) : null;
+  unfollow = followPlayback((note, time) => {
+    const next = noteheadFor?.(note, time) ?? null;
     if (next === sounding) return;
     clearSounding();
     if (!next) return;

@@ -156,14 +156,38 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
   await new Promise((r) => setTimeout(r, 500));
   const { onScoreTabShown } = await import('/src/ui/score-tab.js');
   onScoreTabShown();
-  await renderScoreTab();
+  const view = await renderScoreTab();
   await new Promise((r) => setTimeout(r, 1200));
   return {
     rings: document.querySelectorAll('#score-stage .scan-note').length,
     pagesShown: document.querySelectorAll('#score-stage .scan-page').length,
     canvasWide: document.querySelector('#score-stage .scan-page canvas')?.width ?? 0,
+    // WHICH HALF FAILED, when it fails. Without these three the two checks
+    // below say "0 pages, 0 rings" and cannot tell "the take could not be
+    // placed on this part" from "it was placed and the PDF would not draw" —
+    // and those are a reader problem and a review problem respectively. The
+    // second would mean the scanned review works only for image-backed parts,
+    // which is the commonest way a part gets into this app.
+    placed: view?.pairing?.placed ?? null,
+    marks: view?.pairing?.marks?.length ?? 0,
+    heads: view?.pairing?.heads ?? 0,
+    readPitch: view?.pairing?.readPitch ?? null,
+    why: view?.pairing?.why ?? null,
+    // SCOPED TO THE STAGE. The Record card carries a `.score-scan-gap` of its
+    // own ("Read from the sound…"), so an unscoped query answers with that one
+    // and makes every scanned refusal look like a missing MusicXML.
+    gap: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').trim().slice(0, 160),
+    stage: (document.querySelector('#score-stage')?.textContent ?? '').trim().slice(0, 160),
   };
 }, built);
+console.log(`      pairing: placed=${review.placed} readPitch=${review.readPitch}`
+  + ` ${review.marks} marks over ${review.heads} heads`
+  + `${review.why ? ` — "${review.why}"` : ''}`);
+// renderScoreTab returns null for BOTH of its refusals, so the fields above go
+// null together and cannot name which one it was. The sentence it puts on the
+// page can, and it is the sentence a user reads.
+console.log(`      the review says: ${review.gap || '(no refusal note)'}`);
+console.log(`      the stage holds: ${review.stage || '(empty)'}`);
 
 check('the PDF page is drawn in the review', review.pagesShown >= 1 && review.canvasWide > 300,
   `${review.pagesShown} pages, canvas ${review.canvasWide}px`);

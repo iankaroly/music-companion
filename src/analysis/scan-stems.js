@@ -10,11 +10,53 @@
 //
 // A flag — the curl on a single unbeamed quaver — is not read. It is a shape
 // next to the stem end, and telling it from a slur or a tie is a different and
-// much less certain job than counting the bars crossing a stem. So an unbeamed
-// filled head is called a crotchet, and where that is wrong the bar it is in
-// will not add up and will be refused. Dots are not read either, with the same
-// consequence. Both of those are the bar sum's problem, and the bar sum is
-// built to have exactly that problem — see scan-values.js.
+// much less certain job than counting the bars crossing a stem.
+//
+// THIS PARAGRAPH USED TO SAY that an unbeamed filled head "is called a crotchet,
+// and where that is wrong the bar it is in will not add up". MEASURED, npm run
+// scan:values against pages/truth/scanned.values.json, and it is worse than
+// that: the one printed flagged quaver in the covered span (mark 32) comes back
+// a SEMIQUAVER with beams: 2, because the flag's own ink lands in the stem
+// profile and is counted as two beams. So an unread flag is not a value that
+// falls short and gets refused — it is a value that is too SHORT by a factor of
+// four and is stated with the same confidence as any other. The repair that
+// follows from that is not "fall back to a crotchet", it is "stop the beam
+// counter walking into a flag", and it has not been made.
+//
+// Dots are not read at all: 3 of the 3 dotted quavers in the same span came
+// back as plain quavers, a 100% failure on the feature, which on that page is
+// three of the fourteen wrong values out of 52 read (73.1% right overall).
+//
+// A DOT READER WAS BUILT, MEASURED AND TAKEN OUT AGAIN, and it is written up
+// here so that the next round spends its time somewhere else. It looked for a
+// small round blob in a box to the right of the head — the right place, off two
+// crops of the Scanned score at 6x (tools/crop.mjs at 230,646 and 341,374):
+// mark 94's dot sits about one space clear of the head's right edge and half a
+// space above it, and marks 2 and 3 are a dotted CHORD with one dot beside each
+// head. Everything that is not a dot was refused on SIZE, which is the one
+// thing a dot is unambiguous about.
+//
+// MEASURED, npm run scan:values, and the answer was 38 of 52 both times —
+// 73.1%, unchanged, with ZERO dots found and (after the box was tightened) zero
+// invented. Instrumenting the box to print every connected blob it saw says why,
+// and neither reason is a threshold:
+//
+//   mark 94   the blob is 5px wide and 13px TALL at a staff space of 9.8 —
+//             the dot has merged with the staff line above it. Stripping the
+//             line by depth (the same test the beam profile uses) is not
+//             enough, because where the line is fattened by blur it is as deep
+//             as the dot is.
+//   marks 2,3 the blob is 4 x 17 — the chord's TWO dots, one above the other
+//             about five pixels apart, blurred into a single vertical smear.
+//
+// At this printing a dot is four or five pixels across and the paper around it
+// is not clear on either page. A dot reader wants either a sharper photograph
+// or a shape classifier of the kind head-model.js carries, and it does not want
+// another box.
+// Both of those are the bar sum's problem, and the bar sum is built to have
+// exactly that problem — see scan-values.js. What that costs in the end is
+// measured next door: on all three photographs in this repo the bar sums are
+// refused entirely, 0 bars believed of 39, 38 and 37.
 
 // Crotchet beats, by how many beams cross the stem.
 const BY_BEAMS = [1, 0.5, 0.25, 0.125, 0.0625];

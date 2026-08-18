@@ -30,7 +30,8 @@ import { showScore, indexNoteheads, paint } from './score-view.js';
 import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
-import { notesInOrder } from '../analysis/scan-read.js';
+import { headsOf, pairNotes } from './scan-view.js';
+import { syncTake } from '../analysis/scan-sync.js';
 import { shapeFrom } from '../analysis/shape-snap.js';
 import { pageTurn } from './pedal.js';
 import { intonationHue } from './chart-utils.js';
@@ -3655,12 +3656,25 @@ function buildMenu(sheet) {
     onPick: clearPage,
   });
   const canMark = isPaper() ? (!!take?.notes?.length && !!layout) : !!take?.aligned;
+  // What the row PROMISES, on a take the pairing refused.
+  //
+  // "colour the notes by how they landed" is a promise this app cannot keep on
+  // a page where it could not work out which notes those are, and a row that
+  // opens onto a page with nothing on it reads as a bug rather than as a
+  // refusal. So the row stays — the sentence is worth showing — and it says
+  // what it will actually do.
+  const refused = isPaper() && canMark && !scanPairing().marks.length;
   if (canMark) {
     menuGroup(sheet, 'this take');
     menuRow(sheet, {
-      label: painted ? 'Hide what you played' : 'Show what you played',
+      label: refused
+        ? (painted ? 'Hide why this take is not on the page' : 'Why this take is not on the page')
+        : (painted ? 'Hide what you played' : 'Show what you played'),
       glyph: '◉',
-      detail: painted ? 'back to a clean page' : 'colour the notes by how they landed',
+      detail: refused
+        ? (painted ? 'back to a clean page'
+          : 'it could not be paired with the notes on these pages')
+        : (painted ? 'back to a clean page' : 'colour the notes by how they landed'),
       onPick: () => togglePainted(),
     });
     menuRow(sheet, {
@@ -5364,73 +5378,228 @@ async function engrave() {
 
 // --- what you played, on your own photograph ---------------------------------
 //
-// A scan cannot say which note is WRITTEN — nothing in a picture of a page says
-// that, and the app never pretends otherwise. What it can say is which note you
-// played and how in tune it was, because that comes from the audio, and where
-// each note sits on the page, because that was read off the picture.
+// ONE PAIRING FOR THE WHOLE APP, AND THIS FILE USED TO BE THE SECOND ONE.
 //
-// So the marks here are the ones the recording proved: a ring round each
-// notehead in the colour of how it landed. They are placed in the order they
-// were played — the noteheads of the page in reading order, against the notes
-// of the take in the order they came out — which assumes you played it through.
-// Stop halfway and the tail of the page is simply unmarked; that is honest, and
-// it is why nothing here ever says "wrong note".
-function scanHeads() {
-  if (!layout) return [];
-  const all = [];
-  for (const [pageIndex, page] of layout.entries()) {
-    if (!page) continue;
-    const space = page.space ?? 0.01;
-    for (const note of notesInOrder(page)) all.push({ ...note, page: pageIndex, space });
-  }
-  return all;
-}
+// The review pairs a take onto a photograph through scan-view.js's
+// `headsOf` + `pairNotes`: an edit distance over the pitches the page reader
+// priced off the paper, which survives a dropped note, a repeated bar and a
+// take that does not start at the top. This file had its own private pairing
+// that did none of that — `scanHeads()` re-walked the layout and
+// `markedHeads()` counted noteheads off from the beginning of page one,
+// `heads.slice(0, played.length)`. That is exactly the positional pairing
+// src/analysis/scan-align.js was written to kill, and it was still alive in
+// the view a player actually reads from at a stand, wearing the review's own
+// intonation colours, one tap away: score-tab.js listens for a click on the
+// whole of #score-stage, so a finger anywhere on the photograph between two
+// rings swaps the aligned review for this.
+//
+// MEASURED, `npm run score:agree` — two engraved pages, a take that begins at
+// notehead 36, crosses the page break and skips three written notes, driven
+// through the app's own doors (annotateTake + renderScoreTab for the review,
+// readCurrentScore for the reader): the review ringed heads 9-78, the reader
+// ringed heads 0-37, and NOT ONE of the 37 played notes was on the same
+// notehead in the two views. Every ring in here was a specific false claim
+// about a specific note, in colour.
+//
+// THE TAKE IS FILTERED HERE, and that is the quieter half of the same
+// disagreement. score.js:610 (`analyseScanTake`) drops every note the
+// segmenter could not price BEFORE the review pairs it, while score.js:358
+// hands the reader the unfiltered array — so even one shared pairing function
+// would have been given two different takes and would have answered
+// differently. Mirrored rather than shared because scan-view.js is another
+// session's file this round; the two lines want to become one and the place
+// for it is score.js, which owns both calls, not either view.
+//
+// AND THE TIME COMES FROM THE BRIDGE. src/analysis/scan-sync.js joins the
+// pairing to the seconds the segmenter measured and answers null everywhere
+// there is no answer — between two notes, before the first, after the last,
+// and on any note that landed on no notehead at all. The light on the page is
+// driven from `headAt(t)`, so a moment nobody played lights NOTHING instead of
+// holding the last ring on through a rest.
 
-// One mark per note PLAYED, in order, and not one more.
-//
-// Stretching a short take across a whole page would decorate music nobody
-// touched, which is the kind of confident nonsense this app is written to
-// avoid. Play half the page and half the page is marked; play it twice through
-// and the second pass marks over the first. It is the order you played in, and
-// nothing cleverer is claimed for it.
-// Worked out once, then kept until one of the two things it is made of
-// changes.
-//
-// This list is the same list on every frame — the noteheads of the whole score
-// paired off against the notes of one take — and it was being rebuilt inside
-// the paint, which is to say on every frame of every pen stroke on a scanned
-// part with a take loaded. Rebuilding it walks every page of the reading, spans
-// every note of every page, and allocates a fresh object for each: a hundred
-// times a second, to arrive at the same answer.
+// { heads, played, pairing, bridge, marks, byHead, why } — worked out once,
+// then kept until one of the two things it is made of changes.
 //
 // Held against the IDENTITY of its two inputs rather than cleared by hand at
 // the places that change them. A cache that has to be remembered about is a
 // cache that will be forgotten about — and this one would go stale silently,
 // as rings drawn round the notes of a take that is no longer on screen.
-let scanMarks = null;
-let scanMarksFrom = null;
+//
+// It is cached for the same reason the old one was: this is read inside the
+// paint, which is to say on every frame of every pen stroke, and rebuilding it
+// walks every page of the reading and runs a full edit distance to arrive at
+// the same answer a hundred times a second.
+let scanPair = null;
+let scanPairFrom = null;
+
+// A pairing that says no, with the sentence to put on the page in place of the
+// rings. Every field the drawing side reads is present, so nothing downstream
+// needs a branch for "there is no pairing" — the same shape scan-sync.js's own
+// `refused` has, and for the same reason.
+function noPairing(why, heads = [], played = []) {
+  return { heads, played, pairing: null, bridge: null, marks: [], byHead: new Map(), why };
+}
+
+function buildScanPairing(raw) {
+  if (!layout) return noPairing(null);
+  const heads = headsOf(layout);
+  const played = (raw ?? []).filter((n) => Number.isFinite(n?.midi));
+  // Two different silences, and they want two different sentences — the review
+  // draws the same distinction (score.js scanUnreadNote against
+  // scanUnplacedNote). "The pages have not been read" is a fact about the
+  // photograph; "the take could not be found on them" is a fact about the take,
+  // and telling somebody the wrong one sends them to fix the wrong thing.
+  if (!heads.length) {
+    return noPairing('These pages have not been read yet, so there is nothing on them'
+      + ' to put your playing onto.', heads, played);
+  }
+  if (!played.length) {
+    return noPairing('Nothing in that take could be given a pitch, so there is nothing'
+      + ' to mark onto the page.', heads, played);
+  }
+  const pairing = pairNotes(heads, played);
+  const bridge = syncTake({ heads, played, pairing });
+  // RULE 3. pairNotes refuses when findStart cannot say where the take begins,
+  // and the refusal is CARRIED rather than repaired: falling back to counting
+  // from the top of the page is what this whole section is a repair of, and a
+  // blank page with a sentence on it beats a page of confident wrong rings.
+  if (!bridge.placed) {
+    const why = pairing?.why ?? bridge.why ?? null;
+    return {
+      heads,
+      played,
+      pairing,
+      bridge,
+      marks: [],
+      byHead: new Map(),
+      why: 'Where this take sits on these pages could not be worked out'
+        + `${why ? ` — ${why}` : ''}, so nothing is ringed.`,
+    };
+  }
+
+  // One ring per note that LANDED, taken off the bridge's spans rather than off
+  // the pairing's marks, so that the ring a time resolves to and the head that
+  // time was measured against are the same object by construction — the same
+  // reason scan-view.js builds its own byHead map by walking the spans.
+  const marks = [];
+  const byHead = new Map();
+  for (const span of bridge.spans) {
+    const head = heads[span.headIndex];
+    if (!head) continue;
+    if (!byHead.has(span.headIndex)) byHead.set(span.headIndex, marks.length);
+    marks.push({
+      ...head,
+      headIndex: span.headIndex,
+      // WHEN it sounded, carried on the mark rather than looked up by position
+      // in `spans` later. A mark list and a span list that are read as parallel
+      // arrays is the same assumption `heads.slice(0, count)` was making, one
+      // level down: the `continue` above can drop a span, and from that point
+      // every start would be paired with the next head's index.
+      start: span.start,
+      // NULL, not zero. `cents ?? 0` painted a note whose intonation was never
+      // measured the same green as one played dead centre; intonationHue reads
+      // a non-finite value as 'none' and drawOneMark rings it in --muted.
+      cents: Number.isFinite(span.played?.cents) ? span.played.cents : null,
+    });
+  }
+  return { heads, played, pairing, bridge, marks, byHead, why: null };
+}
+
+function scanPairing() {
+  const raw = take?.notes ?? null;
+  if (scanPair && scanPairFrom?.layout === layout && scanPairFrom?.notes === raw) {
+    return scanPair;
+  }
+  scanPairFrom = { layout, notes: raw };
+  scanPair = buildScanPairing(raw);
+  return scanPair;
+}
 
 function markedHeads() {
-  const played = take?.notes ?? [];
-  if (scanMarks && scanMarksFrom?.layout === layout && scanMarksFrom?.notes === played) {
-    return scanMarks;
+  return scanPairing().marks;
+}
+
+// What this reader believes about this take, as head INDICES into the page's
+// own noteheads — so a check can stand the reader beside the review and compare
+// them note for note, which is the only way the two were ever going to be
+// caught disagreeing. `npm run score:agree` is the check; before it existed
+// nothing in the tree compared them.
+export function paperPairing() {
+  if (!isPaper() || !layout) return null;
+  const state = scanPairing();
+  return {
+    heads: state.heads.length,
+    played: state.played.length,
+    placed: state.marks.length > 0,
+    why: state.why,
+    route: state.pairing?.readPitch ? 'pitch'
+      : (state.pairing?.aligned ? 'contour' : (state.pairing ? 'refused' : 'unread')),
+    // note.start -> head index, which is how two views holding two different
+    // copies of the same take can be compared at all.
+    byStart: state.marks.map((m) => [m.start ?? null, m.headIndex]),
+    headIndices: state.marks.map((m) => m.headIndex),
+    lit: soundingMark >= 0 && state.marks[soundingMark]
+      ? state.marks[soundingMark].headIndex : null,
+  };
+}
+
+// A refusal, written where the rings would have been.
+//
+// It is drawn onto the page rather than said in the status line, and that is
+// not decoration: `say()` is cleared by half a dozen other things (finishLink
+// calls say('')), and the one sentence explaining why a marked take shows no
+// marks would go with it. A page that is blank for a reason has to carry the
+// reason.
+function drawScanRefusal(ctx, why) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = ctx.canvas.width / dpr;
+  const h = ctx.canvas.height / dpr;
+  const size = Math.max(13, Math.min(19, Math.round(w / 46)));
+  ctx.save();
+  ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  const words = why.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    const next = line ? `${line} ${word}` : word;
+    if (ctx.measureText(next).width > w * 0.62 && line) { lines.push(line); line = word; }
+    else line = next;
   }
-  scanMarksFrom = { layout, notes: played };
-  const heads = scanHeads();
-  if (!heads.length || !played.length) {
-    scanMarks = [];
-    return scanMarks;
-  }
-  const count = Math.min(heads.length, played.length);
-  scanMarks = heads.slice(0, count).map((head, i) => ({ ...head, cents: played[i]?.cents ?? 0 }));
-  return scanMarks;
+  if (line) lines.push(line);
+  const pad = size;
+  const boxW = Math.min(w * 0.72, Math.max(...lines.map((l) => ctx.measureText(l).width)) + pad * 2);
+  const boxH = lines.length * size * 1.45 + pad;
+  // AT THE FOOT OF THE SCREEN, and that was found by looking rather than
+  // decided. Drawn at the top it sat squarely across the first system of a page
+  // somebody is trying to play from — see the shot this check writes — and a
+  // reader that covers the music to explain itself is worse than the bug. The
+  // foot of the screen is where the reader's own hint already lives.
+  const top = Math.max(size * 2.4, h - boxH - size * 3.2);
+  ctx.fillStyle = 'rgba(28, 26, 34, 0.86)';
+  ctx.beginPath();
+  ctx.roundRect((w - boxW) / 2, top, boxW, boxH, size * 0.6);
+  ctx.fill();
+  ctx.fillStyle = '#f2f0ea';
+  lines.forEach((one, i) => {
+    ctx.fillText(one, w / 2, top + pad / 2 + size * 0.72 + i * size * 1.45);
+  });
+  ctx.restore();
 }
 
 function drawScanMarks(ctx) {
   if (!isPaper() || !take?.notes?.length || !layout) return;
+  const state = scanPairing();
+  // RULE 3 arriving at the one place a player would otherwise never find out.
+  // No rings, and the reason where the rings would have been.
+  if (!state.marks.length) {
+    if (state.why) drawScanRefusal(ctx, state.why);
+    return;
+  }
   const colours = { good: '--good', sharp: '--sharp', flat: '--flat' };
   const style = getComputedStyle(document.documentElement);
-  for (const [i, head] of markedHeads().entries()) {
+  for (const [i, head] of state.marks.entries()) {
     // The same page-to-screen mapping the ink uses, so a ring and a fingering
     // written on the same note stay on the same note.
     const place = pageToScreen(head.page, head.x, head.y);
@@ -5500,17 +5669,38 @@ let soundingMark = -1;
 // with nothing moving: the audio ran, the rings sat there, and the one thing
 // the page can do that a graph cannot — say WHICH note you are hearing —
 // simply did not happen.
-function followOnPaper(note) {
-  const marks = markedHeads();
-  const played = take?.notes ?? [];
-  // Identity first, and the time as a fallback: the note handed over is the
-  // one the spans were built from, which is normally the very object in this
-  // list, but a take that has been round the store and back is a copy.
-  let index = note ? played.indexOf(note) : -1;
-  if (index < 0 && note && Number.isFinite(note.start)) {
-    index = played.findIndex((n) => n.start === note.start);
+function followOnPaper(note, t) {
+  const { bridge, marks, byHead } = scanPairing();
+  // THE TIME BRIDGE, not `marks[played.indexOf(note)]`.
+  //
+  // The old line took the note's position in the take and used it as a
+  // position in the mark list, which is only ever right when the two lists are
+  // the same length and in the same order — which is what the positional
+  // pairing above guaranteed and what an aligner deliberately does not. With
+  // the pairing shared, note 12 of the take may be on notehead 48 and note 13
+  // on nothing at all, and only the bridge knows which.
+  //
+  // headAt(t) is asked FIRST because it is the only direction that can say
+  // "nothing is sounding here": it is a half-open interval, so between two
+  // notes and either side of the take it answers null, and null lights nothing.
+  // followPlayback hands the time as its second argument (report.js
+  // tellFollowers) — the same pair of arguments scan-view.js's noteheadFor
+  // takes, answered the same way, so the review and the stand light the same
+  // notehead at the same instant.
+  let span = null;
+  if (bridge) {
+    if (Number.isFinite(t)) span = bridge.headAt(t);
+    else if (note && Number.isFinite(note.start)) {
+      // No clock. The note's own moment is what the spans were built from, but
+      // the span covering that instant may belong to a NEIGHBOUR — a note that
+      // landed on no notehead has no span of its own, and the previous one may
+      // still be sounding across its start. So the span is kept only where it
+      // is this note's; otherwise nothing is lit, which is the truth.
+      const at = bridge.headAt(note.start);
+      span = at && (at.played === note || at.played?.start === note.start) ? at : null;
+    }
   }
-  const next = index >= 0 && index < marks.length ? index : -1;
+  const next = span && byHead.has(span.headIndex) ? byHead.get(span.headIndex) : -1;
   if (next === soundingMark) return;
   soundingMark = next;
   // The page the note is on comes to the front, so a part plays through
@@ -5527,9 +5717,9 @@ function followTake() {
   unfollow?.();
   clearSounding();
   soundingMark = -1;
-  unfollow = followPlayback((note) => {
+  unfollow = followPlayback((note, t) => {
     refreshPlayButton();
-    if (isPaper()) { followOnPaper(note); return; }
+    if (isPaper()) { followOnPaper(note, t); return; }
     const next = note && view?.noteheadFor ? view.noteheadFor(note) : null;
     if (next === sounding) return;
     clearSounding();
@@ -5597,8 +5787,8 @@ export async function openReader(row, {
   strokes = (await loadAnnotations(row.id).catch(() => []))
     .map((stroke) => ({ ...stroke, points: stroke.points.map(onPaperNow) }));
   dropDryInk();     // a different piece, with different marks on it
-  scanMarks = null;
-  scanMarksFrom = null;
+  scanPair = null;
+  scanPairFrom = null;
   history = [];
   redoable = [];
   // The pen case, the sheet you were writing on and the sheets you had put out
@@ -5700,8 +5890,8 @@ export function close() {
   wantedPage = 0;
   turnWay = 1;
   turning = 0;
-  scanMarks = null;
-  scanMarksFrom = null;
+  scanPair = null;
+  scanPairFrom = null;
   dry = null;
   dryKey = null;
   lastInkAt = null;

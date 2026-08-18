@@ -15,7 +15,7 @@ printed part way along a system; it does not read a mid-system BASS, and that is
 measured and written up rather than untried. It has never been tested on a piano
 score or on two voices on one stave.
 
-## The five measurements, in the order they rank
+## The measurements, in the order they rank
 
 ```
 npm run scan:key-read    synthetic key signatures. 0 READ AS THE WRONG KEY.
@@ -30,11 +30,88 @@ npm run scan:steps       the same three photographs, scored as the STEP against
 npm run scan:studies     32 real cello studies from MusicXML, scored NOTE FOR
                          NOTE — on pages this repo engraved itself, so it is the
                          north star for PITCH on CLEAN paper only.
+npm run scan:values      the DURATION twin of scan:steps: the same three
+                         photographs, scored note for note against
+                         pages/truth/scanned.values.json (52 hand-encoded
+                         noteheads, every one read off a crop at 11x-40x).
+                         73.1%. It also prints THE DECISION — how many bars
+                         scan-values.js believed, which is 0 of 39, 0 of 38 and
+                         0 of 37, and which is the number that matters.
+npm run scan:bars-believed  the OTHER half of the value question, and the one
+                         nothing could see: of the bars scan-values.js
+                         BELIEVES, is the music in one of them one printed bar?
+                         The same 32 engraved studies, every printed bar four
+                         crotchet beats and every printed head's coordinates
+                         known. Today: 6 bars believed of 200, 2 of them a
+                         printed bar — and 251 of the 943 things the reader
+                         circles on those clean pages are NOT printed
+                         noteheads, 218 of them priced at a full crotchet
+                         each, which is why no bar can add up. MERGE=1 runs
+                         the rejected regrouping experiment beside it.
+                         Run it whenever anything about note values,
+                         barlines or the bar decision moves.
+npm run scan:align       the only instrument that can see `headsOf`, the
+                         aligner and the pairing: 32 engraved studies, 4 seeded
+                         takes each, scored as WHICH NOTEHEAD each played note
+                         landed on. Run it whenever anything between a head's
+                         pitch and a mark on the review moves.
+npm run scan:floor       the OTHER question about the pairing: is this take
+                         even this piece? The same 32 studies, 4 takes from
+                         each study's own music against 4 from a DIFFERENT
+                         study, crossings chosen same-clef-and-same-key first.
+                         Prints both score distributions and the trade curve
+                         the confidence floor in `pairNotes` was read off.
+                         Run it whenever that floor or the statistic moves.
 npm test                 unit tests.
 ```
 
 Plus `scan:corpus`, `scan:sizes`, `scan:few`, `scan:bars`, `scan:clef`,
 `scan:clef-hard`, `scan:key-safety` — all synthetic, all must hold.
+
+And two that measure the REVIEW rather than the reader — which branch the app
+takes and what it says out loud, not how well it read:
+
+```
+npm run score:follow     the whole scanned review, end to end, in a headless
+                         browser: the marks, the moving light, pressing a
+                         notehead you played, pressing one nobody played, the
+                         two voices that must never sound together, and the
+                         rhythm sentence with the route it came from — on two
+                         engraved pages with a synthesised take, and then again
+                         on a REAL photograph out of pages/index.json — PHOTO=0
+                         Bach (default), 1 the Concerto, 2 the Scanned score.
+                         37 checks — one counts the audio sources a press
+                         starts, and one holds the bar sentence to what it can
+                         prove: on a page whose bars are refused it must take
+                         the `groups` route and must not say "steady".
+                         --shots leaves the crops it looked at in
+                         $TMPDIR/music-companion-follow.
+                         NO MICROPHONE ANYWHERE IN IT and none may ever be added.
+npm run score:agree      the REVIEW and the full-screen READER, driven through
+                         their own doors on ONE take, compared notehead for
+                         notehead. The reader is one tap from the review
+                         (score-tab.js listens on the whole #score-stage) and
+                         nothing compared what the two said about the same take
+                         until this existed: they disagreed on every note.
+                         13 checks. Run it whenever either view's pairing moves.
+npm run score:hear       the one sentence the review is for — "if you click on
+                         a note on the score you hear that note in the audio" —
+                         counted in AUDIO SOURCES STARTED, by patching
+                         AudioBufferSourceNode.prototype.start and
+                         OscillatorNode.prototype.start in the page. A notehead
+                         you played must start >= 1 buffer source; a notehead
+                         NOBODY played must start ZERO and one oscillator (the
+                         written pitch). It exists because `score:follow`
+                         asserted that a PANEL OPENED, and 35 checks passed
+                         over a press that started nothing at all.
+                         PHOTO=0/1/2 chooses the page. NO MICROPHONE.
+npm run scan:rhythm      which branch scan-rhythm.js takes on the three real
+                         photographs — bars believed against bars refused, and
+                         therefore how many notes could get a verdict against a
+                         PRINTED duration. Today: 0 believed on all three, and
+                         `scan:bars-believed` says that is the RIGHT answer
+                         rather than a missing feature.
+```
 
 **Every one of them needs `npm run dev` running on port 5199**, because the
 tools drive a headless browser against the app's own code. If `bench` comes back
@@ -132,6 +209,26 @@ BEHAVIOUR and what it cost, with the numbers.
   `tools/stave-look.mjs` and `pages/truth/bach.pitch.json` are UNTRACKED, and the
   `scan:steps` line in `package.json` is uncommitted. A `git stash` or a branch
   reset takes the only instrument that measures pitch on real paper with it.
+  **The same is now true of the duration and alignment instruments**:
+  `pages/truth/scanned.values.json`, `tools/value-truth.mjs`,
+  `tools/value-bars.mjs`,
+  `tools/align-check.mjs`, `tools/align-floor.mjs`, `tools/rhythm-check.mjs`,
+  `tools/scan-follow-check.mjs`,
+  `tools/reader-agree-check.mjs`,
+  `src/analysis/scan-sync.js`, `src/analysis/scan-rhythm.js`,
+  `src/audio/written-pitch.js` and `src/fixtures/take-fixture.js` are all
+  untracked as this is written. A stash takes the review's whole scanned half.
+- **A BROWSER CHECK RUN STRAIGHT AFTER AN EDIT MEASURES A DIFFERENT MODULE FROM
+  THE ONE THE APP IS USING.** Vite serves an edited module at a versioned URL
+  (`/src/x.js?t=…`) to everything that imports it, while a check's own
+  `await import('/src/x.js')` asks for the unversioned one — so the check gets a
+  SECOND INSTANCE with its own module state. MEASURED, this round: five checks
+  in `score:follow` failed with "the light never moved" and "the tone sounded
+  midi null" against code that was working, because `report.js`'s follower set
+  and `written-pitch.js`'s `last` lived in one copy and the check read the
+  other. **Restart `npm run dev` after editing and before measuring.** A failure
+  that appears the moment you touch a file and survives a revert is this, not
+  your change.
 - Editing a source file while a measurement is running invalidates it — Vite
   hot-reloads and the page navigates out from under the browser.
 - `ProtocolError: Runtime.callFunctionOn timed out` means the MACHINE is loaded,

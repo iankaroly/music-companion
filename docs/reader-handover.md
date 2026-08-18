@@ -149,6 +149,25 @@ UNTRACKED — and the first three are instruments this document quotes:
 `git stash`, `git checkout` or a branch reset on this tree destroys all of it,
 and the two untracked instruments are not even recoverable from a reflog.
 
+**AND AGAIN AT HEAD `148a4c7`, which is where the scanned review was built.** Run
+`git status --short`; what is untracked now is the whole of the review's scanned
+half plus two more instruments this document quotes:
+
+```
+src/analysis/scan-sync.js     the head <-> recording-seconds bridge
+src/analysis/scan-rhythm.js   the rhythm join
+src/audio/written-pitch.js    the tone for a notehead nobody played
+src/fixtures/take-fixture.js  a take without a microphone, in src/ so vite
+                              serves it to the browser checks
+pages/truth/scanned.values.json  the DURATION ground truth — npm run scan:values
+tools/value-truth.mjs · tools/align-check.mjs · tools/rhythm-check.mjs
+tools/scan-follow-check.mjs
+tests/scan-sync.test.js · tests/scan-rhythm.test.js · tests/scan-follow.test.js
+```
+
+`package.json`'s `scan:values`, `scan:align` and `scan:rhythm` lines are
+uncommitted with them.
+
 **AND HEAD ITSELF IS A COMMIT THIS DOCUMENT NOW CONTRADICTS.** `20e004d` added
 `midBassAt` and claimed a gain for it; the working tree DELETES it, with the
 sweep that says nothing can replace it. A fresh checkout of this branch therefore
@@ -3161,6 +3180,7 @@ ten-pixel staff space a notehead and a rest are the same size and shape class.
 | `npm run scan:few` | the FEW block on its own: two and three systems, one of them printed faint. The only pages in the corpus where `fillMissedStaves` cannot cover for the stave tracker |
 | `npm run scan:sizes` | the SIZES block on its own: one page shape at nine staff spaces from 6 to 28 pixels, clean and photographed, precision and recall for each. The only measurement in the project whose x-axis is scale |
 | `npm run scan:studies` | **THE NORTH STAR FOR PITCH.** 32 real cello studies from `~/Downloads/cello-studies`, engraved with real Bravura from their MusicXML and scored NOTE FOR NOTE against what the file says — 692 notes, fourteen key signatures, one voice. **It is the only instrument in the project that asks what the note IS rather than where the circle is**, so it is the only one that can see a wrong clef, a wrong key, a missed accidental or a head given to the wrong stave — and all four have been caught by it and by nothing else. It is also the only corpus with more than one key in it; the three marked pages are all one sharp and two of them are the same music. Live: 692 found, 666 right pitch, `wrong by semitones {}`. Prints the page key and the per-stave key separately — a page of ONE system has no page key by design and the column used to count that as a failure — and scores the printed ACCIDENTALS on their own, because `RIGHT PITCH` is shared between the clef, the key and the accidental. **Read `wrong by semitones` and `WRONG on 0` first**, the way `scan:key-read`'s wrong-key line is read first. `--camera` is a gentle filter that has never moved a digit; **`--phone` is the one that measures a photograph** (0.72 downscale, blur 1px, contrast 0.62, JPEG 0.6 — the same spoiling `scan:key-read` uses) and **nothing runs it automatically**, which is item 1 of "The next step". `--space N` sweeps size, `--dir <name>` narrows to one study, `--keep <dir>` writes the engraved pages out, `FORCE_CLEF=` re-reads the same music in another clef |
+| `npm run scan:align` | **WHICH NOTEHEAD DID THE TAKE LAND ON** — the first measurement of the ALIGNMENT rather than of the reader. The same 32 engraved studies, but the take is SYNTHESISED FROM THE MUSICXML (dropped notes, inserted squeaks, the odd wrong note, a start somewhere other than the top of the page, seeded so before and after see identical playing) and the reference is what the reader read off its own engraving. "The right notehead" is settled by the engraver's own coordinates, before any pitch is consulted, so this cannot be gamed by a reference that is wrong in the same places as the take. Prints BEFORE and AFTER in one run: the AFTER reference is the shipped `headsOf`, the BEFORE is that same output re-priced through `pitchOf(step, clef, NO_KEY)`, which is character for character the line that used to be in it. Read the SECOND rollup — the takes that stayed on the pitch route — and the count of takes that dropped to the contour route, because a change here moves the ROUTE as well as the quality. **Its pages are ONE TO THREE SYSTEMS long**, which is the shape `agreeKey` cannot get a quorum on, so a page-level key rule shows up here as an alignment result unless the route column is read. `--real` is the companion for the three photographs: no pitch truth exists for them, so it counts COVERAGE only — how many heads reach the aligner with a pitch on them at all — which is the way this change can hurt a real page, because an unpriced head is dropped from the aligner's window. `--takes N`, `--seed N`, `--only <name>`, `--phone` (**run it — the clean numbers and the photographed ones point opposite ways**), `--json` |
 | `npm run scan:bars` / `scan:clef-hard` | synthetic, with real truth |
 | `npm run scan:clef` | THREE blocks. The first two are the clef at the head of a system — the classifier against a column this file samples, then the same thing through `readPage`. The third is a **clef printed part way along a system**, scored NOTE FOR NOTE on pitch, with a paired control and — the part that matters — **twenty-four pieces of furniture printed where the clef would be, clean and photographed, on which the count of clef changes found MUST BE ZERO**. Accidentals on each of the five lines, a repeat barline, a chord of thirds, and the rest. It **fails the build** on a false fire and on a note named wrong on a page whose change it found; a change it MISSES is printed as a DEBT line instead, because that is the reader as it was. It also carries its own copy of the clef-to-MIDI arithmetic and refuses to run if the self-check disagrees — that table has been written wrong twice in this project |
 | `npm run scan:steps -- <pdf> --truth <json>` | **THE STEP, ON A REAL PHOTOGRAPH.** For each hand-marked notehead it finds the PRINTED staff lines around it from the ink alone — no comb tracked across the page, no curve fit, no reader model — and says which line or space the mark is on. It is the only instrument that can see a stave model that has drifted off the print, which a residual test cannot: if the whole model is a step out the heads still land neatly on ITS lines. `--known pages/truth/bach.pitch.json` scores the HARNESS against steps taken from the music (25 of 32, and it prints that before it says anything about the reader — do not trust a step number from a harness that has not self-scored). Prints per system how far the model sits from the print, in steps, and which of the wrong steps that explains. `STEP_DRAW=3,7,11` writes one magnified crop per mark with the lines it found in green and the model in red |
@@ -3193,6 +3213,170 @@ repo can see that class of bug.
 **Every real bug in this reader was found by looking at the page. Every dead end
 came from reasoning about what the code probably does.** `scan:crop` and
 `scan:why` are the two that pay for themselves fastest.
+
+## The key signature reached the aligner, and what that cost
+
+`headsOf` in `src/ui/scan-view.js` — the one function that turns a read page
+into the reference the aligner is handed — priced every notehead with
+`pitchOf(note.step, note.clef, NO_KEY)`, under a comment saying "NO_KEY until
+the signature detector lands". It landed several rounds ago. `notesInOrder`
+had been returning a fully priced `midi` (the clef in force at the head's own
+x, the page's agreed signature, and the accidentals of the head's own bar
+through `applyAccidentals`) and `headsOf` threw all three away and recomputed
+a worse one. The bug was in `headsOf` and nowhere deeper; the fix is a
+deletion, `midi: note.midi ?? null`.
+
+Nothing in the repo could see it, because nothing measured the alignment.
+`npm run scan:align` was built for this and is the number:
+
+```
+                                       right head   WRONG head   unmarked   pitch route
+  every take            BEFORE            93.3%         162          18       128/128
+                        AFTER             91.3%         118         115       120/128
+  the takes that        BEFORE            93.3%         156          17       120/120
+  stayed on pitch       AFTER             94.8%         118          15       120/120
+```
+
+2672 played notes per side, 128 takes, 32 studies, seed 11. It reproduces on a
+second seed — `--seed 29` gives 96.4% -> 97.5% and 78 -> 52 wrong heads — and
+**the misplacement count is the robust half**: the percentage moves a point
+either way with the seed, the drop in wrong heads is -24% and -33%. A quarter of
+the misplacements gone on the takes that were aligned either way, and the
+misplacement histogram says why: the `-1` column falls 68 to 51 and `-2` falls
+18 to 8, while `+1` barely moves (41 to 42). **The gain is not the semitone
+being repaired for its own sake** — `alignScore` runs with `nearMiss`, so a
+semitone already cost 0.6 and not 1.4. It is that a reference wrong on three
+degrees out of seven stops telling one head from its NEIGHBOUR, so a dropped
+note or a squeak slides the whole path by one and nothing pulls it back.
+
+**AND IT COSTS SOMETHING, WHICH IS THE HALF WORTH READING.** `NO_KEY` has an
+`alter` array, so under the old line every head with a readable clef got a
+confident pitch and **no page ever took the contour route for want of a key**.
+Now a page whose signature cannot be established prices its heads null, and
+`pairNotes` drops it to contour — which on those pages refuses outright, no
+marks at all. That is 8 of the 128 takes, and it is exactly the two studies that
+PRINT NO SIGNATURE and have a SINGLE system (`C-major-arpeggio`,
+`A-minor-arpeggio`), where `agreeNoKey` wants more than one witness before it
+will call a page bare. Those two were being answered correctly BY ACCIDENT: C
+major is what `NO_KEY` happens to be. Across all 128 takes that reads as a fall
+from 93.3% to 91.3%, and those two pages are the whole of it.
+
+Rule 5 says that is right — a key nobody read is unknown, not C major — and the
+repair, if anybody wants those pages back, belongs in `agreeNoKey` on a
+one-system page and **not in a default in `headsOf`**.
+
+**AND ON A PAGE THE READER STRUGGLES WITH IT IS MUCH WORSE THAN THAT.** This is
+the number to read before believing the change is safe everywhere.
+`npm run scan:align -- --phone` spoils the same studies the way
+`scan:key-read` spoils its signatures, and most staves then fail to read their
+signature at all:
+
+```
+                                       right head   WRONG head   unmarked   pitch route
+  every take            BEFORE            95.9%          30          71       128/128
+                        AFTER             65.3%         119         728        88/128
+  the takes that        BEFORE            95.7%          22          50        88/88
+  stayed on pitch       AFTER             81.1%          17         299        88/88
+```
+
+Read the BEFORE column with the denominator in mind before concluding that a
+photograph is easier than clean paper: `scorable` leaves out the notes whose
+head the reader never found, and on `--phone` it loses far more of them, so the
+hardest played notes drop out of the denominator (2439 scorable against 2672,
+and 23 of 64 squeaks ringed against 53 of 64).
+
+The mechanism is not the null itself, it is what `alignByPitch` does with one:
+**an unpriced head is FILTERED OUT of the aligner's window**, so a page where
+only SOME staves read a signature hands the aligner a reference with holes in
+it, and every note played over those systems has nowhere to land.
+
+**THAT FILTER HAS SINCE BEEN REMOVED — degrade instead of delete — and most of
+this collapse comes back.** The head now STAYS in the window carrying
+`midi: null`, and `align-score.js` charges `COST.unpriced` to sit a played note
+on it, so an unreadable system absorbs its notes positionally instead of
+closing up and shifting everything around it:
+
+```
+                                       right head   WRONG head   unmarked   pitch route
+  every take            deleted           65.3%         119         728        88/128
+                        degraded          72.9%         177         483        88/128
+  the takes that        deleted           81.1%          17         299        88/88
+  stayed on pitch       degraded          92.3%          75          54        88/88
+  the same, --seed 29   deleted           81.3%          32         282        88/88
+                        degraded          93.8%          61          43        88/88
+```
+
+The denominator is IDENTICAL either side — 1673 scorable played notes over the
+same 88 takes on the same route — so this is not the `scorable` artefact the
+paragraph above warns about. **The plain run does not move at all**: 91.3%
+(2439/2672), 118 wrong, 115 unmarked, 120/128 on the pitch route, digit for
+digit, on both seeds. On clean paper a page either reads its key and prices
+every head or reads none and takes the contour route, so there is almost no
+half-priced reference for the window to keep.
+
+**The constant is not where the result comes from, and the sweep says so.**
+Every value in the legal window (0.6, 2.0) buys eight to eleven points over the
+filter and the spread WITHIN it is 88.9% to 92.3%, not monotone: 0.65 reads
+90.9%, 0.70 reads 92.3%, 0.80 reads 88.9%, 1.00 reads 89.8%, 1.40 reads 91.5%,
+1.80 reads 91.9%. 0.70 ships because it is the best cell on BOTH seeds and 1.00
+is the worst on both, which is the only ordering that reproduces. Under 0.6 an
+unreadable head would outbid a head that WAS read and agrees to a semitone; at
+2.0 the path steps around the hole exactly as the filter did. The full table is
+above `substitutionCost` in `align-score.js`.
+
+The 40 takes that never reach the pitch route are NOT touched by this and must
+not be read as if they were — their pages priced no head at all, so `pairNotes`
+sends them to the contour route whatever the window does, and they are the whole
+of the remaining gap between 72.9% and the 95.9% a C-major assumption bought.
+That is `agreeKey`'s quorum on a one-to-three-system page.
+
+Its verdict comes back **`'unpriced'`** — its own word, never `match`, `near`,
+`wrong` or `octave`, so a head the page could not read is counted as evidence
+neither for the player nor against them, and it is excluded from the wrong-piece
+floor's denominator as well.
+
+**And the flip fails in two OPPOSITE ways depending on the page, which is the
+part to carry forward.** On clean paper the flipped takes refuse outright —
+`findStart` is not sure, no marks at all, `0.0%` and 50 unmarked. On a
+photographed page it is not sure enough to refuse: `pairByShape` runs, and the
+wrong-head count on the flipped takes goes from **8 to 102** (subtract the kept
+rollup from the every-take one: 30 - 22 against 119 - 17). `A-minor-scale`,
+`B-minor-scale` and `C-major-thirds` alone ring 26, 26 and 38 wrong
+noteheads. So the contour route is not a safe place to land a page whose key
+went unread — it is quiet on one kind of page and loud on the other.
+**Degrading instead of deleting is the obvious next move** — keep an unpriced
+head in the aligner's window rather than removing it — and it is a change to the
+WINDOW, not to `headsOf`, and must be measured on its own.
+
+**What saves the real pages is the PAGE-AGREED key, and that is measured rather
+than hoped.** `npm run scan:align -- --real` counts, on the three marked
+photographs, how many heads reach the aligner with a pitch on them at all — no
+truth file needed, a head is priced or it is not:
+
+```
+  page       staves  clefs  staves w/ key  page key   heads   priced NO_KEY   priced from the read key
+  Bach           10     10           5/10   1 sharp     324             324                        324
+  Mozart         10     10           5/10   1 sharp     335             335                        335
+  Scanned        10     10           9/10   1 sharp     439             439                        439
+```
+
+**Not one head lost on any of the three.** Half the staves cannot read the
+signature for themselves on two of these pages, and it does not matter: the page
+agrees one sharp off the five that can, and `notesInOrder` prices every head
+off the page's answer. The `--phone` collapse is a property of pages of ONE TO
+THREE SYSTEMS, where `agreeKey` cannot get a quorum — which is the shape of the
+study corpus and not the shape of a photographed part.
+
+What did NOT move: `npm run bench` (98.9 / 94.1 / 96.4 F1, mean 94.9 precision
+/ 98.1 recall), `npm run scan:key-read` (**0 read as the WRONG key**, 52
+refused), `npm test` (all passing, with three new guards on `headsOf` in tests/scan-pair.test.js).
+None of those three can SEE `src/ui/scan-view.js` — nothing in their import
+graph reaches it — so they are quoted as "unmoved by construction" and not as
+evidence about the change. `scan:align` is the only instrument that can see it.
+And across the 32 studies the reader read 42 stave signatures right, 0 wrong,
+8 unread — the 8 are the bare pages — so no page in this measurement was
+aligned against a MISREAD key.
+
 
 ## Retraining the classifier
 
@@ -4350,6 +4534,453 @@ project does not spend.
   note for note**: 692 found and 666 right pitch either way. `--phone` is the one
   that moves (0.72 downscale, blur 1px, contrast 0.62, JPEG 0.6): 631 found, 378
   right pitch.
+
+### NOTE VALUES ARE NOW MEASURED, and the rhythm path is dead for a reason that is not the beams
+
+`npm run scan:values` — `tools/value-truth.mjs`, against
+`pages/truth/scanned.values.json`. Before this round nothing in the tree scored a
+DURATION on a real page: `npm run scan:stems` sounds like it does and is a
+stem-height sweep. This is the duration twin of `scan:steps`, built the same way
+— truth encoded by cropping every mark at 11x to 40x — and its pairing
+reproduces `truth-check`'s `hit` exactly on all three pages (318, 312, 410),
+which is the check that says a bad number would be the reader's and not the
+tool's.
+
+**Note for note, truth-backed: 38 of 52, 73.1%** over marks 0–32 and 92–123 of
+the Scanned score (systems 1 and 3, eight bars, six of which sum to exactly four
+crotchets from the encoded values alone). Every one of those 52 was found by the
+reader, so recall is not in this number.
+
+**AND STILL 38 of 52 AFTER A DOT READER WAS BUILT FOR IT** — see
+`scan-stems.js`'s header for the two crops that say why, and *WHY EVERY BAR IS
+REFUSED* below for the corpus that says the refusal is right.
+
+**THE HEADLINE IS NOT 73.1%. IT IS THAT `scan-values.js` BELIEVES ZERO BARS ON
+ALL THREE PAGES** — 0 of 39, 0 of 38, 0 of 37, at coverage 21%, 18% and 11%
+against `COVERAGE = 0.55`. So `scanTiming`'s `fromWritten` is false on every real
+page in the repo and always has been; every per-note timing verdict a take has
+ever been given came from the even-spacing fallback. Two causes, and neither of
+them is beam counting:
+
+- **The bar GROUPING is roughly doubled.** The Bach photograph averages **8.3
+  notes per bar-group where a printed 4/4 bar of that page holds sixteen**, and
+  its bar sums scatter (0.5 beats ×8, 4 beats ×7, 1.25 ×4, …). `notesInOrder`
+  numbers bars by counting the barlines found within a stave, and a printed bar
+  split in two makes two half-bars neither of which can ever agree with
+  anything. **This is upstream of `scan-values.js` and no amount of beam work
+  reaches it.**
+- **Chords break the sum by construction.** `validateValues` adds up NOTEHEADS,
+  and two heads on one stem are one onset counted twice. Bar 1 of the Scanned
+  score's system 1 is printed as four crotchet beats and its ten marked heads
+  come to **eight**; the tool prints `printed 4 / truth over the heads 8` side by
+  side. A PERFECT reader cannot make that bar add up. Part of the Scanned page's
+  refusal is therefore unfixable without a notion of a chord.
+
+**And the values themselves are nearly right where the page is uniform.** On the
+Bach photograph 315 of the 318 heads that landed on a hand mark read as
+semiquavers, and that page is 20 bars of sixteen semiquavers — ten systems
+carrying exactly 32 marks each, which is the arithmetic that corroborates it.
+**99.1%, and the page is still refused entirely.** (Truth-backed by the music and
+that mark count, NOT by an encoded values file. While checking it: the "quarter
+rest" recorded in `bach.truth.json`'s own `cleaned` field at (311,751) is not a
+rest — cropped at 12x it is the pencilled fingering **4**. No printed rest was
+found on that page.)
+
+**The 14 wrong values, by mechanism** — this is what rhythm work should aim at:
+
+```
+  beams OVERcounted     7   5 quaver→semiquaver (one printed beam read as two,
+                            and the group vote spread it), 1 crotchet→semiquaver,
+                            1 flagged quaver→semiquaver
+  dot missed            3   3 of 3 dotted quavers in the span — 100% of the
+                            feature. readValues says out loud it does not read
+                            dots; this is the price on a real page
+  beams UNDERcounted    3   2 semiquaver→quaver (the partial second beam that
+                            hooks back off a dotted-quaver pair is not seen),
+                            1 quaver→crotchet
+  hollow missed         1   a minim read as a crotchet at working space 9.6
+```
+
+**A correction to `readValues`' own header comment.** It says an unbeamed filled
+head "is called a crotchet, and where that is wrong the bar it is in will not add
+up". Measured: the one flagged unbeamed quaver in the span (mark 32) came back a
+**semiquaver, `beams: 2`** — the flag's ink is counted as two beams. That is
+worse than the file claims and it is a different repair: not "fall back to a
+crotchet" but "stop the beam counter walking into a flag".
+
+The old bullet above — *Note values beyond beam counting — rests, dots, ties,
+tuplets* — is no longer un-measured. `npm run scan:values` is the instrument.
+
+## THE SCANNED REVIEW, END TO END — what a take on a photograph now does
+
+Five separate pieces of work landed on this in one round (the key in the
+aligner's reference, the time bridge, the duration truth file, the review's
+follow-along, and the rhythm join) and none of them was wired to the next. This
+section is the state of the joined thing, walked by hand in a headless browser
+on port 5199 with a SYNTHESISED take — no microphone, no camera, and none may
+ever be added to this path. `npm run score:follow` is the walk; `--shots` leaves
+the crops it looked at in `$TMPDIR/music-companion-follow`.
+
+**35 checks, ALL PASS.** What the walk actually does, in order, is the user's own
+path: two engraved bass-clef pages in one sharp are stored as a part, a take is
+played FROM WHAT IS WRITTEN on them (37 notes, starting 36 noteheads into page
+one, running over the page break, with three written notes deliberately
+skipped), the review is opened, the take is paired, the transport is pressed and
+the light watched for sixteen seconds, a notehead that WAS played is pressed, a
+notehead NOBODY played is pressed, and the rhythm sentence is read off the
+summary. Then four failures it has to survive: a take of a different piece, a
+page with no clef, the report closed under it, and a take with no notes in it.
+**And then the whole review again on a REAL PHOTOGRAPH** — the Bach page out of
+`pages/index.json`, stored as a PDF-backed part exactly as an imported part is.
+
+**What holds, with the number beside it:**
+
+- 101 noteheads read where 96 were engraved; 37 marks; the PITCH route, not the
+  contour fallback.
+- The light moves over **34 different noteheads in 16 s, strictly forward**, goes
+  out **34 times** (the tenth-of-a-second gaps between notes — the last head is
+  NOT held lit), and crosses onto page two on its own. Asked directly at the
+  moments a screenshot cannot catch: inside a note → head 48, in a gap → null, at
+  the instant a note ends → null, before the take → null, after it → null, NaN →
+  null.
+- 49 silent markers are drawn for the 64 unplayed heads INSIDE the take's reach,
+  each at least 23 px across, and the review says out loud what they are.
+- Pressing one sounds the pitch the PAGE reads there (midi 47 where the page
+  reads 47), says so in words, colours nothing, opens no close-up, and selects no
+  played note. With the report closed underneath it still answers, because that
+  answer never came out of the recording.
+- Pressing a ring opens that note's close-up AND PLAYS THE MOMENT — which this
+  line claimed for a whole round while it measured zero. The check under it
+  asserted that the PANEL OPENED; a panel is not a sound, and pressing a ring
+  started `{ buffersStartedAfterPress: 0, oscillatorsAfterPress: 0,
+  zoomPlayButton: "play" }`. `report.js:playNoteAloud` now builds the
+  emphasised clip around the note's own span (`buildEmphasizedClip`, lead-in cut
+  from 1.2 s to 0.35 s so the note you asked for is what you hear first) and
+  plays it through `playClip`, which silences the written-pitch tone by
+  construction. **`npm run score:hear` is the instrument, and counting audio
+  sources is the whole of it**: `AudioBufferSourceNode.prototype.start` and
+  `OscillatorNode.prototype.start` are patched in the page and counted as
+  deltas around each press. On the Bach photograph, 11 checks, all pass:
+
+  ```
+    press a notehead you PLAYED     1 buffer source, 0 oscillators, ctx running
+    press one NOBODY played         0 buffer sources, 1 oscillator at 185.0 Hz
+  ```
+
+  The second line is rule 5 as a number rather than as an argument. The LAST
+  ring of the take is pressed too, because a take's final note can end a frame
+  past the end of the audio (a frame time against a sample count) and the first
+  version of the guard in `playNoteAloud` refused exactly that press — a fix
+  everywhere except on the one note no check presses. The first press is a REAL
+  MOUSE CLICK with the autoplay policy left ON (no
+  `--autoplay-policy=no-user-gesture-required`, unlike `score:follow`), the
+  light is asserted to land on the very head that was pressed 0.41 s after the
+  source started — the lead-in — and the transport is SAMPLED EVERY FRAME
+  rather than read at the end, because the clip is a second long and a check
+  that waits for it correctly finds ▶ afterwards. `score:follow` carries the
+  one-line version of the same count beside the panel assertion it used to end
+  at (36 checks now, all pass).
+- A page whose clef could not be read draws **0 rings and 0 silent markers** and
+  says why.
+- **ON ALL THREE PHOTOGRAPHS, through the PDF path** — `PHOTO=0`, `1`, `2`.
+  Every one of them is read, DRAWN in the review (1 page, canvas 1656 px), taken
+  onto by PITCH, marked, and given a rhythm sentence; nothing throws on any of
+  them. Read what the take is before reading anything into it: it is synthesised
+  FROM THE READER'S OWN midi for 28 consecutive noteheads, so it says nothing at
+  all about pitch — that is a tautology by construction. What it does say is
+  where the marks LANDED, which is a fact about the aligner and is asked of real
+  paper nowhere else in this repo:
+
+  ```
+    page              heads   priced   marks   on their OWN notehead   dashed
+    Bach                324      324      28          24 of 28            74
+    Concerto            749      749      28          11 of 28           257
+    Scanned score       443      443      28          27 of 28           139
+  ```
+
+  **Every head on every page was priced**, so the "reference with holes" case the
+  `headsOf` note warns about did not arise on real paper — `agreeKey` got its
+  quorum on all three, exactly as `scan:align --real` says it does. **The
+  Concerto losing more than half of a take taken verbatim off its own noteheads
+  is the number to look at**: it is the blurriest of the three and the one whose
+  reference is longest (749 heads, because the whole part is read, not one page),
+  and its marks scatter far enough that the dashed-marker reach covers 257 heads.
+  Nobody has yet drawn one of those misplacements on the page.
+
+**The three seams that were open between the pieces, and what was done to them:**
+
+1. **TWO SOURCES OF TRUTH FOR "WHICH NOTEHEAD".** `alignByPitch` built each mark
+   with `{ ...heads[attempt.score.id] }` — the spread takes the HEAD, so the
+   aligner's own answer died on that line — and `scan-sync.js` then recovered it
+   by matching the exact `(page, x, y)` triple back onto the heads array. All
+   three pairing routes now carry `headIndex`, and the bridge believes it ONLY
+   where the head it points at is the head the mark is a copy of; where it
+   disagrees, or is absent (a hand-built pairing in a test), the place-join
+   answers exactly as before. Pinned by four tests, one of which asserts the two
+   join to the identical spans.
+2. **A RHYTHM VERDICT THE UI NEVER SHOWED.** `src/ui/score.js` called
+   `scanTiming` directly and `scan-rhythm.js` was dead code. It now calls
+   `scanRhythm`, keeps `ready.bars = rhythm.timing` (the same object, so no
+   consumer of that field had to be found) and prints ONE of two sentences,
+   never blended: the written route where the page's own note values could be
+   believed bar by bar, and a refusal WITH ITS REASON where they could not. The
+   walk asserts that the route the sentence claims is the route the join took.
+3. **TWO VOICES THAT COULD SOUND AT ONCE.** Pressing an unplayed notehead gives a
+   synthesised tone; pressing play gives a recording of an instrument; the whole
+   point of the tone is that it cannot be mistaken for the take, and both at once
+   is the one arrangement where that fails. `playClip` now stops the tone, and
+   the tone ANNOUNCES itself (`whenWrittenPitchStarts`) so that report.js can
+   stop the take — inverted deliberately, because `written-pitch.js` must not be
+   able to import anything that can reach a Recorder. Both directions are checked
+   in the browser.
+
+Also: `npm run scan:rhythm` is wired into package.json (it was left out because
+two sessions were editing that file); a dead `HUE` export was removed from
+`scan-view.js`; and the close-up panel no longer says **"null up close"** — the
+heading interpolated a degree's `name`, which the segmenter fills in and a
+fixture does not, so a note that arrived without one put the word `null` in
+front of a player over a graph that was drawing B3 correctly. It falls back to
+the MIDI number's own name, which is the arithmetic the cursor readout two lines
+below was already doing, and `score:follow` now asserts the heading is a note
+name.
+
+### What this review still gets WRONG, measured rather than guessed
+
+### WHY EVERY BAR IS REFUSED — answered, with the page cropped and a new corpus
+
+**Two causes, and the second one is bigger than the barlines.** The old entry
+below said the blocker was the bar GROUPING; that is true and it is not the
+whole of it.
+
+**ONE: the barline reader accepts stems.** Dumping the reader's own answer per
+stave on the Bach photograph and then cropping the page at 6x and looking
+(`tools/crop.mjs` at `274,1277` and `705,1277`, side by side):
+
+```
+  staff 0  bars at 735, 1301          groups of 17, 17 heads     RIGHT
+  staff 1  bars at 696, 1302          groups of 16, 16           RIGHT
+  staff 2  bars at 713 881 918 956…   groups of 17, 4, 1, 1, 6, 2, 2
+  staff 3  bars at 162 309 378 449…   groups of 1, 4, 2, 2, 2, 5, 16
+  staff 8  bars at 1319 only          one group of 32   A BARLINE MISSED
+```
+
+The page is twenty printed bars of sixteen semiquavers. **Four of its ten
+systems are barred exactly right, one has an interior barline missed, and the
+other five are cut into fragments.** What the crop shows at 274,1277 is the STEM
+of a beamed semiquaver group whose notehead sits on the top line and whose beam
+sits on the bottom one: it fills the column between the lines, the beam is five
+pixels of a fifty-pixel stave so nothing wide touches it over most of its
+height, and it does not overhang. All three of `findBars`' tests pass on it. The
+real barline at 705 in the same system is the same shape with nothing attached.
+So `notesInOrder`'s bar-group sums come to **0.5 beats ×8, 4 beats ×7, 1.25 ×4**
+— and the MODE over bar-groups is half a beat, because a two-note fragment and a
+sixteen-note bar count the same.
+
+**TWO: a bar sum is built out of CIRCLES, not out of noteheads.** `npm run
+scan:bars-believed` (new, `tools/value-bars.mjs`) engraves the same 32 studies
+`scan:studies` uses, where **every printed bar is four crotchet beats** and every
+printed notehead's own coordinates are known, so a believed bar can be checked
+against the heads actually printed in it. On those clean, computer-drawn pages:
+
+```
+  printed heads 692 · found 692 · things CIRCLED 943
+  251 circles are not a printed notehead — 218 of them priced at a FULL CROTCHET
+  note values themselves        676 of 692 right, 97.7%
+  bars believed (as shipped)    6 of 200, of which 2 are a printed bar
+```
+
+A page in three sharps has whole beats added to its bars by its own key
+signature. **No arithmetic over those sums can recover a printed bar**, and that
+is why the values being 97.7% right does not help.
+
+**THE OBVIOUS REPAIR WAS BUILT, MEASURED AND REJECTED.** Merging consecutive
+bar-groups until their values add up to a bar — merging only, never splitting,
+so a barline the reader found stays evidence and the system with the missed
+barline stays refused — is a clear win on the Bach photograph: **0 bars believed
+becomes 9 of its 20, and every one of those nine holds exactly the sixteen
+semiquaver heads printed in it.** On the corpus, where the answer can be
+checked, the same code takes bars believed from 6 to 28 and the bars that ARE a
+printed bar from 2 to 10: **eight more right bars bought with fourteen more
+wrong ones.** It is kept whole in `tools/value-bars.mjs` (`MERGE=1`) and is not
+in `src/`. Counting the agreement in NOTES rather than in bar-groups — which is
+right about Bach, and defensible on its own terms — was measured the same way
+and is also not shipped: 19 bars believed of 200 and **not one of them** a
+printed bar.
+
+**A DOT READER WAS BUILT AND TAKEN OUT TOO**, and the reason is in
+`scan-stems.js`'s header with the crops: `npm run scan:values` came back 38 of
+52 either way, with zero dots found. Instrumented, the blob beside mark 94 is
+5×13 px at a staff space of 9.8 — the dot has merged with the staff line above
+it — and the blob beside the dotted CHORD at marks 2 and 3 is 4×17, which is its
+two dots blurred into one vertical smear. A dot at this printing is four or five
+pixels across; it wants a sharper photograph or a shape classifier, not another
+box.
+
+**So the honest answer to "why is every bar refused" is that it SHOULD be**, and
+the next thing that would move it is upstream of the values and upstream of the
+grouping: stop circling the key signature.
+
+- **THE WRITTEN-VALUE ROUTE DOES NOT FIRE ON ANY PAGE IN THIS REPO — including
+  the engraved one.** `npm run scan:rhythm`: Bach 0 of 36 bars believed, Mozart 0
+  of 34, Scanned 0 of 33, coverage 22%, 21%, 12% against the 0.55 gate. And on
+  the walk's own clean engraving, 0 of 17. Its bar table (RHYTHM_DUMP=1) is
+  `1n=0.5 1n=1 1n=0.5 1n=0.5 4n=4 4n=4 3n=2 2n=2 1n=1 3n=3 1n=1 3n=2.5 4n=2.5
+  1n=0.5 3n=1.5 2n=2 2n=2` — every head on that page is an unbeamed filled
+  notehead, i.e. a crotchet, so the two `4n=4` groups are what a whole bar looks
+  like and everything else is a fragment or a value read as half of what it is.
+  So the sentence a user gets about note values is the REFUSAL, always, and the
+  written branch is exercised only by `tests/scan-rhythm.test.js`. That is
+  honest, and it is not a bug in the join: the blockers are upstream, and both
+  are already written up above — the bar GROUPING in `notesInOrder`, and beam
+  counting on a small staff space.
+- **`steadiness` IS A STATEMENT ABOUT THE READER'S BAR-GROUPS, NOT ABOUT A
+  PLAYER'S PULSE — and THE REVIEW NO LONGER SAYS IT IS.** The number is
+  unchanged and still means what this entry says it means; what changed is that
+  `src/ui/score.js` stopped printing it as a verdict on the player. On a page
+  whose bars are refused the sentence now reads *"The barlines found on this
+  page cut what you played into 6 stretches, and the values printed inside them
+  do not add up to equal bars — so one stretch running longer than another is
+  not a fact about your pulse, and nothing here is claiming it is. How even you
+  played is measured directly in the review of the take itself, which needs no
+  page."* The old wording is kept below as the before, and `npm run score:follow`
+  now asserts that on the photograph the bar sentence takes the `groups` route
+  and does not contain the word "steady" — 37 checks, all pass. The claim IS
+  still offered where it can be checked: where three or more bars were believed
+  their lengths hold the same written music and are comparable, and that branch
+  has no executor anywhere, exactly like the written-values sentence beside it.
+  The before:
+  On the walk's engraved take — synthesised on a 0.45 s grid, even by
+  construction, with the free review beside it saying "100% even" — the review
+  reads **"47% steady across 17 bars, dragging"**. A bar-group's length runs from
+  its own first note to the NEXT group's first note, so a group holding one note
+  of a four-note bar measures a quarter of that bar and then stands in the same
+  list as groups that hold all four. A filter was written for this (drop the
+  fragments before computing steadiness, the same argument as `RUNT` but on note
+  counts) and it was TAKEN OUT AGAIN because it does not work: the median count
+  over those seventeen groups is 2, so a half-the-typical filter keeps every
+  fragment, and weighting by notes instead leaves groups of 2, 3 and 4 whose
+  lengths are 0.9 s, 1.35 s and 1.8 s — the spread barely moves. The defect is
+  not that fragments are short, it is that two bar-groups' lengths are only
+  comparable when they hold the same music. The reasoning is in
+  `scan-timing.js` beside the code so nobody writes that filter a third time.
+- **THE FIRST TWO MARKS OF THE WALK'S TAKE ARE ON THE WRONG NOTEHEADS**, and the
+  light dutifully lights them: the take was played from written head 36 and the
+  first marks are head 9 at 0.6 s and head 30 at 1.05 s. The follow-along is
+  exactly as accurate as `alignByPitch` and nothing in the UI can improve on it —
+  this is the same misplacement class `npm run scan:align` counts (118 played
+  notes on the WRONG notehead at seed 11, after the key fix). **Any screenshot of
+  "the take, marked on the page" contains wrong rings**, and the caption has to
+  say so.
+- **`pairNotes` DID NOT REFUSE A WRONG PIECE. IT DOES NOW, and this entry is
+  kept as the before.** Two octaves of D major over these pages used to come back
+  `placed: true` with 24 marks and 77 silent markers, verdicts
+  `{ match: 6, wrong: 6, octave: 7, near: 1 }`. `alignScore` has no refusal in it
+  and always returns a path; the only refusal on the scanned side was
+  `findStart`'s, which the pitch route never reaches on a page that read its own
+  clef. **`pairNotes` now carries a confidence floor** — the share of judgeable
+  marks whose pitch agreed EXACTLY, against 0.70 — and that fixture scores 6 of
+  20, so it comes back `placed: false`, draws nothing, and the review says "what
+  was played does not match the notes on these pages". The refusal is TERMINAL
+  and does not fall through to the contour route, which on a photographed page
+  is sure enough to run and would have laundered it into a different wrong
+  answer. The floor was DERIVED, not picked: **`npm run scan:floor`** builds both
+  distributions on the same 32 studies — 4 takes from each study's own music
+  against 4 played from a DIFFERENT study, crossings chosen
+  same-clef-and-same-key first — and prints the trade curve. Clean: RIGHT n=120
+  min 77% median 93%; WRONG n=120 median 54%, 90th 79%. `--phone`: RIGHT n=88
+  min 64% median 91%; WRONG n=76 median 64%, 90th 91%. At 0.70 it refuses **0 of
+  120 clean and 1 of 88 photographed** right pairings and **96 of 120 / 47 of
+  76** wrong ones; 0.75 costs five more good takes for nine more wrong ones.
+  What survives it is the crossings whose PITCH CONTENT IS IDENTICAL — an
+  arpeggio over its own scale, a relative minor scale over its major — and no
+  floor on a pitch-agreement statistic can catch those, because every note
+  really is on that page in that order. **On real paper** — the only evidence
+  outside the engraved corpus — two octaves of D major over the three marked
+  photographs score 0.58, 0.29 and 0.33 and are refused on all three, while the
+  walk's own 28-note take scores 1.00 on all three and is placed. That 1.00 is a
+  TAUTOLOGY about pitch (the take is synthesised FROM the reference) and says
+  only that the floor does not refuse the app's own walk, which `PHOTO=0`, `1`
+  and `2 npm run score:follow` confirm at 36 PASS each. The Bach row is the
+  thinnest margin anywhere: D major against a page in G major shares six notes
+  of seven, and 0.58 is twelve points under the floor rather than two.
+  **And note what the floor cannot do.** `PHOTO=1` places all 28 marks while
+  only 11 of them land on the notehead they were built from. This number asks
+  whether the notes belong to the page, not where a mark went, and a take on the
+  right page in the wrong place is invisible to it. The whole table is above
+  `FLOOR` in `scan-view.js`.
+- **THE THREE RED UI CHECKS ARE STILL RED AND ARE IDENTICAL TO THE BASELINE,
+  LINE FOR LINE.** Not "the same count" — the runs were diffed against a
+  worktree at `148a4c7` served on its own port: `score:review` 15 FAILED,
+  `score:heads` 3, `score:playback` 2, every failing line and every number in its
+  detail string the same. They fail because those checks draw ellipses on five
+  lines with no clef, where the reader finds 143 noteheads for 80 drawn and
+  prices none of them, so the pairing refuses and nothing is drawn to assert on.
+- **`score:pdf`'s 2 failures are THE SAME REFUSAL AND NOT A DRAWING FAILURE, and
+  that was measured rather than assumed.** It looked like the review might be
+  unable to draw a PDF-backed part — which would have been a hole under the
+  commonest way a part gets into this app — because that check reads 127
+  noteheads off its own PDF and then draws 0 pages. So the check now prints the
+  pairing and the sentence the stage is showing: `placed=null 0 marks over 0
+  heads`, and on the page *"40 notes played, and 127 noteheads read off the pages
+  — but what was played does not follow the shape of the notes on these pages"*.
+  Its PDF is drawn ellipses with no clef, so no head is priced, the contour route
+  runs and refuses, and `renderScanTab` returns before `openPaper` is ever
+  called. **The review demonstrably CAN draw a PDF page**: `score:follow`'s
+  photograph step draws the Bach PDF at 1656 px with 28 rings on it. (A baseline
+  for `score:pdf` could not be taken — a second vite serving a `148a4c7`
+  worktree shares `node_modules/.vite` and pdf.js will not load under it.)
+
+### What is NOT verified, even now
+
+- **The written-value sentence in `src/ui/score.js` has never been rendered by
+  anything.** `notesJudged > 0` is false on every page in the repo, so the branch
+  that names notes on time, late and early is exercised only by
+  `tests/scan-rhythm.test.js` at the module level — the WORDS have no executor.
+  It loads (the browser reports 0 page errors) and that is all that is known.
+  **The same is now true of the bar sentence's `believed` branch** — the one
+  that offers a comparison of bar lengths because the bars it compares hold the
+  same written music. `barsBelieved >= 3` is false on every page here, so what
+  `score:follow` asserts is the `groups` branch beside it, and the believed
+  wording is written and unexecuted. Reported, not claimed.
+- **`follow()` on an ENGRAVED score.** No tool in `tools/` drives it, so the
+  one-line signature change in `score-tab.js` is argued from the code
+  (`score-view.js`'s `noteheadFor` takes one argument and ignores a second;
+  `noteheads.get(null)` is already null-safe) and not measured.
+- **`npm run scan:steps`, `scan:clef`, `scan:clef-hard`, `scan:key-safety`,
+  `scan:corpus` and the rest were NOT run this round**, deliberately: nothing
+  upstream of a step, a clef or a head moved, so none of them can see the diff,
+  and a measurement that cannot see a change is not evidence about it (rule 4, in
+  the honest direction).
+
+### The two things to measure first, next
+
+1. **WHERE THE BARLINES ARE COUNTED, in `notesInOrder`.** It is the single
+   blocker on everything the note values could buy, and the Bach regroup probe
+   already quantifies it: `PER=16 npm run scan:rhythm` regroups that page to the
+   sixteen heads its printed bar actually holds, changes nothing else, and the
+   join goes from 0 of 36 bars believed to **16 of 20**, with 256 of 320 notes on
+   the written route. The values on that page are already 99.1% right.
+2. **THE MISPLACED MARKS, ON THE CONCERTO, WITH THE PAGE DRAWN UNDERNEATH.**
+   `npm run scan:align` measures the population on engraved studies; nobody has
+   yet looked at ONE of them on real paper. There is now a place to start that
+   needs no new fixture: `PHOTO=1 npm run score:follow` puts 28 notes taken
+   verbatim off that page's own noteheads back onto it and only 11 land where
+   they came from, against 27 of 28 on the Scanned score. The walk prints the
+   first four marks and the first four noteheads lit every run, and `--shots`
+   leaves the page with the rings on it.
+
+### One environment trap that cost this round an hour
+
+**A browser check run straight after an edit measures a DIFFERENT COPY of the
+edited module from the one the app is using.** Vite serves an edited module at a
+versioned URL (`/src/x.js?t=…`) to everything that imports it, while a check's
+own `await import('/src/x.js')` asks for the unversioned one — two module
+instances, two sets of module state. MEASURED: five checks in `score:follow`
+failed with "0 noteheads lit" and "tone sounded midi null" against code that was
+working, `report.js`'s follower set and `written-pitch.js`'s `last` living in one
+copy while the check read the other. Reverting the change did not fix it;
+restarting `npm run dev` did, and all 32 checks then passed. **Restart the dev
+server after editing and before measuring.** This is also in CLAUDE.md.
 
 ## The next step, in order
 

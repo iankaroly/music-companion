@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { pairNotes } from '../src/ui/scan-view.js';
+import { pairNotes, headsOf } from '../src/ui/scan-view.js';
+import { keyFromCount } from '../src/analysis/scan-key.js';
 import { semitonesForStep, fitPitches } from '../src/analysis/scan-pitch.js';
 
 // A page of music, as the reader would have measured it: a notehead's position
@@ -153,5 +154,55 @@ describe('pairing on pitches read off the page', () => {
     const noPitch = readHeads(LINE).map((h) => ({ ...h, midi: null, step: h.step }));
     const result = pairNotes(noPitch, play(LINE));
     expect(result.readPitch).toBe(false);
+  });
+});
+
+// The reference the aligner is handed is the pitch THE PAGE READ.
+//
+// headsOf used to re-price every head with `pitchOf(step, clef, NO_KEY)`, so a
+// page in two sharps handed the aligner a reference a semitone out on every F
+// and C — see the comment on headsOf and `npm run scan:align`, which measures
+// what that cost. These two tests are the guard: one that the signature reaches
+// the reference at all, and one that an unread key is still unknown and not C.
+describe('the reference handed to the aligner carries the page it was read off', () => {
+  // A page as readPage returns it: one bass stave, no barlines, three heads —
+  // the bottom line G2, the F below it, and the C above the F.
+  const pageIn = (key) => ({
+    space: 0.01,
+    key,
+    staves: [{
+      clef: 'bass',
+      clefConfidence: 0.9,
+      clefChanges: [],
+      bars: [],
+      key,
+      keyConfidence: 0.8,
+      heads: [
+        { x: 0.2, y: 0.5, step: 0 },    // G2
+        { x: 0.4, y: 0.5, step: -1 },   // F2 — sharpened by anything from 1 sharp
+        { x: 0.6, y: 0.5, step: 3 },    // C3 — sharpened by two
+      ],
+    }],
+  });
+
+  it('sharpens the F and the C on a page in two sharps', () => {
+    const heads = headsOf([pageIn(keyFromCount(2, 'sharp'))]);
+    expect(heads.map((h) => h.midi)).toEqual([43, 42, 49]);
+  });
+
+  it('leaves them alone on a page read as bare C major', () => {
+    // kind 'none' is a READING — agreeNoKey found the place a signature is
+    // printed to be empty on every system — and is not the same thing as null.
+    const heads = headsOf([pageIn({ ...keyFromCount(0, 'sharp'), kind: 'none' })]);
+    expect(heads.map((h) => h.midi)).toEqual([43, 41, 48]);
+  });
+
+  it('gives every head a null pitch when the key could not be read at all', () => {
+    const heads = headsOf([pageIn(null)]);
+    expect(heads.map((h) => h.midi)).toEqual([null, null, null]);
+    // …and that is what sends the page down the contour route rather than
+    // naming its notes off an assumption.
+    expect(pairNotes(heads, [{ midi: 43, cents: 0, start: 0 }, { midi: 41, cents: 0, start: 0.5 }]).readPitch)
+      .toBe(false);
   });
 });

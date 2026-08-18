@@ -14,7 +14,11 @@ import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
 import { noteLanding } from '../analysis/landing.js';
 import { rhythmReport } from '../analysis/rhythm.js';
-import { scanTiming } from '../analysis/scan-timing.js';
+import { scanRhythm } from '../analysis/scan-rhythm.js';
+// Imported rather than rewritten here: the evenness of a list of bar lengths is
+// scan-timing.js's own arithmetic and a second copy of it in the UI is how two
+// numbers that should be the same come to disagree.
+import { spread } from '../analysis/scan-timing.js';
 import { showScore, paint } from './score-view.js';
 import { showScanScore } from './scan-view.js';
 import { openReader } from './reader.js';
@@ -950,6 +954,26 @@ async function renderScanTab() {
     }
   }
 
+  // The dashed circles, explained.
+  //
+  // Inside the passage you played there are noteheads no note landed on —
+  // either you skipped them, or the aligner could not place a note there. They
+  // are drawn, faintly, and they are pressable, and a mark on a page that
+  // nothing accounts for reads as a bug. Said in the same breath as what
+  // pressing one does, because the honest half of that answer is the surprising
+  // half: it sounds what is WRITTEN, synthesised, and never anything out of the
+  // recording — there is no recording of a note nobody played.
+  if (view.quiet > 0) {
+    const line = el('score-tab-summary');
+    if (line) {
+      const extra = document.createElement('small');
+      extra.className = 'scan-pairing';
+      extra.textContent = ` ${view.quiet} noteheads in that passage were never played`
+        + ' — the dashed ones. Press one to hear what is written there, synthesised.';
+      line.append(extra);
+    }
+  }
+
   // …and now the timing, which needed the marks to exist.
   //
   // Until the take was on the noteheads there were no bars to measure it
@@ -957,20 +981,153 @@ async function renderScanTab() {
   // not what a page of music offers. The page has bars on it, and a bar is the
   // unit a player thinks in. Said here rather than in analyseScanTake because
   // it is the pairing, not the audio, that makes it possible.
-  const bars = scanTiming(view.pairing?.marks);
+  // scanRhythm and not scanTiming, and the difference is a whole second half.
+  //
+  // scanTiming answers "was the PULSE steady", which is true of any take and
+  // says nothing about the music. scanRhythm (scan-rhythm.js) asks the page's
+  // own note values whether they may be believed, bar by bar, and where they
+  // may it measures each note against the duration PRINTED there — the same
+  // early/on/late an engraved score gets. It returns scanTiming's whole report
+  // unchanged as `.timing`, so `ready.bars` keeps the exact shape it had and no
+  // consumer of it had to be found.
+  //
+  // WHICH BRANCH FIRES ON A PHOTOGRAPH TODAY, so the sentences below are read
+  // in the right order: `npm run scan:values` says validateValues believes ZERO
+  // bars on all three marked photographs (0 of 39, 0 of 38, 0 of 37) because the
+  // bar GROUPING is doubled upstream in notesInOrder, so on real paper
+  // `notesJudged` is 0 and the coarse sentence is the whole answer. The written
+  // sentence is not dead code — `npm run score:follow` watches it fire on an
+  // engraved page — but nobody should read this block and think a photograph
+  // gets it.
+  const rhythm = scanRhythm(view.pairing?.marks);
+  const bars = rhythm.timing;
   if (bars) {
     ready.bars = bars;
+    // NOT stored whole. `scanRhythm`'s per-note half is used right here to
+    // write the sentence and nothing else reads it, and a field parked on
+    // `ready` that nobody reads is the next round's dead parameter. It is one
+    // call away for whoever needs it.
     const line = el('score-tab-summary');
     if (line) {
+      // WHAT A BAR IS HERE, AND WHY THIS SENTENCE NOW HAS TWO FORMS.
+      //
+      // `bars.steadiness` is the spread of the LENGTHS of the stretches the
+      // reader's barlines cut the take into, and two such stretches are only
+      // comparable when they hold the same amount of written music. This line
+      // used to print that number flat, as "47% steady across 17 bars,
+      // dragging".
+      //
+      // MEASURED, npm run score:follow, on the walk's own engraved page: the
+      // take there is synthesised on a 0.45 s grid — even by construction, and
+      // the free review beside it says "100% even" — and the reader's barlines
+      // cut it into groups of 1, 1, 1, 1, 4, 4, 3, 2, 1, 3 … notes, so a group
+      // holding one note of a four-note bar measured a quarter of that bar and
+      // stood in the same list as groups holding all four. The number was a
+      // statement about the GROUPING, worded as a statement about the player,
+      // and wrong in the direction that flatters nobody.
+      //
+      // MEASURED on real paper, this round, by cropping the page at 6x and
+      // looking at it (tools/crop.mjs, the Bach photograph at 274,1277): what
+      // findBars accepts there is the STEM of a beamed semiquaver group whose
+      // head sits on the top line and whose beam sits on the bottom one — it
+      // fills the column, nothing wide touches it over most of its height, and
+      // it does not overhang, so all three of findBars' tests pass. Nineteen of
+      // that page's thirty-nine bar-groups are fragments cut out by stems like
+      // that one, and four of its ten systems are barred exactly right.
+      //
+      // So the comparison is only offered where it can be checked: across the
+      // bars whose PRINTED VALUES ADD UP to the page's own bar, which therefore
+      // hold the same written length. Everywhere else this says what the
+      // stretches are and refuses to compare them — the take's own free review
+      // measures a pulse directly and needs no page to do it.
       const extra = document.createElement('small');
-      extra.className = 'scan-pairing';
-      const steady = `${Math.round(bars.steadiness * 100)}% steady across ${bars.bars} bars`;
-      const moving = bars.verdict === 'steady' ? '' : `, ${bars.verdict}`;
-      const perNote = bars.evenNotes && Number.isFinite(bars.meanOffMs)
-        ? `, notes ${Math.round(bars.meanOffMs)}ms from where the bar wants them`
-        : '';
-      extra.textContent = ` Against the bars on the page: ${steady}${moving}${perNote}.`;
+      extra.className = 'scan-pairing scan-bars';
+      const whole = (rhythm.bars ?? []).filter((b) => b.believed && b.length > 0);
+      if (whole.length >= 3) {
+        // NO RUSHING-OR-DRAGGING WORD HERE, and it is deliberate rather than
+        // forgotten. `bars.verdict` comes off scanTiming's `drift`, which is
+        // computed over every stretch the barlines cut — fragments included —
+        // so printing it beside an evenness taken over the BELIEVED bars only
+        // would put a comparable number next to an incomparable word and
+        // undo exactly what this branch is for. Drift over the believed bars
+        // alone is the thing to add, and it is not added on a guess: this
+        // branch has no executor anywhere (`barsBelieved >= 3` is false on
+        // every page in the repo), so a second number here could not be
+        // measured either.
+        const even = Math.max(0, 1 - spread(whole.map((b) => b.length)));
+        extra.dataset.route = 'believed';
+        extra.textContent = ` Against the bars on the page: ${whole.length} of the`
+          + ` ${rhythm.bars.length} stretches you played through hold a whole bar of the`
+          + ` values printed in them, and across those your bar lengths were`
+          + ` ${Math.round(even * 100)}% even.`;
+      } else {
+        extra.dataset.route = 'groups';
+        extra.textContent = ` The barlines found on this page cut what you played into`
+          + ` ${bars.bars} stretches, and the values printed inside them do not add up to`
+          + ' equal bars — so one stretch running longer than another is not a fact about'
+          + ' your pulse, and nothing here is claiming it is. How even you played is'
+          + ' measured directly in the review of the take itself, which needs no page.';
+      }
       line.append(extra);
+
+      // …and then the note values, in ONE of two sentences that are never
+      // blended. The two routes measure different things against different
+      // references — see the header of scan-rhythm.js — so there is no field
+      // here that could be worded once and filled from either.
+      const said = document.createElement('small');
+      said.className = 'scan-pairing scan-rhythm';
+      if (rhythm.notesJudged > 0) {
+        // The written route. `on`, `late` and `early` are score-timing's own
+        // words and they are only ever printed for notes that came back from
+        // it; the anchors are counted apart because a run's first note has
+        // nothing to be early against and reads as a free 'on' otherwise.
+        const on = rhythm.perNote.filter((n) => n.verdict === 'on').length;
+        const late = rhythm.perNote.filter((n) => n.verdict === 'late').length;
+        const early = rhythm.perNote.filter((n) => n.verdict === 'early').length;
+        // THE THREE WORDS ARE THEIR OWN TOTAL, and are not counted out of
+        // `notesJudged`. They do not partition it: score-timing.js can give a
+        // note a deviation and still not name it (a run of one, a note whose
+        // start was lost), and scan-rhythm.js carries that through as a null
+        // verdict rather than inventing a word for it. Written as "N of them
+        // named", the sentence would visibly fail to add up.
+        const named = on + late + early;
+        const off = Number.isFinite(rhythm.meanAbsMsWritten)
+          ? `, ${Math.round(rhythm.meanAbsMsWritten)}ms out on average` : '';
+        said.dataset.route = 'written';
+        said.textContent = ` And against the note values PRINTED on the page:`
+          + ` ${rhythm.barsBelieved} of the ${rhythm.bars.length} bars you played in`
+          + ' could be believed,'
+          + ` and ${named} of the ${rhythm.notesJudged} notes measured against them`
+          + ` came back ${on} on time, ${late} late and ${early} early${off}.`;
+      } else {
+        // The refusal, said out loud with its reason, because the sentence
+        // above it is otherwise read as a verdict about the RHYTHM. It is not:
+        // an equal division of a bar is an assumption about the printing, and
+        // nothing here read whether the printing agrees. Rule 5, in words.
+        said.dataset.route = 'even';
+        // Punctuated so the reason reads as an aside and not as the start of
+        // the next clause: "could not be believed — the bars do not agree on
+        // how long a bar is, so nothing here can say" was one sentence saying
+        // two things.
+        const why = rhythm.valuesWhy ? ` (${rhythm.valuesWhy})` : '';
+        // …AND WHERE THE EVEN-ROUTE NUMBER NOW LIVES. It used to hang off the
+        // bar sentence above as "notes 120ms from where the bar wants them",
+        // which says the BAR wanted them there. Nothing read that: it is the
+        // distance from an equal division of a stretch of page, and an equal
+        // division is an assumption about the printing that this branch has
+        // just finished saying it could not check. It belongs under the
+        // refusal, worded as what it measures.
+        const equal = Number.isFinite(rhythm.meanOffMsEven) && rhythm.notesFromEven > 0
+          ? ` What is measured instead is spacing: ${rhythm.notesFromEven} notes fell`
+            + ` ${Math.round(rhythm.meanOffMsEven)}ms on average from an EQUAL division of`
+            + ' their own stretch of page, which is a fact about how you spread them and'
+            + ' not about what is written there.'
+          : '';
+        said.textContent = ` The note values printed on this page could not be`
+          + ` believed${why}, so nothing here can say whether a note was written`
+          + ` long or short.${equal}`;
+      }
+      line.append(said);
     }
   }
 
@@ -991,8 +1148,31 @@ async function renderScanTab() {
 function scanUnplacedNote(pairing) {
   const note = document.createElement('p');
   note.className = 'score-scan-gap';
+  // …AND THE EVIDENCE FOR THE REFUSAL, WHERE THERE IS ANY.
+  //
+  // "what was played does not match the notes on these pages" is a strong thing
+  // to tell somebody about their own playing, and until this round the app
+  // could not say it at all — the pairing believed a wrong piece and reported
+  // "26 notes played onto 50 noteheads, in the order you played them". Now that
+  // pairNotes has a confidence floor it CAN say it, and a flat assertion with no
+  // number behind it is the same failure in the other direction: unarguable.
+  // So where the refusal came from the floor, the count it was read off is
+  // quoted. MEASURED, npm run scan:floor: two octaves of D major over the Bach
+  // photograph score 14 of 24, and the floor is 0.70 — which is the sentence
+  // below, filled in.
+  //
+  // `exactAgreement` is null (never 0) when too few marks were judgeable, and
+  // that refusal has its own `why` and gets no number, because there was none.
+  const judged = Number.isFinite(pairing?.judged) ? pairing.judged : null;
+  const agreed = Number.isFinite(pairing?.exactAgreement) && judged
+    ? Math.round(pairing.exactAgreement * judged)
+    : null;
+  const evidence = agreed === null
+    ? ''
+    : ` Of the ${judged} notes it could compare against a notehead it had priced,`
+      + ` ${agreed} were the pitch printed there.`;
   note.textContent = `${pairing.played} notes played, and ${pairing.heads} noteheads`
-    + ` read off the pages — but ${pairing.why}.`
+    + ` read off the pages — but ${pairing.why}.${evidence}`
     + ' The marks are held back rather than put somewhere they might not belong.';
   return note;
 }
