@@ -535,6 +535,9 @@ export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor =
 // bulge.
 //
 // Slurs go too, being longer and thinner still, and they were noise.
+const BEAM_THIN = 0.5;    // a beam's own thickness, in staff spaces
+const BEAM_LONG = 3;      // …or a run this long, which no head and accidental is
+
 export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8, join = 0.55, stack = 1.8 } = {}) {
   const body = new Uint8Array(ink);
   const runFloor = Math.max(3, Math.round(space * run));
@@ -574,7 +577,28 @@ export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8, join = 0.55
         const base = talls[Math.floor((talls.length - 1) * 0.25)];
         // Ink taller than a notehead everywhere along a long run is not a beam
         // at all — it is a black chord, a bracket, or the edge of the page.
-        if (median <= space * stack) {
+        // A BEAM IS THINNER THAN A NOTEHEAD IS TALL — or else it is long.
+        //
+        // This is what stops the mask eating a notehead that has an accidental
+        // standing against it. At a ten-pixel staff space a flat and the head
+        // it belongs to blur into ONE horizontal run about 2.7 spaces long:
+        // long enough to be a beam by `run`, and its low-quartile column height
+        // is the HEAD's own height, so the sparing test below measures the head
+        // against itself, spares the tall accidental beside it, and erases the
+        // head. MEASURED, `npm run scan:studies -- --phone --dir <A-minor-scale>`:
+        // 23 of 29 notes found and 0 of the 5 notes carrying an accidental;
+        // with the mask off entirely, 28 of 29 and 5 of 5. The five other
+        // suspects in the handover were ruled out one at a time and none of
+        // them was this.
+        //
+        // A beam drawn on paper is about half a staff space thick. What it is
+        // NOT is a space thick, which is what an ellipse is. So the run has to
+        // be thin — or, when it is not, long enough that it cannot be one note
+        // and its accidental: double and triple beams merge into one bar at
+        // photograph resolution and that bar spans a whole beamed group.
+        const thin = base <= space * BEAM_THIN;
+        const long = (end - x) >= space * BEAM_LONG;
+        if (median <= space * stack && (thin || long)) {
           for (let k = x; k < end; k++) {
             const { top, bottom, tall } = extent(k, y);
             // A head joins here.
@@ -1068,7 +1092,7 @@ function bandHasInk(column) {
 // How much of the column between the top and bottom lines has to be ink.
 const BAR_FILL = 0.88;
 // How much of it may have something wide hanging off it.
-const BAR_ATTACHED = 0.4;
+const BAR_ATTACHED = 0.25;
 // How wide the thing hanging off it has to be before it counts.
 const BAR_WIDE = 1.2;
 // How far it may run past the stave before it is a stem going somewhere.
@@ -3360,7 +3384,30 @@ export function notesInOrder(page) {
         // silent about the bar.
         accidental: head.accidental ?? null,
         ...(() => {
-          const key = page?.key ?? staff.key ?? null;
+          // A PAGE WHOSE SYSTEMS DISAGREE NAMES NOTHING, and the stave's own
+          // reading does not get to stand in for the page's.
+          //
+          // `page.key` is null for two quite different reasons and this line
+          // used to treat them as one. On a page of ONE system there is no
+          // second witness and agreeKey declines by design — the stave's own
+          // reading is all there is and it is usually right, which is what
+          // fourteen one-system arpeggio studies score 92% off. But when two
+          // systems DID read a signature and read DIFFERENT ones, agreeKey's
+          // null is a positive finding: one of those two readings is wrong and
+          // nothing here can say which. Falling back to the stave's own answer
+          // there is falling back to a coin toss and reporting it with
+          // confidence.
+          //
+          // MEASURED, `npm run scan:studies -- --phone`, which is the only
+          // corpus in this repo photographed badly enough for the key reader to
+          // fail at all: Bb-major-scale reads [-3 -2] and Eb-major-scale reads
+          // [-2 -3] — first system one flat out in both, second system right in
+          // both — and eight notes came back a semitone or a tone from what is
+          // printed, with full confidence. They were the ONLY confidently wrong
+          // pitches anywhere in this project's measurements. A refusal costs a
+          // note its name; a wrong key costs a page its truth (rule 1).
+          const split = (page?.keyAgreement?.read ?? 0) >= 2 && !page?.key;
+          const key = page?.key ?? (split ? null : staff.key) ?? null;
           // The clef IN FORCE AT THIS NOTE, not the one at the head of the
           // system. Twenty-four of forty-eight notes on an engraved page with a
           // mid-system C-clef were named a ninth wrong by this one line reading

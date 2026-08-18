@@ -9,7 +9,9 @@ version that fits in your head.
 
 `src/analysis/scan-read.js` finds staves, clefs, key signatures, barlines and
 noteheads on a photograph of sheet music, and `scan-notes.js` turns a notehead's
-position into a pitch using the clef and the key. It works on a SINGLE-STAVE
+position into a pitch using the clef and the key. A page whose systems read
+DIFFERENT key signatures names NOTHING — the stave's own reading stands in for
+the page's only where there was no second witness to begin with. It works on a SINGLE-STAVE
 PART in any key, in treble, bass or tenor clef. It reads a C-clef or a TREBLE
 printed part way along a system; it does not read a mid-system BASS, and that is
 measured and written up rather than untried. It has never been tested on a piano
@@ -62,6 +64,16 @@ npm run scan:floor       the OTHER question about the pairing: is this take
                          Prints both score distributions and the trade curve
                          the confidence floor in `pairNotes` was read off.
                          Run it whenever that floor or the statistic moves.
+npm run scan:key-gate    the GATE on the one failure this reader is not allowed
+                         to have: a note named from a key the page could not
+                         agree. `scan:studies --phone` with a non-zero exit.
+                         MUST print `notes NAMED on one of them   0`.
+npm run scan:pages       the SCANNER, not the reader: fourteen drawn camera
+                         frames whose page corners are known, scored as IoU, as
+                         SPILL (how much of the blue outline is not paper) and
+                         as SPANS (one outline over two pages of a book).
+                         95.3% mean IoU, worst spill 9%, 0 spans. Run it
+                         whenever page-edges.js or the scanner UI moves.
 npm test                 unit tests.
 ```
 

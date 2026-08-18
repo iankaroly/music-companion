@@ -81,7 +81,9 @@
     "scan:floor": "node tools/align-floor.mjs",
     "scan:rhythm": "node tools/rhythm-check.mjs",
     "score:agree": "node tools/reader-agree-check.mjs",
-    "scan:bars-believed": "node tools/value-bars.mjs"
+    "scan:bars-believed": "node tools/value-bars.mjs",
+    "scan:pages": "node tools/page-find-check.mjs",
+    "scan:key-gate": "node tools/study-check.mjs --phone --gate"
   },
   "keywords": [],
   "author": "",

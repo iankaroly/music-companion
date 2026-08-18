@@ -364,7 +364,18 @@ for (const file of files) {
       // reader, and this corpus is the only instrument that looks at fourteen
       // keys.
       staveKeys: read.staves.map((s) => (s.key ? (s.key.sharps ? s.key.sharps : -s.key.flats) : null)),
+      // …and how sure each of them was, because when two systems disagree the
+      // only thing that could break the tie is which reading is the better one.
+      staveKeyConf: read.staves.map((s) => (s.key ? Math.round((s.key.confidence ?? 0) * 100) / 100 : null)),
       staves: read.staves.length,
+      // The page's own account of how it got its key, and — the number the gate
+      // is on — how many notes were NAMED on a page whose systems could not
+      // agree one. That is the state a wrong key comes out of: two systems read
+      // two different signatures, neither can be checked against the other, and
+      // whichever one a note happens to sit under used to name it.
+      keyRead: read.keyAgreement?.read ?? 0,
+      namedOnSplitPage: ((read.keyAgreement?.read ?? 0) >= 2 && !read.key)
+        ? matched.filter((m) => m.got.midi != null).length : 0,
       png: shot.toDataURL('image/png'),
     };
   }, { b64: font, study, space, camera, phone, keyAlterArr: keyAlter(study.fifths), bottomDeg: BOTTOM[study.clef] });
@@ -390,7 +401,11 @@ const staveCol = (r) => {
   if (!keys.length) return '—';
   const right = keys.filter((k) => k === r.fifths).length;
   const wrong = keys.filter((k) => k !== null && k !== r.fifths).length;
-  return `${right}/${keys.length}${wrong ? '!' : ''}`;
+  // …and WHAT the wrong one read, because "wrong on 2" is the only line in this
+  // file that a round can act on and it never said what to look at. A signature
+  // read as one flat short is a different bug from one read as a sharp key.
+  const said = wrong ? ` [${keys.map((k, i) => `${k === null ? '—' : k}@${r.staveKeyConf?.[i] ?? '—'}`).join(' ')}]` : '';
+  return `${right}/${keys.length}${wrong ? '!' : ''}${said}`;
 };
 console.log('  study                    key  clef read  page key  staves  notes  found  matched  RIGHT PITCH');
 for (const r of results) {
@@ -433,4 +448,24 @@ console.log(`  notes with NO accidental, given one  ${sum('accInvented')} of ${s
 const off = {};
 for (const r of results) for (const [d, n] of Object.entries(r.offBy ?? {})) off[d] = (off[d] ?? 0) + n;
 console.log(`  wrong by semitones  ${JSON.stringify(off)}`);
+
+// THE GATE. A page whose systems read DIFFERENT signatures knows that one of
+// them is wrong and cannot say which, so it must name nothing at all — see the
+// comment above `split` in scan-read.js. This is the line that holds it, and
+// `--gate` makes the whole run exit non-zero the moment it moves off zero.
+// It belongs on a PHOTOGRAPHED corpus: clean and `--camera` have never had two
+// systems disagree, so a gate run on them cannot see the rule it is guarding.
+const namedOnSplit = results.reduce((a, r) => a + (r.namedOnSplitPage ?? 0), 0);
+const splitPages = results.filter((r) => (r.keyRead ?? 0) >= 2 && r.key === null).length;
+console.log(`\n  pages whose systems disagreed on the key   ${splitPages} of ${results.length}`);
+console.log(`  notes NAMED on one of them                ${namedOnSplit}`
+  + '   <- MUST BE ZERO: nothing can say which system was right');
 if (errs.length) console.log('\npage errors:', errs.slice(0, 3));
+if (args.includes('--gate')) {
+  const bad = [];
+  if (pageWrong) bad.push(`${pageWrong} pages named the WRONG key`);
+  if (namedOnSplit) bad.push(`${namedOnSplit} notes named on a page whose systems disagreed`);
+  console.log(bad.length ? `\nGATE FAILED: ${bad.join('; ')}` : '\nGATE PASSED');
+  await browser.close();
+  process.exit(bad.length ? 1 : 0);
+}

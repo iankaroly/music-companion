@@ -90,6 +90,110 @@ mid-system", which was false once a C-clef and then a treble were read
 mid-system. Where the two ever disagree again, this file is the one that was
 measured.
 
+## THE ROUND THAT WROTE THIS — three items closed, and where each number moved
+
+Everything below this section was true before it. These three are not.
+
+**1. THE WRONG KEY AT PHONE QUALITY IS GONE — the only confidently wrong answer
+anywhere in this project's measurements.** `notesInOrder` used to fall back to a
+STAVE's own key whenever the page could not agree one, and `agreeKey` returns
+null for two quite different reasons: a page of ONE system has no second witness
+(the fallback is right there, and fourteen arpeggio studies score 92% off it),
+and a page whose systems read DIFFERENT signatures knows one of them is wrong
+and cannot say which (the fallback is a coin toss). Those two are now told
+apart: on a split page the pitch is null. MEASURED, `npm run scan:studies --
+--phone`: `Bb-major-scale` reads `[-3 -2]` and `Eb-major-scale` reads `[-2 -3]`
+— first system one flat out on both — and the eight notes those pages named a
+semitone or a tone wrong are now refusals. `wrong by semitones` loses its
+`{1:2, 2:1, -1:3}` group. It costs 50 notes their name at phone quality (347
+right of 692 to 297) and nothing at all clean or at `--camera`, where 666 of 692
+are still right and no page has ever had two systems disagree.
+
+**AND IT HAS A GATE, which is what the old item 1 actually asked for.**
+`npm run scan:key-gate` (= `scan:studies --phone --gate`) exits non-zero if any
+page names a key that is not the printed one OR if a single note is named on a
+page whose systems disagreed. It prints the two lines it holds:
+
+```
+  pages whose systems disagreed on the key   2 of 32
+  notes NAMED on one of them                0   <- MUST BE ZERO
+```
+
+It belongs on a PHOTOGRAPHED corpus and nowhere else: clean and `--camera` have
+never produced a disagreement, so a gate run on them cannot see the rule.
+`scan:studies` also prints WHAT a wrong stave read now — `1/2! [-3 -2]` — because
+"wrong on 2" was the only line in this file a round could act on and it never
+said what to look at.
+
+**2. THE HEAD THAT DISAPPEARS UNDER AN ACCIDENTAL: FOUND, AND IT WAS THE BEAM
+MASK.** The old item 2 had five suspects ruled out one at a time (`open`,
+`HEAD_CUT`, the `fill` floor, the sideways-run bound, `dropDoubledHeads`) and no
+owner. It is none of them: it is `beamMask`. At a ten-pixel staff space a flat
+and the head beside it blur into ONE horizontal run about 2.7 spaces long, which
+is longer than `run` — so the mask treats it as a beam, and because the run's
+low-quartile column height IS the head's own height, the "a head joins here"
+test spares the tall accidental and erases the notehead. MEASURED on
+`A-minor-scale` at `--phone`: 23 of 29 heads and 0 of the 5 notes carrying an
+accidental; with the mask off entirely, 28 and 5.
+
+The mask cannot simply be removed — off, `bench` recall falls to 91.7% and the
+Scanned score loses 57 notes. What separates the two cases is that **a beam is
+thinner than a notehead is tall, or else it is long**: `BEAM_THIN = 0.5` spaces,
+`BEAM_LONG = 3` spaces, either one enough. Swept: at `BEAM_LONG` 2.6 the fix
+disappears entirely, at 2.8 it recovers 4 of the 5, at 3 all five.
+
+```
+                          before            after
+  scan:studies --phone    631 found 91.2%   661 found 95.5%
+    accidental notes      2 of 30 found     26 of 30 found, 25 named right
+    right pitch           297               306
+  scan:studies clean      692 found, 666 right — UNCHANGED, accidentals 30/30
+  bench recall            98.1% mean        98.2% mean (no page falls)
+  bench precision         94.9% mean        93.7% mean
+  scan:sizes beams        100/92/49/10%     100/91/48/10% at space 14/12/8/6
+```
+
+The precision is the price and it is the one rule 2 says to pay: a missing note
+breaks an alignment, an extra circle is cosmetic. It is also the price that
+makes the bar sums harder — see item 3 — so the next round on false circles buys
+it back.
+
+**3. THE BARLINES WERE MOSTLY STEMS, AND THAT WAS THE FIRST OF "the two things to
+measure first".** `BAR_ATTACHED` — how much of a full-height column may have
+something wide hanging off it before it is a stem rather than a barline — was
+0.4. MEASURED with `barProbe` on the Bach photograph, the four false barlines of
+system 3 read `attached` 0.179 to 0.208 while the two REAL ones read 0.000. At
+0.25:
+
+```
+                    Bach          Concerto      Scanned
+  barlines before   40            34            33
+  barlines after    22            24            33
+  printed           20            ~20           —
+```
+
+and the Bach's ten systems go from 2, 3, 9, 7, 5, 3, 10, 2, 2, 2 barlines to
+2, 2, 3, 2, 3, 2, 3, 2, 2, 2. `scan:bars` is unmoved on its must-hold lines
+(mean recall 100%, 63 of 72 systems exactly right, the same as before), `bench`
+does not move one notehead on any page, and `scan:values` now says the thing
+nothing in this repo had ever printed:
+
+```
+  Bach: 15.5 notes per bar-group; the commonest sums are 4 beats x9, 4.25 x4 …
+```
+
+**Nine of the Bach's twenty bar-groups now add up to exactly four beats**, where
+before the round no bar on any real page added up to anything. The join still
+refuses — `COVERAGE` in scan-values.js wants 0.55 and this is 0.45 — and the
+four groups at 4.25 beats are the answer to what is left: each is a bar with ONE
+false circle in it, priced at a semiquaver. The Bach has seven false circles and
+**they were cropped and looked at**: one is the TIME SIGNATURE (a `C`, system 1
+only, at x=181), and the rest are the lower half of a printed SHARP standing in
+front of a note at the head of a system. That is the whole remaining distance to
+a believed bar on a real photograph, and it is the "stop circling the key
+signature" that scan-values.js has been asking for — now with the page and the
+positions to work from.
+
 ## Run it
 
 ```
@@ -4954,7 +5058,12 @@ grouping: stop circling the key signature.
 
 ### The two things to measure first, next
 
-1. **WHERE THE BARLINES ARE COUNTED, in `notesInOrder`.** It is the single
+1. **DONE, and it was `BAR_ATTACHED`: the Bach's forty barlines were mostly
+   STEMS and are now twenty-two, with nine bar-groups summing to exactly four
+   beats. See the top of this file. What is left of this item is the FALSE
+   CIRCLES — a time signature and the lower halves of printed sharps — which is
+   now the whole distance to a believed bar.**
+   **WHERE THE BARLINES ARE COUNTED, in `notesInOrder`.** It is the single
    blocker on everything the note values could buy, and the Bach regroup probe
    already quantifies it: `PER=16 npm run scan:rhythm` regroups that page to the
    sixteen heads its printed bar actually holds, changes nothing else, and the
@@ -5098,7 +5207,10 @@ things it leaves, each with the fixture that can now see it:
 
 ---
 
-1. **THE WRONG KEY AT PHONE QUALITY. It is the only confidently wrong answer
+1. **CLOSED — see "THE ROUND THAT WROTE THIS" at the top. A page whose systems
+   disagree now names nothing, and `npm run scan:key-gate` holds it at zero.
+   What follows is the entry as it stood when it was item 1.**
+   **THE WRONG KEY AT PHONE QUALITY. It is the only confidently wrong answer
    anywhere in this project's measurements and nothing gates it.**
    `npm run scan:studies -- --phone` — 0.72 downscale, blur 1px, contrast 0.62,
    JPEG 0.6, so a 14-pixel staff space arrives as 10 — reads **`stave key right
@@ -5129,7 +5241,9 @@ things it leaves, each with the fixture that can now see it:
    every clean cell is 21 or 22 of 22 in both clefs at every size. Two witnesses
    is not a pattern.
 
-2. **WHY A HEAD WITH AN ACCIDENTAL TOUCHING IT DISAPPEARS ON A PHOTOGRAPH.**
+2. **CLOSED — it was `beamMask`, and none of the five suspects below. See the
+   top of this file for the measurement. What follows is the entry as it stood.**
+   **WHY A HEAD WITH AN ACCIDENTAL TOUCHING IT DISAPPEARS ON A PHOTOGRAPH.**
    Measured, controlled and unowned. At `--phone`, 61 of the studies' 692 heads
    are lost and **28 of the 61 are among the 30 that carry a printed
    accidental** — 4%
@@ -5148,7 +5262,15 @@ things it leaves, each with the fixture that can now see it:
    --phone --dir <one study> --keep <dir>` engraves, scores and writes the PNG
    out — and the table is under *The accidental reader is not the bottleneck*.
 
-3. **`LEDGER_LONGEST = 4`. One constant, and the largest measured recall win
+3. **STALE, AND RE-MEASURED: there is no gain left here to take.** The constant
+   in the tree is `LEDGER_LONGEST = 3` with the second judge's overrule beside
+   it, and the entry below predates both the overrule and the repair of
+   `scanned.truth.json`. `npm run scan:whatif -- 'const LEDGER_SURE = 0.9;'
+   'const LEDGER_SURE = 0.8;'` moves precision and recall by 0.0 points on all
+   three pages, so the heads this entry is about are no longer being thrown away
+   by this rule. Whatever the Concerto's remaining fifteen misses are, they are
+   not this. The entry is kept for its history.
+   **`LEDGER_LONGEST = 4`. One constant, and the largest measured recall win
    left with nothing in front of it.** Eleven of the Concerto's missed notes and
    three of the Scanned score's are found by `findHeads` at classifier scores of
    0.835 to 0.998 and then thrown away by `offStaveIsCredible` for standing on a
