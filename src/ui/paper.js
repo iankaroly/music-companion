@@ -15,6 +15,31 @@
 // engraver. A tuner has no business paying for a PDF renderer.
 
 import { readableImage, sizeOfImage } from './straighten.js';
+import { unshadow } from '../analysis/unshadow.js';
+
+// THE PAGE, BRIGHTENED FOR LOOKING AT — and only for looking at.
+//
+// A player asked for what a scanner app does: "makes the page brighter and
+// eliminating shadows". The lighting is already divided out of a photograph on
+// the way in; what is left is a page the shade it was photographed at, which is
+// grey-brown paper. This takes it the rest of the way — the paper to just under
+// white, the room's colour off it — and it is done HERE, on the pixels that go
+// to the screen, rather than to the page that is stored.
+//
+// It is stored plain because the reader reads the stored page. MEASURED,
+// `npm run scan:import`: brightening what the reader reads costs it notes,
+// 51.4% of the marks on three photographed pages down to 49.9%, because taking
+// the paper up takes the faintest staff lines with it and they are what a stave
+// is found by. So the two are separated — the eye gets the bright page, the
+// reader gets the flat one — and neither is asked to pay for the other.
+function brighten(context, w, h) {
+  if (!(w > 0) || !(h > 0)) return;
+  try {
+    const image = context.getImageData(0, 0, w, h);
+    unshadow(image.data, w, h, { lift: true });
+    context.putImageData(image, 0, 0);
+  } catch { /* a page that will not read back is still a page on the screen */ }
+}
 
 // Where the music actually is on the page.
 //
@@ -532,7 +557,7 @@ async function openImages(blobs, known = {}) {
     },
     measured() { return measuredSoFar(blobs.length, crops, sizes); },
     // The whole photograph, uncropped — see the note on the PDF side.
-    async drawWhole(index, canvas, width, height) {
+    async drawWhole(index, canvas, width, height, { plain = false } = {}) {
       const page = await load(index);
       const dpr = window.devicePixelRatio || 1;
       const fit = Math.min(width / page.w, height / page.h);
@@ -541,13 +566,14 @@ async function openImages(blobs, known = {}) {
       const { context, pixels } = sizeToBand(canvas, w, h, dpr * withinReach(w * dpr, h * dpr));
       context.setTransform(pixels, 0, 0, pixels, 0, 0);
       context.drawImage(page.el, 0, 0, w, h);
+      if (!plain) brighten(context, canvas.width, canvas.height);
     },
-    draw(index, canvas, width, height, band = null) {
+    draw(index, canvas, width, height, band = null, opts = {}) {
       return this.drawBand(index, canvas, band
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
-        : { x: 0, y: 0, w: 1, h: 1 }, width, height);
+        : { x: 0, y: 0, w: 1, h: 1 }, width, height, 1, opts);
     },
-    async drawBand(index, canvas, rect, width, height, density = 1) {
+    async drawBand(index, canvas, rect, width, height, density = 1, { plain = false } = {}) {
       const page = await load(index);
       const dpr = window.devicePixelRatio || 1;
       const crop = region(await cropFor(index), rect);
@@ -564,6 +590,10 @@ async function openImages(blobs, known = {}) {
         density * dpr * withinReach(w * dpr, h * dpr));
       context.setTransform(pixels, 0, 0, pixels, 0, 0);
       context.drawImage(page.el, sx, sy, sw, sh, 0, 0, w, h);
+      // On the pixels that were just drawn — the band, at the size it is being
+      // shown — so nothing is held in memory for it and a page that is never
+      // looked at is never brightened. See `brighten`.
+      if (!plain) brighten(context, canvas.width, canvas.height);
     },
     destroy() {
       for (const promise of cache.values()) {
@@ -657,7 +687,10 @@ export async function readPages(
       // narration stopped on "reading the pages… 1 of 21" and stayed there —
       // the score was already saved and openable, and the only thing broken
       // was the sentence on the screen.
-      await pages.draw(i, sheet, 1400 / dpr, 6000 / dpr);
+      // PLAIN, because this is the reader's copy. The bright page is for the
+      // eye; taking the paper up takes the faintest staff lines with it. See
+      // `brighten` above.
+      await pages.draw(i, sheet, 1400 / dpr, 6000 / dpr, null, { plain: true });
       // Again here, between the two expensive halves of a page. Drawing it and
       // reading it are each about half a second on a tablet, and standing
       // aside only between whole pages meant a turn could still be a full page

@@ -3886,8 +3886,11 @@ async function trimPage(pageNumber) {
   const { editCorners } = await import('./crop.js');
   const sheetCanvas = document.createElement('canvas');
   try {
-    // Big enough to place an edge by eye, and no bigger.
-    await paper.drawWhole(pageNumber, sheetCanvas, 1400, 1900);
+    // Big enough to place an edge by eye, and no bigger — and PLAIN, because
+    // what comes out of this is stored as the page. Brightening belongs on the
+    // way to the screen and not on the way into the library: see `brighten` in
+    // paper.js.
+    await paper.drawWhole(pageNumber, sheetCanvas, 1400, 1900, { plain: true });
   } catch (err) {
     say(`that page could not be drawn to crop — ${err.message}`);
     return;

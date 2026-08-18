@@ -366,6 +366,46 @@ twice the staff space; and — the one thing inside the reader that might surviv
 the measurement — tracking staff lines by their PERIODICITY in the greyscale
 rather than in the binary mask, which is where a one-pixel line still exists.
 
+## THE SCANNER-APP LOOK, and why it is two pages and not one
+
+A player asked for it plainly: "notice how an app like Scanner Pro makes the
+lighting better by making the page brighter and eliminating shadows. can you add
+that to my scanner". `unshadow.js` had refused to do it for a stated reason —
+pushing ink to black and paper to white turns a pencilled fingering into print —
+and the refusal was right about the INK and wrong about the paper.
+
+**What it does now.** The lighting is divided out as before (blur the picture
+until the notes vanish, and what is left is the lamp), and then, for the page
+that goes to the SCREEN, the paper is taken to just under white and the room's
+colour is taken off it — each channel scaled by what that channel's own paper is
+worth, so a page photographed under a tungsten lamp comes back white rather than
+brighter tea. `npm run scan:light`: paper 255, ink 36, and the two far corners of
+a page with a lamp across it read 255 and 253 — the shadow is gone.
+
+**What it still refuses.** There is no threshold and nothing is snapped to either
+end. `test/scan-enhance.test.js` has held since before this round that the ink
+may be lifted with the paper around it and must never be pushed DOWN, and a knee
+at the foot of the curve — the thing that makes a scanner app look crisp — took
+the print from 53 to 49 of 255 and was taken out. A pencil mark still comes back
+a shade lighter than the print beside it.
+
+**And it is two pages, which is the part worth keeping.** MEASURED,
+`npm run scan:import`: brightening the page the READER reads costs it notes —
+51.4% of the marks on the three photographed pages down to 49.9%, the Concerto
+losing two of its ten staves in the version that overshot — because taking the
+paper up takes the faintest staff lines with it, and a staff line at a few per
+cent under the paper is what a stave is found by. So the stored page keeps its
+lighting flattened and nothing else, and the brightening happens in
+`paper.js:brighten`, on the pixels going to the screen, at 33 ms a full-page
+draw. The reader's own call passes `plain: true`, and so does the crop editor,
+whose output is stored.
+
+**One thing that was measured and is worth not re-deriving.** Taking the paper to
+white by overshooting and letting the clamp do the work is what a first attempt
+does, and it is why the reader lost those notes: everything within a few per cent
+of the paper clips to white WITH it. The paper lands at 248 with headroom above
+it instead.
+
 ## Run it
 
 ```

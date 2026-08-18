@@ -82,6 +82,11 @@ npm run scan:import      THE SCAN, not the render: the three marked pages
                          gives the reader. 51.4% recall at a 6px staff space
                          against 85.8% at 10px — the size of the photograph is
                          the lever, not the light.
+npm run scan:light       the two pages a photograph becomes: the bright one
+                         that goes to the screen (paper 255, shadow gone, ink
+                         still ink) and the plain one the reader reads. They are
+                         separate because brightening what the reader reads
+                         costs it notes — see scan:import.
 npm run score:fresh      the SEQUENCE nothing else can see: a review drawn
                          against a scan with no layout at all, then the reading
                          pass started underneath it. The rings have to appear

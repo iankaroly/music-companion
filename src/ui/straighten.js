@@ -193,6 +193,12 @@ export function straightenCanvas(source, width, height, known = null) {
   try {
     const ctx = page.getContext('2d', { willReadFrequently: true });
     const image = ctx.getImageData(0, 0, page.width, page.height);
+    // The page as it will be STORED and read: the lighting divided out, the
+    // shade of the paper left alone. What a player looks at is brightened on
+    // the way to the screen instead — see `lift` in unshadow.js and the display
+    // path in paper.js. MEASURED, `npm run scan:import`: brightening what the
+    // reader reads costs it 1.5 points of recall on the three photographed
+    // pages, and there is no reason to pay that for something the eye wants.
     unshadow(image.data, page.width, page.height);
     ctx.putImageData(image, 0, 0);
   } catch { /* an unlit page is better than no page, but not by enough to fail */ }
