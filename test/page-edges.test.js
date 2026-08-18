@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   findPage, findPages, coverageOf, quadsMoved, homography, through, rectFor,
+  aimedPage,
 } from '../src/analysis/page-edges.js';
 
 // A photograph, as luma: a dark table with a bright quadrilateral of paper on
@@ -209,6 +210,62 @@ describe('an open book', () => {
 
   it('will not hand a spread to a caller that can only keep one page', () => {
     expect(findPage(photographOf(W, H, [LEFT, RIGHT]), W, H)).toBeNull();
+  });
+});
+
+// The complaint these were written for, in the user's words: the blue outline
+// "lights up covering a lot more than just the sheet". A bright thing is not a
+// page unless there is music printed on it, and the paper stops where the
+// surface under it changes — not where the biggest bright blob does.
+describe('stopping at the sheet', () => {
+  it('leaves a bright slab with nothing printed on it alone', () => {
+    const page = [[8, 20], [80, 20], [80, 190], [8, 190]];
+    const luma = photographOf(W, H, [page]);
+    // a lit wall down the other side of the frame: bright, blank, and nearly as
+    // big as the page
+    for (let y = 12; y < 198; y++) {
+      for (let x = 100; x < 154; x++) luma[y * W + x] = 210;
+    }
+    const found = findPages(luma, W, H);
+    expect(found).toHaveLength(1);
+    expect(found[0][1][0] * W).toBeLessThan(96);
+  });
+
+  it('stops at the paper rather than running onto a desk of nearly the same tone', () => {
+    // A page on a desk a shade darker than it is: one bright region, no edge to
+    // speak of, and the whole frame comes back as "paper" without the ink to
+    // say where the sheet is.
+    const page = [[26, 30], [134, 30], [134, 180], [26, 180]];
+    const luma = photographOf(W, H, [page], { table: 196, paper: 226 });
+    const found = findPages(luma, W, H);
+    expect(found).toHaveLength(1);
+    const [tl, , br] = found[0].map(([x, y]) => [x * W, y * H]);
+    expect(tl[0]).toBeGreaterThan(14);
+    expect(br[0]).toBeLessThan(148);
+    expect(tl[1]).toBeGreaterThan(16);
+    expect(br[1]).toBeLessThan(196);
+  });
+});
+
+// One sheet at a time: over an open book the scanner fills in ONE page — the
+// one the phone is pointed at — and keeps that one when the shutter goes.
+describe('the page being aimed at', () => {
+  const LEFT_PAGE = [[0.05, 0.1], [0.45, 0.1], [0.45, 0.9], [0.05, 0.9]];
+  const RIGHT_PAGE = [[0.55, 0.1], [0.95, 0.1], [0.95, 0.9], [0.55, 0.9]];
+
+  it('takes the page the middle of the picture is over', () => {
+    expect(aimedPage([LEFT_PAGE, RIGHT_PAGE], [0.25, 0.5])).toBe(0);
+    expect(aimedPage([LEFT_PAGE, RIGHT_PAGE], [0.75, 0.5])).toBe(1);
+  });
+
+  it('takes the nearest page when the middle falls in the gutter', () => {
+    expect(aimedPage([LEFT_PAGE, RIGHT_PAGE], [0.49, 0.5])).toBe(0);
+    expect(aimedPage([LEFT_PAGE, RIGHT_PAGE], [0.51, 0.5])).toBe(1);
+  });
+
+  it('is the only page there is when there is one', () => {
+    expect(aimedPage([RIGHT_PAGE])).toBe(0);
+    expect(aimedPage([])).toBe(-1);
   });
 });
 

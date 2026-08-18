@@ -130,6 +130,22 @@ function dilate(mask, w, h, times) {
 // bridge ink by its width, the dark that is reachable from the edge of the
 // picture is called background and everything else is called page. Ink cannot
 // reach the edge of the picture; the table can.
+// …but only holes the size of INK.
+//
+// The rule "dark with paper all the way round it is part of the paper" has one
+// way of going badly wrong, and it is the case that made a page against a lit
+// wall impossible to find at all. Photograph a part on a black stand in a bright
+// room and the wall is the bright thing, the stand is a dark ring INSIDE it, and
+// the ring is enclosed — so the whole frame filled in as one page, ink and all,
+// and the shape that came back was the picture's own four corners.
+// MEASURED, `npm run scan:pages`, case "sheet on stand, BRIGHT wall behind":
+// one region, 100% of the frame, 29% of it "ink", and nothing found.
+//
+// So a hole is filled only if it is the size of a mark on paper. `HOLE_MOST` is
+// generous — a beamed group, a rehearsal box, the shadow of a hand — and far
+// under anything that is a piece of furniture.
+const HOLE_MOST = 0.06;      // of the frame
+
 function fillHoles(mask, w, h) {
   const outside = new Uint8Array(w * h);
   const stack = new Int32Array(w * h);
@@ -146,8 +162,37 @@ function fillHoles(mask, w, h) {
     if (y > 0) reach(at - w);
     if (y < h - 1) reach(at + w);
   }
+  // What is left over is enclosed dark — but only the SMALL ones are ink. Each
+  // enclosed patch is walked on its own and filled only if it is under the cap,
+  // so a rehearsal box on the page is closed and the stand the page is sitting
+  // on is not.
   const out = new Uint8Array(w * h);
-  for (let i = 0; i < w * h; i++) out[i] = mask[i] || !outside[i] ? 1 : 0;
+  for (let i = 0; i < w * h; i++) out[i] = mask[i] ? 1 : 0;
+  const cap = w * h * HOLE_MOST;
+  const seen = new Uint8Array(w * h);
+  for (let start = 0; start < w * h; start++) {
+    if (mask[start] || outside[start] || seen[start]) continue;
+    top = 0;
+    stack[top++] = start;
+    seen[start] = 1;
+    const patch = [];
+    while (top > 0) {
+      const at = stack[--top];
+      patch.push(at);
+      const x = at % w;
+      const y = (at / w) | 0;
+      const step = (to) => {
+        if (mask[to] || outside[to] || seen[to]) return;
+        seen[to] = 1;
+        stack[top++] = to;
+      };
+      if (x > 0) step(at - 1);
+      if (x < w - 1) step(at + 1);
+      if (y > 0) step(at - w);
+      if (y < h - 1) step(at + w);
+    }
+    if (patch.length <= cap) for (const at of patch) out[at] = 1;
+  }
   return out;
 }
 
@@ -204,6 +249,28 @@ function cornersOf(pixels, w) {
 
 const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
 const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+
+// How much of a quadrilateral the bright region inside it actually fills, in
+// pixels, for the last test in `looksLikePaper`. Counted rather than taken from
+// the region's own size, because the quadrilateral is cut back to the sheet
+// afterwards and the region it came from may be much bigger than what is left.
+function fillOf(region, quad, w) {
+  const side = (a, b, p) => (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0]);
+  let inside = 0;
+  for (const at of region) {
+    const p = [at % w, (at / w) | 0];
+    let sign = 0;
+    let ok = true;
+    for (let i = 0; i < 4 && ok; i++) {
+      const s = side(quad[i], quad[(i + 1) % 4], p);
+      if (s === 0) continue;
+      if (sign === 0) sign = Math.sign(s);
+      else if (Math.sign(s) !== sign) ok = false;
+    }
+    if (ok) inside++;
+  }
+  return inside;
+}
 
 function quadArea(q) {
   let sum = 0;
@@ -267,6 +334,429 @@ function looksLikePaper(quad, area, w, h, floor = 0.25) {
   return true;
 }
 
+// --- the ink on it ------------------------------------------------------------
+//
+// Brightness alone cannot say where a sheet of paper stops, and the outline
+// covering "a lot more than just the sheet" is what that looks like on a real
+// camera. Everything above splits the picture into bright and dark and takes
+// the biggest bright thing: on a dark table that IS the page, and on a pale
+// desk, against a lit wall, or with the white lip of a stand touching the
+// paper, the biggest bright thing is the page AND whatever it is lying on.
+// MEASURED, `npm run scan:pages` before this section existed: a page on a white
+// desk was not found at all, a page against a bright wall was not found at all,
+// a bright slab beside the page came back as a SECOND page (100% of that
+// outline was not paper), and the lip of a stand added 16% to the one round the
+// page.
+//
+// The thing that separates all four from a page is that a page of music has
+// MUSIC ON IT. Staff lines, beams, a title — dark marks over most of the paper,
+// in a band that stops where the paper's margin starts. A wall has none, a desk
+// has none, and the gutter of a book has none, which is the same fact answering
+// three different questions:
+//
+//   is this paper?          a bright shape with no ink on it is not a page.
+//   where does it stop?     a broad band of blank at the edge of a bright blob
+//                           is not the page's margin, it is the desk.
+//   is this one page?       a corridor with no ink down the middle of a wide
+//                           bright shape is the fold of a book.
+//
+// It is deliberately a measure of INK rather than of edges: a phone photograph
+// of paper on a pale desk often has no edge to find — the two are within a few
+// levels of each other and the camera's own noise is bigger than the step — but
+// the difference in what is PRINTED on them is total.
+
+// The rim is left out of every reading of the ink.
+//
+// A quadrilateral round a sheet of paper always has DARK along its edge — the
+// table just outside it, the shadow the paper casts, the camera's own vignette
+// in the corners — and read as ink that says every page has ink from 0.00 to
+// 1.00 on both axes. MEASURED, `npm run scan:pages -- --why` before this: a
+// bright slab of WALL beside the page came back with 10.5% "ink" on it, all of
+// it in the last fifth, and was outlined as a second page; and no page anywhere
+// in the corpus could be trimmed, because none of them had a blank edge to
+// trim. So the ink is read of the inside of the shape and the answers are
+// mapped back out.
+const INK_INSET = 0.05;       // of the quadrilateral, at each edge
+const INK_COLS = 64;          // the grid the ink is read on, across the page…
+const INK_ROWS = 88;          // …and down it
+const INK_PAPER = 0.75;       // "paper" for a row is this quantile of the row
+const INK_DARK = 0.92;        // and ink is this much darker than that
+const INK_FLOOR = 0.012;      // a page carries at least this much ink
+const INK_CEILING = 0.62;     // and this much means it is not paper but ink
+const INK_SPREAD = 0.45;      // and it reaches at least this far across the page
+const BLANK_EDGE = 0.12;      // a blank band this wide at an edge may not be margin
+const KEEP_MARGIN = 0.08;     // …and what is left of it when the rest is cut
+
+// The ink on a quadrilateral, as a grid in the PAGE's own square: `dark[r][c]`
+// is 1 where that patch of the page is darker than the paper around it. Read
+// through the homography rather than off the picture, so a page photographed at
+// an angle is read square and a row of the grid is a row of the page.
+//
+// The paper level is taken per ROW rather than once for the whole page, because
+// a photograph of paper is never evenly lit — a shadow across the bottom third
+// is normal, and one number for the page calls all of it ink.
+function inkGrid(quad, luma, w, h) {
+  const map = homography([[0, 0], [1, 0], [1, 1], [0, 1]], quad);
+  if (!map) return null;
+  const dark = new Uint8Array(INK_COLS * INK_ROWS);
+  const value = new Float64Array(INK_COLS * INK_ROWS);
+  // Each patch is read as NINE samples, not one — its average for the surface
+  // and its darkest for the ink. One sample a patch misses anything thinner
+  // than the grid: MEASURED, `npm run scan:pages -- --why`, case "open book,
+  // FAINT fold": the seam is twenty pixels of a sixteen-hundred-pixel frame,
+  // the grid steps twenty pixels at a time, and the fold simply was not in the
+  // reading — the paper level across the book ran smooth through the middle
+  // where the gutter is. Staff lines are thin the same way.
+  const low = new Float64Array(INK_COLS * INK_ROWS);
+  const inside = (t) => INK_INSET + t * (1 - 2 * INK_INSET);
+  const stepU = (1 - 2 * INK_INSET) / INK_COLS;
+  const stepV = (1 - 2 * INK_INSET) / INK_ROWS;
+  for (let r = 0; r < INK_ROWS; r++) {
+    const v = inside((r + 0.5) / INK_ROWS);
+    for (let c = 0; c < INK_COLS; c++) {
+      const u = inside((c + 0.5) / INK_COLS);
+      let sum = 0;
+      let darkest = Infinity;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const [x, y] = through(map, u + dx * stepU / 3, v + dy * stepV / 3);
+          const px = Math.max(0, Math.min(w - 1, Math.round(x)));
+          const py = Math.max(0, Math.min(h - 1, Math.round(y)));
+          const seen = luma[py * w + px];
+          sum += seen;
+          if (seen < darkest) darkest = seen;
+        }
+      }
+      value[r * INK_COLS + c] = sum / 9;
+      low[r * INK_COLS + c] = darkest;
+    }
+  }
+
+  // What counts as ink is decided against the paper AROUND each patch, in both
+  // directions, and that is not a detail — it is what stops a darker SURFACE
+  // being read as ink.
+  //
+  // Taken one row at a time (which is what this did first), a desk a shade
+  // darker than the paper is "ink" all down the side of the picture, because
+  // the row it is in is mostly paper and it is darker than that. MEASURED,
+  // `npm run scan:pages -- --why`, case "sheet on a WHITE desk": the ink ran
+  // from 0.05 to 0.95 across a shape that was two thirds desk, so there was no
+  // blank band at the edge to notice and 39% of the outline was not paper.
+  //
+  // A patch is ink if it is darker than its own row AND its own column. A desk
+  // down the left of the picture fills its columns, so the column's own level
+  // IS the desk and the desk is not darker than itself. The gutter of a book
+  // works the same way and this is what lets a fold be found in the ink: a seam
+  // fills its column, so the column reads blank rather than solid black.
+  const quantile = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor((sorted.length - 1) * INK_PAPER)];
+  };
+  const rowLevel = [];
+  for (let r = 0; r < INK_ROWS; r++) {
+    rowLevel.push(quantile([...value.slice(r * INK_COLS, (r + 1) * INK_COLS)]));
+  }
+  const colLevel = [];
+  for (let c = 0; c < INK_COLS; c++) {
+    const column = [];
+    for (let r = 0; r < INK_ROWS; r++) column.push(value[r * INK_COLS + c]);
+    colLevel.push(quantile(column));
+  }
+  let total = 0;
+  for (let r = 0; r < INK_ROWS; r++) {
+    for (let c = 0; c < INK_COLS; c++) {
+      const cut = Math.min(rowLevel[r], colLevel[c]) * INK_DARK;
+      if (low[r * INK_COLS + c] < cut) { dark[r * INK_COLS + c] = 1; total++; }
+    }
+  }
+  return { dark, value, total, share: total / (INK_COLS * INK_ROWS) };
+}
+
+// Is there music on it? A wall, a desk and a tablecloth come back near zero; a
+// page of music sits between about 0.05 and 0.35. The ceiling is there because
+// a black music stand read through a bright frame comes back nearly all "ink",
+// and so does the dark table itself when the threshold lands the wrong side of
+// the split.
+function hasInk(grid) {
+  if (!grid || grid.share < INK_FLOOR || grid.share > INK_CEILING) return false;
+  // …and the music has to be spread over the shape. MEASURED, `npm run
+  // scan:pages`, case "sheet with a bright slab beside it": a slab of lit WALL
+  // carries 5% ink by this reading — all of it in the last fifth, where the
+  // quadrilateral has run off the slab onto the dark room behind — and it was
+  // outlined as a second page. A page of music is inked across most of itself
+  // in both directions.
+  const span = inkSpan(grid);
+  if (!span.across || !span.down) return false;
+  return span.across[1] - span.across[0] >= INK_SPREAD
+    && span.down[1] - span.down[0] >= INK_SPREAD;
+}
+
+// Where the ink starts and stops, along each axis, in the page's own 0–1 terms.
+// A row or column counts as inked if a few of its patches are, so one noisy
+// sample cannot stretch the page over the desk.
+function inkSpan(grid) {
+  const rows = [];
+  const cols = new Float64Array(INK_COLS);
+  for (let r = 0; r < INK_ROWS; r++) {
+    let count = 0;
+    for (let c = 0; c < INK_COLS; c++) {
+      if (grid.dark[r * INK_COLS + c]) { count++; cols[c]++; }
+    }
+    rows.push(count);
+  }
+  const spanOf = (counts, n, floor) => {
+    let first = -1;
+    let last = -1;
+    for (let i = 0; i < n; i++) {
+      if (counts[i] >= floor) { if (first < 0) first = i; last = i; }
+    }
+    if (first < 0) return null;
+    // …and back into the whole quadrilateral's terms, since the grid is read of
+    // the inside of it.
+    const out = (t) => INK_INSET + t * (1 - 2 * INK_INSET);
+    return [out(first / n), out((last + 1) / n)];
+  };
+  return {
+    down: spanOf(rows, INK_ROWS, Math.max(2, INK_COLS * 0.03)),
+    across: spanOf(cols, INK_COLS, Math.max(2, INK_ROWS * 0.03)),
+  };
+}
+
+// The part of a quadrilateral that is actually the sheet.
+//
+// A page's own margin is narrow — the printed area of engraved music starts
+// within a fifth of the paper on every side — so a blank band WIDER than that
+// at the edge of a bright blob is not margin, it is whatever the paper was
+// lying on. This cuts it back to the ink plus a margin of its own, in the
+// page's square, so a photograph taken at an angle is cut along the page's
+// edges rather than along the picture's.
+//
+// It cuts only when the blank band is wide enough to be somebody's desk, and it
+// never cuts into the ink. A page that was found correctly is left exactly as
+// it was: MEASURED, `npm run scan:pages`, every case that was already right
+// keeps its IoU to within a point.
+// The paper's own brightness, read one line at a time and ignoring the ink,
+// down the page and across it. Ink is left out because a row through a system
+// of music is darker than the paper it is printed on and that has nothing to do
+// with where the paper stops.
+function paperProfiles(grid) {
+  const middleOf = (values) => {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length / 2)];
+  };
+  // The paper in a line is the BRIGHT end of it — the ninth decile — and not
+  // the middle of the patches that are not ink. Taking the middle of what is
+  // left after the ink is removed sounds equivalent and is not: a line that
+  // runs the length of a staff line is ink nearly all the way across, so there
+  // is nothing left to take the middle of, and the reading comes back as the
+  // ink itself. MEASURED, `test/page-edges.test.js`, "finds a page with heavy
+  // ink on it": the profile down that page read 220 45 220 45, every jump was a
+  // step of eighty per cent, and the page was cut off at the first of them —
+  // 38 pixels of a 182-pixel page.
+  const PAPER = 0.9;
+  const brightOf = (values) => {
+    if (!values.length) return null;
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor((sorted.length - 1) * PAPER)];
+  };
+  // Each line is read across the MIDDLE of the shape rather than the whole of
+  // it. A camera darkens the corners of its picture — every phone does, and it
+  // is a lens, not a mistake — so a line read corner to corner falls away at
+  // both ends of the shape and the fall looks like the edge of a piece of
+  // paper. It is strongest exactly where this reading is weakest and absent
+  // down the middle, where a real edge shows just as well.
+  // MEASURED, `npm run scan:pages`, "sheet held close": read corner to corner,
+  // the vignette cut an eighth off a page that filled the frame.
+  const MIDDLE = 0.25;
+  const fromCol = Math.round(INK_COLS * MIDDLE);
+  const toCol = INK_COLS - fromCol;
+  const fromRow = Math.round(INK_ROWS * MIDDLE);
+  const toRow = INK_ROWS - fromRow;
+  const down = [];
+  const across = [];
+  for (let r = 0; r < INK_ROWS; r++) {
+    const seen = [];
+    for (let c = fromCol; c < toCol; c++) seen.push(grid.value[r * INK_COLS + c]);
+    down.push(brightOf(seen));
+  }
+  for (let c = 0; c < INK_COLS; c++) {
+    const seen = [];
+    for (let r = fromRow; r < toRow; r++) seen.push(grid.value[r * INK_COLS + c]);
+    across.push(brightOf(seen));
+  }
+  // …and then the brightest reading within a line or two either way, because a
+  // line that lies ALONG a staff line has no paper in it at all. Paper is what
+  // the neighbourhood is made of; a step from one surface to another survives
+  // this (it moves the reading by a line or two), a staff line does not.
+  // ONE line either way, MEASURED by sweeping it: at a reach of one the worst
+  // spill over the corpus is 9%, at two it is 15% and at three 20% — the wider
+  // the neighbourhood, the further the paper's own level reaches out over the
+  // desk and the later the edge is cut. Mean IoU moves the other way by half a
+  // point, and spill is the number the complaint is about.
+  const REACH = 1;
+  const brightest = (profile) => profile.map((_, i) => {
+    let most = null;
+    for (let k = -REACH; k <= REACH; k++) {
+      const seen = profile[i + k];
+      if (seen !== undefined && seen !== null && (most === null || seen > most)) most = seen;
+    }
+    return most;
+  });
+  return { middleOf, downProfile: brightest(down), acrossProfile: brightest(across) };
+}
+
+function trimToInk(quad, luma, w, h) {
+  const grid = inkGrid(quad, luma, w, h);
+  if (!grid || !hasInk(grid)) return quad;
+  const span = inkSpan(grid);
+  if (!span.down || !span.across) return quad;
+  const map = homography([[0, 0], [1, 0], [1, 1], [0, 1]], quad);
+  if (!map) return quad;
+
+  const { middleOf, downProfile, acrossProfile } = paperProfiles(grid);
+
+  // Where the surface CHANGES inside a blank band, and by how much.
+  //
+  // This is the whole of the rule, and it is deliberately a step rather than a
+  // width or an average. A page's own margin and the page are one sheet of
+  // paper: the brightness runs through them unbroken, however wide the margin
+  // is and however unevenly the page is lit. A desk, the lip of a stand, the
+  // next sheet in the pile is a different surface, and where it starts there is
+  // a STEP — a couple of grid rows across which the level jumps and then stays
+  // jumped.
+  //
+  // Two rules that were tried first and are wrong, both MEASURED with
+  // `npm run scan:pages`: cutting every blank band wider than a fifth of the
+  // page took the bottom off a page that was found perfectly (97.6% IoU to
+  // 83.4%), because the last system does not reach the bottom of the paper; and
+  // comparing the band against the page's own average level cut a quarter off
+  // the page with the phone's shadow lying across it (98.2% to 73.6%), because
+  // a shadow IS a different level — it is just not a different surface. A
+  // gradient has no step in it, which is exactly how the two differ.
+  const STEP = 0.045;              // how big the jump across the edge has to be
+  const HOLDS = 0.5;               // …and how much of it must STAY jumped
+  const OVER_NOISE = 3;            // …and how far above the profile's own wobble
+  // A page held close is nearly all music, and the paper level read between the
+  // systems wobbles by several levels a line. Read raw, that wobble contains a
+  // "step" of five per cent almost anywhere, and one of them cut a page that
+  // filled the frame down by an eighth (MEASURED, `npm run scan:pages`, "sheet
+  // held close": 98.2% IoU to 86.2%). So the profile is smoothed first, and a
+  // step has to stand clear of how much the profile moves line to line anyway.
+  const smooth = (profile) => profile.map((_, i) => {
+    const seen = [profile[i - 1], profile[i], profile[i + 1]].filter((n) => n !== null && n !== undefined);
+    return seen.length ? seen.sort((a, b) => a - b)[Math.floor(seen.length / 2)] : null;
+  });
+  const wobble = (profile) => {
+    const steps = [];
+    for (let i = 1; i < profile.length; i++) {
+      if (profile[i] !== null && profile[i - 1] !== null) steps.push(Math.abs(profile[i] - profile[i - 1]));
+    }
+    if (!steps.length) return 0;
+    steps.sort((a, b) => a - b);
+    return steps[Math.floor(steps.length / 2)];
+  };
+  const near = (profile, from, to) => middleOf(profile
+    .slice(Math.max(0, from), Math.min(profile.length, to))
+    .filter((n) => n !== null));
+  const stepIn = (raw, from, to) => {
+    const profile = smooth(raw);
+    const floor = wobble(profile) * OVER_NOISE;
+    let bestAt = -1;
+    let best = 0;
+    for (let i = Math.max(3, from); i <= Math.min(profile.length - 3, to); i++) {
+      const before = near(profile, i - 2, i);
+      const after = near(profile, i + 1, i + 3);
+      if (before === null || after === null) continue;
+      const scale = Math.max(before, after);
+      const jump = Math.abs(after - before) / scale;
+      if (jump <= STEP || jump <= best) continue;
+      if (Math.abs(after - before) < floor) continue;
+      // An EDGE stops. A gradient keeps going, and a gradient is what a shadow
+      // across the page and the camera's own vignette both are: the level three
+      // lines further on has moved as far again. MEASURED, `npm run scan:pages`,
+      // "sheet with the phone's shadow across it": judging the jump alone cut a
+      // third of that page away (98.2% IoU to 64.3%).
+      const outward = near(profile, i - 5, i - 2);
+      const onward = near(profile, i + 3, i + 6);
+      const keeps = (a, b) => (a === null || b === null
+        ? true : Math.abs(b - a) / scale < jump * HOLDS);
+      if (!keeps(before, outward) || !keeps(after, onward)) continue;
+      best = jump;
+      bestAt = i;
+    }
+    return best > STEP ? bestAt : -1;
+  };
+
+  const at = (t, n) => Math.max(0, Math.min(n, Math.round(((t - INK_INSET) / (1 - 2 * INK_INSET)) * n)));
+  const back = (i, n) => INK_INSET + (i / n) * (1 - 2 * INK_INSET);
+  const rowFrom = at(span.down[0], INK_ROWS);
+  const rowTo = at(span.down[1], INK_ROWS);
+  const colFrom = at(span.across[0], INK_COLS);
+  const colTo = at(span.across[1], INK_COLS);
+
+  // How much ink there is in each line, so a cut can be checked against the one
+  // thing that must never happen: taking music off the page.
+  const rowInk = new Float64Array(INK_ROWS);
+  const colInk = new Float64Array(INK_COLS);
+  for (let r = 0; r < INK_ROWS; r++) {
+    for (let c = 0; c < INK_COLS; c++) {
+      if (grid.dark[r * INK_COLS + c]) { rowInk[r]++; colInk[c]++; }
+    }
+  }
+
+  // The search runs in the outer third of the shape from each side and takes
+  // the strongest step it finds there, whether or not there is a wide blank
+  // band to look in. Waiting for a blank band was tried and does not work: a
+  // desk a shade darker than the paper leaves the odd patch reading as ink out
+  // in the desk, so the "blank" band is a few per cent wide and the search
+  // never ran. MEASURED, `npm run scan:pages`, case "sheet on a WHITE desk":
+  // 40% of the outline was desk, with the step sitting plainly in the profile.
+  //
+  // A cut is only taken if what it removes is nearly empty of music — a fifth
+  // of what is left, no more. That is the guard that makes searching the whole
+  // outer third safe: a heavy step INSIDE the page (a title block, a rehearsal
+  // band, the fold of a page turned back) has music beyond it and is refused.
+  const CUT_MOST = 0.28;             // never take more than this off one side
+  // A tenth, MEASURED by sweeping it: at a fifth the knee of the phone's own
+  // shadow across a page was taken for the paper's edge and cut the bottom
+  // system off (98.2% IoU to 83.5%), because the one system below the knee is
+  // an eighth of the page's ink. At a tenth and at a twentieth the corpus reads
+  // the same, so the looser of the two is kept.
+  const CARRIES = 0.1;               // …and only if it carries this little ink
+  const inkIn = (counts, from, to) => {
+    let sum = 0;
+    for (let i = Math.max(0, from); i < Math.min(counts.length, to); i++) sum += counts[i];
+    return sum;
+  };
+  // The outer third itself, not "the outer third up to where the ink starts".
+  // The camera's own vignette darkens the corners of the frame past any
+  // threshold, so a shape that runs to the edge of the picture has a patch or
+  // two of "ink" in its corners and the ink never starts at zero. MEASURED,
+  // `npm run scan:pages`, "sheet on a WHITE desk" again: clamping the search
+  // there left the step unlooked-for and a third of the outline desk. The guard
+  // that keeps this safe is the ink one below, not where the search stops.
+  const cutStart = (profile, counts, inkFrom, n) => {
+    const found = stepIn(profile, 0, Math.round(n * CUT_MOST));
+    if (found < 0) return 0;
+    if (inkIn(counts, 0, found) > inkIn(counts, found, n) * CARRIES) return 0;
+    return back(found, n);
+  };
+  const cutEnd = (profile, counts, inkTo, n) => {
+    const found = stepIn(profile, Math.round(n * (1 - CUT_MOST)), n);
+    if (found < 0) return 1;
+    if (inkIn(counts, found, n) > inkIn(counts, 0, found) * CARRIES) return 1;
+    return back(found, n);
+  };
+  const v0 = cutStart(downProfile, rowInk, rowFrom, INK_ROWS);
+  const v1 = cutEnd(downProfile, rowInk, rowTo, INK_ROWS);
+  const u0 = cutStart(acrossProfile, colInk, colFrom, INK_COLS);
+  const u1 = cutEnd(acrossProfile, colInk, colTo, INK_COLS);
+  if (u1 - u0 < 0.35 || v1 - v0 < 0.35) return quad;      // that is not a page
+  return [through(map, u0, v0), through(map, u1, v0),
+    through(map, u1, v1), through(map, u0, v1)];
+}
+
 // --- an open book ---------------------------------------------------------------
 //
 // Music does not arrive as loose sheets. It arrives as a book open on a stand,
@@ -294,13 +784,14 @@ const GUTTER_DARK = 0.92;     // how much darker than the paper beside it the fo
 const GUTTER_WIDE = 0.14;     // and how narrow: a spine is a line, a shadow is a wash
 
 // Two pages, when the fold has cut the paper into two bright regions.
-function pagesApart(regions, w, h, shave) {
+function pagesApart(candidates, w, h) {
   const count = w * h;
-  const [first, second] = regions;
+  const [first, second] = candidates;
   if (!first || !second) return null;
-  if (second.length < count * HALF_FLOOR) return null;
-  if (second.length < first.length * 0.45) return null;   // a page and a scrap
-  const quads = [first, second].map((region) => grow(cornersOf(region, w), shave));
+  if (second.area < count * HALF_FLOOR) return null;
+  if (second.area < first.area * 0.45) return null;       // a page and a scrap
+  const quads = [first.quad, second.quad];
+  const areas = [first, second].map(({ region, quad }) => fillOf(region, quad, w));
   const box = (q) => ({
     left: Math.min(...q.map((p) => p[0])),
     right: Math.max(...q.map((p) => p[0])),
@@ -317,7 +808,7 @@ function pagesApart(regions, w, h, shave) {
   if (Math.min(...heights) / Math.max(...heights) < 0.6) return null;
   // Facing each other across a fold, rather than two sheets a hand apart.
   if (-overlapX > w * 0.2) return null;
-  if (!quads.every((quad, i) => looksLikePaper(quad, regions[i].length, w, h, HALF_FLOOR))) return null;
+  if (!quads.every((quad, i) => looksLikePaper(quad, areas[i], w, h, HALF_FLOOR))) return null;
   return quads.sort((p, q) => box(p).left - box(q).left);
 }
 
@@ -392,13 +883,64 @@ function foldIn(quad, luma, w, h) {
   return found;
 }
 
+// The other witness to a fold, and the one that works when the light does not.
+//
+// A book pressed flat under a lamp has no crease to see — MEASURED, `npm run
+// scan:pages`, case "open book, FAINT fold": the seam is twenty pixels of paper
+// four levels darker than the paper beside it, `foldIn` says no, and ONE
+// outline goes round both pages, which is exactly the complaint this round is
+// about. But no engraver prints across the gutter. The corridor between the two
+// pages has no ink in it however flat the book is lying, and that is what this
+// looks for: the widest run of blank columns near the middle of a wide bright
+// shape, with music on both sides of it.
+function foldByInk(quad, luma, w, h) {
+  const grid = inkGrid(quad, luma, w, h);
+  if (!hasInk(grid)) return null;
+  const columns = new Float64Array(INK_COLS);
+  for (let r = 0; r < INK_ROWS; r++) {
+    for (let c = 0; c < INK_COLS; c++) if (grid.dark[r * INK_COLS + c]) columns[c]++;
+  }
+  const quiet = Math.max(1, INK_ROWS * 0.02);
+  const first = Math.round(INK_COLS * (0.5 - GUTTER_BAND));
+  const last = Math.round(INK_COLS * (0.5 + GUTTER_BAND));
+  let bestFrom = -1;
+  let bestTo = -1;
+  let from = -1;
+  for (let c = first; c <= last + 1; c++) {
+    const blank = c <= last && columns[c] <= quiet;
+    if (blank && from < 0) from = c;
+    if (!blank && from >= 0) {
+      if (c - from > bestTo - bestFrom) { bestFrom = from; bestTo = c; }
+      from = -1;
+    }
+  }
+  if (bestFrom < 0) return null;
+  if ((bestTo - bestFrom) / INK_COLS > GUTTER_WIDE) return null;   // a blank page, not a fold
+  // Music on BOTH sides of it, and a fair amount of it: the margin at the end
+  // of a single page is also a run of blank columns, and it is not a gutter.
+  const inkIn = (a, b) => {
+    let sum = 0;
+    for (let c = Math.max(0, a); c < Math.min(INK_COLS, b); c++) sum += columns[c];
+    return sum;
+  };
+  const left = inkIn(0, bestFrom);
+  const right = inkIn(bestTo, INK_COLS);
+  if (!left || !right) return null;
+  if (Math.min(left, right) < grid.total * 0.25) return null;
+  const middle = INK_INSET + ((bestFrom + bestTo) / 2 / INK_COLS) * (1 - 2 * INK_INSET);
+  return [middle, middle, middle];
+}
+
 // One wide sheet, cut in two down the fold. The halves are the quadrilateral
 // split along the seam, which is where a spread's two pages actually are.
 function pagesTogether(quad, luma, w, h) {
   const across = (dist(quad[0], quad[1]) + dist(quad[3], quad[2])) / 2;
   const down = (dist(quad[0], quad[3]) + dist(quad[1], quad[2])) / 2;
   if (across < down * 1.08) return null;         // one page is not this wide
-  const fold = foldIn(quad, luma, w, h);
+  // The crease first, because it is measured down the page in three bands and
+  // so carries the book's lean; the ink corridor is one straight line and is
+  // what answers when there is no crease to see.
+  const fold = foldIn(quad, luma, w, h) ?? foldByInk(quad, luma, w, h);
   if (!fold) return null;
   const map = homography([[0, 0], [1, 0], [1, 1], [0, 1]], quad);
   if (!map) return null;
@@ -440,15 +982,32 @@ export function findPages(luma, w, h) {
   const shave = Math.max(1, Math.round(w / 90));
   // Shave the fold of the book away, which is what parts two pages that touch.
   const regions = regionsOf(erode(solid, w, h, shave), w, h);
-  const spread = pagesApart(regions, w, h, shave);
+  // The biggest bright thing is not always the page — a lit wall behind a stand
+  // is bigger than the part on it, and a window down one side of the frame is
+  // brighter. So the largest few are all considered, each cut back to the sheet
+  // it has music on, and the ones with no music on them are not pages.
+  // MEASURED, `npm run scan:pages`: this is what finds the page against a
+  // bright wall (nothing was found at all before) and what stops a bright slab
+  // beside the page being outlined as a second page.
+  const candidates = [];
+  for (const region of regions.slice(0, 6)) {
+    if (region.length < count * HALF_FLOOR * 0.7) break;         // sorted: the rest are smaller
+    const found = grow(cornersOf(region, w), shave);
+    if (!found.every(Boolean)) continue;
+    const quad = trimToInk(found, luma, w, h);
+    if (!hasInk(inkGrid(quad, luma, w, h))) continue;
+    candidates.push({ region, quad, area: quadArea(quad) });
+  }
+  candidates.sort((a, b) => b.area - a.area);
+
+  const spread = pagesApart(candidates, w, h);
   if (spread) return spread.map((quad) => withinPicture(quad, w, h));
-  const region = regions[0];
-  if (!region || region.length < count * 0.18) return [];
-  const quad = grow(cornersOf(region, w), shave);
-  const flat = pagesTogether(quad, luma, w, h);
+  const best = candidates.find(({ quad, region }) => pagesTogether(quad, luma, w, h)
+    || looksLikePaper(quad, fillOf(region, quad, w), w, h));
+  if (!best) return [];
+  const flat = pagesTogether(best.quad, luma, w, h);
   if (flat) return flat.map((half) => withinPicture(half, w, h));
-  if (!looksLikePaper(quad, region.length, w, h)) return [];
-  return [withinPicture(quad, w, h)];
+  return [withinPicture(best.quad, w, h)];
 }
 
 // The page, for everything that wants exactly one. Null for an open book as
@@ -457,6 +1016,45 @@ export function findPages(luma, w, h) {
 export function findPage(luma, w, h) {
   const found = findPages(luma, w, h);
   return found.length === 1 ? found[0] : null;
+}
+
+// Which of the pages in the frame the camera is being AIMED at.
+//
+// The scanner shows one sheet at a time — a blue outline round the page that
+// the shutter will keep, and nothing filled in over its neighbour. Over an open
+// book that means picking one of the two, and the honest answer to which one is
+// the one under the middle of the picture: pointing a phone at something is how
+// people say which thing they mean.
+//
+// The middle of the frame first, and the nearest centre only as a fallback, so
+// aiming squarely at one page of a spread always wins even when the other page
+// is bigger in the frame — a book leaning on a stand puts one page much nearer
+// the camera than the other.
+export function aimedPage(quads, at = [0.5, 0.5]) {
+  if (!quads?.length) return -1;
+  const holds = (quad) => {
+    let sign = 0;
+    for (let i = 0; i < 4; i++) {
+      const a = quad[i];
+      const b = quad[(i + 1) % 4];
+      const side = (b[0] - a[0]) * (at[1] - a[1]) - (b[1] - a[1]) * (at[0] - a[0]);
+      if (side === 0) continue;
+      if (sign === 0) sign = Math.sign(side);
+      else if (Math.sign(side) !== sign) return false;
+    }
+    return true;
+  };
+  const over = quads.findIndex(holds);
+  if (over >= 0) return over;
+  let best = -1;
+  let nearest = Infinity;
+  quads.forEach((quad, i) => {
+    const cx = quad.reduce((n, p) => n + p[0], 0) / 4;
+    const cy = quad.reduce((n, p) => n + p[1], 0) / 4;
+    const away = Math.hypot(cx - at[0], cy - at[1]);
+    if (away < nearest) { nearest = away; best = i; }
+  });
+  return best;
 }
 
 // How much of the frame some pages take up, 0–1. What the scanner puts a number
@@ -479,6 +1077,40 @@ export function quadsMoved(now, before) {
     }
   }
   return worst;
+}
+
+// Every bright thing the finder considered and what it decided about each: the
+// region's size, how much ink is on it, where that ink stops, and which test
+// threw it out. Not used by the app — `npm run scan:pages -- --why` prints it,
+// and every round that touches this file starts by reading it rather than by
+// reasoning about what the code probably does.
+export function probePages(luma, w, h) {
+  const count = w * h;
+  const { solid } = paperMask(luma, w, h);
+  const shave = Math.max(1, Math.round(w / 90));
+  const regions = regionsOf(erode(solid, w, h, shave), w, h);
+  return regions.slice(0, 6).map((region) => {
+    const row = { size: region.length / count };
+    const found = grow(cornersOf(region, w), shave);
+    if (!found.every(Boolean)) return { ...row, verdict: 'no corners' };
+    const before = inkGrid(found, luma, w, h);
+    const quad = trimToInk(found, luma, w, h);
+    const grid = inkGrid(quad, luma, w, h);
+    Object.assign(row, {
+      inkBefore: before?.share ?? 0,
+      ink: grid?.share ?? 0,
+      span: before ? inkSpan(before) : null,
+      trimmed: quadArea(quad) / (quadArea(found) || 1),
+      down: before ? paperProfiles(before).downProfile.map((n) => (n === null ? -1 : Math.round(n))) : null,
+      across: before ? paperProfiles(before).acrossProfile.map((n) => (n === null ? -1 : Math.round(n))) : null,
+      quad: quad.map(([x, y]) => [Math.round(x), Math.round(y)]),
+      fill: fillOf(region, quad, w) / (quadArea(quad) || 1),
+      paper: looksLikePaper(quad, fillOf(region, quad, w), w, h),
+      split: !!pagesTogether(quad, luma, w, h),
+    });
+    row.verdict = !hasInk(grid) ? 'no ink' : (row.split ? 'a spread' : (row.paper ? 'a page' : 'not paper-shaped'));
+    return row;
+  });
 }
 
 // Why it said no. Not used by the app; used by the bench in tools/, and by
@@ -504,6 +1136,11 @@ export function inspect(luma, w, h) {
     sides: sides?.map((n) => Math.round(n)),
     quadFraction: quad && quad.every(Boolean) ? quadArea(quad) / count : 0,
     fill: quad && region && quad.every(Boolean) ? region.length / quadArea(quad) : 0,
+    // How much of the biggest bright thing is ink, and where that ink stops:
+    // the two numbers that say whether it is paper and where the paper ends.
+    ink: quad && quad.every(Boolean) ? (inkGrid(quad, luma, w, h)?.share ?? 0) : 0,
+    inkSpan: quad && quad.every(Boolean)
+      ? (() => { const g = inkGrid(quad, luma, w, h); return g ? inkSpan(g) : null; })() : null,
     pages: found.length,
     coverage: coverageOf(found),
     accepted: found.length > 0,
