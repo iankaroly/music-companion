@@ -189,10 +189,22 @@ console.log(`      pairing: placed=${review.placed} readPitch=${review.readPitch
 console.log(`      the review says: ${review.gap || '(no refusal note)'}`);
 console.log(`      the stage holds: ${review.stage || '(empty)'}`);
 
+// THE PAGE IS SHOWN EVEN WHEN THE TAKE CANNOT BE PLACED ON IT, which is what
+// this fixture is: drawn ellipses with no clef, so nothing on it can be priced.
 check('the PDF page is drawn in the review', review.pagesShown >= 1 && review.canvasWide > 300,
   `${review.pagesShown} pages, canvas ${review.canvasWide}px`);
-check('with every note played live on it', review.rings === 40,
-  `${review.rings} rings for 40 notes`);
+// …AND NOT ONE RING ON IT. This check asserted the opposite for a year — 40
+// rings on a page whose pitches nobody could read — and that is the bug a user
+// finally reported: pressing a ring played a moment from a different part of
+// the music. MEASURED, `npm run scan:align -- --unpriced`: over 32 studies and
+// 128 takes the contour route put 130 notes on the right notehead and 307 on
+// the WRONG one, and its own confidence cannot tell those apart. So a page with
+// no readable clef gets no rings, and says why.
+check('and NOT ONE ring on it, because nothing here can be priced', review.rings === 0,
+  `${review.rings} rings`);
+check('and the refusal says which of the two things went wrong',
+  /clef|does not follow the shape|could not be found|too few notes/.test(review.gap ?? ''),
+  review.gap ? review.gap.slice(0, 120) : '(no refusal note)');
 
 if (errors.length) {
   console.log('\nerrors on the page:');

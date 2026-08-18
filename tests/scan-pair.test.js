@@ -32,69 +32,48 @@ const play = (steps, from = 0) => steps.map((step, i) => ({
   midi: BASE + semitonesForStep(step), start: (from + i) * 0.25, end: (from + i) * 0.25 + 0.2, cents: 0,
 }));
 
-describe('putting played notes on the noteheads they belong to', () => {
-  it('fits the one unknown a clef represents', () => {
-    const fit = fitPitches(heads, play(PART.slice(0, 40)), 0);
-    expect(fit.base).toBe(BASE);
-    expect(fit.agreement).toBeGreaterThan(0.95);
-  });
-
-  it('places a take played from the top', () => {
+// A PAGE WHOSE PITCHES COULD NOT BE READ NOW PLACES NOTHING, and these five
+// tests used to assert the opposite.
+//
+// What they asserted was that the contour route — findStart, then fitPitches,
+// then either the aligner or counting off — puts note k on notehead k through a
+// skipped note, an extra one and a repeated bar. On THIS page it does, because
+// this page is a perfect list of steps with no head missing, no head invented
+// and every played pitch exact.
+//
+// A real page is not that, and when somebody finally measured it the route was
+// wrong far more often than right. `npm run scan:align -- --unpriced` strips
+// the pitch off every head, which is what a page whose clef or key would not
+// read hands the pairing, and scores which notehead each played note landed on
+// over 32 studies and 128 takes: 130 notes on the right head, 307 on the WRONG
+// one. Its own confidence cannot separate the two — at a fit agreement of 0.6
+// it is 27 right against 37 wrong — so there is no threshold to hide behind.
+//
+// A ring on a notehead is a claim that a moment of the recording belongs there,
+// and a user reported exactly what that costs: pressing a note played back a
+// different part of the music. So the route refuses, and these tests hold it to
+// the refusal. The pitch route below is unchanged and is the one that works.
+describe('a page whose pitches could not be read', () => {
+  it('refuses to put a take on it, however clean the take is', () => {
     const played = play(PART.slice(0, 40));
-    const { marks, placed } = pairNotes(heads, played);
-    expect(placed).toBe(true);
-    expect(marks).toHaveLength(40);
-    // Note k is on notehead k.
-    expect(marks[0].step).toBe(PART[0]);
-    expect(marks[39].step).toBe(PART[39]);
+    const { marks, placed, readPitch } = pairNotes(heads, played);
+    expect(readPitch).toBe(false);
+    expect(placed).toBe(false);
+    expect(marks).toHaveLength(0);
   });
 
-  it('places a take played from the middle of the part', () => {
-    const played = play(PART.slice(50, 95), 50);
-    const { marks, placed } = pairNotes(heads, played);
-    expect(placed).toBe(true);
-    expect(marks[0].step).toBe(PART[50]);
-    expect(marks.at(-1).step).toBe(PART[94]);
+  it('says which of the two things went wrong', () => {
+    const { why } = pairNotes(heads, play(PART.slice(0, 40)));
+    expect(why).toMatch(/clef/);
+    const nothing = Array.from({ length: 30 }, (_, i) => ({
+      midi: 40 + ((i * 7) % 13), start: i * 0.25, end: i * 0.25 + 0.2, cents: 0,
+    }));
+    // A take that cannot even be located keeps findStart's own reason rather
+    // than being told the clef is at fault.
+    expect(pairNotes(heads, nothing).why).not.toMatch(/clef/);
   });
 
-  // The one this file exists for. Counting off in order is right until the
-  // first slip and wrong for the whole rest of the take after it.
-  it('survives a note left out in the middle', () => {
-    const steps = [...PART.slice(0, 45)];
-    const played = play([...steps.slice(0, 20), ...steps.slice(21)]);
-    const { marks, aligned } = pairNotes(heads, played);
-    expect(aligned).toBe(true);
-    // The notes after the gap are still on their own noteheads: the 30th note
-    // played is the 31st written, because one was skipped.
-    const late = marks.find((m) => m.index === 30);
-    expect(late.step).toBe(PART[31]);
-  });
-
-  it('survives an extra note nobody wrote', () => {
-    const steps = PART.slice(0, 45);
-    const played = play(steps);
-    // A squeak between the 15th and 16th, at a pitch of its own.
-    played.splice(15, 0, { midi: BASE + 6, start: 3.7, end: 3.75, cents: 0 });
-    const { marks, aligned } = pairNotes(heads, played);
-    expect(aligned).toBe(true);
-    // Everything after the squeak is still where it belongs: the 25th note
-    // played is the 24th written.
-    const after = marks.find((m) => m.index === 25);
-    expect(after.step).toBe(PART[24]);
-  });
-
-  it('survives a bar played twice', () => {
-    const steps = PART.slice(0, 40);
-    const played = play([...steps.slice(0, 16), ...steps.slice(12, 16), ...steps.slice(16)]);
-    const { marks, placed } = pairNotes(heads, played);
-    expect(placed).toBe(true);
-    // The take is longer than the stretch of page it covers, and the notes
-    // after the repeat are still on the right side of it.
-    expect(marks.length).toBeGreaterThan(35);
-    expect(marks.at(-1).step).toBe(PART[39]);
-  });
-
-  it('still refuses a take that is not this music', () => {
+  it('refuses a take that is not this music', () => {
     const nothing = Array.from({ length: 30 }, (_, i) => ({
       midi: 40 + ((i * 7) % 13), start: i * 0.25, end: i * 0.25 + 0.2, cents: 0,
     }));
@@ -103,13 +82,18 @@ describe('putting played notes on the noteheads they belong to', () => {
     expect(marks).toHaveLength(0);
   });
 
-  it('falls back to counting off when the pitches cannot be fitted', () => {
-    // Positions the reader never measured: there is nothing to fit a clef to.
+  it('refuses a page with no positions on it at all', () => {
     const blind = heads.map(({ step, ...rest }) => rest);
     const { placed } = pairNotes(blind, play(PART.slice(0, 40)));
-    // Nothing can be placed at all without positions, and it says so rather
-    // than putting the take on the first forty noteheads.
     expect(placed).toBe(false);
+  });
+
+  // The fit itself still works and is still tested: it is the PLACEMENT built
+  // on top of it that was not good enough, and scan-pitch.js is used elsewhere.
+  it('can still fit the one unknown a clef represents', () => {
+    const fit = fitPitches(heads, play(PART.slice(0, 40)), 0);
+    expect(fit.base).toBe(BASE);
+    expect(fit.agreement).toBeGreaterThan(0.95);
   });
 });
 
@@ -199,10 +183,18 @@ describe('the reference handed to the aligner carries the page it was read off',
 
   it('gives every head a null pitch when the key could not be read at all', () => {
     const heads = headsOf([pageIn(null)]);
+    // NAMED: nothing. A key nobody read cannot name a note (rule 5).
     expect(heads.map((h) => h.midi)).toEqual([null, null, null]);
-    // …and that is what sends the page down the contour route rather than
-    // naming its notes off an assumption.
-    expect(pairNotes(heads, [{ midi: 43, cents: 0, start: 0 }, { midi: 41, cents: 0, start: 0.5 }]).readPitch)
-      .toBe(false);
+    // MATCHED: still possible. The clef alone tells one notehead from its
+    // neighbour, which is all the aligner needs, so the page keeps the pitch
+    // route instead of falling to the contour one — which puts 70% of its
+    // marks on the wrong notehead (npm run scan:align -- --unpriced).
+    expect(heads.every((h) => Number.isFinite(h.matchMidi))).toBe(true);
+    const paired = pairNotes(heads, [
+      { midi: 43, cents: 0, start: 0 }, { midi: 41, cents: 0, start: 0.5 },
+    ]);
+    expect(paired.readPitch).toBe(true);
+    // …and not one of its marks claims to know what the note was.
+    expect(paired.marks.every((m) => m.verdict === 'unpriced')).toBe(true);
   });
 });

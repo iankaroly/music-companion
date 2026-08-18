@@ -205,6 +205,98 @@ a believed bar on a real photograph, and it is the "stop circling the key
 signature" that scan-values.js has been asking for — now with the page and the
 positions to work from.
 
+## THE ROUND AFTER THAT — the click that played the wrong music
+
+A user scanned a page, recorded against it, and reported two things: about half
+the notes came back, and **"I would click on a note that was out of tune, and it
+would play audio from a different part of the music."** The second one is what
+this round is about, and it was three separate faults stacked on each other.
+
+**1. THE ALIGNER HAD NO REASON TO PUT THE TAKE ANYWHERE.** `alignScore` was a
+GLOBAL edit distance: every notehead on the page had to be consumed, so the ones
+before the take and after it were deleted at 1.0 each. That sounds like a cost
+and is not — it is the SAME cost wherever the take sits. Twenty-eight notes over
+a page of 750 noteheads delete 722 of them by any path, and a matching pitch
+costs 0 whether it is the right notehead or one two hundred notes earlier. Every
+placement tied, and the tie-break took the earliest.
+
+Drawn, with `LANDED=1 PHOTO=1 npm run score:follow`, where the take is
+synthesised from the page's own noteheads so the right answer is known:
+
+```
+  0: 253->2   1: 254->19   2: 255->32   3: 256->40 … 17: 270->223
+  18: 271->271  19: 272->272 …                     (the tail, which had
+                                                     nowhere left to slide)
+```
+
+The ends are now FREE — the noteheads before the take and after it cost nothing
+to skip, while a gap INSIDE it still costs 1.0 a head — so a path that leaps 250
+heads and comes back is expensive rather than free. Free ends only where there
+is room to slide (`S > P * 2 + 8`): a take that covers everything it is compared
+against wants the old end-to-end reading, and on a two-note score free ends turn
+a fumbled last note into "you stopped early and made a noise".
+
+```
+  marks that landed on the very notehead they were built from
+  Bach photograph   22 of 28  ->  28 of 28
+  Concerto          11 of 28  ->  28 of 28
+  Scanned score     27 of 28  ->  28 of 28
+```
+
+**2. THE CONTOUR ROUTE WAS PLACING MARKS IT COULD NOT STAND BEHIND, and nothing
+had ever scored it.** A page whose clef or key would not read prices no head, so
+`pairNotes` fell to `pairByShape` — findStart, then pitches estimated from the
+take itself, then either an alignment or NOTES COUNTED OFF one by one. All of it
+drew rings you could press. `npm run scan:align -- --unpriced` strips the pitch
+off every head and scores where the marks land, over 32 studies and 128 takes:
+**130 notes on the right notehead, 307 on the WRONG one**, and its own
+confidence cannot tell those apart — at a fit agreement of 0.6 it is 27 right
+against 37 wrong. It refuses now. A page with no priced head draws no rings,
+says why, and still shows the music.
+
+**3. …AND THE PAGE THAT COULD NOT NAME ITS NOTES COULD STILL HAVE PLACED THEM.**
+The two fixes above would have left a phone scan with no rings at all, because
+the round before this one made a page whose systems disagree price nothing. But
+the aligner does not need a note's NAME. It needs to tell one notehead from its
+neighbour, and the clef alone does that — two heads a third apart are a third
+apart in any key. So `headsOf` now carries a second pitch, `matchMidi`: the head
+priced through its clef with NO key at all, used for MATCHING and never for
+naming. A mark placed on one of those carries the verdict `unpriced`, so nothing
+tells a player their note was wrong on the strength of a key nobody read.
+
+```
+                             before this round        after
+  scan:align                 91.3% right, 118 wrong,  94.8%, 124, 16
+                             115 unmarked
+  scan:align --phone         92.3% right, 75 wrong,   96.2%, 34, 64
+                             54 unmarked, 88/128 on   128/128 on the pitch route
+                             the pitch route
+  scan:align --unpriced       4.9% right, 307 wrong   94.8%, 124, 16
+  scan:align --miss 0.5      52.7% right, 691         53.7%, 675
+  (half the page's heads     unmarked
+   never found)
+```
+
+`--miss` and `--unpriced` are new knobs on `scan:align`, and they exist because
+the corpus was too kind: every page in it was read well and priced fully, which
+is not the page a user photographs. `--miss 0.5` drops half the noteheads from
+the reference before the pairing runs and counts the notes whose own head was
+never found apart, so what is scored is the notes that COULD still be placed.
+
+**AND THE FLOOR STAYED AT 0.70, measured rather than kept.** `npm run scan:floor`
+now refuses 0 of 128 right pairings at both 0.70 and 0.75, and 0.75 catches two
+more wrong ones of 106 — but on a page read badly (`--miss 0.5`) 0.75 costs
+53.7% of played notes landing right, down to 44.3%, and 140 more notes lose
+their notehead. The table is drawn on pages the reader read well; the pages this
+is for are not those.
+
+**WHAT IS STILL OPEN on the user's other complaint — "about half the notes".**
+Unmeasured, because the page that produced it is not in this repo. What IS
+measured is that every notehead the reader finds is now pressable: the silent
+markers used to stop eight heads either side of the take, which on a real page
+of two hundred notes offered a dozen controls, and they now cover every head on
+the pages shown.
+
 ## Run it
 
 ```

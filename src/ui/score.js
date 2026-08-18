@@ -929,10 +929,21 @@ async function renderScanTab() {
     // Two different silences, and they want two different sentences: no
     // noteheads at all means the pages have not been read, and noteheads but
     // no marks means the take could not be found among them.
-    stage.replaceChildren(view?.pairing && view.pairing.heads > 0
+    const note = view?.pairing && view.pairing.heads > 0
       ? scanUnplacedNote(view.pairing)
-      : scanUnreadNote(payload));
-    view?.destroy?.();
+      : scanUnreadNote(payload);
+    // …AND THE MUSIC STAYS ON THE SCREEN UNDER IT, where the view managed to
+    // draw any. A refusal is about where the notes were PLAYED; it is not a
+    // reason to take away the page somebody just photographed, and replacing
+    // the whole stage with one sentence is what it used to do. Where nothing
+    // was drawn the sentence is all there is, and the view is torn down.
+    const drawn = page.querySelector('.scan-page canvas');
+    if (drawn) {
+      stage.prepend(note);
+    } else {
+      stage.replaceChildren(note);
+      view?.destroy?.();
+    }
     view = null;
     return null;
   }
@@ -968,7 +979,10 @@ async function renderScanTab() {
     if (line) {
       const extra = document.createElement('small');
       extra.className = 'scan-pairing';
-      extra.textContent = ` ${view.quiet} noteheads in that passage were never played`
+      // "on these pages" rather than "in that passage": the dashed noteheads
+      // are now every head on the pages being shown that this take did not
+      // play, not only the ones beside it. See the note above quietWanted.
+      extra.textContent = ` ${view.quiet} noteheads on these pages were not played in this take`
         + ' — the dashed ones. Press one to hear what is written there, synthesised.';
       line.append(extra);
     }

@@ -87,6 +87,21 @@ const space = Number(flag('space', 14));
 const takes = Number(flag('takes', 4));
 const seed0 = Number(flag('seed', 11));
 const only = flag('only', null);
+// HOW MANY OF THE PAGE'S NOTEHEADS THE READER NEVER FOUND — the user's page,
+// modelled. A real phone scan of a real edition came back with about half its
+// notes, and the complaint was not the missing half: it was that pressing a
+// ring played a moment from somewhere else entirely. This drops a seeded
+// fraction of the heads from the REFERENCE before the pairing runs, which is
+// exactly what a page read at 50% hands the aligner. A played note whose own
+// head was dropped is counted apart (`lost`) and left out of the score, so what
+// this measures is the notes that COULD still be placed.
+const miss = Number(flag('miss', 0));
+// THE PAGE WHOSE CLEF OR KEY WOULD NOT READ — every head unpriced, which sends
+// pairNotes down the CONTOUR route (pairByShape, and then `positional` when the
+// estimated pitches do not fit). That is the route a phone photograph of a real
+// edition takes when the reader cannot establish a key on it, and nothing in
+// this repo had ever scored WHERE its marks land.
+const unpriced = args.includes('--unpriced');
 const wantJson = args.includes('--json');
 
 // --- MusicXML, only as much of it as a scale study uses ---------------------
@@ -251,7 +266,7 @@ const results = [];
 for (const file of files) {
   const study = parseStudy(await readFile(join(dir, file), 'utf8'));
   const out = await page.evaluate(async ({
-    b64, study, space, phone, keyAlterArr, bottomDeg, takes, seed0,
+    b64, study, space, phone, keyAlterArr, bottomDeg, takes, seed0, miss, unpriced,
   }) => {
     const face = new FontFace('Bravura', `url(data:font/otf;base64,${b64})`);
     await face.load();
@@ -437,21 +452,39 @@ for (const file of files) {
       return played;
     };
 
+    // The page as the reader ACTUALLY read it when it only found some of the
+    // notes: a seeded fraction of the heads simply is not there. Seeded off the
+    // head's own index so BEFORE and AFTER lose the same ones.
+    const thin = (heads) => {
+      if (unpriced) heads = heads.map((h) => ({ ...h, midi: null }));
+      if (!(miss > 0)) return heads;
+      let seed = 20260818;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      return heads.filter(() => rnd() >= miss);
+    };
+
     const scoreTake = (heads, played) => {
+      const kept = new Set(heads.map((h) => h.hid));
       const res = V.pairNotes(heads, played);
       const markAt = new Map();
       for (const m of res.marks ?? []) markAt.set(m.index, m);
       let correct = 0; let misplaced = 0; let unmarked = 0;
       let onUnread = 0; let squeakMarked = 0; let squeaks = 0; let unread = 0;
+      let lost = 0;
       const offsets = {};
+      const byVerdict = {};
       for (const [i, p] of played.entries()) {
         const m = markAt.get(i);
         if (p.want === null) { squeaks++; if (m) squeakMarked++; continue; }
         if (p.want < 0) { unread++; if (m) onUnread++; continue; }
+        // Its own notehead was one of the ones this page never found. Nothing
+        // the aligner does can be right for it, so it is counted and left out.
+        if (!kept.has(p.want)) { lost++; continue; }
         if (!m) { unmarked++; continue; }
-        if (m.hid === p.want) correct++;
+        if (m.hid === p.want) { correct++; byVerdict[`right ${m.verdict ?? '—'}`] = (byVerdict[`right ${m.verdict ?? '—'}`] ?? 0) + 1; }
         else {
           misplaced++;
+          byVerdict[`WRONG ${m.verdict ?? '—'}`] = (byVerdict[`WRONG ${m.verdict ?? '—'}`] ?? 0) + 1;
           const d = m.hid - p.want;
           offsets[d] = (offsets[d] ?? 0) + 1;
         }
@@ -460,17 +493,25 @@ for (const file of files) {
         placed: !!res.placed,
         readPitch: !!res.readPitch,
         aligned: !!res.aligned,
+        countedOff: res.placed && res.aligned === false,
+        fitAgreement: res.fitAgreement ?? null,
+        startScore: res.confidence ?? null,
         marks: res.marks?.length ?? 0,
-        correct, misplaced, unmarked, onUnread, squeakMarked, squeaks, unread,
+        correct, misplaced, unmarked, onUnread, squeakMarked, squeaks, unread, lost,
         scorable: correct + misplaced + unmarked,
         offsets,
+        byVerdict,
       };
     };
 
     const rows = [];
     for (let k = 0; k < takes; k++) {
       const played = buildTake(seed0 + k * 7919);
-      rows.push({ n: played.length, before: scoreTake(before, played), after: scoreTake(after, played) });
+      rows.push({
+        n: played.length,
+        before: scoreTake(thin(before), played),
+        after: scoreTake(thin(after), played),
+      });
     }
 
     // Rolled up two ways, because the change moves TWO things and one of them
@@ -480,13 +521,18 @@ for (const file of files) {
     // averaging its refusal in with the takes that were aligned reports a fall
     // in placement quality that is really a change of route.
     const sum = (which, only) => {
-      const t = { correct: 0, misplaced: 0, unmarked: 0, onUnread: 0, squeakMarked: 0, squeaks: 0, unread: 0, scorable: 0, pitchRoute: 0, takes: 0, offsets: {} };
+      const t = { correct: 0, misplaced: 0, unmarked: 0, onUnread: 0, squeakMarked: 0, squeaks: 0, unread: 0, lost: 0, scorable: 0, pitchRoute: 0, takes: 0, offsets: {} };
       for (const r of rows) {
         if (only === 'kept' && !r.after.readPitch) continue;
-        for (const k of ['correct', 'misplaced', 'unmarked', 'onUnread', 'squeakMarked', 'squeaks', 'unread', 'scorable']) t[k] += r[which][k];
+        for (const k of ['correct', 'misplaced', 'unmarked', 'onUnread', 'squeakMarked', 'squeaks', 'unread', 'lost', 'scorable']) t[k] += r[which][k];
         if (r[which].readPitch) t.pitchRoute++;
+        if (r[which].countedOff) t.countedOff = (t.countedOff ?? 0) + 1;
         t.takes++;
         for (const [d, n] of Object.entries(r[which].offsets)) t.offsets[d] = (t.offsets[d] ?? 0) + n;
+        for (const [k, n] of Object.entries(r[which].byVerdict ?? {})) {
+          t.byVerdict = t.byVerdict ?? {};
+          t.byVerdict[k] = (t.byVerdict[k] ?? 0) + n;
+        }
       }
       return t;
     };
@@ -496,6 +542,9 @@ for (const file of files) {
 
     return {
       failed: null,
+      // Every take of this study, kept whole so a summary can ask questions of
+      // the individual takes — which is what the contour-confidence table does.
+      rows,
       truth: truth.length,
       heads: after.length,
       matchedHeads: headOf.filter((h) => h >= 0).length,
@@ -512,7 +561,7 @@ for (const file of files) {
       beforeKept: sum('before', 'kept'),
       afterKept: sum('after', 'kept'),
     };
-  }, { b64: font, study, space, phone, keyAlterArr: keyAlter(study.fifths), bottomDeg: BOTTOM[study.clef], takes, seed0 });
+  }, { b64: font, study, space, phone, keyAlterArr: keyAlter(study.fifths), bottomDeg: BOTTOM[study.clef], takes, seed0, miss, unpriced });
 
   results.push({ file: basename(file, '.musicxml'), fifths: study.fifths, clef: study.clef, ...out });
   if (out.failed) console.error(`  ${basename(file, '.musicxml')}: ${out.failed}`);
@@ -527,7 +576,8 @@ if (wantJson) {
   console.log(JSON.stringify(results, null, 2));
 } else {
   console.log(`\nWHICH NOTEHEAD DID THE TAKE LAND ON — ${ok.length} engraved cello studies,`
-    + ` ${takes} synthetic takes each, staff space ${space}px${phone ? ', photographed (--phone)' : ', clean'}`);
+    + ` ${takes} synthetic takes each, staff space ${space}px${phone ? ', photographed (--phone)' : ', clean'}`
+    + `${miss > 0 ? `, WITH ${Math.round(miss * 100)}% OF THE PAGE'S NOTEHEADS NEVER FOUND (--miss)` : ''}`);
   console.log('The take is played from the MusicXML; the reference is what the reader read.\n');
   console.log('                             key         BEFORE (heads priced NO_KEY)        AFTER (heads priced from the read key)');
   console.log('  study                    want got   right  wrong  none  route      right  wrong  none  route');
@@ -541,23 +591,59 @@ if (wantJson) {
   }
 
   const roll = (which) => {
-    const t = { correct: 0, misplaced: 0, unmarked: 0, scorable: 0, onUnread: 0, squeakMarked: 0, squeaks: 0, unread: 0, pitchRoute: 0, takes: 0, offsets: {} };
+    const t = { correct: 0, misplaced: 0, unmarked: 0, scorable: 0, onUnread: 0, squeakMarked: 0, squeaks: 0, unread: 0, lost: 0, pitchRoute: 0, takes: 0, offsets: {} };
     for (const r of ok) {
-      for (const k of ['correct', 'misplaced', 'unmarked', 'scorable', 'onUnread', 'squeakMarked', 'squeaks', 'unread', 'pitchRoute', 'takes']) t[k] += r[which][k];
+      for (const k of ['correct', 'misplaced', 'unmarked', 'scorable', 'onUnread', 'squeakMarked', 'squeaks', 'unread', 'lost', 'pitchRoute', 'takes', 'countedOff']) t[k] = (t[k] ?? 0) + (r[which][k] ?? 0);
       for (const [d, n] of Object.entries(r[which].offsets)) t.offsets[d] = (t.offsets[d] ?? 0) + n;
     }
     return t;
   };
+  // DOES THE CONTOUR ROUTE KNOW WHEN IT IS WRONG? Its own two statistics —
+  // fitPitches' agreement and findStart's shape score — against how its marks
+  // actually landed, take by take, in tenths.
+  if (unpriced) {
+    const band = new Map();
+    for (const r of ok) {
+      for (const row of r.rows ?? []) {
+        const a = row.after;
+        if (!a.placed) continue;
+        const key = a.fitAgreement === null ? 'counted off'
+          : `${(Math.floor(a.fitAgreement * 10) / 10).toFixed(1)}`;
+        const cell = band.get(key) ?? { takes: 0, correct: 0, misplaced: 0 };
+        cell.takes += 1;
+        cell.correct += a.correct;
+        cell.misplaced += a.misplaced;
+        band.set(key, cell);
+      }
+    }
+    console.log('\n  THE CONTOUR ROUTE AGAINST ITS OWN CONFIDENCE');
+    console.log('    fit agreement   takes   right head   WRONG head');
+    for (const [k, c] of [...band.entries()].sort()) {
+      console.log(`    ${k.padEnd(15)} ${String(c.takes).padStart(5)}   ${String(c.correct).padStart(10)}   ${String(c.misplaced).padStart(10)}`);
+    }
+  }
+
   const B = roll('before'); const A = roll('after');
+  // How the marks that landed WRONG were judged by the aligner — the question
+  // "could the pairing have known?" A misplaced mark whose pitch agreed exactly
+  // is one nothing here can catch; one judged `wrong` is a mark the aligner
+  // already doubted and placed anyway.
+  const verdicts = {};
+  for (const r of ok) {
+    for (const [k, n] of Object.entries(r.after.byVerdict ?? {})) verdicts[k] = (verdicts[k] ?? 0) + n;
+  }
   const BK = roll('beforeKept'); const AK = roll('afterKept');
   const flipped = ok.reduce((n, r) => n + r.flipped, 0);
   const line = (name, t) => {
     console.log(`  ${name.padEnd(8)} ${pc(t.correct, t.scorable).padStart(7)} on the right head`
       + `   ${String(t.misplaced).padStart(5)} on the WRONG head`
       + `   ${String(t.unmarked).padStart(5)} unmarked`
+      + `${miss > 0 ? `   ${String(t.lost).padStart(5)} whose head was never found` : ''}`
       + `   ${String(t.squeakMarked).padStart(4)}/${t.squeaks} squeaks ringed`
-      + `   ${t.pitchRoute}/${t.takes} takes on the pitch route`);
+      + `   ${t.pitchRoute}/${t.takes} takes on the pitch route`
+      + `${t.countedOff ? `   ${t.countedOff} COUNTED OFF` : ''}`);
   };
+  console.log(`\n  HOW THE MARKS WERE JUDGED — ${Object.entries(verdicts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k}: ${n}`).join(' · ')}`);
   console.log(`\n  EVERY TAKE — ${B.scorable} played notes scored per side, over ${B.takes} takes`);
   line('BEFORE', B);
   line('AFTER', A);

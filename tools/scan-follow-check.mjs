@@ -278,13 +278,19 @@ check('the reader reads its own engraving and the take goes on by PITCH',
   `${shown.heads} noteheads read, ${shown.marks} marks, pitch route=${shown.readPitch}`);
 check('the rings cross the page break',
   shown.ringPages.length === 2, `rings on pages ${shown.ringPages.join(', ')}`);
-check('the noteheads nobody played are drawn too, and only around the take',
-  shown.quiet > 0 && shown.quiet < shown.heads / 2,
+// EVERY unplayed notehead on the pages shown, not only the ones beside the
+// take. This asserted the opposite — "and only around the take" — because the
+// markers used to stop eight heads either side of it, which on a real page of
+// two hundred notes left a dozen controls. A user asked for the rest of them:
+// "making more of the notes scanned and clickable". What each marker claims is
+// unchanged (this take did not play this note) and so is what it sounds.
+check('every notehead this take did not play is drawn too',
+  shown.quiet > 0 && shown.quiet === shown.silent,
   `${shown.quiet} silent markers of ${shown.silent} unplayed heads, on pages ${shown.quietPages.join(', ')}`);
 check('and each is still big enough for a finger',
   shown.smallestQuiet >= 22, `smallest ${shown.smallestQuiet}px`);
-check('the review SAYS the dashed ones were never played',
-  /never played/.test(shown.summary) && /synthesised/.test(shown.summary),
+check('the review SAYS the dashed ones were not played in this take',
+  /not played in this take/.test(shown.summary) && /synthesised/.test(shown.summary),
   shown.summary.slice(-140).trim());
 
 // The whole review, before anything is pressed or played. This is the picture
@@ -962,6 +968,16 @@ try {
       onTheirOwnHead: (view?.pairing?.marks ?? [])
         .filter((m, i) => m.headIndex === window.__wanted[i]).length,
       wanted: window.__wanted.length,
+      // WHERE each mark went against where it came from, note by note. A
+      // constant difference is an index-space mismatch; a growing one is
+      // reading order; scatter is the matching itself. Nothing in this repo
+      // printed this, and "11 of 28" cannot be acted on without it.
+      landed: (view?.pairing?.marks ?? []).map((m, i) => ({
+        note: m.index,
+        from: window.__wanted[i] ?? null,
+        onto: m.headIndex,
+        verdict: m.verdict ?? null,
+      })),
     };
   }, { b64: bytes, name: `${chosen.name} photograph` });
 } catch (e) {
@@ -973,6 +989,10 @@ if (real?.failed) {
   console.log(`      photograph: ${real.pageHeads} heads (${real.priced} priced),`
     + ` ${real.marks} marks of ${real.played} notes, rhythm route=${real.rhythmRoute}`);
   console.log(`      the review says: ${real.summary}`);
+  if (process.env.LANDED) {
+    console.log(`      where each mark landed (note: from -> onto, verdict):`);
+    console.log(`        ${(real.landed ?? []).map((l) => `${l.note}: ${l.from}->${l.onto}${l.from === l.onto ? '' : ' *'}`).join('  ')}`);
+  }
   // Printed, not checked. There is no agreed target for this and inventing one
   // here would be a threshold nobody measured — `npm run scan:align` is where a
   // number for it lives. What it is worth saying out loud is that a take taken

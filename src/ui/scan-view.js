@@ -23,9 +23,10 @@
 
 import { openPaper } from './paper.js';
 import { notesInOrder } from '../analysis/scan-read.js';
+import { pitchOf } from '../analysis/scan-notes.js';
+import { NO_KEY } from '../analysis/scan-key.js';
 import { intonationHue } from './chart-utils.js';
 import { findStart } from '../analysis/scan-align.js';
-import { fitPitches } from '../analysis/scan-pitch.js';
 import { alignScore } from '../analysis/align-score.js';
 import { syncTake } from '../analysis/scan-sync.js';
 import { midiToName } from '../analysis/note-utils.js';
@@ -117,7 +118,38 @@ export function headsOf(layout) {
       // one head lost. The --phone collapse is a property of pages of one to
       // three systems, where agreeKey cannot get a quorum; a photograph of a
       // real part carries ten or eleven.
-      all.push({ ...note, page, space, midi: note.midi ?? null });
+      // AND A SECOND PITCH THAT IS ONLY EVER FOR MATCHING, never for naming.
+      //
+      // `midi` is what the page READ: the clef in force, the page's agreed key
+      // signature and the accidentals of the bar. It is null when any of those
+      // could not be established, and it stays null — a note named off a key
+      // nobody read is the failure rule 5 exists for.
+      //
+      // But the ALIGNER does not need to know a note's name. It needs to tell
+      // one notehead from its neighbour, and the clef alone does that: two
+      // heads a third apart are a third apart in any key. `matchMidi` is the
+      // head priced through its clef with NO key at all, and where the page
+      // could not agree a signature it is the difference between the pitch
+      // route and no route.
+      //
+      // MEASURED, `npm run scan:align -- --unpriced` (every head's read pitch
+      // stripped, which is what a page with no agreed key hands the pairing):
+      // the contour route puts 130 notes of 2672 on the right notehead and 307
+      // on the WRONG one. Matching on the clef alone is the BEFORE column of
+      // the same tool — the reference priced NO_KEY — at 44.4% right and 55
+      // wrong. Neither is the 91.3% a page that reads its key gets, and one of
+      // them is nine times the other.
+      //
+      // What is withheld with it: a mark placed on an estimated head carries
+      // the verdict `unpriced`, so nothing tells the player their note was
+      // wrong on the strength of a key nobody read. See alignByPitch.
+      all.push({
+        ...note,
+        page,
+        space,
+        midi: note.midi ?? null,
+        matchMidi: note.midi ?? (pitchOf(note.step, note.clef, NO_KEY)?.midi ?? null),
+      });
     }
   }
   return all;
@@ -188,7 +220,15 @@ export function headsOf(layout) {
 // verdict comes back 'unpriced', which is carried to the review and never
 // laundered into 'match' or 'wrong'.
 function alignByPitch(heads, played) {
-  const window = heads.map((head, id) => ({ ...head, id }));
+  // The reference the aligner walks: the page's own pitch where it has one, and
+  // the clef-only estimate where it does not. `estimated` travels with the head
+  // so the verdict can be withheld on exactly those marks.
+  const window = heads.map((head, id) => ({
+    ...head,
+    id,
+    midi: head.midi ?? head.matchMidi ?? null,
+    estimated: !Number.isFinite(head.midi) && Number.isFinite(head.matchMidi),
+  }));
   if (window.length < 2 || (played?.length ?? 0) < 2) return null;
 
   let attempts = null;
@@ -228,7 +268,17 @@ function alignByPitch(heads, played) {
       // Carried through so the review can WITHHOLD on a note whose reference
       // was only nearly right. A ring saying "read as a semitone out" is
       // honest; one saying "you played this 100 cents flat" is not.
-      verdict: attempt.verdict,
+      //
+      // …AND WITHHELD ENTIRELY where the reference was ESTIMATED. A head priced
+      // through its clef with no key signature is a position, not a name: it
+      // can say which notehead this is and it cannot say what the note was, so
+      // the verdict it produced is replaced by `unpriced` rather than shown.
+      verdict: attempt.score.estimated ? 'unpriced' : attempt.verdict,
+      estimated: !!attempt.score.estimated,
+      // What the aligner actually decided, kept apart from what is shown: the
+      // confidence statistic is computed off this and not off the withheld one,
+      // or a page with no key would refuse every take for want of judgements.
+      matchVerdict: attempt.verdict,
     });
   }
   marks.sort((a, b) => a.index - b.index);
@@ -236,9 +286,18 @@ function alignByPitch(heads, played) {
   // place that has both the verdict and the deduplicated mark. `unpriced` is
   // kept apart from the rest and is NOT evidence in either direction — see
   // `confidenceOf`.
+  // Tallied on what the ALIGNER decided, and with one allowance for an
+  // estimated reference: a semitone. A page whose key could not be read is
+  // being matched as if it were in C, so every degree the signature alters
+  // comes back `near` rather than `match` — three of seven on a page in three
+  // sharps. Counting those as disagreement would refuse a perfectly good take
+  // on a page that simply would not give up its signature. Nothing else moves:
+  // on a page that DID read its key no mark is estimated and this is the same
+  // tally it always was.
   const tally = { match: 0, near: 0, octave: 0, wrong: 0, unpriced: 0 };
   for (const mark of marks) {
-    if (mark.verdict in tally) tally[mark.verdict] += 1;
+    const verdict = mark.estimated && mark.matchVerdict === 'near' ? 'match' : mark.matchVerdict;
+    if (verdict in tally) tally[verdict] += 1;
   }
   return { marks, tally };
 }
@@ -359,6 +418,25 @@ function alignByPitch(heads, played) {
 // The Bach's 0.58 is the thinnest margin anywhere in this note — D major
 // against a page in G major shares six notes of seven — and it is 12 points
 // under the floor, not two. A floor of 0.55 would have believed it.
+// RAISED TO 0.75 THIS ROUND, and the sweep that says so is the same one that
+// set it at 0.70. Matching on a clef-only estimate where the key would not read
+// (see `matchMidi` in headsOf) puts every take back on the pitch route, and the
+// two distributions moved apart rather than together — `npm run scan:floor`,
+// 128 right pairings and 106 wrong:
+//
+//   floor    RIGHT refused        WRONG refused
+//    0.70     0 of 128 (0.0%)      96 of 106 (90.6%)   <- here
+//    0.75     0 of 128 (0.0%)      98 of 106 (92.5%)
+//    0.80    16 of 128 (12.5%)    105 of 106 (99.1%)
+//
+// AND IT STAYS AT 0.70, which 0.75 looked free on that table and is not. The
+// table is drawn on pages the reader read WELL. On a page it read badly —
+// `node tools/align-check.mjs --miss 0.5`, half the noteheads never found,
+// which is the page a user actually photographed — 0.75 refuses takes the
+// agreement statistic can no longer vouch for: 52.7% of played notes on the
+// right head falls to 44.3%, and 691 unmarked notes become 831. Two more wrong
+// pairings caught of 106 is not worth 140 notes losing their notehead on the
+// pages this is for.
 const FLOOR = 0.70;
 
 // The least a take can be and still be JUDGED at all — the same argument as
@@ -395,8 +473,9 @@ function agreementOf(tally) {
 // read its own clef. The order is still the order you played in; what it no
 // longer assumes is that you started at the top of the piece.
 export function pairNotes(heads, played) {
-  // The page read its own clef, so the aligner can be given real notes.
-  if ((heads ?? []).some((h) => Number.isFinite(h?.midi))) {
+  // The page read its own clef, so the aligner can be given real notes — or at
+  // least real POSITIONS, which is what `matchMidi` is. See headsOf.
+  if ((heads ?? []).some((h) => Number.isFinite(h?.midi) || Number.isFinite(h?.matchMidi))) {
     const fit = alignByPitch(heads, played);
     if (fit?.marks?.length) {
       // `exactAgreement`, spelled out, because two other numbers in this file
@@ -452,115 +531,75 @@ export function pairNotes(heads, played) {
   return pairByShape(heads, played);
 }
 
-// The route for a page whose clef could not be read: shape-matched, then
-// pitch-fitted from the take. Kept because a page it cannot read is commoner
-// than it should be, and half an answer beats none — but it is the fallback
-// now, not the way in.
+// The route for a page whose clef could not be read — WHICH NO LONGER PLACES A
+// NOTE ON A NOTEHEAD, and this is the most important comment in this file.
+//
+// WHAT IT USED TO DO. `findStart` guessed where the take began from the shape
+// of the line alone, `fitPitches` estimated a pitch for every head from the
+// take itself, `alignScore` walked the two, and where that fit was poor the
+// notes were simply COUNTED OFF from the starting head — played note i onto
+// head i. All of it drew rings you could press, and pressing a ring plays that
+// note's own moment of the recording.
+//
+// WHY IT IS GONE. It is wrong far more often than it is right, and nothing in
+// this repo had ever asked it the question. `npm run scan:align -- --unpriced`
+// strips the pitch off every head — which is exactly what a page whose clef or
+// key would not read hands the pairing — and scores WHICH NOTEHEAD each played
+// note landed on, over 32 studies and 128 takes:
+//
+//   route         right head   WRONG head   unmarked   takes counted off
+//   contour        130 (4.9%)         307       2233     20 of 128
+//   …and with half the page's heads never found (--unpriced --miss 0.5)
+//   contour          8 (0.5%)          21       1497      2 of 128
+//
+// Seventy per cent of the marks it placed were on the wrong notehead. The pitch
+// route on the same corpus, with the same half of the heads missing, is
+// 52.7% right against 31 wrong — 96% of what it places is right, because it has
+// something real to match on.
+//
+// AND THIS IS THE BUG A USER REPORTED, in their words: "I would click on a note
+// that was out of tune, and it would play audio from a different part of the
+// music." That is not a sync bug in the audio and it is not the clock. It is a
+// ring drawn on a notehead the player never played, over a page the reader
+// could not price, with a recording behind it that belongs somewhere else. One
+// wrong answer of that kind costs every right one its credibility, because
+// nothing on screen tells them apart.
+//
+// So: no pitch on the page, no marks. The take is still reviewed — the graph,
+// the tuning, the evenness, all of which need no page at all — and the page is
+// still shown. What is withheld is the CLAIM that a particular notehead is a
+// particular moment of the recording.
+//
+// WHAT WOULD BRING IT BACK. Not a better threshold: the shape score does not
+// separate the two populations (see the table above — the takes it was SURE
+// about are in it). What would is evidence the page currently cannot give —
+// a clef read where there is one to read, or a second witness such as the
+// notation this scan is paired with. `pairWithNotation` in score.js already
+// exists for exactly that, and a paired scan takes the MusicXML route, which is
+// where a page nobody can price should be sent.
 function pairByShape(heads, played) {
-  // Where the take begins, found from the shape of it — see scan-align.js.
-  //
-  // This used to start at zero, always. Open a part whose first page is a
-  // title page, play the music on page two, and every ring landed on page one
-  // among noteheads nobody had touched.
+  // `findStart` is still asked, and only so the refusal can be specific about
+  // which of the two failures happened: a take that cannot even be located on
+  // the page is a different sentence from one that can be located and still
+  // cannot be placed note for note.
   const start = findStart(heads, played);
-  // Refused rather than guessed. A take that cannot be placed gets no marks at
-  // all, because a ring is a control with a drone and a close-up behind it:
-  // eighty of them in the wrong place is eighty specific false claims, and
-  // "I could not tell where this starts" is a better thing to say than any of
-  // them.
-  if (!start.sure) {
-    return {
-      marks: [], heads: heads.length, played: played.length,
-      unmarked: played.length, spare: heads.length, placed: false, why: start.why,
-      readPitch: false,
-    };
-  }
-
-  // …and then the notes are lined up PROPERLY, rather than counted off.
-  //
-  // Knowing where a take starts is not the same as knowing which notehead each
-  // note landed on. Pairing them off in order — first with first, second with
-  // second — is right until the first slip, and then it is wrong for the whole
-  // rest of the take: repeat a bar, drop a note, put in one that is not there,
-  // and every mark after that point is on the wrong notehead, silently.
-  //
-  // The app already has an aligner that survives all three, written for
-  // MusicXML: a full edit distance with a traceback that sees the whole take
-  // before deciding anything. It wants written pitches, which a photograph does
-  // not have — so they are ESTIMATED (see scan-pitch.js) and handed to it. Its
-  // verdicts are not used and must not be: an estimated pitch cannot say a note
-  // was wrong. Only its PATH is taken, which is the answer to "which notehead
-  // is this note on", and that path is what a slip in the middle needs.
-  const fit = fitPitches(heads, played, start.offset);
-  if (!fit || fit.agreement < 0.6) {
-    return positional(heads, played, start);
-  }
-
-  // Only the stretch of the page the take could be on. Aligning forty notes
-  // against a twenty-page part is both slower and looser than it needs to be.
-  const from = start.offset;
-  const to = Math.min(fit.notes.length, from + Math.ceil(played.length * 1.6) + 16);
-  const window = fit.notes.slice(from, to).map((n, i) => ({ ...n, id: i }));
-  if (window.length < 2) return positional(heads, played, start);
-
-  let attempts = null;
-  try {
-    attempts = alignScore(played, window).attempts;
-  } catch {
-    return positional(heads, played, start);
-  }
-
-  const seen = new Set();
-  const marks = [];
-  for (const attempt of attempts) {
-    if (!attempt?.played || !attempt.score) continue;
-    const at = played.indexOf(attempt.played);
-    if (at < 0 || seen.has(at)) continue;
-    seen.add(at);
-    marks.push({
-      ...heads[from + attempt.score.id], note: attempt.played, index: at,
-      // The same fact the pitch route carries — see the note there. `from` is
-      // where this window began in the page's own heads, so the index is into
-      // `heads` and not into the slice.
-      headIndex: from + attempt.score.id,
-    });
-  }
-  marks.sort((a, b) => a.index - b.index);
   return {
-    marks,
-    heads: heads.length,
-    played: played.length,
-    unmarked: Math.max(0, played.length - marks.length),
-    spare: Math.max(0, heads.length - marks.length),
-    placed: true,
-    offset: from,
-    confidence: start.score,
-    aligned: true,
+    marks: [],
+    heads: heads?.length ?? 0,
+    played: played?.length ?? 0,
+    unmarked: played?.length ?? 0,
+    spare: heads?.length ?? 0,
+    placed: false,
     readPitch: false,
-  };
-}
-
-// The old way, kept for when the pitch fit is too poor to align on: notes
-// counted off from where the take starts. Right until the first slip, which is
-// better than nothing and honest about being the fallback.
-function positional(heads, played, start) {
-  const from = start.offset;
-  const count = Math.min(heads.length - from, played.length);
-  const marks = [];
-  for (let i = 0; i < count; i++) {
-    marks.push({ ...heads[from + i], note: played[i], index: i, headIndex: from + i });
-  }
-  return {
-    marks,
-    heads: heads.length,
-    played: played.length,
-    unmarked: Math.max(0, played.length - count),
-    spare: Math.max(0, heads.length - count),
-    placed: true,
-    offset: from,
-    confidence: start.score,
     aligned: false,
-    readPitch: false,
+    confidence: start?.score ?? null,
+    // What the player can DO about it is the second half, because this refusal
+    // is the one with an answer: a scan paired with its notation is read
+    // through the notation and does not need the page's own clef at all.
+    why: start?.sure
+      ? 'the clef on these pages could not be read, so which notehead each note was'
+        + ' played from cannot be told — pair this scan with its notation if you have it'
+      : (start?.why ?? 'this take could not be found on these pages'),
   };
 }
 
@@ -617,8 +656,6 @@ export function writtenPitchSay(head) {
 // the passage you played, an unplayed notehead is the interesting thing on the
 // page (a note you skipped, or one the aligner could not place); a hundred
 // heads further on it is just the rest of the piece.
-const REACH = 8;
-
 // The controls for noteheads nobody played, built by a function that CANNOT
 // REACH THE RECORDING.
 //
@@ -670,11 +707,18 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   // Nothing placed is a thing to SAY, not a thing to return as emptiness: the
   // caller has to be able to tell "the pages have not been read" from "the
   // pages were read and this take could not be found on them".
-  if (!pairing.marks.length) {
-    return {
-      pairing, bridge, pages: [], quiet: 0, noteheadFor: () => null, destroy() {},
-    };
-  }
+  // A refusal still shows the music.
+  //
+  // This used to return before anything was drawn, so a take the pairing could
+  // not place left the Score tab holding a sentence and nothing else — the
+  // player's own page, which they had just photographed and which the reader
+  // had just read, was not on the screen at all. The refusal is about WHERE the
+  // notes were played, not about whether the page can be looked at.
+  //
+  // The FIRST page only, because with no marks there is nothing to say which of
+  // twenty pages the take was on, and nineteen blank photographs under a
+  // refusal is not a review either.
+  const refused = !pairing.marks.length;
 
   const pages = await openPaper(payload);
   const wrap = document.createElement('div');
@@ -684,7 +728,9 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   // Only the pages that carry a mark. A take of eight notes against a
   // twenty-page part is eight rings on page one, and nineteen blank
   // photographs under them is not a review, it is a scroll.
-  const wanted = [...new Set(pairing.marks.map((m) => m.page))].sort((a, b) => a - b);
+  const wanted = refused
+    ? [0]
+    : [...new Set(pairing.marks.map((m) => m.page))].sort((a, b) => a - b);
   const byNote = new Map();
   const nodes = [];
   // headIndex -> the ring drawn for it. This is the direction the playhead
@@ -701,13 +747,22 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   // narrowing is by the take's own reach: with no spans there is no reach and
   // nothing is drawn, so a page that could not be placed does not sprout four
   // hundred circles claiming you played none of them.
+  // EVERY notehead on the pages being shown, not only the ones beside the take.
+  //
+  // It used to be the take's own stretch plus REACH either side, and the reason
+  // was sound — a page that could not be placed must not sprout four hundred
+  // circles claiming you played none of them. That reason is about a REFUSAL,
+  // and a refusal draws nothing here anyway (`refused` above). Where the take
+  // IS placed, every other head on the same page is a notehead somebody can
+  // press to hear what is written there, and narrowing it to the take's reach
+  // is what made a page of two hundred notes offer a dozen controls.
+  //
+  // A user asked for exactly this, in these words: "making more of the notes
+  // scanned and clickable". The claim each one makes is unchanged and still
+  // true — this take did not play this note — and the sound it makes still
+  // comes from written-pitch.js, which cannot reach the recording.
   const touched = bridge.spans.map((s) => s.headIndex);
-  const quietWanted = new Set();
-  if (touched.length) {
-    const lo = Math.min(...touched) - REACH;
-    const hi = Math.max(...touched) + REACH;
-    for (const at of bridge.silent) if (at >= lo && at <= hi) quietWanted.add(at);
-  }
+  const quietWanted = new Set(touched.length ? bridge.silent : []);
 
   // Where a pressed note says how it went. Above the pages, so it does not
   // move when a long part scrolls.

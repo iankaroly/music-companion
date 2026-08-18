@@ -171,16 +171,61 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
   const from = new Uint8Array((S + 1) * width);
   let above = new Float32Array(width);
   let row = new Float32Array(width);
+  // The cheapest row to finish on, for the free trailing gap — see the note
+  // above the fill. Row 0 is "the take ends before the score begins", which is
+  // only ever the answer when nothing was played.
+  let bestCost = Infinity;
+  let bestRow = 0;
+  // FREE ENDS ONLY WHERE THERE IS ROOM TO SLIDE.
+  //
+  // A take that covers all of what it is compared against has nowhere to go and
+  // wants the old end-to-end reading: every score note accounted for, so a
+  // fumbled last note is a WRONG NOTE and not "you stopped early and made a
+  // noise". MEASURED, `tests/align-score.test.js`: on a two-note score played
+  // with two notes, free ends turn ['match','wrong'] into ['missed','match']
+  // plus an extra, which is a worse account of the same playing.
+  //
+  // A take that covers a fragment of a long part is the opposite case and is
+  // the one the user hit: 28 notes over 750 noteheads, where end-to-end costs
+  // the same wherever the take sits and the tie-break slides it to the front of
+  // the page. Four notes of slack is the line — under it every note of the
+  // score is nearly spoken for, over it the take is a passage inside something
+  // longer.
+  const freeEnds = S > P * 2 + 8;
 
   for (let j = 1; j <= P; j++) {
     above[j] = j * COST.insert;
     from[j] = LEFT;
   }
 
+  // WHERE THE TAKE SITS IN THE PART IS FOUND, NOT ASSUMED — and this is the fix
+  // for a bug a user reported in these words: "I would click on a note that was
+  // out of tune, and it would play audio from a different part of the music."
+  //
+  // This was a GLOBAL alignment: every note of the score had to be consumed, so
+  // the score notes before the take and after it were deleted at 1.0 each. That
+  // sounds like a cost and is not, because it is the SAME cost wherever the
+  // take sits. A take of 28 notes over a page of 750 noteheads deletes 722 of
+  // them by any path, so the only thing separating one placement from another
+  // was the substitutions — and a matching pitch costs 0 whether it is the
+  // right notehead or one two hundred notes earlier. Every placement tied, and
+  // the tie-break took the earliest.
+  //
+  // MEASURED, `LANDED=1 PHOTO=1 npm run score:follow`, where the take is
+  // synthesised from the page's own noteheads so the answer is known: notes
+  // 0-17 were dragged onto heads 2, 19, 32 … 223 while they came from 253-270,
+  // and only the last ten landed right — the tail, where the page ran out of
+  // room to slide. On the Bach, six of 28 slid the same way.
+  //
+  // So the ends are FREE: `row[0] = 0` says the score notes BEFORE the take
+  // cost nothing to skip, and the traceback below starts at the cheapest row
+  // rather than at the last one, which says the same about the notes after it.
+  // A gap INSIDE the take still costs 1.0 a notehead, which is what makes a
+  // path that leaps 250 heads and comes back expensive rather than free.
   for (let i = 1; i <= S; i++) {
     const scoreNote = score[i - 1];
     const base = i * width;
-    row[0] = i * COST.delete;
+    row[0] = freeEnds ? 0 : i * COST.delete;
     from[base] = UP;
 
     for (let j = 1; j <= P; j++) {
@@ -202,6 +247,24 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
       from[base + j] = step;
     }
 
+    // The cheapest place for the take to END, tracked as the rows go by: the
+    // cost of having consumed every played note by score note i, with whatever
+    // follows i free. Ties keep the EARLIEST row, so a take that could sit in
+    // two places sits in the first — the same reading a player would make.
+    //
+    // ONLY A ROW THE LAST PLAYED NOTE WAS MATCHED ON may end the take. Without
+    // that, a take whose final note is a fumble ends one note early and the
+    // fumble becomes an extra: the score note it was aimed at is then free to
+    // skip (1.0 for the insert) where matching it as a wrong note costs 1.4.
+    // MEASURED, `tests/align-score.test.js`: "a repeat played but fumbled is
+    // still counted as taken" turned ['match','match','match','wrong'] into
+    // […,'missed'], which is the review telling somebody they stopped early
+    // when what they did was play the last note badly.
+    if (freeEnds && from[base + P] === DIAGONAL && row[P] < bestCost) {
+      bestCost = row[P];
+      bestRow = i;
+    }
+
     const spent = above;
     above = row;
     row = spent;
@@ -209,7 +272,25 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
 
   const attempts = new Array(S);
   const extras = [];
-  let i = S;
+  // Everything after the take is a score note that was not played, and it is
+  // written in as such before the traceback so the array is complete.
+  for (let k = bestRow; k < S; k++) {
+    attempts[k] = {
+      scoreNoteId: score[k].id,
+      pass: score[k].pass ?? 0,
+      score: score[k],
+      played: null,
+      verdict: 'missed',
+    };
+  }
+  // Nothing was ever matched — no row ends on a match — so the take is placed
+  // the way it always was, against the whole score.
+  if (!Number.isFinite(bestCost)) {
+    bestRow = S;
+    attempts.length = 0;
+    attempts.length = S;
+  }
+  let i = bestRow;
   let j = P;
   while (i > 0 || j > 0) {
     const step = i === 0 ? LEFT : j === 0 ? UP : from[i * width + j];
