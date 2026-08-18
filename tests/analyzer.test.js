@@ -29,7 +29,11 @@ describe('Analyzer', () => {
     for (const c of sineChunks(220, 8192)) readings.push(...a.push(c));
     const last = readings.at(-1);
     expect(Math.abs(1200 * Math.log2(last.frequency / 220))).toBeLessThan(2);
-    expect(last.time).toBeCloseTo(8192 / SR, 3);
+    // The MIDDLE of the window it was measured over, not the end of it: a
+    // reading is an average across 4096 samples and stamping it with the last
+    // of them put every onset half a window late — see analyze() in
+    // src/audio/analyzer.js.
+    expect(last.time).toBeCloseTo((8192 - 4096 / 2) / SR, 3);
   });
 
   test('dual mode reports both notes of a double stop in each reading', () => {

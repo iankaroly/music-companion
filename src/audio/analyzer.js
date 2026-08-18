@@ -46,7 +46,22 @@ export class Analyzer {
     let sumSq = 0;
     for (let i = 0; i < window.length; i++) sumSq += window[i] * window[i];
     const rms = Math.sqrt(sumSq / window.length);
-    const time = this.totalSamples / this.sampleRate;
+    // WHEN THIS READING IS OF, which is the middle of the window and not the
+    // end of it.
+    //
+    // `totalSamples` is every sample fed in so far, so stamping a reading with
+    // it says "this pitch was true at the instant the window closed" — and the
+    // window is 4096 samples, 85 ms at 48 kHz. The pitch the window reports is
+    // an average over all of it, so the honest instant is its middle, and
+    // stamping the end put every note's onset about 40 ms late. Everything
+    // downstream inherits that: where a mark sits on the page, when the light
+    // comes on, which side of the beat a note is called. It is half a
+    // semiquaver at 120, which is what "I need the playing to sync perfectly
+    // with the score" is made of at speed.
+    //
+    // Durations do not move — start and end shift together — so nothing about
+    // how long a note was called changes.
+    const time = (this.totalSamples - this.windowSize / 2) / this.sampleRate;
 
     if (this.dual) {
       // Double stops need the full window (a third's common fundamental has

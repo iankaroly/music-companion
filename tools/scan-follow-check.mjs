@@ -394,9 +394,20 @@ check('a time that is not a time is refused rather than guessed',
 
 // --- the light, moving, watched while the take plays -------------------------
 const WATCH_MS = Number(process.env.WATCH_MS ?? 16000);
-await page.evaluate(() => {
+await page.evaluate(async () => {
   window.__trail = [];
+  window.__sync = [];
   const seen = new Set();
+  // WHAT THE PLAYBACK SAYS THE TIME IS, taken from the same subscription the
+  // score page follows. "The light moved 34 times, strictly forward" passes
+  // under a constant offset and under a speed-scaling error alike, which are
+  // exactly the two ways a player sees this go wrong — so the moment is
+  // recorded beside the wall clock and beside the notehead that is lit, and the
+  // three are held to each other below.
+  const { followPlayback } = await import('/src/ui/report.js');
+  window.__stopFollow = followPlayback((note, time) => {
+    window.__heard = { time, at: performance.now() };
+  });
   const tick = () => {
     const lit = document.querySelector('#score-stage .scan-note.sounding');
     const key = lit ? lit.dataset.head : 'none';
@@ -405,11 +416,24 @@ await page.evaluate(() => {
         head: key, page: lit?.closest('.scan-page')?.dataset.page ?? null, at: performance.now(),
       });
     }
+    // Sampled about ten times a second, whatever the light is doing.
+    const heard = window.__heard;
+    if (heard && (!window.__sync.length || performance.now() - window.__sync.at(-1).at > 100)) {
+      window.__sync.push({
+        at: performance.now(),
+        time: heard.time,
+        head: key === 'none' ? null : Number(key),
+        // …and where the take itself says that moment is, asked of the bridge
+        // rather than of the picture.
+        want: window.__view?.bridge?.headAt?.(heard.time)?.headIndex ?? null,
+      });
+    }
     seen.add(key);
     window.__watch = requestAnimationFrame(tick);
   };
-  tick();
+  window.__playedAt = performance.now();
   document.querySelector('#clip-play')?.click();
+  tick();
 });
 
 // Three moments, spread across the take, screenshotted where the light is.
@@ -514,6 +538,54 @@ check('it goes out between notes rather than holding the last one lit',
   dark >= litHeads.length - 1, `${dark} moments with nothing lit`);
 check('and it crosses onto the second page on its own',
   litPages.length === 2, `lit on pages ${litPages.join(', ')}`);
+
+// THE LIGHT AGAINST THE SOUND, which is the check the user's complaint needed:
+// "I need the playing to sync perfectly with the score … if you are playing
+// fast, the notes being highlighted in the playback [must be] synced exactly
+// with that part of the audio."
+//
+// Two questions, and each catches a failure the trail above cannot see. Is the
+// notehead that is LIT the one the take says is sounding at that moment (a
+// picture that lags its own data)? And does the moment the playback reports
+// keep step with the CLOCK (a constant offset, or a speed that drifts)?
+const sync = await page.evaluate(() => ({
+  rows: window.__sync ?? [], from: window.__playedAt ?? 0,
+}));
+const placed = sync.rows.filter((r) => r.head !== null && r.want !== null);
+const onTheRightHead = placed.filter((r) => r.head === r.want).length;
+// The offset between the take's own clock and the wall clock, sample by sample.
+// The CONSTANT part of it is not the app: `sync.from` is stamped just before
+// the play button is pressed, and building the buffer for a sixteen-second take
+// happens inside that click. What the app is answerable for is the SPREAD — an
+// offset that grows is a rate error, and a rate error is what a player sees as
+// the light drifting further out the longer they listen.
+//
+// The constant part cannot be measured from here at all: a headless browser
+// reports no output latency, so the correction for it in report.js (the delay
+// between the audio graph's clock and the sound leaving the speaker) is a
+// no-op in this check by construction. It is measured on a device or not at
+// all, and it is written up rather than asserted.
+const offsets = sync.rows
+  .filter((r) => Number.isFinite(r.time))
+  .map((r) => r.time - (r.at - sync.from) / 1000);
+// The first sample is the press itself and is thrown away: building the buffer
+// for a sixteen-second take happens inside the click, so that one reads about
+// 0.13s where every one after it reads 0.04. Measured, printed by OFFSETS=1.
+const steady = offsets.slice(1);
+const spread = steady.length ? Math.max(...steady) - Math.min(...steady) : Infinity;
+const worstDrift = spread;
+if (process.env.OFFSETS) {
+  console.log(`      offsets: ${offsets.map((o) => o.toFixed(3)).join(' ')}`);
+}
+console.log(`      sync: ${onTheRightHead} of ${placed.length} samples lit the head the take`
+  + ` says was sounding; offset ${offsets.length ? offsets[0].toFixed(3) : '—'}s at the start,`
+  + ` spread ${spread.toFixed(3)}s over ${(WATCH_MS / 1000).toFixed(0)}s`);
+check('the notehead lit is the one sounding at that moment, every time it is asked',
+  placed.length >= 8 && onTheRightHead === placed.length,
+  `${onTheRightHead} of ${placed.length}`);
+check('and the moment it reports keeps step with the clock, start to end',
+  worstDrift < 0.03,
+  `the offset holds within ${worstDrift.toFixed(3)}s across ${steady.length} samples`);
 check('the three screenshots caught the light on three different noteheads',
   new Set(shots.filter((s) => s.lit !== null).map((s) => s.head)).size === 3,
   shots.map((s) => (s.lit === null ? 'nothing lit' : `head ${s.head} (p${s.page})`)).join(' → '));

@@ -271,10 +271,48 @@ function playClip(clip, root, timeMap, spans, onDone) {
   source.buffer = buffer;
   source.connect(masterOut());
 
-  const startTime = playbackCtx.currentTime;
+  // WHAT YOU ARE HEARING, NOT WHAT THE GRAPH IS AT.
+  //
+  // `playbackCtx.currentTime` is where the audio engine has got to, and the
+  // sound of that moment has not left the speaker yet: the graph's output is
+  // buffered, and on a phone or a tablet the whole path — buffer, mixer,
+  // hardware, and a Bluetooth link if there is one — is tens of milliseconds
+  // long. So a playhead and a lit notehead driven straight off the clock run
+  // AHEAD of the music by exactly that, every time, and at speed it is a whole
+  // note: semiquavers at 120 are 125 ms apart.
+  //
+  // A player put it as "I need the playing to sync perfectly with the score …
+  // if you are playing fast, the notes being highlighted in the playback [must
+  // be] synced exactly with that part of the audio", and this is the half of
+  // that which is arithmetic rather than alignment. The browser reports the two
+  // parts of the delay — `baseLatency` is the graph's own buffering and
+  // `outputLatency` is everything past it — so the light is driven off the
+  // moment being HEARD.
+  //
+  // Read every frame rather than once: `outputLatency` changes under you when
+  // headphones go in or a Bluetooth speaker connects, which is the case where
+  // being wrong is most obvious.
+  // …and defended, because both numbers are optional and one of them lies.
+  // `outputLatency` is NaN in a browser that has not measured it yet — which
+  // `?? 0` does not catch, and NaN poisons the whole chain: the playhead reads
+  // NaN, `headAt(NaN)` answers null, and not one notehead lights for the whole
+  // take. MEASURED, `npm run score:follow` the moment this was added without
+  // the guard: "0 different noteheads lit over 16s". Capped as well, because a
+  // quarter of a second is already a long delay and a wilder figure would drag
+  // the light further out of step than the delay it is correcting.
+  const HEARD_MOST = 0.25;
+  const real = (n) => (Number.isFinite(n) && n > 0 ? n : 0);
+  const heard = () => Math.min(HEARD_MOST,
+    real(playbackCtx.baseLatency) + real(playbackCtx.outputLatency));
+  // Started at an explicit moment rather than "as soon as possible", so that
+  // the clock the light reads and the clock the sound is played on are the same
+  // number and not two numbers a render quantum apart.
+  const startTime = playbackCtx.currentTime + 0.02;
   const tick = () => {
     if (source !== currentSource) return;
-    const recTime = timeMap((playbackCtx.currentTime - startTime) * playbackSpeed);
+    const recTime = timeMap(
+      Math.max(0, playbackCtx.currentTime - startTime - heard()) * playbackSpeed,
+    );
     setPlayheads(recTime);
     // The note box reads whatever is under the cursor, so while the cursor is
     // moving on its own it should keep reading — watching the playhead cross a
@@ -292,7 +330,7 @@ function playClip(clip, root, timeMap, spans, onDone) {
     animationFrame = requestAnimationFrame(tick);
   };
   source.onended = () => { stopPlayback(root); onDone?.(); };
-  source.start();
+  source.start(startTime);
   currentSource = source;
   scheduleClickTrack(startTime, timeMap(0), (samples.length / clip.sampleRate) * playbackSpeed);
   tick();
