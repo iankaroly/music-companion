@@ -19,7 +19,7 @@
 
 import { beamLayer, readValues } from './scan-stems.js';
 import {
-  clefFeatures, classifyClef, midClefAt, midBassAt,
+  clefFeatures, classifyClef, midClefAt, midTrebleAt,
   MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW,
 } from './scan-clef.js';
 import {
@@ -28,7 +28,7 @@ import {
 } from './scan-key.js';
 import { headPatch, headScore, headScoreMlp } from './head-model.js';
 import { pitchOf } from './scan-notes.js';
-import { accidentalFor, applyAccidentals } from './scan-accidental.js';
+import { accidentalFor, applyAccidentals, ACC_OFFSET } from './scan-accidental.js';
 
 const WORK_WIDTH = 1400;   // enough detail for a staff space of ~9px
 const STRIPS = 40;
@@ -502,7 +502,17 @@ export function fillMissedStaves(staves, profiles, pitch, { votes = 0.5, floor =
       for (let k = Math.max(0, s - 2); k <= Math.min(strips - 1, s + 2); k++) { sum += y0[k]; n++; }
       smooth[s] = sum / n;
     }
-    out.push({ y0: smooth, step });
+    // FLAGGED, because `stavesToLines` must treat this stave differently from a
+    // tracked one. A tracked stave's per-strip answer is EVIDENCE and is now
+    // followed; a predicted one's is a local search around a position the page's
+    // rhythm guessed, run in the strips where the system was too faint to track
+    // at all, and it swings wildly. Measured on the Bach photograph, whose last
+    // two systems `trackCombs` never finds: after the five-wide mean above,
+    // staves 8 and 9 still swing 9.5 and 10.1 STEPS from end to end, against
+    // 1.2 to 4.5 on the eight tracked ones — and a real page's curl is inside
+    // that lower band. Following that would be far worse than a quadratic
+    // through it, so a predicted stave keeps the quadratic. See `stavesToLines`.
+    out.push({ y0: smooth, step, predicted: true });
   }
   return out.sort((a, b) => a.y0[0] - b.y0[0]);
 }
@@ -598,6 +608,13 @@ export function beamMask(ink, w, h, space, { run = 2.4, bulge = 1.8, join = 0.55
 // above and below.
 // A stave BENDS. It does not wave.
 //
+// READ THE BLOCK ABOVE `smoothTrack` BEFORE BELIEVING THAT SENTENCE. It is true
+// of a stave's SPACING, which is all this curve is still fitted to on a tracked
+// system, and it is false of a stave's POSITION on a photograph of a bound book,
+// where the printed line waves and this fit least-squares straight through it.
+// That cost a whole wrong note per passage and it was measured; the position is
+// now smoothed rather than fitted.
+//
 // The tracker takes the best comb in each strip and interpolates across the
 // strips that had none. Where a strip's best answer is not the stave — a beam
 // lying across it, a slur, the thick of a phrase mark — the curve steps sideways
@@ -661,8 +678,169 @@ function fitCurve(values, tolerance) {
   return out;
 }
 
+// …AND ON A PHOTOGRAPH OF A BOUND BOOK IT WAVES, WHICH IS WHERE THE PITCH WAS
+// BEING LOST. The paragraph above is right about what a stave does and wrong
+// about what a quadratic can follow, and the difference cost a whole note.
+//
+// DRAWN ON THE PAGE, which is the only way this was ever going to be seen. On
+// the photographed Bärenreiter BWV 1007, system 1, at 8x: the tracked comb sits
+// exactly on the five printed lines all the way across, and the FITTED model
+// runs a third of a space ABOVE the print at x=0.30 and a third to a half BELOW
+// it by x=0.69, crossing somewhere near the middle. Every red line of the model
+// runs through the white of a space while the print runs below it. In steps —
+// half a space, which is a note name — the fitted bottom line was +0.79 out at
+// x=0.30 and -0.96 at x=0.69, and the sign of that error is the sign of the
+// wrong pitch note for note.
+//
+// The printed line is not a bend on that page, it is a WAVE: down at the left,
+// up by strip 12, down again by strip 30, up at the right end, about 13px of
+// swing on a 12px staff space. A quadratic has one turning point and that shape
+// has three, so the fit least-squares straight through it. Raising the degree is
+// not the answer either — a global quartic needs a fourth turning point it will
+// find in the noise, and it goes unstable at exactly the strip ends where
+// `trackCombs`' clamp fabricates flat data.
+//
+// WHAT SEPARATES THE SIGNAL FROM THE FAILURE IS SCALE, NOT SHAPE. The thing the
+// fit was protecting against is one strip landing on a beam or the thick of a
+// slur: that is a SINGLE strip. The wave is ten strips wide. So a running MEDIAN
+// throws the first away by construction — a median of five cannot be moved by
+// one bad value, and it needs no tolerance constant at all — while passing a
+// ten-strip wave through almost untouched. The short mean after it only takes
+// the staircase off the median's output.
+//
+// THE WINDOW IS THE WHOLE CHANGE, so it was swept, on the three marked pages,
+// scored as the STEP each hand-marked notehead reads against the lines printed
+// around it (tools/step-truth.mjs):
+//
+//     y0 smoothed by      Bach            Concerto        Scanned score
+//     the quadratic       193/248  77.8%  204/230  88.7%  262/301  87.0%
+//     median 3, mean 3    229/248  92.3%  211/230  91.7%  278/301  92.4%
+//     median 5, mean 3    229/248  92.3%  210/230  91.3%  279/301  92.7%
+//     median 7, mean 3    229/248  92.3%  210/230  91.3%  276/301  91.7%
+//     median 5, no mean   229/248  92.3%  209/230  90.9%  275/301  91.4%
+//     median 5, mean 5    228/248  91.9%  210/230  91.3%  278/301  92.4%
+//
+// THE DENOMINATORS ARE IDENTICAL DOWN EVERY COLUMN — 248, 230, 301 — so those
+// are the same marks answered before and after and not a different sample. The
+// harness consults the reader's own model for one bounded tie-break, so that had
+// to be checked rather than assumed: its self-score against the steps BWV 1007
+// gives is 25 of 32, on the same 25 marks, before and after.
+//
+// AND THE OPENING OF THE PRELUDE COMES BACK. Bars 1-2 read
+//   0 4 9 8 9 3 8 3 -1 4 8 8 9 4 9 4 0 6 11 10 11 6 11 6 1 6 11 10 11 5 10 4
+// and now read
+//   0 4 9 8 9 4 9 4  0 4 9 8 9 4 9 4 0 5 11 10 10 5 10 5 0 5 10 9 10 5 10 5
+// against a music that is not in dispute (pages/truth/bach.pitch.json):
+//   0 4 9 8 9 4 9 4  0 4 9 8 9 4 9 4 0 5 10  9 10 5 10 5 0 5 10 9 10 5 10 5
+// 14 of 32 to 30 of 32, and both statements of bar 1 exactly right.
+//
+// 3 and 5 tie on the total. FIVE is taken because it is the one that survives
+// TWO neighbouring bad strips, and the thing being survived is a beamed group
+// lying across the stave — at 40 strips on a 1400px raster a strip is 35px and a
+// beamed group of semiquavers is wider than that, so a beam is not reliably a
+// one-strip event. The mean after it is three wide and not five: five costs Bach
+// a mark and buys nothing, and dropping it altogether costs the Concerto one and
+// the Scanned score four, which is the staircase the median leaves behind.
+//
+// AND THE ONE THING THAT SAYS THIS IS THE STAVE AND NOT A LUCKY ROUNDING: the
+// model's own distance from the printed lines, in steps, measured at the marks
+// across each system of the Bach photograph. On the eight systems `trackCombs`
+// tracks, the end-to-end swing was 0.20 to 1.67 steps and is now 0.10 to 0.18 —
+// every tracked stave square on the print to a tenth of a step. The two the
+// quadratic still governs, systems 8 and 9, are unmoved at 0.30 and 0.00, and
+// they hold all 45 of the page's remaining half-step-or-worse marks.
+//
+// WHAT IT COST, because nothing here is free and the next round should not have
+// to find it out again. `scan:key-read` comes back byte-identical, 300 of 352
+// and 0 read as the wrong key. `scan:key-safety` passes all five of its gated
+// zeroes. `scan:studies` is unchanged on every summary line it prints — in bass
+// and again under FORCE_CLEF=treble and FORCE_CLEF=tenor — 692 found, 666 named
+// right, `wrong by semitones` empty. (Those three were diffed on the lines the
+// tools print, not note by note.) `scan:corpus` is identical
+// in all four means, `scan:clef-change` byte-identical, `npm test` 607.
+// `bench` recall does not move on any page (99.7 / 95.1 / 99.5, mean 98.1); its
+// precision moves 95.0 to 94.9 in the mean — two more invented circles on Bach,
+// one fewer on the Concerto. `scan:bars` loses one barline of 42 on its `faint`
+// fixture, 6 clean staves of 6 down to 5, mean recall still 100%. And the
+// mid-system clef block of `scan:clef`, which is deep in debt at both ends
+// already, moves the right way on both of its totals: 158 false fires to 155,
+// and 141 notes named wrong on a page whose change was found down to 118.
+//
+// THE `bars` COLUMN OF `bench` RISES ON ALL THREE REAL PAGES — Bach 34 to 40 —
+// and that was checked rather than claimed, because more barlines is not by
+// itself better. Dumping the positions: three of Bach's six new bars are the
+// CLOSING barline of systems 0, 1 and 2 at x≈1301, which no other system was
+// missing, and those are exactly the three systems whose model was furthest out
+// (swings 1.67, 1.30, 0.93 steps). A barline is measured between the stave's own
+// top and bottom line, so a model half a space out at the right-hand edge clips
+// it away. The other three (x=918, 956 on system 2, 903 on system 5, 1013 on
+// system 6) land among stems in the cluster this page's bar finder already
+// invents, and are not defended here.
+//
+// THE SPACING KEEPS THE QUADRATIC, and that is not an oversight. Splitting the
+// bottom line's error into the stave's vertical position and four times its
+// spacing error, on Bach staff 0: the position slides by -5.4 to +6.2px while
+// four times the spacing error stays inside ±0.65px. The stave MOVES; it does
+// not stretch. Smoothing the spacing the same way would only let noise into the
+// one quantity that is already right.
+//
+// A PREDICTED STAVE KEEPS THE QUADRATIC TOO. `fillMissedStaves` does not track
+// those — it searches around a position the page's rhythm guessed, in the strips
+// where the system was too faint to track — and its answer swings 9.5 and 10.1
+// steps end to end on the two systems at the foot of the Bach photograph,
+// against 1.2 to 4.5 on the eight `trackCombs` actually finds. There is nothing
+// there to follow. A quadratic through it is a rescue, not a measurement.
+const TRACK_MEDIAN = 2;
+const TRACK_MEAN = 1;
+
+// Running median then a short running mean, both with windows that SHRINK
+// symmetrically at the ends rather than repeating the edge value. Shrinking
+// keeps a straight stave straight: on a plain ramp every output equals its
+// input, because the median of a symmetric window of a monotone run is its
+// centre, and the mean of one is too. Padding would flatten both ends of every
+// stave on the page towards its first and last strip, which is the margin where
+// the clef is drawn and read.
+//
+// THE PRICE OF SHRINKING, NAMED: at strips 0 and 39 the half-width is 0 and the
+// value passes through UNFILTERED, so a single bad comb answer in the very first
+// or very last strip now reaches the model where the quadratic would have
+// absorbed it. That is the clef margin, and the step harness cannot see it —
+// the `.0` column of its per-system table is empty on all ten Bach staves,
+// because nobody marks a notehead inside a clef zone. So it was LOOKED AT
+// instead: `node tools/stave-look.mjs <pdf> --at 120,325 --at 120,1440 --zoom 8`,
+// systems 0 and 7 of the photograph, and the five red lines run along the
+// printed ones through the clef and the key sharp in both. The reader agrees —
+// clefs 10/10 on all three marked pages, `scan:clef`'s first two blocks
+// unchanged, `scan:clef-hard` 9/10 before and after, `scan:clef-change`
+// byte-identical. Padding the ends instead would trade this risk for a
+// certainty: every stave on the page flattened towards its own end strip, in
+// that same margin.
+function smoothTrack(values, median = TRACK_MEDIAN, mean = TRACK_MEAN) {
+  const n = values.length;
+  const mid = new Float32Array(n);
+  // `sorted` and not `window`: this module runs in the browser and calls
+  // `document.createElement`, and a local named `window` inside it is a trap
+  // waiting for the next person who adds a line to this function.
+  const sorted = [];
+  for (let s = 0; s < n; s++) {
+    const half = Math.min(median, s, n - 1 - s);
+    sorted.length = 0;
+    for (let k = s - half; k <= s + half; k++) sorted.push(values[k]);
+    sorted.sort((a, b) => a - b);
+    mid[s] = sorted[(sorted.length - 1) >> 1];
+  }
+  const out = new Float32Array(n);
+  for (let s = 0; s < n; s++) {
+    const half = Math.min(mean, s, n - 1 - s);
+    let sum = 0;
+    for (let k = s - half; k <= s + half; k++) sum += mid[k];
+    out[s] = sum / (2 * half + 1);
+  }
+  return out;
+}
+
 export function stavesToLines(staves, strips) {
-  return staves.map(({ y0, step }) => {
+  return staves.map(({ y0, step, predicted }) => {
     // The spacing is smoothed too, and harder. A stave's lines do not get
     // further apart across a page by more than the perspective of a curling
     // sheet, so a strip claiming a different spacing is a strip that found
@@ -671,7 +849,14 @@ export function stavesToLines(staves, strips) {
     for (let s = 0; s < strips; s++) raw += step[s];
     const nominal = raw / strips;
     const smoothStep = fitCurve(step, Math.max(0.5, nominal * 0.12));
-    const smoothY0 = fitCurve(y0, Math.max(1.5, nominal * 0.9));
+    // See the note above `smoothTrack`. The tolerance the quadratic needed here
+    // was `nominal * 0.9` — 10.8px, nearly two whole steps — and it had to be
+    // that loose precisely BECAUSE the quadratic could not follow the wave and
+    // honest strips had to survive the rejection pass. The median needs no
+    // tolerance at all.
+    const smoothY0 = predicted
+      ? fitCurve(y0, Math.max(1.5, nominal * 0.9))
+      : smoothTrack(y0);
     const lines = [0, 1, 2, 3, 4].map((index) => {
       const at = new Float32Array(strips);
       for (let s = 0; s < strips; s++) at[s] = smoothY0[s] + index * smoothStep[s];
@@ -2277,6 +2462,78 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
 //
 // Run BEFORE dropFurniture and therefore before readValues, so the heads stay
 // index-aligned with the values they are about to be given.
+// A TREBLE'S TAIL HANGS UNDER ITS OWN BODY. A BARLINE'S DOES NOT.
+//
+// The second half of the test that came off the Bach photograph — see
+// TREBLE_BEAM in scan-clef.js for the first, and for the picture. Four windows
+// of that page read as a mid-system treble, and cropped at 8x every one of them
+// is a BARLINE with a beamed group on either side: the barline supplies ink
+// continuous from the top line to the bottom one, and the beam a space to its
+// side supplies the depth. The column profile cannot see that they are two
+// objects, because it has already summed across the band.
+//
+// So this asks the one question the profile cannot: is the ink below the stave
+// UNDER the ink inside it? Take the x-centre of the ink below the bottom line
+// and the x-centre of the ink between the lines, both with the staff's own five
+// lines left out, and measure how far apart they stand.
+//
+// MEASURED: on the 675 windows of a real drawn mid-system G clef that pass
+// every other test, the two centres are 0.19 of a staff space apart at the
+// median and 0.50 at the ninetieth centile; on all three of the Bach's barline
+// runs they are 0.68 to 1.36 apart, because the beam is beside the barline and
+// not under it. The bound is 0.65 and the run of five carries the rest — a clef
+// has to answer this five windows running. With this and TREBLE_BEAM in, the
+// three marked photographs report ZERO clef changes on thirty staves, where the
+// treble test without them fired four times on the Bach.
+//
+// WHY IT LIVES HERE and not in scan-clef.js: everything in that file reads one
+// column of numbers, one per row, and this needs the page. Applied to the
+// TREBLE only. A C-clef sits inside the stave and has no tail to ask about.
+const TAIL_SPLIT = 0.65;     // staff spaces between the two centres
+const TAIL_BELOW = 4.15;     // where "below the stave" starts, in spaces
+function tailUnderBody(ink, w, h, staff, stripW, space, x0, x1) {
+  const mid = Math.round((x0 + x1) / 2);
+  const lineY = (index) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(mid / stripW)))
+  ];
+  const top = lineY(0) + bandShift(ink, w, h, lineY, space, x0, x1, mid);
+  // The x-centre of the ink in one horizontal slice, weighted by how much of
+  // that column is inked, or null where the slice is empty.
+  const centre = (from, to, floor) => {
+    let sum = 0;
+    let total = 0;
+    for (let cx = x0; cx <= x1; cx++) {
+      let n = 0;
+      for (let y = Math.round(top + from * space); y <= Math.round(top + to * space); y++) {
+        if (y >= 0 && y < h && ink[y * w + cx]) n++;
+      }
+      const v = n / space;
+      if (v > floor) { sum += cx * v; total += v; }
+    }
+    return total > 0 ? sum / total : null;
+  };
+  const tail = centre(TAIL_BELOW, TAIL_BELOW + 3, 0.02);
+  // …and the ink INSIDE the stave, which is what the tail has to stand under.
+  //
+  // BE CLEAR WHAT THIS IS, because the obvious reading of it is wrong and a
+  // later round correcting it would lose the zero. The staff lines are NOT
+  // excluded. They are inked right across the band, so every column of a bare
+  // stave scores 0.8 here and the centre of an EMPTY band comes back as the
+  // band's own middle rather than null — checked directly, not assumed. A
+  // notehead column scores about 2.0 against that 0.8, so a glyph moves this
+  // centre but does not own it.
+  //
+  // That is why the test works and why it is stated as "under its own body"
+  // rather than "under its own glyph": a G clef sits square in the band for
+  // several of the windows in its run, so its tail is near the middle; a beam
+  // a space to the side of a barline is not. Excluding the line rows was NOT
+  // tried, and the bound of 0.65 was measured against THIS arithmetic — moving
+  // one without re-measuring the other is how the number stops meaning anything.
+  const body = centre(0.15, 3.85, 0.15);
+  if (tail === null || body === null) return false;
+  return Math.abs(tail - body) / space <= TAIL_SPLIT;
+}
+
 // A CLEF PRINTED PART WAY ALONG A SYSTEM, which the reader had never looked for.
 //
 // WHAT IT COSTS TO MISS ONE, measured on a page engraved with real Bravura:
@@ -2307,27 +2564,57 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
 //     suppress anything, and is not consulted by dropFurniture. It is read by
 //     notesInOrder and by nothing else, which is why every measurement of what
 //     gets CIRCLED is unmoved by construction — see the note in readPage.
-//   - It finds C-clefs only. A mid-system change to bass or treble is not read
-//     and stays as wrong as it was. That is not laziness: the C-clef is the one
-//     a cello part changes to, and it is the only one of the three whose
-//     signature is size-independent (see midClefAt). A treble printed
-//     mid-system does pass the height and continuity tests, and its waist lands
-//     nowhere near a line, so it is refused rather than misnamed.
+//   - It finds C-clefs and TREBLE clefs, and it does NOT find a bass. That
+//     split is measured, not assumed, and the measurement is in scan-clef.js
+//     above the hole where midBassAt used to be: a treble reads 54 of 60 drawn
+//     mid-system clefs with zero false fires over 58,411 windows, and the most
+//     sensitive bass gate anybody could build out of this profile read 41 of 60
+//     while firing 88 times on scan:clef's own furniture — the quietest that
+//     read anything read 32 of 60 and still fired 25. A cello part goes up in
+//     tenor and
+//     comes back down in bass, so the return trip is still not read; where it
+//     is not, the page keeps exactly the behaviour it had before this existed.
 //   - A clef change in the middle of a BAR is found as readily as one after a
 //     barline — the scan has no notion of bars — but nothing here reads the
 //     cautionary clef an engraver prints at the END of a system.
 const MID_CLEF_STEP = 0.25;   // how far the window slides, in staff spaces
 const MID_CLEF_RUN = 3;       // …and how many steps the answer must survive
-export function findClefChanges(ink, w, h, staff, stripW, space, fromX) {
+// A TREBLE has to survive longer, because it is a weaker claim.
+//
+// A C-clef is named by its waist standing on a line, which is a positive and
+// unusual signature; a treble is named by hanging below the stave, and a
+// downward stem, a barline and a forte all go there. MEASURED over the same
+// 58,411 windows the detector was built on: at a run of 5 the treble reads 54
+// of 60 with ZERO false fires, and at a run of 3 it reads the same 54 and fires
+// 12 times — on a double barline through the camera. Two more windows of
+// sliding is half a staff space and costs nothing but the smallest cue clefs,
+// which were already refused.
+const MID_TREBLE_RUN = 5;
+export function findClefChanges(ink, w, h, staff, stripW, space, fromX, headClef) {
   if (!(space > 0) || fromX === null || !Number.isFinite(fromX)) return [];
   const runs = [];
   const step = Math.max(1, space * MID_CLEF_STEP);
   const wide = Math.max(3, Math.round(space * CLEF_WIDE));
   for (let x = fromX; x + wide < w; x += step) {
     const column = clefColumn(ink, w, h, staff, stripW, space, x);
-    // A C-clef first, then the F clef that brings a passage back down. See
-    // midBassAt in scan-clef.js for why the second has a bar of its own.
-    const seen = midClefAt(column, space) ?? midBassAt(column, space);
+    // A C-clef first, then a treble. See midTrebleAt in scan-clef.js for what
+    // separates one from the music around it, and for why the bass that would
+    // bring a passage back down is not read at all.
+    //
+    // A SYSTEM ALREADY IN TREBLE IS NOT ASKED. A change from treble to treble is
+    // not a change, so the question has no right answer to gain and a false fire
+    // to lose — and the whole of scan:corpus and two of the three marked pages
+    // are single-clef pages that never need to be asked it. This is free
+    // exposure to give up and it is given up on purpose.
+    let seen = midClefAt(column, space)
+      ?? (headClef === 'treble' ? null : midTrebleAt(column, space));
+    // …and a treble has one more question to answer, which needs the page and
+    // not the profile. See tailUnderBody.
+    if (seen?.clef === 'treble') {
+      const x0 = Math.max(0, Math.round(x));
+      const x1 = Math.min(w - 1, x0 + wide);
+      if (!tailUnderBody(ink, w, h, staff, stripW, space, x0, x1)) seen = null;
+    }
     const last = runs[runs.length - 1];
     // The same glyph, still under the window. Anything else starts a new run —
     // including the SAME clef found again further along, which is a second
@@ -2340,13 +2627,30 @@ export function findClefChanges(ink, w, h, staff, stripW, space, fromX) {
       runs.push({ clef: seen.clef, firstX: x, lastX: x, n: 1, confidence: seen.confidence });
     }
   }
-  return runs.filter((r) => r.n >= MID_CLEF_RUN).map((r) => ({
-    // The middle of the run, which is where the glyph is. Reported in pixels;
-    // readPage normalises it like every other x it hands out.
-    x: (r.firstX + r.lastX) / 2,
-    clef: r.clef,
-    confidence: r.confidence,
-  }));
+  return runs
+    .filter((r) => r.n >= (r.clef === 'treble' ? MID_TREBLE_RUN : MID_CLEF_RUN))
+    .map((r) => ({
+      // The middle of the run, which is where the glyph is. Reported in pixels;
+      // readPage normalises it like every other x it hands out.
+      x: (r.firstX + r.lastX) / 2,
+      clef: r.clef,
+      confidence: r.confidence,
+      // WHERE THE GLYPH ITSELF IS, which is not the same thing and is now needed
+      // downstream. Every window of the run contained the whole glyph, so the
+      // glyph lies inside the LAST window's left edge and the FIRST window's
+      // right edge — the intersection of them all. Reported because the reader
+      // was mistaking a mid-system clef for the ACCIDENTAL in front of the next
+      // note (8 of the 64 wrong pitches on npm run scan:clef-change), and
+      // nothing downstream could tell where the ink it was reading came from.
+      //
+      // NOT REACHABLE TODAY BUT WORTH KNOWING: this inverts once a run is longer
+      // than the band is wide — at a quarter-space step that is 15 windows —
+      // and an inverted range simply never contains anything, so the accidental
+      // suppression would stop firing silently rather than fire wrongly. The
+      // longest run measured anywhere is 8.
+      from: r.lastX,
+      to: r.firstX + wide,
+    }));
 }
 
 // How far past a stave's left end a mid-system clef may first be looked for, in
@@ -2734,7 +3038,35 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
       : findClefChanges(
         ink, w, h, staff, stripW, staff.space,
         edges[staffIndex] + staff.space * MID_CLEF_FROM,
+        read.clef,
       );
+    // …AND THE CLEF IS NOT AN ACCIDENTAL, which the reader had been asserting
+    // eight times over.
+    //
+    // accidentalFor takes a patch a fixed distance LEFT of each notehead and
+    // asks a model what is in it. An engraver prints a mid-system clef with the
+    // next note close behind it, so for that one note the patch lands on the
+    // clef — and the model, which has never been shown a clef, answers `flat`
+    // at 0.99 and `sharp` at 0.993. MEASURED on npm run scan:clef-change: 8 of
+    // the 64 wrong pitches on the changing pages are that, and every one is the
+    // first note after the change. It is a new error, introduced by finding the
+    // change at all, and it is silent — the note is named confidently, a
+    // semitone out.
+    //
+    // Fixed HERE rather than in scan-accidental.js, because the accidental
+    // reader has no way to know: the ink is a real glyph and it really is where
+    // an accidental would be. What settles it is that something else has already
+    // claimed that ink, and only this loop knows that.
+    //
+    // ONLY THE PATCH'S OWN CENTRE IS TESTED, not the notehead — a note printed
+    // to the right of a clef keeps its accidental if the accidental is drawn
+    // between them, which is what a bar with both in it looks like.
+    for (const change of clefChanges) {
+      for (const head of heads) {
+        const cx = head.x - staff.space * ACC_OFFSET;
+        if (cx >= change.from && cx <= change.to) head.accidental = null;
+      }
+    }
     return {
       clef: read.clef,
       clefConfidence: read.confidence,
@@ -2743,6 +3075,11 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
       // corpus this project measures — see findClefChanges for the count.
       clefChanges: clefChanges.map((c) => ({
         x: c.x / w, clef: c.clef, confidence: c.confidence,
+        // The glyph's own left and right edge, normalised like every other x
+        // here. Reported so a caller can tell a clef from the music around it —
+        // see the accidental suppression just above, which is the first thing
+        // that needed it.
+        from: c.from / w, to: c.to / w,
       })),
       // Where it looked, so the answer can be checked rather than believed.
       //
@@ -2970,10 +3307,11 @@ export function notesInOrder(page) {
         // them this is the stave's clef and nothing has moved.
         //
         // Note what this is NOT: it is not a claim that a change was found
-        // wherever one exists. findClefChanges reads C-clefs only and refuses
-        // anything it cannot place on a line, so a page can still carry a
-        // change this does not see — and where it does not see one, the answer
-        // here is exactly what it was before.
+        // wherever one exists. findClefChanges reads C-clefs and TREBLE clefs
+        // and refuses everything else — a mid-system BASS is not read at all
+        // and cannot be, which is measured above midTrebleAt in scan-clef.js —
+        // so a page can still carry a change this does not see, and where it
+        // does not see one the answer here is exactly what it was before.
         ...clefHere(staff, head.x),
         // …and the key signature with it, for the same reason: a note's pitch
         // is its position, the clef that names the lines, AND which of those

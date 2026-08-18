@@ -308,7 +308,7 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
     // One page: three systems, a head clef, eight notes, the thing under test
     // halfway along, eight more notes. `mid` is the clef change, `furniture` is
     // whatever else is being printed in its place.
-    function drawMid({ space, head, mid, em, furniture, sharps }) {
+    function drawMid({ space, head, mid, em, furniture, sharps, sharpAt = -1, reserve = false }) {
       const W = Math.round(space * 55);
       const systems = 3;
       const c = document.createElement('canvas');
@@ -347,24 +347,49 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
         const startX = x + space;
         const usable = (W - space * 3.5) - startX;
         const half = usable / 2;
-        const note = (cx, st, clef) => {
+        // `sharp` prints an accidental in front of this note. Its truth is the
+        // UNALTERED degree plus a semitone, which is right whatever the key
+        // signature already did to that degree — a printed sharp replaces the
+        // signature's contribution rather than adding to it.
+        const note = (cx, st, clef, sharp = false) => {
           const gw = wid(glyph.noteheadBlack);
           const y = stepY(base, st);
+          // Set where an engraver sets it, and where accidentalFor looks: the
+          // same gap this file's `acc` furniture uses, which puts the glyph's
+          // left edge about 1.3 spaces left of the head's centre against
+          // ACC_OFFSET's 1.35. Drawn 1.9 notehead widths out first, and at that
+          // distance the reader does not see it at all — the control read 45 of
+          // 48 with the sharpened note wrong on all three systems.
+          if (sharp) put(glyph.sharp, cx - wid(glyph.sharp) - space * 0.7, y);
           put(glyph.noteheadBlack, cx - gw / 2, y);
           const up = st < 4;
           g.fillRect(up ? cx + gw / 2 - lt : cx - gw / 2, up ? y - space * 3.2 : y,
             Math.max(1, lt), space * 3.2);
-          truth.push({ x: cx / W, y: y / c.height, midi: midiOf(st, clef, sharps), step: st });
+          truth.push({
+            x: cx / W, y: y / c.height, step: st,
+            midi: sharp ? midiOf(st, clef, 0) + 1 : midiOf(st, clef, sharps),
+          });
         };
         const gap = half / (TUNE.length + 0.6);
         for (let i = 0; i < TUNE.length; i++) note(startX + gap * (i + 0.6), TUNE[i], head);
         let cx = startX + half;
         let used = 0;
         if (mid) used = put(CLEF_GLYPH[mid], cx, base + CLEF_AT[mid] * space, EM * em) + space * 0.4;
+        // `reserve` takes the same width and draws NOTHING, which is the control
+        // a clef change needs and did not have. A cue clef eats width, so the
+        // notes after it sit closer together than on the plain control page —
+        // 2.09 staff spaces apart against 2.36 — and at 2.09 accidentalFor's
+        // patch lands on the PREVIOUS notehead and its stem. Without this row
+        // those six wrong notes look like the clef change's fault and they are
+        // not: drawn with the width reserved and no clef printed at all, the
+        // same six come back wrong.
+        else if (reserve) used = wid(CLEF_GLYPH.tenor, EM * em) + space * 0.4;
         else if (furniture) used = furniture(g, cx, base, space, put, wid, note);
         cx += used + space * 0.6;
         const gap2 = (usable - half - used - space) / (TUNE.length + 0.6);
-        for (let i = 0; i < TUNE.length; i++) note(cx + gap2 * (i + 0.6), TUNE[i], mid ?? head);
+        for (let i = 0; i < TUNE.length; i++) {
+          note(cx + gap2 * (i + 0.6), TUNE[i], mid ?? head, i === sharpAt);
+        }
       }
       return { canvas: c, truth };
     }
@@ -430,6 +455,34 @@ const report = await page.evaluate(async ({ glyph, anchor, fontBase64: b64 }) =>
       ['bass -> tenor, em 0.6', { head: 'bass', mid: 'tenor', em: 0.6 }],
       ['treble -> tenor, em 0.75', { head: 'treble', mid: 'tenor', em: 0.75 }],
       ['treble -> alto, em 0.75', { head: 'treble', mid: 'alto', em: 0.75 }],
+      // THE MID-SYSTEM TREBLE, which this reader learned in the round that
+      // deleted midBassAt — see midTrebleAt in scan-clef.js. Three sizes,
+      // because the whole point of that test is that it is size-independent.
+      ['bass -> treble, em 0.75', { head: 'bass', mid: 'treble', em: 0.75 }],
+      ['bass -> treble, em 1.0', { head: 'bass', mid: 'treble', em: 1.0 }],
+      ['bass -> treble, em 0.6', { head: 'bass', mid: 'treble', em: 0.6 }],
+      ['tenor -> treble, em 0.75', { head: 'tenor', mid: 'treble', em: 0.75 }],
+      // THE RETURN TRIP, which is NOT READ and is here so the debt stays
+      // visible. A cello part goes up in tenor and comes back down in bass, and
+      // no test on this profile can tell a mid-system F clef from a sharp, a
+      // rest or a chord of thirds — the measurement is above the hole where
+      // midBassAt used to be. These two rows are expected to miss.
+      ['tenor -> bass, em 0.75  (NOT READ, on purpose)', { head: 'tenor', mid: 'bass', em: 0.75 }],
+      ['treble -> bass, em 1.0  (NOT READ, on purpose)', { head: 'treble', mid: 'bass', em: 1.0 }],
+      // AN ACCIDENTAL AND A CLEF CHANGE IN THE SAME BAR, which the handover has
+      // been asking for. Two things can go wrong here and neither fixture could
+      // see either: an engraver prints the next note close behind a cue-sized
+      // clef, so the patch accidentalFor reads lands on the CLEF and the note
+      // comes back a semitone out (8 of the 64 wrong pitches on npm run
+      // scan:clef-change were exactly that); and applyAccidentals keys its
+      // in-force map by `step`, which is a different pitch on each side of a
+      // change. The sharp here is printed AFTER the change, where the step
+      // semantics are unambiguous, and on the first note after it, which is the
+      // one whose patch the clef stands in.
+      ['bass -> tenor + a sharp on the next note', { head: 'bass', mid: 'tenor', em: 0.75, sharpAt: 0 }],
+      ['a sharp on the next note, no change (control)', { head: 'bass', mid: null, em: 1, sharpAt: 0 }],
+      ['…and the same, with the clef\'s width reserved (control)',
+        { head: 'bass', mid: null, em: 0.75, sharpAt: 0, reserve: true }],
       ['no change (control)', { head: 'bass', mid: null, em: 1 }],
     ];
 
@@ -563,15 +616,35 @@ if (!wantJson) {
   // this feature could make the reader worse than not having it.
   const wrongWhenFound = found.reduce((a, r) => a + r.wrong, 0);
   const wrongWhenMissed = printed.filter((r) => !r.changes).reduce((a, r) => a + r.wrong, 0);
+  // …AND THE FLOOR THE CONTROLS SET, because the raw count above was reporting
+  // the reader's own noise as the clef change's fault.
+  //
+  // THIS LOOSENS THE BUILD GATE AND SAYS SO. `process.exitCode` used to be set
+  // by the raw count and is now set by the excess over the control; the raw
+  // count is still printed and has lost its MUST-BE-ZERO label because it never
+  // could be zero — the photographed control names two of its own sixteen notes
+  // wrong with no clef change anywhere on the page, so every changing row
+  // inherits those two. Reverting this means the block fails on the reader's
+  // own noise. What it must NOT become is a licence: `overFloor` is the number
+  // that must be zero, and a row that is worse than its control by one note is
+  // a build failure. The photographed control
+  // — the SAME music, no change anywhere on it — names two of its sixteen notes
+  // wrong, so a changing page at two is not a page this feature spoiled. This
+  // subtracts each spoiling's own control before deciding, and the raw count is
+  // still printed so nothing is hidden.
+  const floorOf = (spoil) => Math.max(...changes
+    .filter((r) => r.spoil === spoil && !r.want).map((r) => r.wrong), 0);
+  const overFloor = found.reduce((a, r) => a + Math.max(0, r.wrong - floorOf(r.spoil)), 0);
   console.log(`\n  false fires — a clef change read where none is printed     MUST BE ZERO   ${falseFires}`);
-  console.log(`  a note named WRONG on a page whose change was found       MUST BE ZERO   ${wrongWhenFound}`);
+  console.log(`  a note named WRONG on a page whose change was found                      ${wrongWhenFound}`);
+  console.log(`  …and how many of those its own control does NOT also get wrong  ZERO      ${overFloor}`);
   console.log(`\n  clef changes found, of ${String(printed.length).padStart(2)} printed`
     + `                                    ${found.length}`);
   console.log(`  DEBT: notes still a ninth out because a change was missed                ${wrongWhenMissed}`);
   console.log('        (that is the reader as it was; see findClefChanges for which sizes)');
   if (broken) console.log('\n  THE TRUTH TABLE IN THIS FILE IS WRONG:', JSON.stringify(broken.selfCheck));
   console.log('');
-  if (wrongWhenFound) process.exitCode = 1;
+  if (overFloor) process.exitCode = 1;
 }
 if (broken) process.exitCode = 1;
 if (falseFires) process.exitCode = 1;

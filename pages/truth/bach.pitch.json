@@ -1,0 +1,15 @@
+{
+  "source": "Menuet.pdf",
+  "about": "The first two bars of BACH, CELLO SUITE No. 1, PRELUDE, BWV 1007 — the opening of the photographed page whose noteheads bach.truth.json marks. This file holds what the MUSIC says, not what the page-reader says, and it is the only thing in this repo that can tell whether a step measured off a photograph is right. tools/step-truth.mjs scores itself against it before it is allowed to score the reader.",
+  "written": "2026-08-17",
+  "clef": "bass",
+  "key": "G major (one sharp)",
+  "unit": "step — half a staff space, counted up from the BOTTOM LINE of the stave, which in bass clef is G2. So 0=G2, 2=B2, 4=D3, 5=E3, 8=A3 (top line), 9=B3, 10=C4 (first ledger line above).",
+  "matches": "the first 32 entries of pages/truth/bach.truth.json, in file order, which is reading order: they are marks 0-31, all on system 1, x running 216 to 1272 with no gaps. CHECKED, not assumed — mark 32 is at x=135 and starts system 2.",
+  "confidence": "Bar 1 is G D B A B D B D twice and bar 2 is the same figure on C, G E C B C E C E twice. This is the most-played page in the cello repertoire and the two bars are not in dispute. NOTHING FURTHER DOWN THE PAGE IS ENCODED HERE, because bars 3 onward were not checked against the print and a guess in a truth file is worse than a gap.",
+  "bars": [
+    { "bar": 1, "notes": "G2 D3 B3 A3 B3 D3 B3 D3, twice", "steps": [0, 4, 9, 8, 9, 4, 9, 4, 0, 4, 9, 8, 9, 4, 9, 4] },
+    { "bar": 2, "notes": "G2 E3 C4 B3 C4 E3 C4 E3, twice", "steps": [0, 5, 10, 9, 10, 5, 10, 5, 0, 5, 10, 9, 10, 5, 10, 5] }
+  ],
+  "steps": [0, 4, 9, 8, 9, 4, 9, 4, 0, 4, 9, 8, 9, 4, 9, 4, 0, 5, 10, 9, 10, 5, 10, 5, 0, 5, 10, 9, 10, 5, 10, 5]
+}

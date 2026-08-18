@@ -284,64 +284,188 @@ const SOLID_INK = 0.25;
  * or too smeared to be sure of — see the note above for what refusing costs
  * and why it is cheaper than the alternative.
  */
-// A BASS CLEF STANDING MID-SYSTEM, which is the RETURN TRIP.
+// A BASS CLEF STANDING MID-SYSTEM: MEASURED, AND THERE IS NO SUCH TEST.
 //
-// midClefAt below reads C-clefs only, and that is the right default: a cello
-// part's commonest change is bass to tenor for a high passage, and a C-clef has
-// a waist that sits on one line and nothing else on a stave does. But a passage
-// that goes up comes back down, and the clef that brings it back is a BASS —
-// so a page that changed once was read correctly to the end of the tenor
-// passage and wrongly from there on.
+// `midBassAt` used to live here, and it NEVER ONCE READ A BASS CLEF. Slid across
+// a real mid-system F clef at 0.72 and 1.0 em, at staff spaces 12 and 16, clean
+// and photographed, it returned null at all 80 window positions. Its apparent
+// four-of-twelve on `npm run scan:clef-change` came from the following NOTEHEAD
+// supplying the bottom the clef never produced.
 //
-// MEASURED with tools/clef-change-check.mjs, notes named against what they were
-// drawn as, each case beside a control with the same music and no change:
+// AND IT FIRED ON EVERYTHING ELSE. Measured on `npm run scan:clef` with that
+// function still in, its two MUST-BE-ZERO totals read 155 FALSE FIRES and 118
+// NOTES NAMED WRONG on a page whose change was found — it answered `bass` on
+// every sharp, every flat, every natural, the barlines, the common-time C and
+// the chord of thirds — and the 12-of-12 changes it reported included rows
+// where a `bass` was "found" on a page changing to TENOR. Deleting it takes
+// both totals to zero. A function that appears to work because of the ink
+// beside the thing it is looking at is worse than no function.
 //
-//                        notes   named   named RIGHT
-//   bass -> tenor         120     80        64        (the C-clef is found)
-//   tenor -> bass         120     60        30        (nothing brings it back)
-//   treble -> bass        120     80        38
+// AND IT IS GONE BECAUSE IT CANNOT BE FIXED, which is a measurement and not a
+// shrug. Every window of every one of those sixty pages plus all twenty-two
+// pieces of `npm run scan:clef` furniture at both spoilings — 58,411 windows —
+// was swept against every gate that could be built out of this profile: the ink
+// extent at four ink floors (0.12 down to 0.04), the F line's position within
+// that extent as a fraction of its height (0.31 to 0.41, which IS
+// size-independent and does hold), continuity, symmetry, top-heaviness, the
+// glyph's width relative to the band, the ratio of its widest row to its
+// narrowest, and the required run length from 3 windows to 7. THE MOST
+// SENSITIVE GATE READ 41 OF 60 SYSTEMS AND FIRED 88 TIMES ON THE FURNITURE; THE
+// QUIETEST THAT READ ANY CLEF AT ALL READ 32 OF 60 AND STILL FIRED 25. Nothing
+// in the sweep came near a zero, and a false clef change renames a passage that
+// was right.
 //
-// WHY IT IS A SEPARATE FUNCTION WITH ITS OWN BAR. A C-clef is recognised by a
-// waist on a line, which is a positive and unusual signature. A bass clef is
-// recognised by where its ink STOPS, and plenty of things on a stave stop
-// there — a chord of thirds on a photograph answers the same description, which
-// is why the mid-system scan was restricted to C-clefs in the first place. So
-// this asks for more: the ink must begin at the top line and stop within the
-// stave the way an F clef does, must be SOLID down that whole extent rather
-// than a pair of blobs with a gap, and must be no taller than a clef ever is.
-// Anything short of all three is left alone and the passage keeps its clef.
-export function midBassAt(column, space) {
+// The reason was already written down in classifyClef above and it is worth
+// reading again: BASS IS THE RESIDUAL. Treble is alone below the stave and a
+// C-clef is alone above it; a bass clef is recognised by where its ink STOPS,
+// and a sharp, a flat, a natural, a common-time C, a quarter rest and a chord
+// of thirds all stop in the same place. At the head of a system that costs
+// nothing, because there are only three answers and the other two are excluded
+// first. Mid-system there is a fourth answer — "nothing, this is music" — and
+// the residual cannot carry it.
+//
+// TWO THINGS THAT ARE NOT THE PROBLEM, so the next round does not re-derive
+// them. `INK` (0.12) does truncate a cue-sized F clef: its lower curl covers
+// 0.114 of the 3.6-space band against a floor of 0.12, so the glyph reads 1.25
+// spaces tall where it is really 2.4, and at a floor of 0.06 the extent comes
+// back correct at every size (2.01, 2.51, 2.67, 3.23, 3.56 spaces for em 0.6,
+// 0.72, 0.75, 0.9, 1.0). `BASS_SOLID` (0.8) did refuse even a full-size clef,
+// because solidity was taken at SOLID_INK over a band sized for a full-size
+// C-clef and an F clef reads 0.55 there. BOTH WERE FIXED IN THE SWEEP AND THE
+// FALSE FIRES ARE WHAT REMAINED. The blocked constants were never the finding.
+//
+// WHAT WOULD BE NEEDED, for a round that wants to try again: a measurement with
+// 2-D structure in it, not this row profile. An F clef's own unique signature is
+// its TWO DOTS straddling the line it names — the exact counterpart of the
+// C-clef's waist — and they are invisible here, because each is about a fifth of
+// a space across in a band 3.6 spaces wide and contributes 0.06 to a row that
+// the curl beside it already fills to 0.3. Cutting the glyph out of the band by
+// its own ink was tried and is recorded in the handover: it recovers the extent
+// on a photograph and falls apart on a clean page, where the binarised curl is
+// not connected column to column.
+
+// A TREBLE CLEF STANDING MID-SYSTEM, which IS readable, and by the same one
+// wide margin that classifyClef leans on at the head of a system.
+//
+// MEASURED, over the 58,411 windows described above: 54 of the 60 drawn
+// mid-system G clefs are read and NOTHING ELSE FIRES ANYWHERE. The six misses
+// are all at em 0.6 — a G clef that small reaches only 4.50 to 4.59 spaces down
+// against a bound of 4.4, and the windows either side of the one good one fall
+// short — which is the same size that `npm run scan:clef` already records as
+// the C-clef's floor.
+//
+// THAT SWEEP IS WHERE THE GATE CAME FROM AND IT IS NOT THE WHOLE STORY: with it
+// alone satisfied the detector fired four times on the Bach photograph, which is
+// what TREBLE_BEAM below and tailUnderBody in scan-read.js exist for. END TO END
+// WITH ALL OF IT IN: `npm run scan:clef-change` reads the change on 12 of 12
+// systems for bass->treble and 12 of 12 for tenor->treble, and both score
+// EXACTLY what their no-change controls score (78 of 120 and 60 of 120); `npm
+// run scan:clef` finds four of its four treble rows outside the em-0.6 one with
+// its furniture block at zero; and the three marked photographs report no clef
+// change at all on any of their thirty staves.
+//
+// WHAT DOES THE WORK, by ablation, dropping one test at a time from the shipped
+// gate. Only three of them are load-bearing and the comment says so rather than
+// letting the next round assume otherwise:
+//
+//   drop continuity          54 read,  47 FALSE FIRES   <- carries it
+//   drop "below the stave"   54 read,  18 FALSE FIRES   <- carries it
+//   run of 3, not 5          54 read,  12 FALSE FIRES   <- carries it
+//   drop the anchor ratio    54 read,   0 false fires
+//   drop symmetry            54 read,   0 false fires
+//   drop the height bound    54 read,   0 false fires
+//
+// The last three are kept anyway, and deliberately: they cost no recall at all,
+// and what they buy is that this says TREBLE CLEF rather than "deep continuous
+// ink". The furniture drawn for scan:clef is not the last page this will ever
+// meet. But nobody should read them as the measurement — the measurement is the
+// first three lines.
+const TREBLE_DEEP = 4.4;      // spaces below the top line: past the stave itself
+const TREBLE_TALL = [3.0, 7.6];
+// The G LINE sits at 0.62 of the way down a G clef's own ink, at every size.
+// Measured on the sixty drawn clefs: 0.621, 0.622, 0.624, 0.626, 0.627 for em
+// 0.9, 0.72, 0.75, 1.0 and 0.75 again, and 0.54 for the truncated 0.6. This is
+// the same law as the C-clef's waist — a clef's extent is anchored on the line
+// it names, at a fixed fraction of its height — and the F clef obeys it too, at
+// 0.31, which is what makes the deleted function's failure a false-fire problem
+// and not a blindness one.
+const G_LINE = 3;
+const G_ANCHOR = 0.62;
+const G_ANCHOR_NEAR = 0.18;
+// Continuity, at a LOWER ink floor than SOLID_INK, and the number is measured
+// rather than loosened until something passed. The band is 3.6 spaces wide
+// because that is what a FULL-SIZE clef at the head of a system needs; a G clef's
+// hook and tail are thin, so at SOLID_INK (0.25) a real mid-system treble reads
+// between 0.23 and 0.79 solid — the test would refuse every one of them — and at
+// 0.10 it reads 0.89 to 1.00. What continuity is for is unchanged: no PAPER
+// across the glyph's height, which is what says one symbol rather than two
+// things stacked with a gap.
+const TREBLE_INK = 0.10;
+const TREBLE_SOLID = 0.93;
+// AND NOTHING BELOW THE STAVE THAT IS A BEAM.
+//
+// This is the test the drawn furniture could not have asked for, and it came off
+// the Bach photograph. Every bar of the Prélude is beamed semiquavers with the
+// stems DOWN, so the beams hang below the bottom line — and a window holding a
+// barline (which is continuous from the top line to the bottom one) with a
+// beamed group on either side reads exactly like a G clef: ink from above the
+// stave to well below it, continuous, symmetric, with the G line at 0.6 of its
+// height. Cropped at 8x it is a barline between two beamed groups, and there is
+// no clef anywhere on that page.
+//
+// What tells them apart is that a beam is WIDE. It runs right across the band,
+// where the tail of a G clef is a hook. MEASURED, in rows covering more than
+// 0.55 of the band below the bottom line: of the 675 windows on a real drawn
+// mid-system G clef that pass every other test here, every one has AT MOST ONE
+// such row, and the Bach's beamed group has eight to ten — 0.06 to 0.09 of a
+// staff space against 0.7 to 0.9.
+const TREBLE_BEAM = 0.55;    // a row this much of the band inked, below the stave
+const TREBLE_BEAM_DEEP = 0.25;  // …and no more than this much of a space of them
+
+/**
+ * A treble clef printed part way along a system, or null.
+ *
+ * Same contract as midClefAt: `column` is what clefColumn built, and null is
+ * the answer for anything that is not certainly a G clef.
+ */
+export function midTrebleAt(column, space) {
   const f = clefFeatures(column, space);
   if (!f) return null;
-  // An F clef begins ON the top line and ends inside the stave. A C-clef begins
-  // a full space above it, and a treble hangs far below — both are excluded
-  // here, and both are read by the tests they already have.
-  if (!(f.top >= BASS_TOP[0] && f.top <= BASS_TOP[1])) return null;
-  if (!(f.bottom >= BASS_BOTTOM[0] && f.bottom <= BASS_BOTTOM[1])) return null;
+  // The one wide margin on the page. Only a treble hangs below the bottom line
+  // — measured at 5.6 spaces full size and 4.5 at the smallest cue size an
+  // engraver sets — and this is the same fact classifyClef reads at the head of
+  // a system, where it is the widest margin of the three clefs.
+  if (!(f.bottom > TREBLE_DEEP)) return null;
+  if (!(f.height >= TREBLE_TALL[0] && f.height <= TREBLE_TALL[1])) return null;
   if (!(f.symmetry >= SYM_MIN)) return null;
-  // Solid down its whole height: a chord of thirds is two blobs with paper
-  // between them, and an F clef's curl is continuous.
+
+  // One glyph, not two things with paper between them. See TREBLE_INK.
   const from = Math.max(0, Math.round((f.top + MARGIN) * space));
   const to = Math.min(column.length - 1, Math.round((f.bottom + MARGIN) * space));
   let inked = 0;
   let rows = 0;
-  for (let r = from; r <= to; r++) { rows++; if (column[r] >= SOLID_INK) inked++; }
-  if (!rows || inked / rows < BASS_SOLID) return null;
-  const mid = (BASS_TOP[0] + BASS_TOP[1]) / 2;
+  for (let r = from; r <= to; r++) { rows++; if (column[r] >= TREBLE_INK) inked++; }
+  if (!rows || inked / rows < TREBLE_SOLID) return null;
+
+  // …and it is a tail below the stave and not a beam. See TREBLE_BEAM.
+  let beamy = 0;
+  for (let r = Math.round((STAVE + 0.15 + MARGIN) * space); r <= to; r++) {
+    if (r >= 0 && r < column.length && column[r] >= TREBLE_BEAM) beamy++;
+  }
+  if (beamy / space > TREBLE_BEAM_DEEP) return null;
+
+  // …and the line it names, which is what makes this a reading rather than a
+  // shape test. See G_ANCHOR.
+  const anchor = (G_LINE - f.top) / f.height;
+  const off = Math.abs(anchor - G_ANCHOR);
+  if (off > G_ANCHOR_NEAR) return null;
   return {
-    clef: 'bass',
-    confidence: Math.max(0, Math.min(1, 1 - Math.abs(f.top - mid) / (BASS_TOP[1] - mid))),
+    clef: 'treble',
+    confidence: Math.max(0, Math.min(1, 1 - off / G_ANCHOR_NEAR)),
+    anchor,
     height: f.height,
   };
 }
-
-// Where an F clef's ink begins and ends, in staff spaces from the top line.
-// classifyClef measures a bass at -0.06 to -0.22 at the top and 2.5 to 3.3 at
-// the bottom; these are those, opened a little for a cue-sized glyph.
-const BASS_TOP = [-0.45, 0.45];
-const BASS_BOTTOM = [2.0, 3.6];
-// Solid down its whole extent, which is what a chord of thirds is not.
-const BASS_SOLID = 0.8;
 
 export function midClefAt(column, space) {
   const f = clefFeatures(column, space);

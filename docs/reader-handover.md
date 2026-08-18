@@ -12,21 +12,54 @@ a list of noteheads carrying a MIDI number, a degree and a beam count each. On
 CLEANLY ENGRAVED pages, 692 notes of real cello repertoire in fourteen keys come
 back **692 found, 666 named right, 26 unpitched and NOT ONE named wrong**
 (`npm run scan:studies`); on the three hand-marked pages of real published
-music — two rendered from PDF and one a scan — it circles heads at **95.0%
+music — two rendered from PDF and one a scan — it circles heads at **94.9%
 precision and 98.1% recall** (`npm run bench`).
 It reads the key signature and refuses rather than guess — **0 of 352 drawn
 signatures read as the wrong key** — it reads the accidental standing
 in front of a note and carries it to the end of the bar, and it reads a **C-clef
-printed part way along a system**, which is what a cello part does every time it
-goes up and comes back down. **On a clean page of two systems or more it also
+or a TREBLE clef printed part way along a system**, which is half of what a cello
+part does every time it goes up and comes back down — the F clef that brings it
+back down is the half that is not read, and cannot be off this measurement (see
+*A mid-system treble is now read, and a mid-system bass cannot be read off the
+clef column*). **On a clean page of two systems or more it also
 reads a page that prints NO signature as C major** rather than declining to name
 anything — but not on one system, and not on a photograph, which are the two
 qualifiers that clause has to carry: 6 of 6 drawn photographed bare pages still
 name nothing, and the 26 unpitched notes above are the two single-system
 arpeggio studies.
 
-**EVERY PITCH NUMBER ABOVE IS A CLEAN-PAGE NUMBER, and that is the qualifier a
-ship decision turns on.** Spoil the same 32 studies the way a phone spoils a page
+**AND PITCH ON A PHOTOGRAPH IS MEASURED AT LAST — which it was not for any of
+the rounds that quoted a pitch figure.** The reader used to circle Bach's
+noteheads at 99.7% recall and NAME them wrong, and nothing in this repo could
+see it: `bench` scores where a ring SITS, `scan:studies` scores pages this repo
+engraved itself with straight lines, and a residual taken against the reader's
+own stave model is a measurement of nothing. `npm run scan:steps` takes the
+PRINTED lines around each hand-marked notehead as the truth and asks which line
+or space the reader put that head on — **a wrong step is a wrong note, a second
+out, whatever the clef and the key then do with it**:
+
+```
+                    marks   read  scored   step right      wrong   whole page
+  Bach photograph     319    248     248   229  92.3%         19        87.3%
+  Concerto (PDF)      328    238     230   210  91.3%         20        91.6%
+  Scanned score       412    303     301   279  92.7%         22        92.7%
+```
+
+Read it with its qualifiers, all of which the tool prints itself. The harness
+answers 73–78% of the marks and names every refusal by reason; `whole page` is
+its own reweighting of what it did answer, not 319 notes checked by hand; a right
+step is not yet a right note, because the clef and the key still sit above it;
+and **only the Bach column has a self-check behind it** — `pages/truth/bach.pitch.json`
+holds the 32 steps of the BWV 1007 opening, which are not in dispute, the harness
+gets 25 of them right of the 25 it reads at all, and **the reader gets 30 of 32,
+where before the stave model was repaired it got 14**. There is no such file for
+the other two pages, so those two columns are trusted rather than verified. See
+*The stave model waves, and the pitch was lost in the fit*, which is the round
+that fixed it.
+
+**EVERY NAMED-NOTE NUMBER ABOVE IS A CLEAN-PAGE NUMBER — the step table is the
+only pitch figure in this document taken on real paper — and that is the
+qualifier a ship decision turns on.** Spoil the same 32 studies the way a phone spoils a page
 — 0.72 downscale, blur, contrast, a JPEG round trip, so a 14-pixel staff space
 arrives as 10 — and the reader still finds **631 of the 692 notes** but names only
 **378 of them right, 54.6%**. 245 notes come back with no pitch at all because
@@ -40,18 +73,22 @@ a camera; naming them does not yet.
 STAVE.** There is no ground truth of either kind in this repo — every marked
 page is a single-stave part and every one of the 32 studies is one voice — so
 the reader's behaviour on them is unknown rather than poor. **What it is
-measured NOT to do**: a mid-system change to BASS or TREBLE (a C-clef is read;
-those two are not, and their notes stay named in the clef the system began in,
-silently), a key CHANGE mid-page, note values beyond counting beams — and beam
+measured NOT to do**: a mid-system change to BASS (a C-clef and a treble are
+read; a bass is not, and its notes stay named in the clef the system began in,
+silently — 129 notes of `scan:clef`'s debt line and 72 of `scan:clef-change`'s 86
+wrong pitches are that one thing, 68 of them beyond what the controls get wrong
+by themselves), a key CHANGE mid-page, note values beyond counting beams — and beam
 counting itself collapses below a working staff space of about 12 on a
 photograph, where every note is still found and given the wrong length. It has
 never been shown a handwritten page, and it finds no stave at all on a close-up
 blown past a working space of about 35.
 
-Everything below is the evidence for those three paragraphs. **`CLAUDE.md`'s
-one-paragraph summary still says the reader "has never been tested on … a clef
-change mid-system", which is out of date; where the two disagree, this file is
-the one that was measured.**
+Everything below is the evidence for those paragraphs. **`CLAUDE.md` was brought
+into line with this file in the round that wrote this sentence** — its summary
+had said for two rounds that the reader "has never been tested on … a clef change
+mid-system", which was false once a C-clef and then a treble were read
+mid-system. Where the two ever disagree again, this file is the one that was
+measured.
 
 ## Run it
 
@@ -65,56 +102,66 @@ ring that is not a note, click bare paper where one was missed, save. Marks are
 positions, not indices, so they survive changes to the detector — that is the
 whole point of them.
 
-### What is committed and what is not — RE-CHECKED, and it is the other way round now
+### What is committed and what is not — RE-CHECKED at HEAD `20e004d`, and it has moved AGAIN
 
-**An earlier copy of this section said the instruments existed only in the
-working tree. That is out of date and the correction runs the opposite way: the
-INSTRUMENTS are all committed and the READER's last four rounds are not.**
-Checked with the commands rather than inferred, at HEAD `07a40dc`:
+**This section has now been wrong in both directions, so it carries the commands
+and not a claim.** Every line below was run, at HEAD `20e004d`:
 
 ```
 git ls-files --error-unmatch tools/key-probe.mjs tools/key-read-check.mjs \
     tools/key-safety-check.mjs tools/study-check.mjs src/analysis/acc-model.js
-                              -> all five TRACKED
-git show HEAD:package.json | grep -c 'scan:studies'      -> 1
-   …the same for scan:key-read, scan:key-safety, scan:key-why,
-     scan:sizes and acc:train                            -> 1 each
+                                                         -> all five TRACKED
+git show HEAD:package.json | grep -c '"scan:studies"'    -> 1
+   …the same for scan:key-read, scan:key-safety, scan:key-why, scan:sizes,
+     scan:few, acc:train, scan:chords and scan:clef-change  -> 1 each
+   …but scan:steps and scan:lieder                          -> 0, 0
 git show HEAD:tools/scan-corpus.mjs | grep -c SIZES      -> 9
-git status --short package.json                          -> (nothing)
+git ls-files --error-unmatch CLAUDE.md docs/reader-handover.md
+                                                         -> both TRACKED
 ```
 
-So a fresh checkout of this branch DOES have `scan:studies`, `scan:key-read`,
-`scan:key-safety`, `scan:key-why`, `scan:sizes`, `scan:few` and `acc:train`, and
-`scan:corpus` prints all four of its blocks.
-
-**What a fresh checkout does NOT have is the reader itself as this document
-describes it.** Four rounds of work sit uncommitted in the working tree, and
-every number in this file was measured against them, not against `07a40dc`:
+**The four rounds an earlier copy of this section listed as uncommitted have
+since been committed.** `scan-key.js`, `scan-notes.js`, `study-check.mjs`,
+`key-safety-check.mjs`, `truth-check.mjs`, `glyphs.mjs`, `train-big.mjs` and both
+repaired truth files no longer appear in `git status` at all. What sits in the
+working tree now is the last TWO rounds — the stave model and the mid-system
+treble — and every number in this file was measured against them:
 
 ```
-src/analysis/scan-read.js    agreeNoKey wiring · dropDoubledHeads ·
-                             fillMissedStaves' page-relative floor ·
-                             findClefChanges
-src/analysis/scan-key.js     scanKeyBand · agreeNoKey
-src/analysis/scan-clef.js    midClefAt
-src/analysis/scan-notes.js   pitchOf learning alto
-tests/scan-{read,key,clef,notes}.test.js      the 607 tests below
-tools/key-safety-check.mjs   its THIRD block · tools/study-check.mjs its three
-                             key columns, its accidental block and --phone
-tools/truth-check.mjs        the `title` and doubled-mark suspect classes
-tools/scan-clef-check.mjs    its THIRD block · tools/glyphs.mjs the C-clef
-pages/truth/{mozart,scanned}.truth.json       70 marks off, 13 on
+src/analysis/scan-read.js     smoothTrack, the stave model's running median and
+                              mean, WHICH IS THE PITCH FIX · tailUnderBody ·
+                              findClefChanges taking the head clef and blanking
+                              the accidental that falls inside a clef glyph
+src/analysis/scan-clef.js     midBassAt DELETED · midTrebleAt added
+tests/scan-clef.test.js       seven new tests (614 below)
+tools/scan-clef-check.mjs     the treble rows, the controls, overFloor
+tools/clef-change-check.mjs   bass->treble and tenor->treble
+package.json                  scan:steps and scan:lieder
+tools/reader-look.html        shows as modified; no recent round claims it
+UNTRACKED — and the first three are instruments this document quotes:
+  tools/step-truth.mjs        npm run scan:steps, the ONLY measurement of pitch
+                              on real paper anywhere in this repo
+  tools/stave-look.mjs        the model drawn on the page, magnified
+  pages/truth/bach.pitch.json the 32 known steps of the BWV 1007 opening
+  tools/lieder-check.mjs · tools/lieder-truth.ily
 ```
 
-`git stash`, `git checkout` or a branch reset on this tree destroys all of it.
-`tools/train-big.mjs` also shows as modified and predates all four rounds.
+`git stash`, `git checkout` or a branch reset on this tree destroys all of it,
+and the two untracked instruments are not even recoverable from a reflog.
 
-**And `CLAUDE.md` is UNTRACKED and one clause of it is now false.** Its
-one-paragraph summary still says the reader "has never been tested on a piano
-score, two voices on one stave, or a clef change mid-system". The clef-change
-half is out of date — see *A clef printed part way along a system* — and it is a
-protected file that no round has been asked to edit. **Where the two disagree,
-this file is the one that was measured.**
+**AND HEAD ITSELF IS A COMMIT THIS DOCUMENT NOW CONTRADICTS.** `20e004d` added
+`midBassAt` and claimed a gain for it; the working tree DELETES it, with the
+sweep that says nothing can replace it. A fresh checkout of this branch therefore
+reads mid-system bass clefs that were never really read and fails both
+must-be-zero lines of `npm run scan:clef`. See *The record on `20e004d`,
+corrected*.
+
+**`CLAUDE.md` IS TRACKED, and the claim in an earlier copy of this section that
+it was untracked was wrong** — `git ls-files --error-unmatch CLAUDE.md` succeeds
+and `git status --short CLAUDE.md` prints nothing. Its one false clause (that the
+reader had never been tested on a clef change mid-system) was corrected in the
+same round that wrote this line, so the two files agree today. **If they ever
+disagree again, this one is the one that was measured.**
 
 ## Where it stands
 
@@ -122,11 +169,86 @@ this file is the one that was measured.**
 
 ```
 page          space  found  really  precision  recall     F1   invented  missed   bars  clefs
-Bach           12.1    322     319      98.8%   99.7%  99.2%         4       1     34  10/10
-Mozart           10    336     328      92.9%   95.1%  94.0%        24      16     36  10/10
-Scanned         9.6    439     412      93.4%   99.5%  96.4%        29       2     34  10/10
-mean                            95.0%   98.1%  96.5%
+Bach           12.1    324     319      98.1%   99.7%  98.9%         6       1     40  10/10
+Mozart           10    335     328      93.1%   95.1%  94.1%        23      16     39  10/10
+Scanned         9.6    439     412      93.4%   99.5%  96.4%        29       2     38  10/10
+mean                            94.9%   98.1%  96.5%
 ```
+
+**AND HERE IS WHAT `bench` CANNOT SEE, WHICH IS THE WHOLE POINT OF THE LAST
+THREE ROUNDS.** That table is POSITIONS. A ring can sit dead centre on a notehead
+and carry the wrong name, and the two numbers above cannot move when it does.
+`npm run scan:steps` scores the other half — the step each hand-marked head
+stands on, against the lines PRINTED around it:
+
+```
+  page              marks   read  scored   step right          wrong        whole page
+  Bach photograph     319    248     248   229  92.3%   19  {+1:9, -1:10}      87.3%
+  Concerto (PDF)      328    238     230   210  91.3%   20  {+1:4, -1:16}      91.6%
+  Scanned score       412    303     301   279  92.7%   22  {+1:12, -1:10}     92.7%
+```
+
+Every wrong step is a wrong NOTE, a second out, whatever the clef and the key
+then do with it. `read` is where the harness found the printed lines and `scored`
+where it also had a detection to compare; `whole page` is the harness's own
+reweighting of what it answered onto all the marks, and it is an estimate and
+labelled one. **Where the wrong steps come from is printed too**, and the three
+pages do not answer the same way:
+
+```
+  what is to blame for the wrong steps           Bach   Concerto   Scanned
+  the stave model, out from the print in the
+    same direction as the error                    13        0         0
+  something else — the model square on the print    6       20        22
+```
+
+On the Bach the model is still the problem and all of it is on the two systems
+`fillMissedStaves` INVENTED rather than tracked (item 0 of "The next step"). On
+the other two pages the tool blames the model for NONE of the 42, and its own
+model-off band puts every mark on both pages under 0.3 of a step — so whatever is
+wrong there is not stave geometry. It is undiagnosed, it is now the larger half
+of the reader's remaining pitch error on real paper, and it should not be
+assumed to be the same bug (item 0d).
+
+**WHICH OF THESE WERE RUN FOR THIS DOCUMENT, because "it holds" and "I ran it"
+are different claims.** On the tree as it stands, this round watched these print:
+
+```
+  npm run bench            the table above
+  npm run scan:steps  x3   229/248 · 210/230 · 279/301, and the tables below them
+  npm run scan:studies     692 found, 666 right pitch, page key wrong 0, stave
+                           key wrong 0, wrong by semitones {}
+  npm run scan:key-safety  all five gated zeroes: 0/1008 · 0/1320 · 0/76 · 0/6 · 0/4
+  npm run scan:clef        0 false fires · 15 notes wrong, 0 of them above its
+                           controls' own floor · 18 of 26 changes · debt 129
+  npm run scan:clef-change 86 confidently wrong on the changing pages, against
+                           8 on the controls
+  npm test                 52 files, 614 tests
+  npm run scan:key-read    300 of 352 read correctly, **0 read as the WRONG
+                           key**, 52 refused — THE SACRED ZERO HOLDS. It died
+                           first on `protocolTimeout` at load 19 and was re-run
+                           from a copy with the timeout raised, which changes
+                           nothing it measures.
+```
+
+**NOT re-run this round.** Five of them stand on the mid-system treble round,
+which reported every one byte-identical to the stave-model round before it:
+`scan:corpus` 99/94/89/91, `scan:sizes` 89, `scan:few` 91, `scan:bars` (mean
+recall 100%), `scan:clef-hard` 9/10. Nothing in the tree has changed since, so
+the inference is fair, but nobody watched them today.
+
+**`scan:chords` 81.4% is older than that and is attributed properly here**: it
+was taken in the `20e004d` round — the one this document spends a section
+correcting — and `src/analysis/scan-read.js` has changed twice since, for
+`smoothTrack` and `tailUnderBody`. It is UNVERIFIED against the current tree.
+Nothing rests on it either way: what chords cost this reader on real paper is
+four suppressions and two notes, and that measurement is separate (see the chords
+entry in "What is measured and does NOT work").
+
+**PRECISION MOVED 95.0 TO 94.9 AND THE `bars` COLUMN MOVED A LOT, BOTH IN THE
+SAME CHANGE**, which is *The stave model waves, and the pitch was lost in the
+fit* below. Recall is flat to the digit on all three pages, which is the line
+that is not allowed to move.
 
 **THE SCANNED SCORE'S RECALL FIGURE IS NOT COMPARABLE WITH ANY EARLIER COPY OF
 THIS TABLE, AND THE READER IS NOT WHY.** That page's denominator went 431 to
@@ -401,7 +523,7 @@ because the next round will do it again otherwise:
 
 **That round moved precision and did not touch recall by a digit** — mean
 precision 92.1% to **92.8%**, mean recall 94.9% either way, on all three pages.
-(Both figures are **at the time**. The live mean is 95.0 / 98.1, four rounds and
+(Both figures are **at the time**. The live mean is 94.9 / 98.1, five rounds and
 seventy truth marks later — the table at the top.) That is the only shape of change this table is allowed to
 make. It was one change —
 the page agreeing how far its own key signature reaches, below — and the eight
@@ -424,7 +546,7 @@ and **centring a kept head on its own ink** at the end of `findHeads`. Every
 other measurement was untouched by them **at the time** — `scan:clef` 15/15,
 `scan:key-read` 163 of 224, 540 unit tests. The comments above each say what was
 swept and what it cost. Live today: `scan:key-read` reads **300 of 352** printed
-signatures right with **0 read as the wrong key**, and there are **607** unit
+signatures right with **0 read as the wrong key**, and there are **614** unit
 tests.
 
 **The round after that did not move this table at all, on purpose**, and moved
@@ -969,7 +1091,7 @@ every row of both is identical to the digit; **at the time**, `scan:clef` 15/15,
 `scan:spread` 8/8, and 543 unit tests — three of them new then, and all three
 fail on the old code. Live today, re-run for this document: the first four are
 unchanged at 15/15, 9/10, 64/72 and 8/8; `scan:key-read` reads 172 of 224 and
-there are **607** tests. HARD's mean has since moved 93% to **94%** and it was
+there are **614** tests. HARD's mean has since moved 93% to **94%** and it was
 `dropDoubledHeads` that moved it, not this.
 
 - **`best` was taken over EVERY joined curve**, including the scraps the very
@@ -1109,6 +1231,157 @@ and 16 strips of forty and dies on LENGTH, not on score. The pieces sit 31 and
 so they are not joined either. That is the next thing to look at on this page
 and nothing here touches it.
 
+## The stave model waves, and the pitch was lost in the fit
+
+**THE READER FOUND BACH'S NOTEHEADS AT 99.7% RECALL AND NAMED THEM WRONG, AND
+THE USER'S OBJECTION WAS THE RIGHT ONE:** position plus clef is arithmetic, so a
+wrong pitch means something upstream is wrong. It was the stave model, and the
+step is measured FROM THE LINES, so a model half a space out names every note of
+that passage a second wrong while the ring still sits dead centre on the head.
+
+**A RESIDUAL TEST CANNOT SEE THIS AND ONE WAS TRIED.** If the whole model is a
+step out the heads still land neatly on ITS lines and the residual stays near
+zero. Measured: no head on the Bach page is more than half a step from the
+model, and the pitches were still wrong.
+
+### How it hid for years of rounds, which is the part worth carrying forward
+
+Three instruments were pointed straight at that page and not one of them could
+see a whole-step offset:
+
+- **`bench` scores POSITION and nothing else.** Precision and recall ask whether
+  a ring sits on a notehead. On the reader that named 18 of the Bach's first 32
+  notes wrong, `bench` read **98.8% precision and 99.7% recall on that page** —
+  and the repair that brought the pitches back COST 0.7 of that precision, so
+  the number moved the wrong way when the reader got better. No part of it was
+  ever evidence about pitch, and it was quoted as reassurance for rounds.
+- **`scan:studies`, the north star for PITCH, engraves its own staff lines.**
+  692 notes, 96.2% named right, `wrong by semitones {}` empty — on lines this
+  repo drew straight itself. The failure is a photograph of a BOUND BOOK, where
+  the printed line waves by about a staff space across a system. Nothing in that
+  corpus can wave, so nothing in it can fail this way.
+- **A residual against the reader's own model is circular, and it was tried.**
+  If the whole model sits a step low, the heads still land neatly on ITS lines
+  and the residual stays near zero. Measured on the Bach: **no head is more than
+  half a step from the model, and the pitches are still wrong.** A residual can
+  only find a head that disagrees with the model; it cannot find a model that
+  disagrees with the page.
+
+**What found it was a person reading the music.** The opening of BWV 1007 is
+G D B A B D B D, and the reader said otherwise. That is not a repeatable
+instrument, which is why the first job of the round was to build one — and why
+rule 3 of `CLAUDE.md`'s non-negotiables is now that a ring in the right place is
+not a right note.
+
+### The instrument that had to exist first — `npm run scan:steps`
+
+`tools/step-truth.mjs`. For each hand-marked notehead it finds the PRINTED staff
+lines in two ink columns either side of the mark — never through the head —
+fits a five-line comb to them, and says which line or space the mark is on. No
+comb tracked across the page, no curve fit, no model. A truth file holds
+positions rather than pitches, but a position plus the printed lines under it IS
+a step, so a marked page becomes step truth without anybody naming a note.
+
+```
+npm run scan:steps -- <file.pdf> --truth <truth.json> [--known <steps.json>]
+STEP_DRAW=3,7,11 …    one magnified crop per mark, its lines in green and the
+                      reader's model in red
+```
+
+**IT CHECKS ITSELF BEFORE IT IS ALLOWED TO SCORE THE READER.**
+`pages/truth/bach.pitch.json` holds the 32 steps of bars 1–2 of BWV 1007, which
+are not in dispute; the harness answers 25 of those 32 marks and gets 25 right.
+It reads 78% of the Bach page, 73% of the Concerto and 74% of the Scanned score,
+and refuses the rest BY NAME. An earlier version of this file took a ±7-space
+window and reported the reader at 59.8% — every part of that figure was its own,
+because the window reached the neighbouring stave. Do not trust a number from a
+step harness that has not printed its own self-score.
+
+### What was wrong, drawn on the page
+
+`trackCombs` finds the printed stave on the Bach photograph almost perfectly.
+`stavesToLines` then fitted a QUADRATIC through its forty per-strip answers, and
+on a photograph of a bound book **the printed line is not a bend, it is a WAVE**
+— down at the left, up by strip 12, down again by strip 30, up at the right end,
+about 13px of swing on a 12px staff space. A quadratic has one turning point and
+that shape has three, so the fit least-squares straight through it.
+
+Drawn at 8x with `node tools/stave-look.mjs <pdf> --at x,y` (red = the model,
+blue = a hand mark), Bach system 1: at x=420 every red line ran through the
+WHITE of a space with the printed line below it; at x=910 the red lines ran
+below the print. After the change the red lines lie on the print in both crops —
+you have to look for the grey because the red covers it.
+
+### The fix, and the number that says it worked
+
+`stavesToLines` now smooths the stave's POSITION with a running median of five
+followed by a running mean of three, and fits nothing. What separates the signal
+from the failure is SCALE: a strip that landed on a beam is ONE strip, and the
+wave is ten strips wide, so a median throws the first away by construction and
+passes the second. **The SPACING keeps the quadratic** — the stave slides
+(−5.4 to +6.2px on Bach staff 0) and does not stretch (4×the spacing error stays
+inside ±0.65px) — and **a stave `fillMissedStaves` PREDICTED keeps it too**,
+because that is a search and not a track and its answer swings 9.5 and 10.1
+steps end to end.
+
+```
+the STEP, per hand-marked notehead, against the lines printed around it
+                      Bach            Concerto        Scanned score
+the quadratic         193/248  77.8%  204/230  88.7%  262/301  87.0%
+median 5, mean 3      229/248  92.3%  210/230  91.3%  279/301  92.7%
+```
+
+The denominators are identical, so those are the same marks before and after,
+and the harness's own self-score is 25 of 32 on the same 25 marks in both. The
+BWV 1007 opening read `0 4 9 8 9 3 8 3 -1 4 8 8 9 4 9 4 …` and now reads
+`0 4 9 8 9 4 9 4 0 4 9 8 9 4 9 4 …`, 14 of 32 to 30 of 32, both statements of
+bar 1 exactly right.
+
+**And the model's own distance from the print, per system, is the thing that
+says this is geometry and not luck.** On the eight systems `trackCombs` tracks,
+the end-to-end swing was 0.20 to 1.67 steps and is now 0.10 to 0.18.
+
+### What it cost, and what it did NOT move — ALL OF IT AT THE TIME
+
+Every figure in this subsection was taken in the stave-model round itself, before
+the mid-system treble landed on top of it. The live numbers are at the top of
+this document; these are the delta.
+
+`scan:key-read` byte-identical (300/352, **0 wrong keys**). `scan:key-safety`
+passes all five of its gated zeroes. `scan:studies` unchanged on every summary
+line it prints, in bass and again under `FORCE_CLEF=treble` and
+`FORCE_CLEF=tenor` (diffed on the lines the tool prints, not note by note). `scan:corpus` identical in all four means,
+`scan:clef-change` byte-identical, `npm test` 607. `bench` recall flat on every
+page. The costs: `bench` mean precision 95.0 → 94.9; `scan:bars` loses one
+barline of 42 on its `faint` fixture. The mid-system clef block of `scan:clef`
+improved on both of its totals (158 false fires → 155, 141 notes named wrong →
+118).
+
+### WHAT IS LEFT — one thing on this page, and a different thing on the other two
+
+**On the Bach it is one thing. Systems 8 and 9 are `fillMissedStaves`
+inventions, they still carry the quadratic, and they hold ALL 45 of the page's
+remaining half-step-or-worse marks.** The reweighted whole-page estimate went
+72.4% to 87.3% and essentially the entire remainder is those two systems: the
+reader is wrong on 64.3% of the marks it answers where the model is half a step
+or worse from the print, against 4.3% everywhere else. The job is to make a
+PREDICTED stave trackable, not to touch the smoother.
+
+**On the Concerto and the Scanned score it is NOT the model at all, and that is
+new since the fix.** `scan:steps` prints its own blame line, and it blames the
+model for **0 of the Concerto's 20 wrong steps and 0 of the Scanned score's 22**.
+Two more of its own lines say the same thing from different directions: every
+mark on both pages falls in its `0.0 to 0.3` model-off band, with nothing in the
+bands above; the fourteen wrong marks it lists in full run −0.22 to +0.18 steps
+of model error on the Concerto and −0.22 to +0.25 on the Scanned score (it prints
+fourteen of each, not all forty-two); and the per-system table has both pages
+tracked to a swing of 0.13 to 0.40 steps end to end. Something else
+names those notes a second wrong. It is undiagnosed, it is now the larger half of
+the reader's remaining pitch error on real paper, and it has its own entry (0d)
+in "The next step". **Do not carry the stave-model explanation over to it**: the
+evidence that it is a different bug is already printed by the tool.
+
+
 ## How it works
 
 1. **Staves** by comb filter in vertical strips, tracked across the page as
@@ -1125,6 +1398,15 @@ and nothing here touches it.
    has no spare curves to set a relative bar with. That is what stops the joining
    assembling the blur artefact along the top edge of the image into a stave
    while still keeping a legitimately faint one.
+   **The five lines the rest of the reader uses are built in `stavesToLines`,
+   and how they are built is where the pitch lives.** The stave's POSITION per
+   strip is smoothed with a running median of five and then a running mean of
+   three, and fitted with nothing — a printed line on a photographed bound book
+   waves three times across a system and a curve fit cannot follow it. The
+   SPACING keeps its quadratic (the stave slides, it does not stretch), and so
+   does a stave that `fillMissedStaves` predicted, which has no per-strip
+   evidence to smooth. A pitch is measured FROM these lines, so anything moved
+   here moves every note: re-run `npm run scan:steps` on all three pages.
 2. **A system the tracker dropped is PREDICTED back** (`fillMissedStaves`), from
    the rhythm of the ones it kept, but only above three staves and only if the
    place it predicts scores like a stave on this page — **a fifth of the low
@@ -1175,7 +1457,8 @@ and nothing here touches it.
    found, 30 named right, 0 invented on 662.
 11. **A clef printed part way along the system.** `findClefChanges` slides the
     reader's own clef window and asks `midClefAt` of each position; it reads
-    C-clefs only, by the waist, and refuses everything it cannot place on a
+    C-clefs by the waist and TREBLE clefs by their tail, and refuses everything
+    it cannot place on a
     line. It is read by `clefHere` and by `notesInOrder`, and by **nothing that
     decides what gets circled** — which is why the round that added it moved no
     other measurement by a digit.
@@ -1658,7 +1941,14 @@ Two dead ends, measured, so they are not tried again:
 
 Every page in every other corpus in this project is in one clef per system, so a
 detector that fires on any of them renames notes on a page it has no business
-touching. Counted before anything was edited, and again on the shipped code:
+touching. Counted before anything was edited, and again on the shipped code.
+**NOTE WHICH LINES A COMMITTED TOOL PRINTS AND WHICH DO NOT.** `scan:clef`,
+`scan:corpus`, `scan:studies` and `scan:key-read` are commands anyone can re-run;
+**the count on the three marked photographs is not** — no tool in `tools/`
+reports `clefChanges` on a real page (checked: only `scan-clef-check.mjs` and
+`clef-change-check.mjs` mention it, and both draw their own pages). That row and
+the 10-staves row below it came from a bespoke probe in the round that measured
+them, and re-taking them means writing the probe again.
 
 ```
   the three marked photographs, every window          13,148 windows    0 fires
@@ -1667,6 +1957,15 @@ touching. Counted before anything was edited, and again on the shipped code:
      (chord stacks, two voices, grand staves, all the furniture)
   scan:corpus 49 rows · scan:studies · scan:key-read     byte-identical
 ```
+
+**THAT TABLE WAS TRUE WHEN IT WAS WRITTEN, WENT SILENTLY FALSE, AND IS TRUE
+AGAIN.** `20e004d` added `midBassAt` after it and nobody re-ran the block: with
+that function in, `npm run scan:clef` read **155 false fires** and **118 notes
+named wrong on a page whose change was found**. Both numbers are back to zero
+now that it is deleted, and the same round added the pages the table did not
+have — a mid-system treble at three sizes, two `-> bass` rows that are expected
+to miss, and an accidental standing beside the change. **A count in this
+document is a claim about a version; re-run the block before quoting it.**
 
 The furniture block is drawn on purpose and lives in `npm run scan:clef`, which
 **fails the build if the count is not zero**. It contains a sharp, a flat and a
@@ -1712,6 +2011,11 @@ The three misses, each with its cause, so the next round does not re-derive it:
 - **treble → alto at 0.75 em, photographed only.** The same page clean reads it,
   and alto at full size reads it photographed.
 
+**THOSE NUMBERS ARE NOW 18 OF 26 AND A DEBT OF 129**, because the block grew: it
+carries four `-> treble` rows, two `-> bass` rows labelled NOT READ on purpose,
+and two rows with an accidental beside the change. The two bass rows are expected
+to miss for the reason above and are there to keep the debt visible.
+
 Where it misses, the page keeps exactly the behaviour it had before this
 existed — the notes after the change are named in the old clef — which is why
 those 56 notes are printed as a DEBT line and not as a build failure.
@@ -1749,11 +2053,159 @@ against a bound of 3. **Not worth it**, and the probe that says so is
 builds the returned page, so it runs on phantom staves too, before
 `out.filter(realStaff)`; that is cost only and it is free to skip.
 
-Two more things it deliberately does not do:
+### The record on `20e004d`, corrected
 
-- **A mid-system change to bass or treble is not read.** A treble printed
-  mid-system passes the height and continuity tests and its waist lands nowhere
-  near a line, so it is refused rather than misnamed — but its notes stay wrong.
+**The commit at the head of this branch claims a gain it did not earn, and this
+is the correction. Read it before trusting any commit message in this log.**
+`20e004d bring a passage back down: read the bass clef that ends a clef change`
+prints this in its message:
+
+```
+                     notes  named  RIGHT before  RIGHT after
+  bass -> tenor       120     80        64            64
+  tenor -> bass       120     60        30            38
+  treble -> bass      120     80        38            54
+  confidently wrong   88 -> 64
+```
+
+Three things are wrong with it, all measured in the round that deleted the
+function:
+
+- **`midBassAt` never read a bass clef — not once, at any size, clean or
+  photographed.** Slid across a real mid-system F clef at 0.72 and 1.0 em, at
+  staff spaces 12 and 16, it returns null at all 80 window positions. What made
+  it fire was the following NOTEHEAD, which supplied the bottom edge the clef
+  never produced. The +8 and +16 in that table are that accident landing right
+  24 times on staff 0 of two fixture pages.
+- **It broke a gate, and the gate was not re-run.** With `midBassAt` in,
+  `npm run scan:clef` reads **155 false fires** and **118 notes named wrong on a
+  page whose change was found** — two lines the tool itself prints as MUST BE
+  ZERO. It answered `bass` on every sharp, every flat, every natural, on
+  barlines, on the common-time C and on a chord of thirds. Deleting it takes both
+  to 0.
+- **Its "12 of 12 changes found" counted pages that change to TENOR** as bass
+  changes found.
+
+**NONE OF THAT `before` COLUMN IS REPRODUCIBLE FROM THIS TREE, and it is
+labelled rather than left to look live.** `midBassAt` is deleted, so reproducing
+the 155 and the 118 means restoring the function to `src/analysis/scan-clef.js`
+first — `git show 20e004d:src/analysis/scan-clef.js` has it. All three numbers
+above were measured in the round that removed it, and the AFTER column is the one
+this document keeps live: `npm run scan:clef` is a build gate and prints both
+totals every run.
+
+**The lesson is not about clefs.** The commit's closing block quotes `bench`,
+`scan:studies`, `scan:key-read` and `scan:corpus` — every one of which is blind
+to a mid-system clef by construction, as this document says twice elsewhere —
+while the one block that could see the change was not run. A number that went up
+is not a measurement until the numbers that could have gone DOWN have been run,
+and the ones that cannot move are not evidence at all.
+
+### A MID-SYSTEM TREBLE IS NOW READ, AND A MID-SYSTEM BASS CANNOT BE READ OFF THE CLEF COLUMN
+
+(The heading used to end "never will be". That is more than the measurement
+says: 58,411 windows rule out every rule the one-dimensional clef PROFILE can
+express, and they say nothing about a measurement with 2-D structure in it — the
+F clef's two dots. The bound is on the instrument, not on the future.)
+
+That is the round that deleted `midBassAt`, and both halves of it are
+measurements rather than opinions.
+
+**`midBassAt` never once read a bass clef.** Slid across a real mid-system F clef
+at 0.72 and 1.0 em, at staff spaces 12 and 16, clean and photographed, it
+returned null at all 80 window positions. Its apparent four-of-twelve on `npm run
+scan:clef-change` came from the following NOTEHEAD supplying the bottom that the
+clef never produced. Worse, on the pages where it did fire it fired on
+EVERYTHING: measured on `npm run scan:clef` before it was removed, its two
+MUST-BE-ZERO totals read **155 false fires and 118 notes named wrong on a page
+whose change was found** — it answered `bass` on every sharp, every flat, every
+natural, the barlines, the common-time C and the chord of thirds — and the
+"12 of 12 changes found" it reported included rows where a `bass` change was
+"found" on a page changing to TENOR. The commit that added it (`20e004d`) claimed
+a gain it did not earn and broke a gate. Deleting it takes those two totals to
+**0** and **0 above the controls' own floor**.
+
+**And no gate exists.** 58,411 windows — every window of those sixty pages plus
+all twenty-two pieces of `scan:clef` furniture at both spoilings — were swept
+against every rule that can be built out of the clef column: the extent at four
+ink floors (0.12 down to 0.04), the F line's position within that extent as a
+fraction of its height, continuity, symmetry, top-heaviness, the widest row, the
+ratio of widest to narrowest, and a required run of 3 to 7 windows. **The most
+sensitive gate read 41 of 60 systems and fired 88 times on the furniture; the
+quietest that read any clef at all read 32 of 60 and still fired 25.** The reason is the one `classifyClef` already writes down: bass is
+the RESIDUAL. Treble is alone below the stave and a C-clef is alone above it; a
+bass clef is known by where its ink STOPS, and a sharp, a flat, a natural, a
+common-time C, a quarter rest and a chord of thirds all stop there. At the head
+of a system that costs nothing because the other two answers are excluded first;
+mid-system there is a fourth answer — "nothing, this is music" — and a residual
+cannot carry it.
+
+**Two things that are NOT the reason, so they are not re-proposed.** `INK` (0.12)
+does truncate a cue-sized F clef — its lower curl covers 0.114 of the 3.6-space
+band — and at a floor of 0.06 the extent comes back correct at every size (2.01,
+2.51, 2.67, 3.23, 3.56 spaces for em 0.6 to 1.0). `BASS_SOLID` (0.8) did refuse
+even a full-size clef, because solidity was taken at `SOLID_INK` over a band
+sized for a full-size C-clef and an F clef reads 0.55 there. **Both were fixed
+inside the sweep and the false fires are what remained.**
+
+**The TREBLE, by contrast, separates.** `midTrebleAt` reads **54 of 60** drawn
+mid-system G clefs with **zero false fires** over the same 58,411 windows, and
+on `npm run scan:clef-change` the two new pairs score EXACTLY what their controls
+score — bass→treble 78 of 120 against a control of 78, tenor→treble 60 against
+60, each finding its change on 12 of 12 systems. The six misses are all at em 0.6, which is the same size floor the C-clef
+already has. What does the work, by ablation (drop one test at a time):
+continuity 47 false fires, "below the stave" 18, a run of 3 instead of 5 twelve.
+Symmetry, the height bound and the anchor ratio cost no recall and catch nothing
+on this furniture; they are kept because the furniture is not the last page this
+will meet, and the comment in `scan-clef.js` says so plainly rather than letting
+them read as measured.
+
+**TWO TESTS CAME OFF THE BACH PHOTOGRAPH AND NOTHING SYNTHETIC COULD HAVE ASKED
+FOR THEM.** With only the sixty-page gate satisfied, the detector fired four
+times on the Bach — staves 4, 6 and 7 — and cropped at 8x every one is **a
+barline or a sharp standing between two beamed groups whose beams hang below the
+bottom line**. Every bar of the Prélude is beamed semiquavers with the stems
+down. The barline supplies ink continuous from the top line to the bottom one and
+the beam a space away supplies the depth, and the column profile cannot see that
+they are two objects because it has already summed across the band. So:
+
+- **`TREBLE_BEAM`** (in `scan-clef.js`): a beam is WIDE. Rows below the bottom
+  line covering more than 0.55 of the band — every one of 675 windows on a real
+  G clef has at most ONE (0.09 of a space), and the Bach's beamed group has eight
+  to ten (0.7 to 0.9 of a space).
+- **`tailUnderBody`** (in `scan-read.js`, because it needs the page and not the
+  profile): a treble's tail hangs UNDER its own body. The x-centre of the ink
+  below the bottom line against the x-centre of the ink between the lines, both
+  with the staff lines left out — 0.19 of a space apart at the median on a real
+  G clef and 0.50 at the ninetieth centile, against 0.68 to 1.36 on all three of
+  the Bach's barline windows.
+
+With both, the three marked photographs report **0 clef changes** on 10 staves
+each, `scan:clef`'s furniture block is 0, and `bench` is byte-identical.
+
+**THE COST IN TIME COULD NOT BE MEASURED THIS ROUND AND THE OLD TABLE STANDS.**
+The machine was at load 6 with a browser of the user's own saturating it —
+`readPage` on the Bach measured 1785ms against the 637ms the table above records
+— and at that noise the probe returned the shipped reader FASTER than a variant
+with a test removed, which is not a measurement of anything. `scan:key-read`
+timed out identically with the ORIGINAL files and with the new ones, which is how
+the load was ruled in and the change ruled out. Re-measure on a quiet machine
+before quoting a number; the shape of the added work is one extra `clefFeatures`
+per window on non-treble systems, and `tailUnderBody` only where the profile has
+already said treble.
+
+**AND THE CLEF IS NO LONGER READ AS AN ACCIDENTAL.** `accidentalFor` takes a
+patch a fixed distance left of each notehead; an engraver prints the next note
+close behind a cue clef, so for that one note the patch lands on the CLEF and the
+model — which has never been shown one — answers `flat` at 0.99 and `sharp` at
+0.993. Eight of the 64 wrong pitches on `scan:clef-change` were that, every one
+the first note after a change, every one a confident semitone. `findClefChanges`
+now reports the glyph's own `from`/`to` and `readPage` blanks the accidental of
+any head whose PATCH CENTRE falls inside it. After: no note whose change was
+found carries a wrong accidental.
+
+One more thing it deliberately does not do:
+
 - **A mid-system clef is still CIRCLED** as up to two false noteheads where
   `findHeads` mistakes it for one (measured at 0.6 em and 1.0 em, not at 0.75 or
   0.9). Suppressing it would change what is circled, which this change is
@@ -1818,9 +2270,10 @@ system the suppression can reach.**
 PARAGRAPH CLAIMED THE `after` COLUMN WAS STILL LIVE. IT IS NOT.** Four rounds
 have landed since — the bare-page key, `dropDoubledHeads`, the truth repair with
 the phantom stave, and the mid-system clef — and every row of it has moved:
-`bench` reads **95.0 / 98.1**, invented **4 / 24 / 29**, the key band's own
-furniture share **2 / 0 / 0**, `scan:corpus` **99/94/89/91**, and there are
-**607** tests. The one row that has not moved is `scan:key-read`, still 300 of
+`bench` read **95.0 / 98.1** at the time, invented **4 / 24 / 29**, the key
+band's own furniture share **2 / 0 / 0**, `scan:corpus` **99/94/89/91**. Live
+today it is **94.9 / 98.1**, invented **6 / 23 / 29**, and there are **614**
+tests. The one row that has not moved is `scan:key-read`, still 300 of
 352 with none wrong. Read the table at the top of this document for the live
 figures; this one is kept only because it is the delta this particular change
 bought.
@@ -2032,7 +2485,7 @@ unobserved, not impossible.
 
 **THE MARGIN, MEASURED TWO WAYS.**
 
-- **3 of 205 systems** of drawn pages that plainly print a signature come back
+- **3 of 206 systems** of drawn pages that plainly print a signature come back
   saying the place is bare, all three photographed. Every one is a system a
   PER-SYSTEM rule would have named C major; not one of their pages fires.
 - **The three marked pages re-read with 0, 4, 6, 8, 10 and 14 per cent of their
@@ -2132,7 +2585,7 @@ enough to suppress, and nothing else is.** The clef band still applies on its
 own, so a system whose signature could not be read keeps its furniture covered.
 
 **MEASURED, AND IT MOVED NOTHING.** `bench` identical to the digit, `npm run
-scan:key-safety` identical, 563 tests **at the time** (607 today). It was kept as an invariant rather than
+scan:key-safety` identical, 563 tests **at the time** (614 today). It was kept as an invariant rather than
 an improvement — the failure it closes is on page shapes the marked pages do not
 contain, which is precisely why no number here could have caught it. The
 safety check's own residual of *13 of 1320 heads reached by a band's own scan*
@@ -2710,6 +3163,8 @@ ten-pixel staff space a notehead and a rest are the same size and shape class.
 | `npm run scan:studies` | **THE NORTH STAR FOR PITCH.** 32 real cello studies from `~/Downloads/cello-studies`, engraved with real Bravura from their MusicXML and scored NOTE FOR NOTE against what the file says — 692 notes, fourteen key signatures, one voice. **It is the only instrument in the project that asks what the note IS rather than where the circle is**, so it is the only one that can see a wrong clef, a wrong key, a missed accidental or a head given to the wrong stave — and all four have been caught by it and by nothing else. It is also the only corpus with more than one key in it; the three marked pages are all one sharp and two of them are the same music. Live: 692 found, 666 right pitch, `wrong by semitones {}`. Prints the page key and the per-stave key separately — a page of ONE system has no page key by design and the column used to count that as a failure — and scores the printed ACCIDENTALS on their own, because `RIGHT PITCH` is shared between the clef, the key and the accidental. **Read `wrong by semitones` and `WRONG on 0` first**, the way `scan:key-read`'s wrong-key line is read first. `--camera` is a gentle filter that has never moved a digit; **`--phone` is the one that measures a photograph** (0.72 downscale, blur 1px, contrast 0.62, JPEG 0.6 — the same spoiling `scan:key-read` uses) and **nothing runs it automatically**, which is item 1 of "The next step". `--space N` sweeps size, `--dir <name>` narrows to one study, `--keep <dir>` writes the engraved pages out, `FORCE_CLEF=` re-reads the same music in another clef |
 | `npm run scan:bars` / `scan:clef-hard` | synthetic, with real truth |
 | `npm run scan:clef` | THREE blocks. The first two are the clef at the head of a system — the classifier against a column this file samples, then the same thing through `readPage`. The third is a **clef printed part way along a system**, scored NOTE FOR NOTE on pitch, with a paired control and — the part that matters — **twenty-four pieces of furniture printed where the clef would be, clean and photographed, on which the count of clef changes found MUST BE ZERO**. Accidentals on each of the five lines, a repeat barline, a chord of thirds, and the rest. It **fails the build** on a false fire and on a note named wrong on a page whose change it found; a change it MISSES is printed as a DEBT line instead, because that is the reader as it was. It also carries its own copy of the clef-to-MIDI arithmetic and refuses to run if the self-check disagrees — that table has been written wrong twice in this project |
+| `npm run scan:steps -- <pdf> --truth <json>` | **THE STEP, ON A REAL PHOTOGRAPH.** For each hand-marked notehead it finds the PRINTED staff lines around it from the ink alone — no comb tracked across the page, no curve fit, no reader model — and says which line or space the mark is on. It is the only instrument that can see a stave model that has drifted off the print, which a residual test cannot: if the whole model is a step out the heads still land neatly on ITS lines. `--known pages/truth/bach.pitch.json` scores the HARNESS against steps taken from the music (25 of 32, and it prints that before it says anything about the reader — do not trust a step number from a harness that has not self-scored). Prints per system how far the model sits from the print, in steps, and which of the wrong steps that explains. `STEP_DRAW=3,7,11` writes one magnified crop per mark with the lines it found in green and the model in red |
+| `node tools/stave-look.mjs <pdf> --at x,y [--zoom 8]` | draws the reader's five model lines on the page, magnified, in red. The house rule made runnable: a pitch is measured FROM THE LINES, and the only way to see a model that has parted company with the print is to draw it |
 | `npm run reader:mark` | the marking tool still works |
 | `npm run scan:spread` | the camera scanner: a book spread comes back as two pages |
 
@@ -2720,10 +3175,20 @@ three commands here have a must-be-zero line that exits non-zero:
 across its three blocks — the band eating a head, the widening putting a head in
 a suppression, and `agreeNoKey`'s three), and `scan:clef` (a false clef-change
 fire, and a note named wrong on a page whose change was found). **`bench`,
-`scan:studies` and `scan:corpus` gate nothing** — they print, and a human reads
-them. Everything this document says about PITCH rests on `scan:studies`, which
-is in that second group, and everything it says about pitch on a PHOTOGRAPH
-rests on a flag of it that no check passes.
+`scan:studies`, `scan:steps` and `scan:corpus` gate nothing** — they print, and a
+human reads them.
+
+**AND THAT IS EXACTLY HOW A WHOLE-STEP OFFSET LIVED ON THE BACH PAGE FOR
+ROUNDS.** Everything this document says about naming a note on CLEAN paper rests
+on `scan:studies`, and everything it says about naming one on a PHOTOGRAPH rests
+on `scan:steps` and on `scan:studies --phone` — a harness that did not exist
+until the pitch round, and a flag somebody has to remember to pass. Neither
+gates anything, and `scan:steps` cannot become a build gate as it stands because
+it needs a page with hand marks on it and there are three of those in the world.
+**So it is a discipline instead: run `scan:steps` on all three pages whenever
+anything upstream of the step moves** — `trackCombs`, `stavesToLines`,
+`fillMissedStaves`, or where a head's own centre is taken. Nothing else in the
+repo can see that class of bug.
 
 **Every real bug in this reader was found by looking at the page. Every dead end
 came from reasoning about what the code probably does.** `scan:crop` and
@@ -2866,6 +3331,26 @@ is left is below.
 
 ## Known broken
 
+- **ONE NOTE IN TWELVE IS NAMED A SECOND WRONG ON REAL PAPER, AND UNTIL THIS
+  ROUND NOTHING MEASURED IT.** `npm run scan:steps`, run for this document:
+  229 of 248 on the Bach, 210 of 230 on the Concerto, 279 of 301 on the Scanned
+  score — 92.3%, 91.3%, 92.7% of the marks the harness can score, against a
+  clean-page figure of 96.2% for the whole NAME. A wrong step is a wrong note.
+  **Where the remaining error lives is known on one page and unknown on two**:
+  13 of the Bach's 19 are the two systems `fillMissedStaves` invents rather than
+  tracks, and **0 of the other 42 are the stave model at all** — see item 0d of
+  "The next step". This entry exists because the failure it names was invisible
+  to `bench`, which read 98.8 / 99.7 on the page whose first bar was a second
+  wrong.
+- **A MID-SYSTEM BASS CLEF IS NOT READ, AND THE NOTES AFTER IT STAY SILENTLY IN
+  THE CLEF THE SYSTEM BEGAN IN.** A C-clef and a treble are read; the F clef that
+  brings a cello part back DOWN is not, and no refusal fires — the pitches are
+  confident and a ninth out. Live: **129 notes on `npm run scan:clef`'s debt
+  line** and **72 of `npm run scan:clef-change`'s 86 wrong pitches**, 68 of them
+  beyond what the controls get wrong by themselves. It is not a constant waiting
+  to be loosened — 58,411 windows say no rule the clef column can express
+  separates a bass clef from a sharp, and the round that measured that deleted
+  the function which pretended to (*The record on `20e004d`, corrected*).
 - **AT PHONE QUALITY THE PITCH LARGELY STOPS WORKING, AND THAT IS THE HEADLINE
   OF THIS WHOLE SECTION.** Re-run for this document, `npm run scan:studies --
   --phone` against the clean run of the same 692 notes:
@@ -3085,8 +3570,30 @@ is left is below.
 
 ## What is measured and does NOT work
 
-- **CHORDS, by any change to the cluster rule.** `tools/chord-check.mjs` draws
-  chords of two, three and four notes at every interval from a second to an
+- **CHORDS, by any change to the cluster rule — AND ON REAL PAPER THEY ARE
+  WORTH TWO NOTES, which is the fact to read before the table.** Instrumented
+  across the three marked photographs, the cluster rule fires about **43,000
+  times** and exactly **4 of those suppressions land on a hand-marked
+  notehead** — of which **2 are real double stops**. Everything else it removes
+  is a second reading of one head, which is what it is for. So the synthetic
+  table below is a measurement of DRAWN CHORDS, not of what chords cost this
+  reader: 6,480 heads on pages built entirely of stacked chords, against two
+  notes on the only real paper in the repo. **That is why chords are not on "The
+  next step" at any rank**, and why the round that measured it spent itself on
+  the stave model instead.
+
+  **Two caveats, because the number is not reproducible and a second instrument
+  disagrees with it.** The 43,000 count came from an instrumented build of
+  `scan-read.js` and nothing in the tree reproduces it — `npm run scan:chords`
+  measures drawn chords only. And an earlier splice of `findHeads`' survivor
+  lists attributed **5 of the Concerto's 30 missed marks at the time** to the
+  cluster stage (see the `LEDGER_LONGEST` entry), against a truth file whose
+  denominator has since changed and a page that now misses 16. Those two counts
+  are not obviously the same population and nobody has sat them side by side; an
+  unexplained disagreement between two instruments is a finding, not a footnote.
+
+  The drawn measurement, which stands as far as it goes: `tools/chord-check.mjs`
+  draws chords of two, three and four notes at every interval from a second to an
   octave, four sizes, clean and photographed, and scores how many of each
   chord's heads come back:
 
@@ -3214,7 +3721,7 @@ that removed it:
   got there by a completely different change, the page-agreed key reach. Anyone
   diffing that number against this entry would have concluded the variant was
   already installed. It is not, and it never was: `bench` reads the Mozart at
-  **92.9%** and the mean at **95.0 / 98.1** today, and the vertical-gap bound is
+  **93.1%** and the mean at **94.9 / 98.1** today, and the vertical-gap bound is
   not in the source. The lesson is the one this document keeps re-learning — a
   figure that happens to coincide is not evidence about which change produced it.
 - **ASKING THE HEIGHT CEILING BEFORE THE SPECK FLOOR** in `findKeyBand`'s glyph
@@ -3286,7 +3793,7 @@ that removed it:
   - **What `bench` says**, both rows taken on the day of the experiment against
     the same reader and the same truth files, which is what makes the comparison
     mean anything. **The left-hand figure is not the reader's score today** —
-    `bench` reads **95.0 / 98.1** now, moved by four later rounds and by seventy
+    `bench` reads **94.9 / 98.1** now, moved by five later rounds and by seventy
     marks coming off two truth files, none of them the classifier. **The two points of
     RECALL are the number that matters here, and they are far outside the 0.3
     this document's standard allows.** 92.1 / 94.0 to **90.0 / 92.1**. Bach
@@ -3680,7 +4187,45 @@ that removed it:
   were measured and every one came back flat. The rule deletes the 45 real notes
   that carry that page's recall to remove 19 false ones.
 
+### The clef rounds' dead ends
+
+- **A MID-SYSTEM BASS CLEF, READ OFF THE CLEF COLUMN. Measured over 58,411
+  windows against every rule the profile can express, and the best point that
+  read anything read 41 of 60 systems and fired 25 times on the furniture.** The
+  full sweep and the reason are written up under *A clef printed part way along a
+  system*. Do not re-propose it as a constant to loosen: `INK` and `BASS_SOLID`
+  were both blocking it, both were fixed inside the sweep, and the false fires
+  are what remained. If a round wants to try again it needs a measurement with
+  2-D structure in it — an F clef's own unique signature is its TWO DOTS
+  straddling the line it names, and each is about a fifth of a space across in a
+  band 3.6 spaces wide, contributing 0.06 to a row the curl beside it already
+  fills to 0.3.
+- **Cutting the glyph out of the clef band by its own ink, to measure a
+  mid-system clef in a band its own size.** It recovers the extent on a
+  photograph (a cue F clef reads 2.7 spaces where the 3.6-space band reads 1.25)
+  and falls apart on a CLEAN page, where the binarised curl is not connected
+  column to column and the segment comes back 0.5 to 1.2 spaces wide against a
+  glyph of 2.0. Not the way in.
+- **A run of 3 for the mid-system treble.** Reads the same 54 of 60 and fires 12
+  times, on a double barline through the camera. The run is 5 and the two extra
+  windows are half a staff space.
+
 ### The pitch rounds' dead ends
+
+**Measured this round, on the stave model's own smoother, so the windows are not
+swept a second time.** Scored as the STEP against the printed lines
+(`scan:steps`, marks right of the three pages' 248 / 230 / 301):
+a median window of **3** ties the chosen 5 on the total (229 · 211 · 278 against
+229 · 210 · 279) and is not taken, because a median of 3 survives only ONE bad
+strip and a beamed group is wider than a 35px strip; a window of **7** is worse
+(229 · 210 · 276); **no trailing mean** is worse (229 · 209 · 275) and leaves the
+median's staircase; **a five-wide mean** costs Bach a mark (228 · 210 · 278); and
+**running the three-wide mean twice** for sub-pixel resolution costs Bach and the
+Concerto one each (228 · 209 · 279). **Raising the polynomial degree was not
+tried and should not be** — the shape has three turning points, so it needs a
+quartic, and a global quartic goes unstable at exactly the strip ends where
+`trackCombs`' clamp fabricates flat data.
+
 
 Newer than everything above, and grouped because they all came out of teaching
 the reader to NAME a note rather than to find one. The first two are the same
@@ -3733,7 +4278,7 @@ project does not spend.
   sharps, photographed, ONE system — the camera takes the printed signature below
   the scan's floor, the lone system says the place is bare, and the page names
   itself C major, two degrees wrong on every note. That is what 26 unpitched
-  notes are buying. The corroborating count is **3 of 205** systems of
+  notes are buying. The corroborating count is **3 of 206** systems of
   signature-printing pages coming back `empty`, all photographed, every one a
   system a per-system rule would have named C major.
 - **Citing `scan:key-read`'s zero as the safety argument for any PAGE rule.** It
@@ -3817,6 +4362,13 @@ and if the music it spoils is music a cellist actually plays. It scores low if i
 costs precision only, if it is measured on drawn pages nobody photographs, or if
 it is a debt line that has not grown in three rounds.
 
+**CHORDS ARE NOT ON THIS LIST AT ANY RANK, and that is a measurement.** The
+cluster rule fires about 43,000 times across the three marked photographs and
+takes exactly 4 hand-marked noteheads, 2 of them real double stops. A synthetic
+page of stacked thirds loses half its heads and a real page loses two notes; the
+entry under "What is measured and does NOT work" carries both numbers and the
+caveat that the 43,000 is not reproducible from the tree.
+
 **Two consequences of that rule worth naming before the list.** The user's own
 first complaint — false circles standing in a stem — has fallen to seventh,
 because it costs precision and nothing else, and because four rules have now died
@@ -3837,6 +4389,81 @@ phantom title-block stave went with it. **A mixture retrain of `acc-model.js` is
 NOT the next accidental job** — clean and `--camera` both read 30 of 30
 accidentals and invent none on 662, and at `--phone` the loss is the NOTEHEADS
 under the accidentals, which is item 2.
+
+**WHAT THE STAVE-MODEL ROUND CLOSED, and the ONE thing it left.** The step on a
+photograph is fixed — Bach 77.8% to 92.3%, the Concerto 88.7% to 91.3%, the
+Scanned score 87.0% to 92.7%, and the BWV 1007 opening comes back right (see
+*The stave model waves*). **Do not re-sweep the smoother's windows**; five of
+them are measured in the pitch dead-ends. What is left is one item, and it is
+now the whole remainder on that page:
+
+**WHAT THE CLEF ROUND CLOSED AND WHAT IT OPENED.** A mid-system TREBLE is read
+(54 of 60, zero false fires, and `bass->treble` scores exactly what its control
+scores); `midBassAt` is DELETED with the sweep that says no replacement exists;
+and the clef is no longer read as the accidental in front of the next note. Three
+things it leaves, each with the fixture that can now see it:
+
+0a. **THE RETURN TRIP IS STILL NOT READ, and it is the commonest change a cello
+    part makes.** A passage goes up in tenor and comes back down in BASS, and
+    `npm run scan:clef` carries two rows labelled `NOT READ, on purpose` that
+    will keep missing until somebody brings a 2-D measurement. 129 notes of that
+    block's debt and 72 of `scan:clef-change`'s 86 wrong pitches are this one
+    thing — 30 on `tenor->bass` where the control gets none wrong, and 42 on
+    `treble->bass` where the control gets 4. It is NOT a constant to loosen —
+    see the clef dead-ends.
+
+0b. **`accidentalFor` READS THE PREVIOUS NOTEHEAD AS A FLAT AT TIGHT SPACING, and
+    the new `+ a sharp on the next note` row in `scan:clef` is what exposed it.**
+    Six of that row's notes come back wrong. It is NOT the clef change's fault
+    and that is measured, not assumed: the row beside it reserves the clef's
+    width and prints NO clef, and the same six come back wrong. A cue clef eats
+    width, so the notes after it sit 2.09 staff spaces apart against the plain
+    control's 2.36, and at 2.09 the patch `ACC_OFFSET` centres 1.35 spaces left
+    of the head lands on the previous head and its stem. One false flat costs
+    two notes, because `applyAccidentals` then carries it.
+
+0c. **A SPURIOUS KEY SIGNATURE WHERE THE FIRST NOTE SITS TOO CLOSE TO THE CLEF.**
+    Six of `scan:clef-change`'s 84 wrong pitches, and DIAGNOSED RATHER THAN
+    TOUCHED. `scan:clef-change` puts its first notehead about 9.4 staff spaces
+    past the stave's left end and the key band runs from 3.6 to 12.6, so the note
+    is inside the place a signature is printed and is read as one — at
+    confidence 0.01 and 0.04 on the treble pages, and 0.96 on one bass page. The
+    fix would be a threshold inside the key reader, which is the one thing in
+    this project gated by a sacred zero, and six notes on a fixture whose own
+    layout causes them do not buy that risk. If a round does take it, the first
+    measurement is whether a real engraver ever sets a note that close.
+
+0d. **42 WRONG STEPS ON THE OTHER TWO PAGES THAT THE STAVE MODEL DOES NOT
+    EXPLAIN, AND NOBODY HAS LOOKED AT ONE OF THEM.** `scan:steps` prints what is
+    to blame, and it blames the model for 13 of the Bach's 19 wrong steps and for
+    **0 of the Concerto's 20 and 0 of the Scanned score's 22**. Every mark on
+    both pages sits in its `0.0 to 0.3` model-off band with nothing above, and
+    the fourteen wrong marks it lists in full — it prints fourteen of each, not
+    all forty-two — carry model errors of −0.22 to +0.18 and −0.22 to +0.25
+    steps. There is a second cause, it is the ENTIRE remaining pitch error on two of the three
+    pages, and it is undiagnosed. Three things to hand the round that takes it.
+    **The error is not symmetric** — the Concerto reads 16 of its 20 LOW, the
+    Scanned score is 12 high against 10 low. **Both pages sit at a 10 and 9.6
+    pixel staff space** against the Bach's 12.1, and both put far more marks
+    between a line and a space: of the offsets the harness counted, 139 of 325
+    and 156 of 396 are 0.3 of a step or more, against the Bach's 45 of 250. And
+    **neither column has a self-check behind it**: `pages/truth/bach.pitch.json`
+    is the only file of steps known from the MUSIC, so the harness's 25-of-32 is
+    a statement about the Bach alone and the 91.3% and 92.7% are trusted, not
+    verified. Start by drawing four of the 42 (`STEP_DRAW=`), and do NOT start by
+    re-refining the head's own y — that is measured and dead on the Bach.
+
+0. **A STAVE `fillMissedStaves` PREDICTED IS STILL FITTED WITH A QUADRATIC, AND
+   IT HOLDS EVERY REMAINING WRONG STEP ON THE BACH PHOTOGRAPH.** Systems 8 and 9
+   there are inventions, not tracks; they carry ALL 45 of the page's marks where
+   the model is half a step or worse from the print, and the reader is wrong on
+   64% of the ones it answers there against 4.3% everywhere else. The smoother
+   cannot be pointed at them as they stand — their per-strip answer swings 9.5
+   and 10.1 steps end to end, because it is a local search in strips too faint to
+   track rather than a tracked curve. So the job is to make a predicted stave
+   TRACKABLE (give it real evidence per strip, or refuse the strips that have
+   none) and only then to smooth it. Measure with `npm run scan:steps`, whose
+   per-system table is where all of this is visible.
 
 ---
 
@@ -4088,3 +4715,31 @@ printed. Do not paraphrase a number you did not watch a tool produce**, and when
 a mid-round `before` / `after` table is left behind, label it *at the time* and
 point at the live figure. The three failure shapes are named at the top of
 "Where it stands".
+
+**THREE MORE, ALL LEARNED FROM ONE COMMIT AND ONE BUG, and all of them are about
+what a number is evidence FOR.**
+
+- **A measurement that cannot see your change is not evidence about it.**
+  `20e004d`'s message quotes `bench`, `scan:studies`, `scan:key-read` and
+  `scan:corpus` behind a mid-system clef reader that none of them can see, and
+  the one block that could see it went from 0 false fires to 155 unread. Before
+  quoting a number as reassurance, say out loud which of your lines it could have
+  moved.
+- **Say whether a figure is reproducible from the tree, and how.** Three numbers
+  in this document are not commands anybody can run: the 155/118 before the
+  deletion (needs `midBassAt` restored), the 43,000 cluster fires (needs an
+  instrumented `scan-read.js`), and the clef-change fires on the three
+  photographs (needs a probe nobody committed). Each now says so where it stands.
+  A number without a command behind it is a memory, and this document has been
+  wrong from memory before.
+- **Scoring the position of a thing is not scoring the thing.** `bench` was at its
+  best figures on the page whose opening bar was named a second wrong, for
+  rounds. When a new capability lands — a name, a length, a fingering — ask what
+  measures the NEW half before quoting the old one at all.
+
+**And a practical one.** Two sessions share this machine and the tools drive a
+headless browser: at load 19, `scan:key-read` dies on puppeteer's
+`protocolTimeout` and `scan:key-safety` (which raises it) merely takes ten
+minutes. Check `uptime` before believing a failure, and re-run the tool from a
+copy with `protocolTimeout` raised rather than concluding anything about the
+reader.

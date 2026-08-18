@@ -1,5 +1,7 @@
 import { describe, test, expect } from 'vitest';
-import { clefFeatures, classifyClef, midClefAt, MARGIN } from '../src/analysis/scan-clef.js';
+import {
+  clefFeatures, classifyClef, midClefAt, midTrebleAt, MARGIN,
+} from '../src/analysis/scan-clef.js';
 
 // A column of ink density, one entry per row. `from` and `to` are in staff
 // spaces measured from the top line, so 0..4 is exactly the stave.
@@ -214,5 +216,91 @@ describe('midClefAt — a C-clef printed in the middle of a system', () => {
       const got = midClefAt(column({ from, to: 3.2 }), 10);
       expect(got === null || got.clef === 'tenor' || got.clef === 'alto').toBe(true);
     }
+  });
+});
+
+// A TREBLE PRINTED PART WAY ALONG A SYSTEM.
+//
+// Same discipline as the block above: these pin the SHAPE of the rule and not
+// the numbers in it. The numbers came from sliding the reader's own window over
+// 58,411 windows — sixty drawn mid-system G clefs at five sizes and two
+// spoilings, plus every piece of `npm run scan:clef` furniture — and that
+// measurement lives in `scan:clef`, which fails the build if the false-fire
+// count is not zero. Two of the tests below could not have been written from a
+// drawn page at all: they came off the Bach photograph, where a BARLINE with a
+// beamed group on either side reads as a G clef.
+describe('midTrebleAt — a treble printed in the middle of a system', () => {
+  // A G clef: the G line (line 3) sits at 0.62 of the way down its own ink, so
+  // a glyph of height H runs from 3 - 0.62H to 3 + 0.38H.
+  //
+  // …and the part BELOW the bottom line is drawn at a third of the band rather
+  // than filling it, because that is what a tail is. `column` above fills every
+  // row it touches, which is a beam and not a clef — measured, a real
+  // mid-system G clef covers about 0.3 of the band down there and the Bach's
+  // beamed groups cover 0.9.
+  const gclef = (height) => {
+    const rows = column({ from: 3 - 0.62 * height, to: 3 + 0.38 * height });
+    for (let r = Math.round((4.15 + MARGIN) * 10); r < rows.length; r++) {
+      if (rows[r] > 0) rows[r] = 0.3;
+    }
+    return rows;
+  };
+
+  test('reads a G clef, and does so at every size', () => {
+    for (const height of [3.9, 4.5, 5.0, 6.0, 7.0]) {
+      expect(midTrebleAt(gclef(height), 10).clef).toBe('treble');
+    }
+  });
+
+  test('…and a cue clef too small to reach past the bottom line is refused', () => {
+    // Not a hole to plug: this is the SAME size floor scan:clef already records
+    // for the C-clef. A G clef of height 3.2 reaches only 4.22 spaces down
+    // against a bound of 4.4, and the six of sixty the detector misses are all
+    // at em 0.6. Refusing costs the notes after that change; guessing at a
+    // depth a stem also reaches would cost a page that has no clef change on it.
+    expect(midTrebleAt(gclef(3.6), 10)).toBeNull();   // reaches 4.37
+    expect(midTrebleAt(gclef(3.2), 10)).toBeNull();   // reaches 4.22
+  });
+
+  test('ink that stops inside the stave is not a treble', () => {
+    // The whole margin this rule leans on. Only a treble hangs below the bottom
+    // line; a bass stops around 3 spaces and a C-clef around 3.2.
+    expect(midTrebleAt(column({ from: -0.1, to: 3.3 }), 10)).toBeNull();
+    expect(midTrebleAt(column({ from: -1.2, to: 3.2 }), 10)).toBeNull();
+  });
+
+  test('the G line has to fall where a G clef puts it', () => {
+    // Same depth, same height, anchored wrong: 0.62 of the way down is what
+    // makes this a reading rather than "deep ink".
+    expect(midTrebleAt(column({ from: 0.0, to: 5.0 }), 10)).toBeNull();
+    expect(midTrebleAt(column({ from: -2.0, to: 5.0 }), 10)).toBeNull();
+  });
+
+  test('two glyphs with paper between them are not one clef', () => {
+    const rows = gclef(5);
+    for (let r = Math.round((1.0 + MARGIN) * 10); r <= Math.round((1.8 + MARGIN) * 10); r++) rows[r] = 0;
+    expect(midTrebleAt(rows, 10)).toBeNull();
+  });
+
+  test('a BEAM below the stave is not a clef tail — the Bach photograph', () => {
+    // This one is not hypothetical and it is not synthetic. Every bar of the
+    // BWV 1007 Prélude is beamed semiquavers with the stems DOWN, so the beams
+    // hang below the bottom line; a window holding a barline with a beamed group
+    // on either side is continuous from above the stave to well below it, and
+    // reads as a G clef on every other test here. What it cannot fake is that a
+    // beam runs right ACROSS the band where a clef's tail is a hook.
+    //
+    // The clef and the beam differ in ONE number here and in nothing else: the
+    // rows below the bottom line read 0.3 of the band or 1.0 of it.
+    const clef = gclef(5);
+    expect(midTrebleAt(clef, 10).clef).toBe('treble');
+    const beam = gclef(5);
+    for (let r = Math.round((4.3 + MARGIN) * 10); r <= Math.round((4.9 + MARGIN) * 10); r++) beam[r] = 1;
+    expect(midTrebleAt(beam, 10)).toBeNull();
+  });
+
+  test('nothing to read is refused, not guessed', () => {
+    expect(midTrebleAt(null, 10)).toBeNull();
+    expect(midTrebleAt(new Float32Array(120), 10)).toBeNull();
   });
 });

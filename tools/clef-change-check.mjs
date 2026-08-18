@@ -104,8 +104,15 @@ const rows = await page.evaluate(async ({ b64 }) => {
     return { canvas: o2, truth, W, H };
   }
 
+  // The pairs, and why each is here. bass->tenor is what a cello part does going
+  // up; tenor->bass and treble->bass are the RETURN TRIP, which is not read at
+  // all and is here to keep the debt visible rather than to pass; bass->treble
+  // and tenor->treble are the mid-system TREBLE, which this round taught the
+  // reader — see midTrebleAt in scan-clef.js.
+  const PAIRS = [['bass', 'tenor'], ['tenor', 'bass'], ['treble', 'bass'],
+    ['bass', 'treble'], ['tenor', 'treble']];
   const out = [];
-  for (const [from, to] of [['bass', 'tenor'], ['tenor', 'bass'], ['treble', 'bass']]) {
+  for (const [from, to] of PAIRS) {
     for (const changeAt of [-1, 5]) {            // -1 is the control: no change
       for (const space of [12, 16]) {
         for (const camera of [false, true]) {
@@ -128,6 +135,14 @@ const rows = await page.evaluate(async ({ b64 }) => {
           out.push({
             from, to, changeAt, space, camera,
             truth: d.truth.length, found, named, right,
+            // How many of the three systems on this page found the change, and
+            // what they called it. A page that scores badly because nothing was
+            // detected is a different failure from one that detected the wrong
+            // clef, and the RIGHT column alone cannot tell them apart.
+            systems: (read?.staves ?? []).length,
+            changes: (read?.staves ?? []).reduce((a, s2) => a + (s2.clefChanges?.length ?? 0), 0),
+            named2: [...new Set((read?.staves ?? [])
+              .flatMap((s2) => (s2.clefChanges ?? []).map((c) => c.clef)))].join(','),
           });
         }
       }
@@ -139,16 +154,20 @@ const rows = await page.evaluate(async ({ b64 }) => {
 await browser.close();
 
 console.log('\nA CLEF THAT CHANGES MID-SYSTEM — the pitch of every note, against what it was drawn as\n');
-console.log('  case                       notes  found  NAMED  RIGHT');
+console.log('  case                       notes  found  NAMED  RIGHT   changes/systems  read as');
 const line = (label, rs) => {
   const t = rs.reduce((a, r) => a + r.truth, 0);
   const f = rs.reduce((a, r) => a + r.found, 0);
   const n = rs.reduce((a, r) => a + r.named, 0);
   const g = rs.reduce((a, r) => a + r.right, 0);
+  const ch = rs.reduce((a, r) => a + (r.changes ?? 0), 0);
+  const sy = rs.reduce((a, r) => a + (r.systems ?? 0), 0);
+  const nm = [...new Set(rs.flatMap((r) => (r.named2 ?? '').split(',')).filter(Boolean))].join(',');
   console.log(`  ${label.padEnd(26)} ${String(t).padStart(5)} ${String(f).padStart(6)} `
-    + `${String(n).padStart(6)} ${String(g).padStart(6)}  ${(g / t * 100).toFixed(1)}%`);
+    + `${String(n).padStart(6)} ${String(g).padStart(6)}  ${(g / t * 100).toFixed(1)}%`
+    + `   ${String(ch).padStart(3)}/${String(sy).padEnd(3)} ${nm}`);
 };
-for (const [from, to] of [['bass', 'tenor'], ['tenor', 'bass'], ['treble', 'bass']]) {
+for (const [from, to] of [...new Set(rows.map((r) => `${r.from}|${r.to}`))].map((k) => k.split('|'))) {
   line(`${from}->${to}, NO change`, rows.filter((r) => r.from === from && r.to === to && r.changeAt < 0));
   line(`${from}->${to}, changes`, rows.filter((r) => r.from === from && r.to === to && r.changeAt >= 0));
 }

@@ -413,7 +413,23 @@ function draw() {
       });
       dot.style.cursor = 'pointer';
       const clef = clefFor(note.clef);
-      const pitch = pitchOf(note.step, clef, keyNow());
+      // WHAT THE READER SAYS, NOT WHAT THIS PAGE CAN WORK OUT.
+      //
+      // This recomputed the pitch from the step, a clef and the KEY DROPDOWN
+      // above — and so it threw away three things the reader now knows and this
+      // page did not ask for: the key signature it read off the paper, the
+      // ACCIDENTAL standing in front of this very note, and the fact that an
+      // accidental holds for the rest of its bar. A note with a sharp beside it
+      // was named as if the sharp were not there, which is the one case where
+      // being able to see the sharp makes the answer obviously wrong.
+      //
+      // notesInOrder already applies all three and reports `midi`. So that is
+      // used wherever it exists, and the manual route is the fallback for a page
+      // whose clef or key the reader could not read — which is what the
+      // dropdowns are for.
+      const own = Number.isFinite(note.midi) ? { midi: note.midi } : null;
+      const pitch = own ?? pitchOf(note.step, clef, keyNow());
+      const fromReader = !!own;
       // In marking mode a ring is a claim to agree or disagree with, and
       // clicking it disagrees. The note panel is for reading, and reading is
       // what the other mode is for.
@@ -439,10 +455,21 @@ function draw() {
           : note.beats === 0.25 ? 'semiquaver'
           : note.beats === 0.125 ? 'demisemiquaver'
           : note.beats ? `${note.beats} beats` : 'unread';
+        // What ALTERED it, said plainly, because a note name on its own does not
+        // tell you whether the reader saw the sharp or merely assumed the key.
+        const acc = note.accidental
+          ? `<br>a ${note.accidental.kind} stands in front of it — read off the page`
+          : note.alteredBy === 'carried'
+            ? '<br>an accidental earlier in this bar still holds here'
+            : note.alteredBy === 'key'
+              ? '<br>altered by the key signature'
+              : '';
         els.note.innerHTML = name
           ? `<b class="big">${name}</b> · ${value}`
             + `<br>note ${i + 1} of ${notesInOrder(read).length} · system ${note.staff + 1}`
             + ` · bar ${note.bar + 1} · step ${note.step}`
+            + acc
+            + (fromReader ? '' : '<br>named from the dropdowns above — the reader could not')
             + `<br>read in ${clef} clef`
             + (forceClef.value ? ' (you set this)'
               : ` at ${(note.clefConfidence ?? 0).toFixed(2)} confidence — set the clef above if that is wrong`)
