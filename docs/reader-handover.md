@@ -158,6 +158,17 @@ breaks an alignment, an extra circle is cosmetic. It is also the price that
 makes the bar sums harder — see item 3 — so the next round on false circles buys
 it back.
 
+**AND ONE DEAD END, MEASURED, so nobody builds it twice: THE ACCIDENTAL MODEL
+CANNOT BE USED AS A VETO ON A NOTEHEAD.** The obvious answer to those false
+circles is that the reader already owns a model that knows a sharp when it sees
+one — so show it each head, centred on the head itself, and drop the ones it
+claims. Built, and it takes the page with it: `bench` goes from 93.7 / 98.2 to
+**48.7 / 8.8**, with the Bach reduced to TWO circles of its 319 notes. The model
+reads a patch 4.8 spaces across and was fitted on patches centred where an
+accidental stands — a head's own patch looks enough like one that the model says
+yes to nearly every notehead on the page. Whatever removes those six circles, it
+is not this model asked this question.
+
 **3. THE BARLINES WERE MOSTLY STEMS, AND THAT WAS THE FIRST OF "the two things to
 measure first".** `BAR_ATTACHED` — how much of a full-height column may have
 something wide hanging off it before it is a stem rather than a barline — was
