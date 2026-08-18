@@ -754,6 +754,18 @@ document.querySelector('#discard-rec').addEventListener('click', () => {
   statusEl.textContent = 'recording discarded';
 });
 
+// …and the same decision at the bottom of the Score tab, where the take has
+// just been read against the music. A take that is already IN the library is
+// not thrown away by this — by then the only thing on offer was filing it under
+// the piece, so this says no to that and leaves the recording alone.
+document.querySelector('#score-discard-take')?.addEventListener('click', () => {
+  const kept = !lastTake && savedTakeId !== null;
+  clearTake();
+  statusEl.textContent = kept
+    ? 'left in the library, not filed under the piece'
+    : 'take discarded';
+});
+
 function saveBlob(blob, filename) {
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);

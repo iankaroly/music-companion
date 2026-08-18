@@ -159,14 +159,20 @@
          take's trace shows which way a habit leans without reading a single
          number; how FAR off is left to the geometry and the figures, which
          say it more precisely than a colour ever did. --off/--bad are not
-         part of this: they carry timing, landing tiers and danger. */
+         part of this: they carry timing, landing tiers and danger.
+
+         FLAT IS PURPLE and was blue, at the player's request. It still reads
+         cool against the warm sharp, and it stops competing with the two other
+         blues the app uses for things that are not intonation at all: the
+         scanner's page outline and the system's own selection blue. Those two
+         are deliberately left alone — neither of them means "flat". */
       --sharp: #d9612c;
-      --flat: #2b74c9;
+      --flat: #7b4bc4;
       --good-soft: #d9f4e8;
       --off-soft: #fdeeda;
       --bad-soft: #fde3e8;
       --sharp-soft: #fae3d6;
-      --flat-soft: #dde7f8;
+      --flat-soft: #e8ddf8;
       --fill: rgb(var(--on-surface) / 0.06);
       --fill-2: rgb(var(--on-surface) / 0.12);
       --glass: rgb(var(--sf) / 0.55);
@@ -186,7 +192,7 @@
          at low alpha, so a note's block and its line are one colour. */
       --chart-good-fill: rgb(23 181 120 / 0.12);
       --chart-sharp-fill: rgb(217 97 44 / 0.14);
-      --chart-flat-fill: rgb(43 116 201 / 0.14);
+      --chart-flat-fill: rgb(123 75 196 / 0.14);
       --chart-wave: rgb(var(--on-surface) / 0.05);
       --display: "Fredoka", ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", sans-serif;
       --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
@@ -223,12 +229,12 @@
       --off: #ffb257;
       --bad: #ff7d90;
       --sharp: #ff9a5e;
-      --flat: #64b5ff;
+      --flat: #b58cff;
       --good-soft: #16362b;
       --off-soft: #3a2d18;
       --bad-soft: #3d1f27;
       --sharp-soft: #3b2517;
-      --flat-soft: #172b42;
+      --flat-soft: #2b2142;
       --glass: rgb(var(--sf) / 0.42);
       --glass-line: rgb(255 255 255 / 0.1);
       --surface-solid: #3b3f5e;
@@ -242,7 +248,7 @@
       --chart-tick-minor: #4a4770;
       --chart-good-fill: rgb(53 210 149 / 0.16);
       --chart-sharp-fill: rgb(255 154 94 / 0.18);
-      --chart-flat-fill: rgb(100 181 255 / 0.18);
+      --chart-flat-fill: rgb(181 140 255 / 0.18);
       --chart-wave: rgb(var(--on-surface) / 0.08);
       --shadow: 0 2px 4px rgb(var(--sh) / 0.3), 0 12px 32px rgb(var(--sh) / 0.45);
     }
@@ -4130,8 +4136,14 @@
         <!-- Keeping the take is decided here, on the piece it belongs to,
              rather than by arming a toggle on the Record tab before pressing
              Save. Saving it to the library plainly is still under Record. -->
+        <!-- Keeping it and throwing it away are both decided here. The Record
+             tab has had a Discard beside its Save from the beginning; this bar
+             had only the Save, so a take reviewed against the music could be
+             kept and could not be dropped without going back to the other tab
+             to find the button. -->
         <div class="row" id="score-save-bar" hidden>
           <button id="score-save-take" class="ctl primary" type="button"></button>
+          <button id="score-discard-take" class="ctl" type="button">Discard</button>
         </div>
       </div>
     </section>

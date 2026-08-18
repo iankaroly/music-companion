@@ -2944,7 +2944,14 @@ function usedNow() {
   lastUsed = Date.now();
 }
 
-function standAside() {
+// Exported so that a reading pass started ANYWHERE waits for the same quiet
+// this one does. The pass that runs straight after a scan was started by
+// score.js with no `standAside` at all, so it read the part flat out while the
+// player was turning through it — which is a second of solid arithmetic against
+// every turn, and is what "when I open a score and try to click fast through
+// the pages the first time … it takes a while for the score to load" is made
+// of. See scanPages.
+export function standAside() {
   const clear = () => (root?.hidden ?? true) || (turning <= 0 && Date.now() - lastUsed > IDLE_ENOUGH);
   if (clear()) return Promise.resolve();
   return new Promise((go) => {
@@ -5505,6 +5512,51 @@ function buildScanPairing(raw) {
   return { heads, played, pairing, bridge, marks, byHead, why: null };
 }
 
+// THE PAGE READS ITSELF WHILE YOU ARE LOOKING AT IT.
+//
+// A scan opened straight after scanning is opened before anything is known
+// about it, so this reader says "these pages have not been read yet" — and it
+// used to go on saying it until the score was closed and opened again. That is
+// a user's report, in their words: "when I scan something, I'll look at the
+// page for a moment and then it says page not read so I have to reopen the
+// score."
+//
+// score.js fires this as each page of the reading pass finishes. The layout
+// object is NEW every time, which is what `scanPairing` caches on, so the
+// pairing rebuilds itself; the ink cache is dropped so the marks are painted
+// again; and where there were no staves at all before, the whole layout is
+// done again — a page with none known cannot be cut into screenfuls and is
+// shown whole, so the arrival of the first ones changes the shape of the page.
+//
+// Guarded on the score's id, because a pass started on the part you opened four
+// minutes ago must not touch the one in front of you now.
+// Subscribed through a dynamic import, and that is not fussiness: score.js
+// imports this module, so importing it back at the top would be a cycle and the
+// binding would be undefined while this file is still being evaluated. The
+// subscription is wanted the first time a reader opens and not before.
+let watchingLayouts = false;
+function watchLayouts() {
+  if (watchingLayouts) return;
+  watchingLayouts = true;
+  import('./score.js').then(({ onLayoutRead }) => onLayoutRead(layoutArrived)).catch(() => {
+    watchingLayouts = false;
+  });
+}
+
+function layoutArrived(id, fresh) {
+  if (!root || root.hidden || !isPaper() || score?.id !== id || !fresh) return;
+  const hadStaves = (layout ?? []).some((page) => page?.staves?.length);
+  layout = fresh;
+  scanPair = null;
+  scanPairFrom = null;
+  if (!hadStaves && fresh.some((page) => page?.staves?.length)) {
+    relayoutSameScore(id).catch(() => { /* still a page to play from */ });
+    return;
+  }
+  dropDryInk();
+  redraw();
+}
+
 function scanPairing() {
   const raw = take?.notes ?? null;
   if (scanPair && scanPairFrom?.layout === layout && scanPairFrom?.notes === raw) {
@@ -5779,6 +5831,9 @@ export async function openReader(row, {
   // live in a store of their own.
   if (!row || (row.kind !== 'pages' && !row.xml)) return null;
   build();
+  // A scan opened before it has been read refreshes itself when it is — see
+  // layoutArrived.
+  watchLayouts();
   score = row;
   take = analysed;
   setlist = programme;

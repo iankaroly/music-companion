@@ -21,7 +21,7 @@ import { scanRhythm } from '../analysis/scan-rhythm.js';
 import { spread } from '../analysis/scan-timing.js';
 import { showScore, paint } from './score-view.js';
 import { showScanScore } from './scan-view.js';
-import { openReader } from './reader.js';
+import { openReader, standAside as readerStandAside } from './reader.js';
 import { intonationBounds } from './chart-utils.js';
 import { takeStats } from '../analysis/score-history.js';
 import {
@@ -305,7 +305,12 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
   // And then, quietly, read the SHAPE of the pages — where the staves, bars and
   // noteheads are. It is what lets a take be marked onto a photograph, it takes
   // about a second a page, and nothing waits for it.
-  measurePages(id, { note: trouble })
+  // …and it STANDS ASIDE while the player is using the reader, which it did not
+  // before. The pass is about a second a page of uninterruptible arithmetic; a
+  // scan is opened the moment it is taken; and the two were competing for the
+  // one processor on the device this runs on. A page turn must never wait on
+  // the reading, so the reading waits on the page turns.
+  measurePages(id, { note: trouble, standAside: readerStandAside })
     .catch(() => { /* an unreadable scan is still a readable score */ });
   return id;
 }
@@ -328,13 +333,42 @@ export async function measurePages(scoreId, { note = null, standAside = null } =
   return pass;
 }
 
+// WHO IS LOOKING AT A SCORE WHILE IT IS BEING READ.
+//
+// Reading a scan takes seconds and it happens behind whatever is on screen, so
+// a page opened straight after scanning is opened before anything is known
+// about it — and the two views that draw a scan both say so out loud ("these
+// pages have not been read yet"). Nothing then told them when it WAS read, so
+// the sentence stayed until the score was closed and opened again, which is
+// exactly what a user reported: "when I scan something, I'll look at the page
+// for a moment and then it says page not read so I have to reopen the score."
+//
+// One subscription, fired per page as the reading pass finishes it. A view that
+// is showing that score refreshes itself; one that is not ignores it.
+const layoutWatchers = new Set();
+
+export function onLayoutRead(fn) {
+  layoutWatchers.add(fn);
+  return () => layoutWatchers.delete(fn);
+}
+
+function layoutRead(scoreId, layout) {
+  for (const fn of layoutWatchers) {
+    try { fn(scoreId, layout); } catch { /* a view that throws must not stop the reading */ }
+  }
+}
+
 async function measureNow(scoreId, note, standAside = null) {
   const payload = await loadScorePages(scoreId);
   if (!payload) return null;
   const { layout, crops, sizes } = await readPages(payload, (page, total) => {
     status(`reading the pages… ${page + 1} of ${total}`);
-  }, (sofar) => saveScoreLayout(scoreId, sofar.layout, sofar), standAside);
+  }, (sofar) => {
+    saveScoreLayout(scoreId, sofar.layout, sofar);
+    layoutRead(scoreId, sofar.layout);
+  }, standAside);
   await saveScoreLayout(scoreId, layout, { crops, sizes });
+  layoutRead(scoreId, layout);
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)
     .reduce((n, page) => n + page.staves.reduce((m, st) => m + st.heads.length, 0), 0);
@@ -873,6 +907,9 @@ async function renderScanTab() {
   if (!payload) return null;
   const pageCount = payload.layout?.length ?? payload.pages?.length ?? payload.pageCount ?? 0;
   const readSoFar = (payload.layout ?? []).filter(Boolean).length;
+  // What this drawing is based on, so the redraw above fires when there is more
+  // and not when there is the same.
+  drewWithRead = readSoFar;
   if (pageCount && readSoFar < pageCount) {
     // Something on the screen FIRST.
     //
@@ -904,6 +941,7 @@ async function renderScanTab() {
       new Promise((go) => { setTimeout(go, READ_WAIT); }),
     ]);
     payload = await loadScorePages(current.id).catch(() => payload);
+    drewWithRead = (payload?.layout ?? []).filter(Boolean).length;
     status(`${current.name} — ${ready.summary}`);
   }
   const page = document.createElement('div');
@@ -1217,6 +1255,32 @@ function scanUnreadNote(payload) {
 // same box, with whichever finishes second winning. Held on a promise so the
 // second caller waits for the first rather than starting again.
 let rendering = null;
+
+// HOW MUCH OF THE PART WAS READ WHEN THE REVIEW WAS DRAWN.
+//
+// The review does not wait for a long part to be read — it races the pass for
+// READ_WAIT and draws whatever is known by then, because a blank panel under a
+// sentence claiming success reads as a failure. What it never did was come back
+// when the rest arrived, so a take reviewed against three pages of a
+// twelve-page part stayed that way until something else redrew it.
+let drewWithRead = -1;
+
+// …so the review redraws itself as the pass finishes pages, and only then: the
+// guard is what stops a run of page-by-page events redrawing a review that is
+// already complete, and `view` is cleared first because renderScoreTabOnce
+// returns the drawing it already has unless there is a reason not to.
+onLayoutRead((id, fresh) => {
+  if (!current || current.id !== id || !ready) return;
+  const read = (fresh ?? []).filter(Boolean).length;
+  if (read <= drewWithRead) return;
+  view?.destroy?.();
+  view = null;
+  // Drawn again where somebody is looking, and left for the next look where
+  // they are not: an inactive tab panel is display:none, and anything measured
+  // inside one measures zero — the reason this whole function is called on the
+  // way in rather than when the take arrives.
+  if (scoreTabIsShowing()) renderScoreTab();
+});
 
 export async function renderScoreTab() {
   if (rendering) return rendering;

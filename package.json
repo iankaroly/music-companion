@@ -83,7 +83,8 @@
     "score:agree": "node tools/reader-agree-check.mjs",
     "scan:bars-believed": "node tools/value-bars.mjs",
     "scan:pages": "node tools/page-find-check.mjs",
-    "scan:key-gate": "node tools/study-check.mjs --phone --gate"
+    "scan:key-gate": "node tools/study-check.mjs --phone --gate",
+    "score:fresh": "node tools/fresh-scan-check.mjs"
   },
   "keywords": [],
   "author": "",
