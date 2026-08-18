@@ -17,10 +17,19 @@
 // what was outlined — the page pulled square out of the frame, not the
 // photograph of a book on a table.
 //
-// TWO outlines when the camera is over an open book, numbered 1 and 2, and one
-// press of the shutter then keeps two pages. Music is read out of books, and a
-// scanner that cannot tell a spread from a sheet either bends both pages onto
-// one rectangle or quietly keeps the bigger half.
+// ONE SHEET AT A TIME, and that is a decision rather than a limitation. Over an
+// open book the finder knows perfectly well that there are two pages there —
+// and the outline still fills in over ONE of them: the page under the middle of
+// the picture, which is the page you are pointing the phone at. The other is
+// drawn as a thin line so you can see it was noticed and that the blue stops at
+// the gutter rather than running across the spread.
+//
+// It was the other way round for a while: both pages outlined, numbered 1 and 2,
+// and one press keeping both. What that actually looks like through the phone
+// is a blue wash over most of the frame, and the question "is it going to keep
+// the page or the book?" has no answer you can see. One press, one sheet,
+// exactly what is filled in — you turn to the other page the same way you turn
+// to the next one.
 //
 // It also says how far away to be. The page is stored at the size it was in the
 // picture, so a page shot from across the room is a page kept at a fifth of the
@@ -35,7 +44,9 @@
 // is the whole trick; without it an auto-shutter takes forty photographs of the
 // same page while you reach for the corner.
 
-import { findPages, coverageOf, quadsMoved } from '../analysis/page-edges.js';
+import {
+  findPages, coverageOf, quadsMoved, aimedPage,
+} from '../analysis/page-edges.js';
 import { straightenCanvas, readableImage, sizeOfImage, papersIn } from './straighten.js';
 
 let root = null;
@@ -133,34 +144,35 @@ function showPaper(quads, ready) {
   const offY = (box.height - shownH) / 2;
   ctx.save();
   ctx.lineJoin = 'round';
-  ctx.lineWidth = ready ? 4 : 2.5;
-  ctx.strokeStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.55)';
-  ctx.fillStyle = 'rgb(58 130 255 / 0.14)';
+  const keeping = aimed(quads);
   quads.forEach((quad, page) => {
     const at = quad.map(([x, y]) => [offX + x * shownW, offY + y * shownH]);
     ctx.beginPath();
     at.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
     ctx.closePath();
-    if (ready) ctx.fill();
+    // The page being aimed at is the one that gets kept, and it is the only one
+    // that is filled in. The other page of a book gets a hairline: enough to
+    // say "seen, and not this one", not enough to read as part of the shot.
+    if (page === keeping) {
+      ctx.lineWidth = ready ? 4 : 2.5;
+      ctx.strokeStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.55)';
+      ctx.fillStyle = 'rgb(58 130 255 / 0.14)';
+      if (ready) ctx.fill();
+    } else {
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 6]);
+      ctx.strokeStyle = 'rgb(255 255 255 / 0.35)';
+    }
     ctx.stroke();
-    // Numbered only when there are two: on a single page a number over the
-    // music is clutter, and on a spread it is the answer to "which of these is
-    // it going to keep first".
-    if (quads.length < 2) return;
-    const cx = at.reduce((n, p) => n + p[0], 0) / 4;
-    const cy = at.reduce((n, p) => n + p[1], 0) / 4;
-    ctx.save();
-    ctx.font = '600 22px system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillStyle = ready ? 'rgb(58 130 255)' : 'rgb(255 255 255 / 0.7)';
-    ctx.strokeStyle = 'rgb(0 0 0 / 0.35)';
-    ctx.lineWidth = 3;
-    ctx.strokeText(String(page + 1), cx, cy);
-    ctx.fillText(String(page + 1), cx, cy);
-    ctx.restore();
+    ctx.setLineDash([]);
   });
   ctx.restore();
+}
+
+// The page the shutter will keep, out of what is in the frame. -1 when there is
+// no paper at all.
+function aimed(quads) {
+  return aimedPage(quads);
 }
 
 function readyToShoot(on) {
@@ -207,15 +219,15 @@ const MOVED_ENOUGH = 24;     // what counts as "the page was turned"
 // room is stored at the resolution it was in the picture — a fifth of a frame
 // of music is a fifth of a page of detail, and no straightening puts that back.
 //
-// A LOWER BAR FOR TWO PAGES, and it reads backwards until you draw it. A spread
-// is about half as tall as it is wide, and a phone's frame is not: held right
-// up against the book, edge to edge, an open spread covers 0.53 of a 4:3 frame
-// and 0.33 of a tall one, against 0.9 for a single page. Asking a book for 0.3
-// asks it for something the shape of the phone will not allow, and the answer
-// would be "closer" until the edges ran off the frame and then "back off" —
-// which is the bug this was meant to fix, wearing a hat.
+// A LOWER BAR OVER A BOOK, and it reads backwards until you draw it. One page
+// of an open book cannot fill a third of the frame while the other page is in
+// the picture at all: a spread held right up against the phone covers about
+// half a 4:3 frame and a third of a tall one, so each page of it is a quarter
+// and an sixth. Asking a page of a book for what a loose sheet gives asks for
+// something the shape of the phone will not allow, and the advice would run
+// "closer" until the book ran off the frame and then "back off".
 const FILL_FRAME = 0.3;
-const FILL_SPREAD = 0.75;    // of it, when the camera is over two pages at once
+const FILL_SPREAD = 0.6;     // of it, for ONE page while the other is in view
 const PAPER_FRACTION = 0.2;  // how much of the frame is brighter than its own mid-point
 const INK_DENSITY = 0.03;    // how much of it has ink-like detail in it
 const STILL_FRAMES = 2;      // ~300ms of holding steady: quick, because the
@@ -305,7 +317,12 @@ function watch() {
     const before = held;
     paper = findPaper();
     held = paper.length ? paper : null;
-    const fills = coverageOf(paper);
+    // How much of the frame the page BEING KEPT fills — not how much all the
+    // paper in the picture fills. One press keeps one sheet, so the size of the
+    // sheet that press will keep is the number that decides whether it is worth
+    // pressing.
+    const keeping = aimed(paper);
+    const fills = keeping < 0 ? 0 : coverageOf([paper[keeping]]);
     const steady = paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH;
     const close = fills >= FILL_FRAME * (paper.length > 1 ? FILL_SPREAD : 1);
     const ready = paper.length > 0 && steady && close && lit >= 25;
@@ -324,7 +341,8 @@ function watch() {
       }
       if (!close) return 'closer — fill the frame with the page';
       if (!steady) return 'hold it steady…';
-      return paper.length > 1 ? 'tap the button — both pages are in view'
+      return paper.length > 1
+        ? 'tap the button — it keeps the page you are pointing at'
         : 'tap the button — the page is square in view';
     };
     if (!auto) {
@@ -429,12 +447,17 @@ async function capture() {
   // the edges can be moved afterwards without the corners having to be found
   // all over again from a picture the hand has since moved on from.
   //
-  // One quadrilateral for a sheet and TWO for a book open at a spread, in
-  // reading order — and two of them means two pages come out of this one press
-  // of the shutter, which is the only sane thing to do with a photograph of an
-  // open book. Warping both onto one rectangle gives a page bent down the
-  // middle; keeping the bigger of them throws half the music away.
-  const found = cleanUp ? papersIn(canvas, canvas.width, canvas.height) : [];
+  // One page comes out of one press, and over a book it is the page that was
+  // filled in blue: the one under the middle of the picture. The finder still
+  // finds both — that is what makes the kept page STOP at the gutter instead of
+  // running across the spread — and the second one is left where it is, for the
+  // next press. Warping both onto one rectangle would give a page bent down the
+  // middle; taking the bigger one silently would throw half the music away; and
+  // taking both on one press was what put a wash of blue over the whole frame
+  // with nothing to say which sheet the shot was of.
+  const all = cleanUp ? papersIn(canvas, canvas.width, canvas.height) : [];
+  const keeping = aimed(all);
+  const found = keeping < 0 ? [] : [all[keeping]];
   const taken = [];
   for (const corners of (found.length ? found : [null])) {
     const number = String(pages.length + taken.length + 1).padStart(2, '0');
@@ -471,7 +494,9 @@ async function capture() {
   }
   refreshCount();
   waiting = 0;
-  if (taken.length > 1) say(`got both pages — ${auto ? 'turn the page' : 'turn over'}`);
+  // A book still has its facing page in the frame, so the next thing to do is
+  // point at it rather than to turn over.
+  if (all.length > 1) say('got it — now point at the other page');
   else say(auto ? 'got it — turn the page' : 'got it');
   root.classList.add('flash');
   setTimeout(() => root.classList.remove('flash'), 180);
