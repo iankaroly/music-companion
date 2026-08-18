@@ -15,6 +15,7 @@
 // engraver. A tuner has no business paying for a PDF renderer.
 
 import { readableImage, sizeOfImage } from './straighten.js';
+import { why } from './why.js';
 import { unshadow } from '../analysis/unshadow.js';
 
 // THE PAGE, BRIGHTENED FOR LOOKING AT — and only for looking at.
@@ -245,12 +246,28 @@ async function loadPdfLib() {
       import('pdfjs-dist/legacy/build/pdf.mjs'),
       import('pdfjs-dist/legacy/build/pdf.worker.mjs?url'),
     ]);
-  } catch {
-    // The reader itself would not load. On an older tablet that is the whole
-    // of it — the PDF engine is written for browsers newer than this one — and
-    // there is a way round worth saying out loud.
-    throw new Error('this browser cannot open PDFs — it is too old for the reader this app uses.'
-      + ' Photograph the pages instead, or open the app in Safari on a newer device');
+  } catch (err) {
+    // The reader itself would not load, and there are two quite different
+    // reasons for that which this used to report as one.
+    //
+    // On an older tablet the PDF engine is genuinely too new for the browser,
+    // and saying so is the help. But the commoner reason is that the engine is
+    // a CHUNK FETCHED THE FIRST TIME A PDF IS OPENED — so a flaky connection, a
+    // deploy landing between the page loading and the part being opened, or an
+    // offline practice room all fail here too, and every one of them was told
+    // their browser was too old and to photograph the pages instead.
+    //
+    // A failed fetch has no meaningful message in Safari (often none at all),
+    // which is how a player ends up reading the word "null" — see src/ui/why.js.
+    const said = why(err, '');
+    const offline = /load|fetch|network|import|dynamic/i.test(said)
+      || (typeof navigator !== 'undefined' && navigator.onLine === false);
+    throw new Error(offline
+      ? 'the PDF reader could not be downloaded — this part needs a connection the first'
+        + ' time it is opened. Try again once you are online.'
+      : `this browser cannot open PDFs — it is too old for the reader this app uses${
+        said ? ` (${said})` : ''}. Photograph the pages instead, or open the app in Safari`
+        + ' on a newer device');
   }
   // Without this the worker never starts and every page renders blank — silent,
   // and indistinguishable from a broken reader.

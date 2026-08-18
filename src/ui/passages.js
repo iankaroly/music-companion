@@ -6,6 +6,7 @@
 // what links today's attempt to the last one.
 
 import { passageStats } from '../analysis/passages.js';
+import { saying } from './why.js';
 import { savePassage, listPassages, deletePassage } from '../store/db.js';
 
 let marking = null;      // { first } while waiting for the second tap
@@ -86,7 +87,7 @@ function promptForName(startSec, endSec) {
       setStatus(`saved “${name}” — it'll show up in your coach`);
       refreshPassageList();
     } catch (err) {
-      setStatus(`could not save that passage: ${err.message}`);
+      setStatus(saying('could not save that passage', err));
     }
   };
   dialog.addEventListener('close', onClose);

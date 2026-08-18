@@ -87,6 +87,13 @@ npm run scan:light       the two pages a photograph becomes: the bright one
                          still ink) and the plain one the reader reads. They are
                          separate because brightening what the reader reads
                          costs it notes — see scan:import.
+npm run score:open       a PDF imported THROUGH THE PICKER and then opened
+                         through the shelf — the two things a player does and
+                         the two things every other tool skips (they build a
+                         part by calling savePagesScore). It also reads the
+                         status line back and fails if the app ever says
+                         "null". `npm run score:open -- <file.pdf>` tries a
+                         particular file.
 npm run score:fresh      the SEQUENCE nothing else can see: a review drawn
                          against a scan with no layout at all, then the reading
                          pass started underneath it. The rings have to appear

@@ -86,7 +86,8 @@
     "scan:key-gate": "node tools/study-check.mjs --phone --gate",
     "score:fresh": "node tools/fresh-scan-check.mjs",
     "scan:import": "node tools/import-recall-check.mjs",
-    "scan:light": "node tools/lighting-check.mjs"
+    "scan:light": "node tools/lighting-check.mjs",
+    "score:open": "node tools/pdf-open-check.mjs"
   },
   "keywords": [],
   "author": "",

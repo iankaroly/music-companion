@@ -1,4 +1,5 @@
 import { startCapture, micIsHeld, prepareCapture, ensureMic } from './audio/capture.js';
+import { saying } from './ui/why.js';
 import { taught, teach, pressOf, pressName, forgetPedal } from './ui/pedal.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
@@ -397,11 +398,11 @@ async function startTuner() {
     // so a microphone the iPad would not open left the tuner sitting on the
     // word "listening" for ever, with the explanation on a tab nobody had any
     // reason to visit.
-    statusEl.textContent = `mic unavailable: ${err.message}`;
+    statusEl.textContent = saying('mic unavailable', err);
     document.querySelector('#cents').textContent = 'no microphone';
     const note = document.querySelector('#tuner-listen-note');
     if (note) {
-      note.textContent = `The microphone did not open: ${err.message}`;
+      note.textContent = saying('The microphone did not open', err);
       note.dataset.tone = 'bad';
     }
     rememberGrant(false); // it was refused or revoked — ask again next time
@@ -492,7 +493,7 @@ scoreSaveTake?.addEventListener('click', async () => {
     await takeSaved(id);
     refreshLibrary();
   } catch (err) {
-    say(`could not add it to the piece: ${err.message}`, 'bad');
+    say(saying('could not add it to the piece', err), 'bad');
   }
 });
 
@@ -657,7 +658,7 @@ startBtn.addEventListener('click', async () => {
       // Whatever state it is in, the next press records.
       capture = null;
       startBtn.textContent = 'Record';
-      say(`that take could not be finished: ${err.message} — press record to start again`, 'bad');
+      say(`${saying('that take could not be finished', err)} — press record to start again`, 'bad');
     }
     return;
   }
@@ -701,7 +702,7 @@ startBtn.addEventListener('click', async () => {
     startClock(capture.recorder);
   } catch (err) {
     rememberGrant(false);
-    say(`mic unavailable: ${err.message}`, 'bad');
+    say(saying('mic unavailable', err), 'bad');
   } finally {
     startBtn.disabled = false;
   }
@@ -743,7 +744,7 @@ async function saveTake({ toScore = false } = {}) {
       .catch(() => {});
     refreshLibrary();
   } catch (err) {
-    say(`could not save: ${err.message}`, 'bad');
+    say(saying('could not save', err), 'bad');
   }
 }
 

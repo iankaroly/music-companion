@@ -8,6 +8,7 @@
 // the metronome or any chart exists — main.js listens and applies.
 
 import { readPreference, writePreference, applyTheme, initTheme } from './theme.js';
+import { saying } from './why.js';
 import {
   getVolume, setVolume, CLICK_PITCH_MIN, CLICK_PITCH_MAX,
 } from '../audio/context.js';
@@ -273,7 +274,7 @@ export function initSettings(doc = document) {
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       announce(doc, 'backup');
     } catch (err) {
-      storageLine.textContent = `Backup failed: ${err.message}`;
+      storageLine.textContent = saying('Backup failed', err);
     }
   });
 
@@ -289,7 +290,7 @@ export function initSettings(doc = document) {
         + (skipped ? `, skipped ${skipped} already here.` : '.');
       announce(doc, 'library');
     } catch (err) {
-      storageLine.textContent = `Restore failed: ${err.message}`;
+      storageLine.textContent = saying('Restore failed', err);
     }
   });
 

@@ -1,4 +1,5 @@
 import { audioContext, masterOut, holdAudio, releaseAudio, warmAudio } from '../audio/context.js';
+import { saying } from './why.js';
 import { buildEmphasizedClip, findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
@@ -264,7 +265,7 @@ function playClip(clip, root, timeMap, spans, onDone) {
     buffer.copyToChannel(samples, 0);
   } catch (err) {
     releaseAudio('playback');
-    say(root, `couldn't play that much at once — ${err.message}`);
+    say(root, saying("couldn't play that much at once", err));
     return null;
   }
   const source = playbackCtx.createBufferSource();

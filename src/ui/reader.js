@@ -27,6 +27,7 @@
 // read it is the failure mode this whole screen exists to avoid.
 
 import { showScore, indexNoteheads, paint } from './score-view.js';
+import { saying } from './why.js';
 import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
@@ -3892,7 +3893,7 @@ async function trimPage(pageNumber) {
     // paper.js.
     await paper.drawWhole(pageNumber, sheetCanvas, 1400, 1900, { plain: true });
   } catch (err) {
-    say(`that page could not be drawn to crop — ${err.message}`);
+    say(saying('that page could not be drawn to crop', err));
     return;
   }
   const blob = await new Promise((resolve) => sheetCanvas.toBlob(resolve, 'image/jpeg', 0.92));
@@ -5287,7 +5288,7 @@ async function drawOnePage(index, quick = false) {
     // which reads as a score that has lost a page. Say it on the page itself:
     // the rest of the part still turns, and the reason is where the missing
     // music would have been.
-    sayOnPage(canvas, `Page ${slice.page + 1} could not be drawn — ${err.message}`, across);
+    sayOnPage(canvas, saying(`Page ${slice.page + 1} could not be drawn`, err), across);
   }
   if (mine !== era) return;
   drawn.add(index);

@@ -406,6 +406,42 @@ does, and it is why the reader lost those notes: everything within a few per cen
 of the paper clips to white WITH it. The paper lands at 248 with headroom above
 it instead.
 
+## "IT SAID NULL AND DIDNT WORK" — what a failure is allowed to say
+
+A player imported a PDF, opened it, and got the word **null**. That message could
+not be reproduced here — the same file kinds import and open correctly on the
+bench (`npm run score:open`, which is new and does the two things every other
+tool skips: hands the file to the PICKER and opens the part from the SHELF) —
+and it did not need to be, because the way every message in the app was built
+made it inevitable:
+
+```
+  status(`could not open that score: ${err.message}`)
+```
+
+Three ways that says nothing. `err` may not be an Error at all — a rejected
+fetch, a DOMException with no message, a library that rejects with a string or a
+plain object — and `err.message` is then undefined. `err` may be **null**, in
+which case `err.message` THROWS, inside a catch block, so the failure being
+reported is replaced by a second failure nobody catches and whatever was meant
+to happen next does not: a blank page and no explanation. Or the message is the
+empty string, which several Safari DOMExceptions are.
+
+`src/ui/why.js` is the answer and every user-facing catch in the app now goes
+through it (20 of them). It takes anything at all and returns a sentence: the
+message where there is one; a named explanation where there is only a name
+(`QuotaExceededError` becomes "there is no room left on this device"); the
+caller's own description of what it was doing where there is neither. It never
+returns "null", "undefined" or "[object Object]", and it cannot throw.
+
+**AND ONE REAL DEFECT CAME OUT OF LOOKING.** `loadPdfLib` wrapped both of its
+imports in `catch { throw new Error('this browser cannot open PDFs — it is too
+old…') }`, discarding the actual error. But the PDF engine is a CHUNK FETCHED THE
+FIRST TIME A PDF IS OPENED, so a flaky connection, a deploy landing between the
+page loading and the part being opened, or a practice room with no signal all
+fail there too — and every one of them was told their browser was too old and to
+photograph the pages instead. It now tells those two apart and says which.
+
 ## Run it
 
 ```

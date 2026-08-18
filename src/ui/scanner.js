@@ -47,6 +47,7 @@
 import {
   findPages, coverageOf, quadsMoved, aimedPage,
 } from '../analysis/page-edges.js';
+import { saying } from './why.js';
 import { straightenCanvas, readableImage, sizeOfImage, papersIn } from './straighten.js';
 
 let root = null;
@@ -756,7 +757,7 @@ export async function openScanner() {
     });
   } catch (err) {
     finish(null);
-    throw new Error(`the camera would not open: ${err.message}`);
+    throw new Error(saying('the camera would not open', err));
   }
   video.srcObject = stream;
   await video.play().catch(() => {});

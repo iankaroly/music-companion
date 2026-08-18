@@ -9,6 +9,7 @@
 // or a skipped repeat comes out right.
 
 import { parseScore } from '../analysis/musicxml.js';
+import { saying, why } from './why.js';
 import { readScoreFile } from '../analysis/mxl.js';
 import { alignScore } from '../analysis/align-score.js';
 import { scoreTiming } from '../analysis/score-timing.js';
@@ -275,7 +276,7 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
       try {
         flattened.push(await straightenFile(file));
       } catch (err) {
-        refused.push(`page ${at + 1}: ${err.message}`);
+        refused.push(`page ${at + 1}: ${why(err, 'it could not be read')}`);
       }
     }
     if (flattened.length === 0) throw new Error(refused[0] ?? 'those pages could not be read');
@@ -426,7 +427,7 @@ async function readPaperScore(row) {
       onSetlistMove: playFromSetlist,
     });
   } catch (err) {
-    status(`could not open that score: ${err.message}`, 'bad');
+    status(saying('could not open that score', err), 'bad');
   }
 }
 
@@ -988,7 +989,7 @@ async function renderScanTab() {
   } catch (err) {
     view = null;
     stage.replaceChildren();
-    status(`could not lay the pages out: ${err.message}`, 'bad');
+    status(saying('could not lay the pages out', err), 'bad');
     return null;
   }
   if (!view || !view.pairing?.marks?.length) {
@@ -1345,7 +1346,7 @@ async function renderScoreTabOnce() {
   } catch (err) {
     view = null;
     stage.replaceChildren();
-    status(`could not engrave that score: ${err.message}`, 'bad');
+    status(saying('could not engrave that score', err), 'bad');
     return null;
   }
 
@@ -1502,7 +1503,7 @@ export async function readCurrentScore() {
       onSetlistMove: playFromSetlist,
     });
   } catch (err) {
-    status(`could not open that score: ${err.message}`, 'bad');
+    status(saying('could not open that score', err), 'bad');
   }
 }
 
@@ -1538,7 +1539,7 @@ export function initScoreCard({
     try {
       await addFromFile(chosen);
     } catch (err) {
-      status(`could not read that file: ${err.message}`, 'bad');
+      status(saying('could not read that file', err), 'bad');
     }
   });
 
@@ -1550,7 +1551,7 @@ export function initScoreCard({
       try {
         await addPaper(chosen);
       } catch (err) {
-        status(`could not read that: ${err.message}`, 'bad');
+        status(saying('could not read that', err), 'bad');
       }
     });
   }
@@ -1573,7 +1574,7 @@ export function initScoreCard({
           await selectScore(paperId);   // now it can be marked up
         }
       } catch (err) {
-        status(`could not read that file: ${err.message}`, 'bad');
+        status(saying('could not read that file', err), 'bad');
       }
     };
     input.click();
