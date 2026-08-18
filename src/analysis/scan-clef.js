@@ -284,6 +284,65 @@ const SOLID_INK = 0.25;
  * or too smeared to be sure of — see the note above for what refusing costs
  * and why it is cheaper than the alternative.
  */
+// A BASS CLEF STANDING MID-SYSTEM, which is the RETURN TRIP.
+//
+// midClefAt below reads C-clefs only, and that is the right default: a cello
+// part's commonest change is bass to tenor for a high passage, and a C-clef has
+// a waist that sits on one line and nothing else on a stave does. But a passage
+// that goes up comes back down, and the clef that brings it back is a BASS —
+// so a page that changed once was read correctly to the end of the tenor
+// passage and wrongly from there on.
+//
+// MEASURED with tools/clef-change-check.mjs, notes named against what they were
+// drawn as, each case beside a control with the same music and no change:
+//
+//                        notes   named   named RIGHT
+//   bass -> tenor         120     80        64        (the C-clef is found)
+//   tenor -> bass         120     60        30        (nothing brings it back)
+//   treble -> bass        120     80        38
+//
+// WHY IT IS A SEPARATE FUNCTION WITH ITS OWN BAR. A C-clef is recognised by a
+// waist on a line, which is a positive and unusual signature. A bass clef is
+// recognised by where its ink STOPS, and plenty of things on a stave stop
+// there — a chord of thirds on a photograph answers the same description, which
+// is why the mid-system scan was restricted to C-clefs in the first place. So
+// this asks for more: the ink must begin at the top line and stop within the
+// stave the way an F clef does, must be SOLID down that whole extent rather
+// than a pair of blobs with a gap, and must be no taller than a clef ever is.
+// Anything short of all three is left alone and the passage keeps its clef.
+export function midBassAt(column, space) {
+  const f = clefFeatures(column, space);
+  if (!f) return null;
+  // An F clef begins ON the top line and ends inside the stave. A C-clef begins
+  // a full space above it, and a treble hangs far below — both are excluded
+  // here, and both are read by the tests they already have.
+  if (!(f.top >= BASS_TOP[0] && f.top <= BASS_TOP[1])) return null;
+  if (!(f.bottom >= BASS_BOTTOM[0] && f.bottom <= BASS_BOTTOM[1])) return null;
+  if (!(f.symmetry >= SYM_MIN)) return null;
+  // Solid down its whole height: a chord of thirds is two blobs with paper
+  // between them, and an F clef's curl is continuous.
+  const from = Math.max(0, Math.round((f.top + MARGIN) * space));
+  const to = Math.min(column.length - 1, Math.round((f.bottom + MARGIN) * space));
+  let inked = 0;
+  let rows = 0;
+  for (let r = from; r <= to; r++) { rows++; if (column[r] >= SOLID_INK) inked++; }
+  if (!rows || inked / rows < BASS_SOLID) return null;
+  const mid = (BASS_TOP[0] + BASS_TOP[1]) / 2;
+  return {
+    clef: 'bass',
+    confidence: Math.max(0, Math.min(1, 1 - Math.abs(f.top - mid) / (BASS_TOP[1] - mid))),
+    height: f.height,
+  };
+}
+
+// Where an F clef's ink begins and ends, in staff spaces from the top line.
+// classifyClef measures a bass at -0.06 to -0.22 at the top and 2.5 to 3.3 at
+// the bottom; these are those, opened a little for a cue-sized glyph.
+const BASS_TOP = [-0.45, 0.45];
+const BASS_BOTTOM = [2.0, 3.6];
+// Solid down its whole extent, which is what a chord of thirds is not.
+const BASS_SOLID = 0.8;
+
 export function midClefAt(column, space) {
   const f = clefFeatures(column, space);
   if (!f) return null;

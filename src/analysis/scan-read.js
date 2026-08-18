@@ -19,7 +19,7 @@
 
 import { beamLayer, readValues } from './scan-stems.js';
 import {
-  clefFeatures, classifyClef, midClefAt,
+  clefFeatures, classifyClef, midClefAt, midBassAt,
   MARGIN as CLEF_ABOVE, MARGIN_BELOW as CLEF_BELOW,
 } from './scan-clef.js';
 import {
@@ -2324,7 +2324,10 @@ export function findClefChanges(ink, w, h, staff, stripW, space, fromX) {
   const step = Math.max(1, space * MID_CLEF_STEP);
   const wide = Math.max(3, Math.round(space * CLEF_WIDE));
   for (let x = fromX; x + wide < w; x += step) {
-    const seen = midClefAt(clefColumn(ink, w, h, staff, stripW, space, x), space);
+    const column = clefColumn(ink, w, h, staff, stripW, space, x);
+    // A C-clef first, then the F clef that brings a passage back down. See
+    // midBassAt in scan-clef.js for why the second has a bar of its own.
+    const seen = midClefAt(column, space) ?? midBassAt(column, space);
     const last = runs[runs.length - 1];
     // The same glyph, still under the window. Anything else starts a new run —
     // including the SAME clef found again further along, which is a second
@@ -2527,6 +2530,7 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
       staff.space,
     ));
   });
+
 
   const found = staves.map((staff) => ({
     staff,

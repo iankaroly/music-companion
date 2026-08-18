@@ -69,7 +69,9 @@
     "scan:engraved": "node tools/engraved-bench.mjs",
     "scan:sheet": "node tools/contact-sheet.mjs",
     "acc:train": "node tools/acc-train.mjs",
-    "scan:studies": "node tools/study-check.mjs"
+    "scan:studies": "node tools/study-check.mjs",
+    "scan:chords": "node tools/chord-check.mjs",
+    "scan:clef-change": "node tools/clef-change-check.mjs"
   },
   "keywords": [],
   "author": "",

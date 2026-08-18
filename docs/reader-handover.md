@@ -3085,6 +3085,48 @@ is left is below.
 
 ## What is measured and does NOT work
 
+- **CHORDS, by any change to the cluster rule.** `tools/chord-check.mjs` draws
+  chords of two, three and four notes at every interval from a second to an
+  octave, four sizes, clean and photographed, and scores how many of each
+  chord's heads come back:
+
+  ```
+    interval   a 2nd    a 3rd    a 4th   a 5th   an octave
+    found      34-50%   52-81%    100%    100%    98-100%
+    everything together — 5272 of 6480, 81.4%
+  ```
+
+  A fourth and wider already clears the cluster rule. A third is the interval a
+  cello double stop actually uses and half of them are lost. **It is not the
+  shape tests** — `headProbe` returns `accepted` on every missing head, fill 0.91
+  to 0.94 with a solid core — and **it is not either judge**: turning the
+  classifier off entirely moves the total to 81.8% and turning the second judge
+  off moves it to 81.2%. It is the cluster rule, which keeps one head per place.
+
+  **Loosening the radius is not available.** Swept on this build:
+
+  ```
+    CLUSTER_Y     0.9      0.6      0.5      0.42
+    chords        81.4%    85.4%    88.3%    91.2%
+    bench prec    95.0%    83.2%    71.9%    68.9%
+  ```
+
+  **Nor is a rescue for pairs stacked on one stem.** Two candidates at the same
+  x, at least half a space apart, kept as a chord: 91.2% chords and **72.6%**
+  bench precision, because a notehead and its own stem produce exactly that
+  arrangement.
+
+  **Nor is the waist between them.** The idea was that between two heads of a
+  chord the midpoint lies at the EDGE of both ellipses where a notehead is
+  narrow, while between two readings of one head it lies at the head's own
+  centre where it is widest. Measured, it rescues NOTHING — 81.4% chords, bench
+  94.9/98.1 — because at a third the two heads overlap so heavily that the ink
+  between them is as wide as the heads are. There is no waist to find.
+
+  What is left is to know it is a chord from the STEM — one stem carrying
+  several heads — rather than from the heads' own geometry. That has not been
+  tried and is the only avenue this measurement leaves open.
+
 Written down so it is not proposed a third time. Each has numbers in the commit
 that removed it:
 
