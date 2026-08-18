@@ -310,6 +310,62 @@ markers used to stop eight heads either side of the take, which on a real page
 of two hundred notes offered a dozen controls, and they now cover every head on
 the pages shown.
 
+## WHAT A SCAN COSTS BEFORE THE READER SEES IT — `npm run scan:import`
+
+Everything else here measures the reader against a page rendered straight out of
+a PDF at 1400 pixels. A scan is not that. A scan is a photograph — smaller,
+softer, unevenly lit — straightened and de-shadowed on the way in, and the reader
+meets the RESULT. Nothing measured the result until this round, and a user's
+report is what it was missing: **"it ended up rendering about 50% of the notes"**.
+
+`npm run scan:import` puts the three marked pages through it: degraded the way
+`scan:studies --phone` degrades a study (downscale, 1px blur, 0.62 contrast, a
+JPEG round trip) plus the one thing a rendered page never has and every
+photograph does — a lamp on one side — then through `straightenCanvas`, then read
+and scored against the same hand marks `bench` uses. `SHRINK` sets how big the
+photograph is and `READ_ACROSS` how wide it is read.
+
+**IT IS THE SIZE OF THE PHOTOGRAPH, AND NOT THE LIGHT.**
+
+```
+  photograph   read at   staff space   RECALL of 1059 marks
+    x0.72       1400px       6 px         51.4%    <- and the Bach: NO STAVES
+    x0.72       2200px       9 px         42.4%       AT ALL, 0 of its 319
+    x1.60       1400px      10 px         85.8%
+    x1.60       2200px      16 px         82.4%
+```
+
+A staff line is ONE pixel wide before anything is done to it, and once it is half
+a pixel it is gone: the crop of the failing Bach page shows its notes and beams
+perfectly visible with the five lines a ghost between them. Reading a small page
+at a bigger canvas does not bring them back — 42.4%, worse than reading it small,
+because upscaling adds no ink — and neither does anything done to the contrast:
+
+- **A cut scaled to the page's own darkest ink**, replacing the flat "16 levels
+  under the local background", moved `scan:import` by nothing at all. The page
+  HAS dark ink — it is on the notes — so a page-wide statistic never sees the
+  lines. Reverted.
+- **A softer mask for the staff lines alone**, at half the cut, used only by the
+  line profiles and the page scale. Also nothing on `scan:import`, and it cost
+  `bench` a point: the Concerto 95.4% recall to 94.2%, precision 91.8% to 90.4%.
+  Reverted.
+
+So the lever is upstream of the reader entirely, and there are only two things
+that move it: how many pixels the camera gives, and how much of the frame the
+page fills. The scanner now asks for `width: 4096, height: 3072` (ideal, not
+min — a device that cannot give it must still open its camera), and a scan whose
+staff space comes out under 8 pixels SAYS SO, because nothing downstream can put
+back detail that was never in the file and the person holding the phone can fix
+it in five seconds.
+
+**WHAT WOULD BE WORTH TRYING NEXT, in order.** A still capture rather than a
+video frame (`ImageCapture.takePhoto()` gives the sensor's full resolution where
+it exists, which is Chrome and not Safari); raising the shutter's "fill the
+frame" bar, since a page filling two thirds of the frame instead of a third is
+twice the staff space; and — the one thing inside the reader that might survive
+the measurement — tracking staff lines by their PERIODICITY in the greyscale
+rather than in the binary mask, which is where a one-pixel line still exists.
+
 ## Run it
 
 ```

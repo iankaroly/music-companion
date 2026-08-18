@@ -325,6 +325,12 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
 // both are scarce, and two writers racing over the same rows.
 const running = new Map();
 
+// The staff space, in pixels at the width the reader works at, under which a
+// scan starts losing notes badly. Read off `npm run scan:import`: 6 px is 51%
+// of the noteheads and 10 px is 86%, so the line sits between them and errs
+// toward saying nothing.
+const SPACE_ENOUGH = 8;
+
 export async function measurePages(scoreId, { note = null, standAside = null } = {}) {
   const already = running.get(scoreId);
   if (already) return already;
@@ -372,13 +378,35 @@ async function measureNow(scoreId, note, standAside = null) {
   const found = layout.filter(Boolean).length;
   const heads = layout.filter(Boolean)
     .reduce((n, page) => n + page.staves.reduce((m, st) => m + st.heads.length, 0), 0);
+  // HOW BIG THE MUSIC CAME OUT, said out loud when it is too small to read
+  // properly.
+  //
+  // `space` is the gap between two staff lines, as a fraction of the page's
+  // height, and it is the one number that decides how much of a scan can be
+  // read at all. MEASURED, `npm run scan:import`: at six pixels the three
+  // marked pages come back at 51% of their noteheads and one of them finds no
+  // staves whatsoever; at ten they come back at 86%. The reader works at 1400
+  // pixels across, so those are the pixels a page has when it is read.
+  //
+  // Saying so is the whole of it. There is nothing to be done to a photograph
+  // that was taken too far away — the detail is not in the file — and the
+  // person holding the phone is the only one who can fix it, in five seconds,
+  // by standing closer and taking it again.
+  const spaces = layout.filter(Boolean).map((p) => (p.space ?? 0) * 1400 * 1.4);
+  const smallest = spaces.length ? Math.min(...spaces) : null;
   // A page that was refused on the way in outlives this narration: it is the
   // thing the player has to do something about, and the note count is not.
+  const tooSmall = smallest !== null && smallest < SPACE_ENOUGH;
   status(note ?? (found
     ? `read ${found} of ${layout.length} ${layout.length === 1 ? 'page' : 'pages'}`
       + ` — ${heads} notes found, so your playing can be marked onto them`
-    : 'the music on those pages could not be made out — they are still yours to read from'),
-  note ? 'bad' : '');
+      + (tooSmall
+        ? '. The music came out small on the page, so some of it will have been'
+          + ' missed — scanning again with the phone closer reads far more of it.'
+        : '')
+    : 'the music on those pages could not be made out — they are still yours to read from'
+      + (tooSmall ? ' The page came out too small to read: hold the phone closer and take it again.' : '')),
+  note || tooSmall ? 'bad' : '');
   return layout;
 }
 

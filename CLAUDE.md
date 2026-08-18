@@ -74,6 +74,18 @@ npm run scan:pages       the SCANNER, not the reader: fourteen drawn camera
                          as SPANS (one outline over two pages of a book).
                          95.3% mean IoU, worst spill 9%, 0 spans. Run it
                          whenever page-edges.js or the scanner UI moves.
+npm run scan:import      THE SCAN, not the render: the three marked pages
+                         photographed (SHRINK), straightened and de-shadowed
+                         the way an import does it, read at READ_ACROSS and
+                         scored against the same hand marks. It is the only
+                         instrument that sees what a user's scan actually
+                         gives the reader. 51.4% recall at a 6px staff space
+                         against 85.8% at 10px — the size of the photograph is
+                         the lever, not the light.
+npm run score:fresh      the SEQUENCE nothing else can see: a review drawn
+                         against a scan with no layout at all, then the reading
+                         pass started underneath it. The rings have to appear
+                         without the score being closed and reopened.
 npm test                 unit tests.
 ```
 

@@ -723,8 +723,35 @@ export async function openScanner() {
   document.documentElement.dataset.scanning = 'yes';
   say('starting the camera…');
   try {
+    // AS MANY PIXELS AS THE DEVICE WILL GIVE, and this is the single biggest
+    // thing between a scan and a reading.
+    //
+    // MEASURED, `npm run scan:import` — the three marked pages photographed and
+    // brought in the way the app brings a scan in, then read and scored against
+    // the same hand marks `bench` uses:
+    //
+    //   page across   staff space   recall
+    //     ~1000 px       6 px        51.4%   (and the Bach page: no staves at
+    //                                        all, 0 of its 319 notes — the
+    //                                        lines are a ghost between the
+    //                                        notes at that size)
+    //     ~2200 px      10 px        85.8%
+    //
+    // Nothing about the lighting, the contrast or the reader's thresholds moves
+    // those numbers the way the page's own size does; a staff line is one pixel
+    // wide before anything is done to it, and once it is half a pixel it is
+    // gone. A user's report on the small end of that table: "it ended up
+    // rendering about 50% of the notes".
+    //
+    // `ideal` rather than `min`, because a device that cannot give this must
+    // still open its camera — asking for 4K as a requirement is how a scanner
+    // ends up not opening at all on the tablet somebody owns.
     stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: 'environment' }, width: { ideal: 2048 } },
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 4096 },
+        height: { ideal: 3072 },
+      },
       audio: false,
     });
   } catch (err) {
