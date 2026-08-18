@@ -393,6 +393,35 @@ for (const kind of ['same key, same clef', 'same clef', 'different clef']) {
   show(kind, stat(sub));
 }
 
+// HOW MUCH OF THE TAKE GOT A MARK AT ALL — the second statistic, and the one
+// that tells a wrong piece from a right one once the ends of the alignment are
+// free. A take of the wrong music can match a handful of its notes somewhere on
+// the page and end there, leaving the rest as extras: high agreement over very
+// few marks. A take of THIS music gets most of its notes marked.
+const cover = (r) => (r.n ? r.marks / r.n : 0);
+const spread = (rows, name) => {
+  const xs = rows.filter((r) => r.placed).map(cover).sort((a, b) => a - b);
+  if (!xs.length) return `${name}: none placed`;
+  const at = (q) => `${Math.round(xs[Math.min(xs.length - 1, Math.floor(xs.length * q))] * 100)}%`;
+  return `${name}  n=${xs.length}   min ${at(0)}   10th ${at(0.1)}   median ${at(0.5)}   90th ${at(0.9)}   max ${at(0.999)}`;
+};
+console.log('\n  HOW MUCH OF THE TAKE WAS MARKED — marks / notes played');
+console.log(`  ${spread(rightAll, 'RIGHT')}`);
+console.log(`  ${spread(wrongAll, 'WRONG')}`);
+{
+  const rows = [];
+  for (let f = 0.1; f <= 0.9001; f += 0.1) {
+    const refuse = (list) => list.filter((r) => r.placed && cover(r) < f).length;
+    const placedR = rightAll.filter((r) => r.placed).length;
+    const placedW = wrongAll.filter((r) => r.placed).length;
+    rows.push(`    ${f.toFixed(1)}      ${refuse(rightAll)} of ${placedR}`
+      + `            ${refuse(wrongAll)} of ${placedW}`);
+  }
+  console.log('\n  A COVERAGE FLOOR — refusing a pairing that marked less of the take than this');
+  console.log('    floor    RIGHT refused       WRONG refused');
+  for (const r of rows) console.log(r);
+}
+
 console.log('\n  THE TRADE CURVE — a floor refuses a pairing whose agreement is under it');
 console.log('    floor    RIGHT refused          WRONG refused        worst WRONG that survives');
 for (let f = 0.20; f <= 0.951; f += 0.05) {

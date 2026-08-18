@@ -176,6 +176,8 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
   // only ever the answer when nothing was played.
   let bestCost = Infinity;
   let bestRow = 0;
+  let anyCost = Infinity;
+  let anyRow = 0;
   // FREE ENDS ONLY WHERE THERE IS ROOM TO SLIDE.
   //
   // A take that covers all of what it is compared against has nowhere to go and
@@ -260,9 +262,21 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
     // still counted as taken" turned ['match','match','match','wrong'] into
     // […,'missed'], which is the review telling somebody they stopped early
     // when what they did was play the last note badly.
-    if (freeEnds && from[base + P] === DIAGONAL && row[P] < bestCost) {
-      bestCost = row[P];
-      bestRow = i;
+    // A TAKE ENDS WHERE ITS LAST NOTE WAS MATCHED, and where no row can offer
+    // that, on the cheapest row of any kind.
+    //
+    // Both halves are load-bearing and each was measured by breaking it. Ending
+    // anywhere at all lets a take of the WRONG MUSIC match a handful of notes
+    // that happen to fit, drop the rest as extras and be placed on the strength
+    // of the handful: `npm run score:follow` catches it — "a take of a
+    // different piece is REFUSED rather than drawn" comes back placed, 8 marks
+    // of 24 notes played. Ending only on a match, with the OLD global traceback
+    // as the fallback, hands the sliding bug back to any take whose last sound
+    // is bow noise, since a squeak is cheaper to insert (1.0) than to call a
+    // wrong note (1.4) and then no row ends on a match at all.
+    if (freeEnds) {
+      if (row[P] < anyCost) { anyCost = row[P]; anyRow = i; }
+      if (from[base + P] === DIAGONAL && row[P] < bestCost) { bestCost = row[P]; bestRow = i; }
     }
 
     const spent = above;
@@ -283,12 +297,24 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
       verdict: 'missed',
     };
   }
-  // Nothing was ever matched — no row ends on a match — so the take is placed
-  // the way it always was, against the whole score.
   if (!Number.isFinite(bestCost)) {
-    bestRow = S;
+    // No row ends on a match. Where the ends are free that means the take's
+    // last sound was not one of the notes on the page — a squeak, a bow scrape
+    // — and the cheapest row of any kind is still a placement; where they are
+    // not free the take covers what it is compared against and is placed the
+    // way it always was, ending at the last score note.
+    bestRow = freeEnds && Number.isFinite(anyCost) ? anyRow : S;
     attempts.length = 0;
     attempts.length = S;
+    for (let k = bestRow; k < S; k++) {
+      attempts[k] = {
+        scoreNoteId: score[k].id,
+        pass: score[k].pass ?? 0,
+        score: score[k],
+        played: null,
+        verdict: 'missed',
+      };
+    }
   }
   let i = bestRow;
   let j = P;

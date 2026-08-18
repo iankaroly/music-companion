@@ -290,6 +290,19 @@ more wrong ones of 106 — but on a page read badly (`--miss 0.5`) 0.75 costs
 their notehead. The table is drawn on pages the reader read well; the pages this
 is for are not those.
 
+**AND THE TWO WAYS THE ENDING RULE CAN BE GOT WRONG, both found by breaking it.**
+A take ends where its last note was MATCHED, and where no row offers that, on
+the cheapest row of any kind. End anywhere at all and a take of the WRONG music
+matches a handful of notes that happen to fit, drops the rest as extras, and is
+placed on the strength of the handful — `score:follow`'s "a take of a different
+piece is REFUSED rather than drawn" comes back placed, 8 marks of 24 notes. End
+only on a match with the old global traceback behind it, and the sliding bug
+comes back for any take whose last sound is bow noise: a squeak is cheaper to
+insert (1.0) than to call a wrong note (1.4), so no row ends on a match at all.
+`tests/align-place.test.js` holds all three cases — a plain take, one that ends
+on a squeak and one that begins with one — on a page whose pitches repeat, which
+is what makes sliding possible in the first place.
+
 **WHAT IS STILL OPEN on the user's other complaint — "about half the notes".**
 Unmeasured, because the page that produced it is not in this repo. What IS
 measured is that every notehead the reader finds is now pressable: the silent
