@@ -53,6 +53,24 @@ function brighten(context, w, h) {
 //
 // Nothing is thrown away: the crop is a rectangle to draw FROM, the original
 // image is untouched, and a page with ink to the edges simply crops to itself.
+// HOW BIG THE PAGE IS MEASURED AT, and it was 160 pixels across.
+//
+// At 160 across, an A4 page of music has staff lines a fifth of a pixel wide.
+// They wash out to within a few levels of the paper, and so do the noteheads on
+// them — so the only thing left under the ink cut is the boldest print on the
+// page: a heading, a big rehearsal number, a thick beam. The box then follows
+// THAT, and the music is cropped away.
+//
+// MEASURED, `node tools/.draw-probe.mjs ~/Downloads/Burdett.pdf` (a cello
+// method book, five pages): page 1 kept the whole page, and pages 2 to 5 came
+// back cropped to 72%, 79%, 61% and 61% of their width — one of them starting
+// 27% in. The reader then found ZERO staves and ZERO noteheads on every one of
+// them, which is a part that cannot be recorded against at all, and it is a
+// user's report: "zero notes were scanned".
+//
+// 560 across is where a staff line is still a pixel and the measurement is
+// still a fraction of a millisecond.
+const CROP_AT = 560;
 const CROP_PAD = 0.012;      // a little air, so nothing sits against the edge
 const INK_MARGIN = 26;       // how much darker than the paper counts as ink
 
@@ -363,7 +381,7 @@ async function openPdf(data, password = null, known = {}) {
     }
     const page = await doc.getPage(index + 1);
     const base = page.getViewport({ scale: 1 });
-    const small = scratch(160, Math.round(160 * (base.height / base.width)));
+    const small = scratch(CROP_AT, Math.round(CROP_AT * (base.height / base.width)));
     const thumb = page.getViewport({ scale: small.width / base.width });
     await page.render({
       canvasContext: small.getContext('2d', { willReadFrequently: true }),
@@ -549,7 +567,7 @@ async function openImages(blobs, known = {}) {
       return crops.get(index);
     }
     const page = await load(index);
-    const small = scratch(160, Math.max(1, Math.round(160 * (page.h / page.w))));
+    const small = scratch(CROP_AT, Math.max(1, Math.round(CROP_AT * (page.h / page.w))));
     small.getContext('2d', { willReadFrequently: true })
       .drawImage(page.el, 0, 0, small.width, small.height);
     crops.set(index, page.missing ? { x: 0, y: 0, w: 1, h: 1 } : contentBox(small));
@@ -714,6 +732,30 @@ export async function readPages(
       // behind. This halves the longest a tap can wait.
       if (standAside) await standAside();
       found = readPage(sheet, sheet.width, sheet.height);
+      // …AND AGAIN, BIGGER, WHERE THE MUSIC IS SMALL.
+      //
+      // 1400 across is enough for a page with four or five systems on it and
+      // nothing like enough for a page with ten. On a cello method book it puts
+      // the staff space at four pixels, and at four pixels the reader calls 18
+      // staves of a bass-clef part TREBLE — every note a sixth and an octave
+      // out, so a player who plays the page exactly is told none of their notes
+      // matched it. `readPage` will take a second, larger look by itself, but
+      // only if it is HANDED more pixels than it used; this is where they come
+      // from. MEASURED, node tools/pdf-open-check.mjs on that book — see the
+      // note above WORK_MOST in scan-read.js.
+      //
+      // Only for the pages that need it, because a re-render is the most
+      // expensive thing in this loop and most pages do not.
+      const smallSpace = (found?.space ?? 0) * sheet.height;
+      if (found && smallSpace > 0 && smallSpace < 9) {
+        if (standAside) await standAside();
+        await pages.draw(i, sheet, 2400 / dpr, 9000 / dpr, null, { plain: true });
+        if (standAside) await standAside();
+        const closer = readPage(sheet, sheet.width, sheet.height);
+        const heads = (read) => (read?.staves ?? [])
+          .reduce((n, st) => n + (st.heads?.length ?? 0), 0);
+        if (closer && heads(closer) >= heads(found)) found = closer;
+      }
     } catch {
       found = null;   // an unreadable page is not a reason to lose the score
     }

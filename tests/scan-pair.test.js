@@ -134,6 +134,47 @@ describe('pairing on pitches read off the page', () => {
     expect(result.marks.at(-1).midi).toBe(LINE.at(-1));
   });
 
+  // THE FLUTE CASE, and the hole the handover has carried since the floor was
+  // built. A take played — or HEARD — an octave from the page scores `octave`
+  // on every mark, and `exactAgreement` counts only exact matches, so a
+  // perfectly played page came back "none of the notes you played matched".
+  // A player found it: "i played the exact notes on the score … it said that
+  // none of the notes i played matched the score."
+  it('places a take played an octave above what is written, and says so', () => {
+    const result = pairNotes(readHeads(LINE), play(LINE.map((m) => m + 12)));
+    expect(result.placed).toBe(true);
+    expect(result.octaveShift).toBe(-12);
+    // On the same noteheads, in the same order, as if it had been played where
+    // it is written.
+    expect(result.marks).toHaveLength(LINE.length);
+    expect(result.marks[0].midi).toBe(LINE[0]);
+    expect(result.marks.at(-1).midi).toBe(LINE.at(-1));
+    // …and the marks still carry the notes the PLAYER played, not the shifted
+    // copies the page was compared against.
+    expect(result.marks[0].note.midi).toBe(LINE[0] + 12);
+  });
+
+  it('places one an octave below as well', () => {
+    const result = pairNotes(readHeads(LINE), play(LINE.map((m) => m - 12)));
+    expect(result.placed).toBe(true);
+    expect(result.octaveShift).toBe(12);
+    expect(result.marks[0].midi).toBe(LINE[0]);
+  });
+
+  it('leaves a take that IS at the written pitch alone', () => {
+    const result = pairNotes(readHeads(LINE), play(LINE));
+    expect(result.placed).toBe(true);
+    expect(result.octaveShift).toBe(0);
+  });
+
+  it('still refuses music that is not on the page, in any register', () => {
+    const foreign = [61, 66, 70, 63, 68, 73, 62, 67, 71, 64, 69, 74, 61, 66, 70, 63, 68, 73];
+    for (const by of [0, 12, -12, 24]) {
+      const result = pairNotes(readHeads(LINE), play(foreign.map((m) => m + by)));
+      expect(result.placed).toBe(false);
+    }
+  });
+
   it('heads with no readable pitch fall back to the old route rather than refusing', () => {
     const noPitch = readHeads(LINE).map((h) => ({ ...h, midi: null, step: h.step }));
     const result = pairNotes(noPitch, play(LINE));

@@ -2757,8 +2757,56 @@ export function realStaff(staff) {
 // each round of training would be fitted to the survivors of the last one, the
 // negative examples would vanish, and the model would eat its own tail. Nothing
 // in the app passes it.
+// THE READER WORKS AT THE SIZE THE MUSIC IS, not at the size of the page.
+//
+// `WORK_WIDTH` is 1400 and the comment beside it says "enough detail for a staff
+// space of ~9px" — which is true of a page with four or five systems on it, and
+// false of everything else. A cello method book, a study page, any edition that
+// prints eight or ten systems to a page, comes out at a staff space of four to
+// six pixels at 1400 across, and that is under the size every measurement in
+// this repo is taken at.
+//
+// WHAT IT COSTS, MEASURED. `node tools/pdf-open-check.mjs ~/Downloads/Burdett.pdf`
+// — a cello method book, which is bass and tenor clef from cover to cover —
+// read at 1400: staff space 4px, and the clefs come back **treble 18, bass 6,
+// tenor 7, none 9**. Treble where bass is printed is every note a sixth and an
+// octave out, so a player who plays the page exactly is told they played the
+// wrong notes: the pairing's agreement collapses and the whole take is refused.
+// That is a user's report, in their words — "i played the exact notes on the
+// score … it said that none of the notes i played matched the score" — and it
+// is not the aligner or the floor. It is this constant.
+//
+// So the page is read once to find out how big its music is, and read AGAIN,
+// larger, when the answer is "too small to read properly". The second pass only
+// happens when there are real pixels to go and get: upscaling is measured to
+// make things WORSE (`npm run scan:import` at READ_ACROSS=2200 on a small
+// photograph: 42.4% against 51.4%), so a source with nothing more to give is
+// left alone.
+const WORK_MOST = 2400;    // the widest the reader will work at, for memory
+const SPACE_WANT = 9;      // the staff space it is built for
+const SPACE_WORTH = 1.15;  // …and how much bigger a second look must be to run
+
 export function readPage(source, naturalWidth, naturalHeight, { judge = true } = {}) {
-  const w = Math.min(WORK_WIDTH, naturalWidth);
+  const first = readAt(source, naturalWidth, naturalHeight,
+    Math.min(WORK_WIDTH, naturalWidth), judge);
+  if (!first) return first;
+  const usedW = Math.min(WORK_WIDTH, naturalWidth);
+  const usedH = Math.round(naturalHeight * (usedW / naturalWidth));
+  const space = (first.space ?? 0) * usedH;
+  if (!(space > 0) || space >= SPACE_WANT) return first;
+  const wanted = Math.min(WORK_MOST, naturalWidth, Math.round(usedW * (SPACE_WANT / space)));
+  if (wanted < usedW * SPACE_WORTH) return first;
+  // A bigger read that finds LESS is not an improvement — it is a page whose
+  // extra pixels are noise — so the first answer stands unless the second one
+  // is at least as good.
+  const again = readAt(source, naturalWidth, naturalHeight, wanted, judge);
+  const heads = (read) => (read?.staves ?? [])
+    .reduce((n, st) => n + (st.heads?.length ?? 0), 0);
+  return again && heads(again) >= heads(first) ? again : first;
+}
+
+function readAt(source, naturalWidth, naturalHeight, width, judge) {
+  const w = Math.max(1, Math.round(width));
   const h = Math.round(naturalHeight * (w / naturalWidth));
   const canvas = document.createElement('canvas');
   canvas.width = w;

@@ -1019,6 +1019,30 @@ async function renderScanTab() {
   // drone and a close-up behind every ring, a pairing that has slipped is
   // making specific claims about specific notes.
   const { pairing } = view;
+  // AN OCTAVE OUT, SAID OUT LOUD.
+  //
+  // The take was recognised on the page only after it was moved a register, and
+  // that is a fact about the take that the player is entitled to. It is
+  // deliberately not called a mistake: the two things that put a take an octave
+  // out are playing it 8va — ordinary, and sometimes what the part asks for —
+  // and the pitch reader hearing an instrument's second harmonic rather than
+  // its first, which is ordinary on a flute. Nothing here can tell those apart,
+  // so it says what happened and not whose fault it was.
+  if (pairing.octaveShift) {
+    const line = el('score-tab-summary');
+    if (line) {
+      const said = document.createElement('small');
+      said.className = 'scan-pairing';
+      const octaves = Math.abs(pairing.octaveShift) / 12;
+      const how = octaves === 1 ? 'an octave' : `${octaves} octaves`;
+      // The shift is what the PAGE had to move to meet the take, so its sign is
+      // the other way round from how the playing sounded.
+      said.textContent = ` These came back ${how} ${pairing.octaveShift < 0 ? 'above' : 'below'}`
+        + ' what is written — either played that way, or heard that way. They are marked'
+        + ' where they are written.';
+      line.append(said);
+    }
+  }
   if (pairing.unmarked > 0 || pairing.spare > 0) {
     const line = el('score-tab-summary');
     if (line) {

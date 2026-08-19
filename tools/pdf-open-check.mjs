@@ -114,16 +114,54 @@ const seen = await page.evaluate(async ({ b64, name }) => {
       openThrew = String(err?.message ?? err);
     }
   }
+  // AND WHAT THE READER MADE OF IT — the number a player sees as "N notes
+  // found", and the one that came back as zero in a report.
+  let read = null;
+  if (imported) {
+    try {
+      const S2 = await import('/src/ui/score.js');
+      const layout = await S2.measurePages(imported.id);
+      const pages = (layout ?? []).filter(Boolean);
+      read = {
+        pages: pages.length,
+        of: (layout ?? []).length,
+        staves: pages.reduce((n, p) => n + (p.staves?.length ?? 0), 0),
+        clefs: pages.reduce((n, p) => n + (p.staves ?? []).filter((st) => st.clef).length, 0),
+        keys: pages.map((p) => (p.key ? (p.key.sharps ? p.key.sharps : -p.key.flats) : null)),
+        keySource: pages.map((p) => p.keySource ?? null),
+        clefKinds: (() => {
+          const tally = {};
+          for (const p of pages) {
+            for (const st of p.staves ?? []) {
+              const k = st.clef ?? 'none';
+              tally[k] = (tally[k] ?? 0) + 1;
+            }
+          }
+          return tally;
+        })(),
+        priced: (() => {
+          const { headsOf } = window.__headsOf ?? {};
+          return null;
+        })(),
+        heads: pages.reduce((n, p) => n
+          + (p.staves ?? []).reduce((m, st) => m + (st.heads?.length ?? 0), 0), 0),
+        space: pages[0]?.space ? Math.round(pages[0].space * 1400 * 1.4) : null,
+      };
+    } catch (err) {
+      read = { threw: String(err?.message ?? err) };
+    }
+  }
   watch.disconnect();
   return {
-    said, threw, opened, openThrew,
+    said, threw, opened, openThrew, read,
     imported: imported ? { id: imported.id, name: imported.name, kind: imported.kind, pageCount: imported.pageCount } : null,
   };
 }, { b64: bytes, name: `open check ${entry.name}` });
 
 console.log(`      the app said: ${seen.said.length ? seen.said.map((s) => `"${s}"`).join(' → ') : '(nothing)'}`);
 console.log(`      imported: ${seen.imported ? JSON.stringify(seen.imported) : 'nothing'}`);
-console.log(`      opened: ${seen.opened ? JSON.stringify(seen.opened).slice(0, 220) : seen.openThrew}`);
+console.log(`      opened: ${seen.opened ? JSON.stringify(seen.opened).slice(0, 160) : seen.openThrew}`);
+console.log(`      read: ${JSON.stringify(seen.read)}`);
 
 check('the PDF imports through the picker', !!seen.imported && !seen.threw,
   seen.threw ?? (seen.imported ? `${seen.imported.pageCount} page(s)` : 'nothing was imported'));
@@ -133,6 +171,8 @@ check('it opens without throwing', !!seen.opened && !seen.openThrew, seen.openTh
 check('and the page is drawn, with music on it',
   !!seen.opened && seen.opened.widest > 300 && seen.opened.inked > 50,
   seen.opened ? `${seen.opened.canvases} canvases, widest ${seen.opened.widest}px, ${seen.opened.inked} dark samples` : '');
+check('the reader finds notes on it', (seen.read?.heads ?? 0) > 0,
+  seen.read ? JSON.stringify(seen.read) : 'the reading pass did not run');
 check('no errors on the page', errors.length === 0, errors[0] ?? '');
 
 await browser.close();

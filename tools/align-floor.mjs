@@ -309,15 +309,29 @@ for (const [i, study] of studies.entries()) {
         judged: res.judged ?? null,
         tally: res.tally ?? null,
         marks: res.marks?.length ?? 0,
+        octaveShift: res.octaveShift ?? 0,
       };
     };
 
     const right = [];
     const wrong = [];
+    // …AND THE SAME TAKES AN OCTAVE OUT, both ways.
+    //
+    // The floor's whole corpus was at written pitch, so the one case it could
+    // not see was a take displaced WHOLESALE — which is what a part played 8va
+    // is, and what a flute's own second harmonic makes of a take the pitch
+    // reader hears an octave high. Every mark scores `octave`, exact agreement
+    // comes out at zero, and a perfect performance was refused. A player found
+    // it before this corpus did.
+    const octaves = [];
     for (let k = 0; k < takes; k++) {
       right.push({ ...ask(buildTake(seed0 + k * 7919, ownMidis)) });
       const f = foreign[k % foreign.length];
       wrong.push({ from: f.name, kind: f.kind, ...ask(buildTake(seed0 + k * 7919 + 104729, f.midis)) });
+      const by = k % 2 === 0 ? 12 : -12;
+      const shifted = buildTake(seed0 + k * 7919, ownMidis)
+        .map((n) => (Number.isFinite(n?.midi) ? { ...n, midi: n.midi + by } : n));
+      octaves.push({ by, ...ask(shifted) });
     }
     return {
       failed: null,
@@ -325,6 +339,7 @@ for (const [i, study] of studies.entries()) {
       priced: heads.filter((h) => Number.isFinite(h.midi)).length,
       right,
       wrong,
+      octaves,
     };
   }, {
     b64: font, study, space, phone, keyAlterArr: keyAlter(study.fifths),
@@ -348,6 +363,7 @@ if (wantJson) {
 // evidence and is counted on its own line, not folded into either distribution.
 const rightAll = ok.flatMap((r) => r.right.map((t) => ({ ...t, page: r.file })));
 const wrongAll = ok.flatMap((r) => r.wrong.map((t) => ({ ...t, page: r.file })));
+const octaveAll = ok.flatMap((r) => (r.octaves ?? []).map((t) => ({ ...t, page: r.file })));
 const scored = (list) => list.filter((t) => t.readPitch && t.confidence !== null);
 const contour = (list) => list.filter((t) => !t.readPitch).length;
 const tooFew = (list) => list.filter((t) => t.readPitch && t.confidence === null).length;
@@ -369,6 +385,33 @@ console.log(`\nDOES THIS TAKE BELONG TO THIS PAGE — ${ok.length} engraved cell
   + ` ${takes} right takes and ${takes} wrong takes each, staff space ${space}px`
   + `${phone ? ', photographed (--phone)' : ', clean'}`);
 console.log('The statistic is exact-pitch agreement over the marks on heads the page priced.\n');
+// THE OCTAVE-DISPLACED TAKES — this study's own music, played an octave out.
+// Every one of them should be PLACED, and placed on the same page it came from.
+{
+  const placed = octaveAll.filter((t) => t.placed).length;
+  const shifted = octaveAll.filter((t) => t.placed && t.octaveShift).length;
+  console.log(`\n  AN OCTAVE OUT — ${octaveAll.length} takes of each page's own music,`
+    + ` played 8va and 8vb`);
+  console.log(`  PLACED   ${placed} of ${octaveAll.length}`
+    + `   (${shifted} of them by moving the take an octave, which is the point)`);
+  const missed = octaveAll.filter((t) => !t.placed).slice(0, 4)
+    .map((t) => `${t.page} ${t.by > 0 ? '8va' : '8vb'}`);
+  if (missed.length) console.log(`  refused: ${missed.join(', ')}`);
+  // What they score once the take has been moved — the number a margin over the
+  // floor would be read off, since every wrong pairing now gets five chances at
+  // the floor rather than one.
+  const spread = (rows) => {
+    const xs = rows.map((t) => t.confidence).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+    const at = (q) => (xs.length ? `${Math.round(xs[Math.min(xs.length - 1, Math.floor(xs.length * q))] * 100)}%` : '—');
+    return `n=${xs.length}   min ${at(0)}   10th ${at(0.1)}   median ${at(0.5)}   90th ${at(0.9)}   max ${at(0.999)}`;
+  };
+  console.log(`  once moved, they agree: ${spread(octaveAll.filter((t) => t.placed))}`);
+  const wrongPlaced = wrongAll.filter((t) => t.placed);
+  console.log(`  WRONG pairings that survive: ${wrongPlaced.length} of ${wrongAll.length}`);
+  console.log(`  …of which by an octave shift: ${wrongPlaced.filter((t) => t.octaveShift).length}`);
+  console.log(`  and they agree: ${spread(wrongPlaced)}`);
+}
+
 console.log(`  RIGHT pairings: ${rightAll.length} built, ${R.length} scored`
   + `  (${contour(rightAll)} never reached the pitch route, ${tooFew(rightAll)} had too few judgeable marks)`);
 console.log(`  WRONG pairings: ${wrongAll.length} built, ${W.length} scored`

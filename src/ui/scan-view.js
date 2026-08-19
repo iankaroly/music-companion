@@ -476,7 +476,83 @@ export function pairNotes(heads, played) {
   // The page read its own clef, so the aligner can be given real notes — or at
   // least real POSITIONS, which is what `matchMidi` is. See headsOf.
   if ((heads ?? []).some((h) => Number.isFinite(h?.midi) || Number.isFinite(h?.matchMidi))) {
-    const fit = alignByPitch(heads, played);
+    // A TAKE AN OCTAVE FROM THE PAGE IS STILL THIS PAGE.
+    //
+    // `exactAgreement` counts marks whose pitch agreed EXACTLY, and it excludes
+    // octaves on purpose — `distance % 12 === 0` fires on any transposition, so
+    // letting octaves vouch for a take would let a wrong piece in. That is
+    // right for a stray note and catastrophic for a WHOLE TAKE displaced by
+    // one: every mark scores `octave`, the agreement comes out at zero, and the
+    // review tells somebody who played the page perfectly that none of their
+    // notes matched it. The handover has carried this as a known hole with a
+    // name since the floor was built ("no take in scan:align's corpus is
+    // octave-displaced wholesale … this floor has never been tested against one
+    // and would refuse it"), and a player found it: "i played the exact notes on
+    // the score … it said that none of the notes i played matched the score."
+    //
+    // TWO THINGS PUT A TAKE AN OCTAVE OUT and neither is a wrong piece. A part
+    // can be played 8va — a cellist reading a treble line down, a flute reading
+    // a part written for another instrument. And the READER of the recording
+    // can hear the octave rather than the fundamental, which is ordinary on a
+    // flute, whose second harmonic is often stronger than its first.
+    //
+    // So the take is offered to the page as played FIRST, and only where that
+    // is refused is it offered an octave and two octaves either way. The best
+    // reading wins, the shift is carried out with the pairing so the review can
+    // say which, and nothing about the floor itself moves: a wrong piece has to
+    // clear the same bar, in every register.
+    // AND A SHIFT HAS TO EARN ITS PLACE, because five chances at one floor is
+    // five times the chance a wrong piece slips through it. MEASURED,
+    // `npm run scan:floor` with the octave search and no margin: the takes of
+    // OTHER studies that survive go from 11 of 128 to 17, six of them by an
+    // octave shift.
+    //
+    // What separates the two is the SIZE OF THE JUMP. A take of this page
+    // played an octave out scores nothing at written pitch — every mark is an
+    // `octave`, which the statistic deliberately does not count — and 93% once
+    // moved, a leap of most of the scale. A take of a DIFFERENT piece already
+    // scores something at written pitch (a wrong piece shares plenty of notes)
+    // and a shift nudges it: 50% to 70%. So a shift must both clear the floor
+    // and clear the unshifted reading by a wide margin. SWEPT, `scan:floor`,
+    // 128 takes of each page's own music played 8va and 8vb against 128 takes
+    // of other studies:
+    //
+    //   leap    displaced takes placed    wrong takes surviving (of 128)
+    //   none         128 of 128            17, six of them by a shift
+    //   0.35         128 of 128            15, four of them by a shift
+    //   0.50         128 of 128            12, ONE of them by a shift   <- here
+    //
+    // Eleven of those twelve survive at written pitch and have nothing to do
+    // with this; the search costs exactly one, and buys back every take a
+    // player plays or a microphone hears in the wrong register.
+    const LEAP = 0.5;
+    const shifts = [0, 12, -12, 24, -24];
+    let fit = null;
+    let shift = 0;
+    let plain = 0;
+    for (const by of shifts) {
+      const heard = by === 0 ? played
+        : played.map((n) => (Number.isFinite(n?.midi) ? { ...n, midi: n.midi + by } : n));
+      const tried = alignByPitch(heads, heard);
+      const scored = tried?.marks?.length ? agreementOf(tried.tally) : null;
+      // The first reading is the one to beat, and it keeps its own marks: a
+      // mark carries the note that was PLAYED, and a shifted copy is not it.
+      if (by === 0) {
+        fit = tried;
+        plain = scored ?? 0;
+        if (scored !== null && scored >= FLOOR) break;
+        continue;
+      }
+      if (scored === null || scored < FLOOR || scored - plain < LEAP) continue;
+      const before = fit?.marks?.length ? agreementOf(fit.tally) : null;
+      if (before !== null && before >= scored) continue;
+      // Back to the notes the player actually played. Only the reference moved.
+      fit = {
+        ...tried,
+        marks: tried.marks.map((mark) => ({ ...mark, note: played[mark.index] ?? mark.note })),
+      };
+      shift = by;
+    }
     if (fit?.marks?.length) {
       // `exactAgreement`, spelled out, because two other numbers in this file
       // would answer to a shorter name and mean something else: pairByShape
@@ -493,6 +569,11 @@ export function pairNotes(heads, played) {
         exactAgreement,
         judged,
         tally: fit.tally,
+        // How far the take had to be moved before the page recognised it, in
+        // semitones — 0 almost always, ±12 or ±24 where it was played or heard
+        // in another register. The review says it out loud; nothing here
+        // decides which of the two it was, because nothing here can know.
+        octaveShift: shift,
       };
       // REFUSED, AND TERMINALLY. Not `return null` and fall through to
       // pairByShape: on a photographed page the contour route is sure enough to

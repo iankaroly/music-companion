@@ -442,6 +442,65 @@ page loading and the part being opened, or a practice room with no signal all
 fail there too — and every one of them was told their browser was too old and to
 photograph the pages instead. It now tells those two apart and says which.
 
+## "I PLAYED THE EXACT NOTES … NONE OF THEM MATCHED" — the octave
+
+A player recorded a FLUTE part against its own page and was told none of what
+they played matched it. This was a known hole with a name: the note above FLOOR
+in scan-view.js has said since the floor was built that "no take in scan:align's
+corpus is octave-displaced wholesale … so this floor has never been tested
+against one and would refuse it".
+
+`exactAgreement` counts marks whose pitch agreed EXACTLY and excludes octaves on
+purpose — `distance % 12 === 0` fires on any transposition, so letting octaves
+vouch for a take would let a wrong piece in. That is right for a stray note and
+catastrophic for a whole take displaced by one: every mark scores `octave`, the
+agreement is zero, and a perfect performance is refused.
+
+**Two ordinary things put a take an octave out, and neither is a wrong piece.** A
+part can be played 8va. And the pitch reader can hear an instrument's second
+harmonic rather than its first, which is ordinary on a flute — whose fundamental
+is the weak one.
+
+So a take is offered to the page as played FIRST, and only where that is refused
+is it offered ±1 and ±2 octaves. A shift has to clear the floor AND clear the
+unshifted reading by a wide margin, because five chances at one floor is five
+times the chance a wrong piece slips through it. SWEPT, `npm run scan:floor`,
+which now builds 128 takes of each page's own music played 8va and 8vb beside
+its 128 foreign ones:
+
+```
+  leap    displaced takes placed    foreign takes surviving (of 128)
+  none         128 of 128            17, six of them by a shift
+  0.35         128 of 128            15, four of them by a shift
+  0.50         128 of 128            12, ONE of them by a shift     <- shipped
+```
+
+Eleven of those twelve survive at written pitch and have nothing to do with the
+search: it costs exactly one, and buys back every take played or heard in the
+wrong register. The review says which way it went — "these came back an octave
+above what is written — either played that way, or heard that way" — and
+deliberately does not say whose doing it was, because nothing here can know.
+
+**AND THE READER NOW LOOKS AGAIN WHEN THE MUSIC IS SMALL.** `WORK_WIDTH` is 1400
+and its comment says "enough detail for a staff space of ~9px", which is true of
+a page with four or five systems and false of a study page or a method book: at
+1400 across those come out at four to six pixels, under every size this reader is
+measured at. `readPage` now measures the space on a first pass and reads again up
+to `WORK_MOST` (2400) where it is under nine, and `readPages` re-renders the page
+to give it the pixels — but only for the pages that ask, since a re-render is the
+most expensive thing in that loop. Upscaling is NOT done: a source with no more
+pixels to give is left alone, because `scan:import` measures upscaling a small
+photograph as worse (42.4% against 51.4%).
+
+**One dead end from this round, so it is not chased twice.** `Burdett.pdf` looked
+like the perfect reproduction — a "cello method book" whose pages 2 to 5 read
+zero staves while page 1 read 40, with crops that cut 40% off the width. Every
+part of that was measured, and then the page was DRAWN and looked at: it is an
+academic essay about disability studies. Pages 2-5 read nothing because there is
+nothing to read, and page 1's "40 staves and 492 noteheads" are lines of TEXT.
+The crop was following the ink correctly the whole time. Look at the page before
+believing a table about it — the oldest rule in this file, and it cost an hour.
+
 ## Run it
 
 ```
