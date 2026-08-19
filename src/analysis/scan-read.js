@@ -1888,11 +1888,13 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
 //
 // WHAT IT COSTS, WRITTEN DOWN RATHER THAN BURIED. `npm run scan:floor` asks
 // whether a take is even this piece, and it got worse: of 128 takes played from
-// a DIFFERENT study, 117 were refused and now 83 are. Thirty-four takes changed
-// side, and they did NOT all change for the same reason — the two mechanisms
-// were separated by dumping every crossing's verdict in both states and
-// diffing, because "the corpus is made of scales" is a story until it is
-// counted:
+// a DIFFERENT study, 116 were refused and 79 are. (An earlier version of this
+// note said 117 and 83; it added the takes the ENOUGH gate refused to the ones
+// the floor refused by hand instead of reading the tool's own `WRONG pairings
+// that survive` line, which is the number.) Thirty-seven takes changed side and
+// they did NOT all change for the same reason — the two mechanisms were
+// separated by dumping every crossing's verdict in both states and diffing,
+// because "the corpus is made of scales" is a story until it is counted:
 //
 //   was          is now       n
 //   refused      survives    31    scored under the floor before, over it now
@@ -1927,15 +1929,15 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
 // this test blind at a six-pixel space. It has not been measured, so it has not
 // been done.
 //
-// THE LEVER THAT NOW EXISTS AND DID NOT BEFORE, for whoever picks this up: with
-// the phantoms gone a wrong take also MARKS LESS OF ITSELF. `scan:floor` prints
-// it — right takes mark 92% to 100% of the notes played, wrong ones 40% to
-// 100%, median 77% — and a coverage floor of 0.9 refuses 31 of the 49
-// survivors and 0 of the 128 right takes. Before this change that lever was
-// flat (wrong takes marked 77% at worst) and there was nothing to cut on. It is
-// NOT shipped here, because the argument that kept FLOOR at 0.70 is about a
-// page the reader read BADLY — `align-check --miss 0.5` — where a RIGHT take
-// also marks little of itself, and that measurement has not been run.
+// PART OF IT HAS SINCE BEEN TAKEN BACK, and the lever is one this change
+// created: with the phantoms gone a wrong take also MARKS LESS OF ITSELF, so
+// COVERAGE separates the two where it could not before. `COVER_FLOOR` in
+// scan-view.js is that test and it recovers 7 — 42 wrong takes survive now
+// rather than 49 — at no cost to a right take at any read quality. The
+// measurement that set it is `scan:floor --miss`, which this round added: the
+// value the clean corpus alone would have chosen, 0.9, refuses EVERY right take
+// on a page half of whose noteheads were never found. NONE of the 7 the ENOUGH
+// gate used to catch are among the 7 recovered. Those are still open.
 const STEM_BODY = 0.15;   // staff spaces of ink across, off the line
 
 /**

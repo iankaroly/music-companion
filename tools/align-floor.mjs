@@ -58,6 +58,20 @@ const space = Number(flag('space', 14));
 const takes = Number(flag('takes', 4));
 const seed0 = Number(flag('seed', 11));
 const wantJson = args.includes('--json');
+// THE PAGE THE READER READ BADLY, which is the page a user photographed and the
+// one this tool could not speak for.
+//
+// `tools/align-check.mjs` has had `--miss` all along and this had nothing like
+// it, so every distribution here was drawn on pages the reader read WELL. That
+// is exactly the gap the note above FLOOR in scan-view.js names as the reason
+// the floor stayed at 0.70: a bar that looks free on a clean page refuses takes
+// on a page half of whose noteheads were never found. A COVERAGE floor is the
+// same argument in the other currency and more dangerous, because on a thinned
+// page a RIGHT take has fewer heads to mark and its coverage falls for a reason
+// that is not its fault. So the knob is here now, and it is what set
+// COVER_FLOOR: the value the clean page alone would have chosen refuses EVERY
+// right take on a page read badly.
+const miss = Number(flag('miss', 0));
 
 // --- MusicXML, only as much of it as a scale study uses ---------------------
 // Lifted from tools/align-check.mjs. Every tool in this directory is
@@ -155,7 +169,7 @@ for (const [i, study] of studies.entries()) {
     midis: studies[c.j].bars.flat().filter((n) => !n.rest).map((n) => n.midi),
   }));
   const out = await page.evaluate(async ({
-    b64, study, space, phone, keyAlterArr, bottomDeg, takes, seed0, foreign,
+    b64, study, space, phone, keyAlterArr, bottomDeg, takes, seed0, foreign, miss,
   }) => {
     const face = new FontFace('Bravura', `url(data:font/otf;base64,${b64})`);
     await face.load();
@@ -267,7 +281,15 @@ for (const [i, study] of studies.entries()) {
     const V = await import('/src/ui/scan-view.js');
     const read = R.readPage(shot, shot.width, shot.height);
     if (!read) return { failed: 'the reader could not read its own engraving' };
-    const heads = V.headsOf([read]);
+    // Thinned the way align-check.mjs thins a page, and seeded off the head's
+    // own index so every run loses the same ones.
+    const thin = (all) => {
+      if (!(miss > 0)) return all;
+      let seed = 20260818;
+      const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+      return all.filter(() => rnd() >= miss);
+    };
+    const heads = thin(V.headsOf([read]));
 
     // --- the takes ---------------------------------------------------------
     //
@@ -343,7 +365,7 @@ for (const [i, study] of studies.entries()) {
     };
   }, {
     b64: font, study, space, phone, keyAlterArr: keyAlter(study.fifths),
-    bottomDeg: BOTTOM[study.clef], takes, seed0, foreign,
+    bottomDeg: BOTTOM[study.clef], takes, seed0, foreign, miss,
   });
   rows.push({ file: study.file, fifths: study.fifths, clef: study.clef, ...out });
   if (out.failed) console.error(`  ${study.file}: ${out.failed}`);
@@ -414,6 +436,9 @@ console.log('The statistic is exact-pitch agreement over the marks on heads the 
 
 console.log(`  RIGHT pairings: ${rightAll.length} built, ${R.length} scored`
   + `  (${contour(rightAll)} never reached the pitch route, ${tooFew(rightAll)} had too few judgeable marks)`);
+if (miss > 0) {
+  console.log(`\n  WITH ${Math.round(miss * 100)}% OF EVERY PAGE'S NOTEHEADS NEVER FOUND (--miss)`);
+}
 console.log(`  WRONG pairings: ${wrongAll.length} built, ${W.length} scored`
   + `  (${contour(wrongAll)} never reached the pitch route, ${tooFew(wrongAll)} had too few judgeable marks)`);
 
@@ -453,12 +478,15 @@ console.log(`  ${spread(rightAll, 'RIGHT')}`);
 console.log(`  ${spread(wrongAll, 'WRONG')}`);
 {
   const rows = [];
-  for (let f = 0.1; f <= 0.9001; f += 0.1) {
+  // In twentieths, not tenths. The safe band for this floor turned out to be
+  // about a tenth wide once `--miss` was pointed at it, so a table in tenths
+  // cannot resolve the answer.
+  for (let f = 0.25; f <= 0.7001; f += 0.05) {
     const refuse = (list) => list.filter((r) => r.placed && cover(r) < f).length;
     const placedR = rightAll.filter((r) => r.placed).length;
     const placedW = wrongAll.filter((r) => r.placed).length;
-    rows.push(`    ${f.toFixed(1)}      ${refuse(rightAll)} of ${placedR}`
-      + `            ${refuse(wrongAll)} of ${placedW}`);
+    rows.push(`    ${f.toFixed(2)}   ${`${refuse(rightAll)} of ${placedR}`.padStart(11)}`
+      + `       ${`${refuse(wrongAll)} of ${placedW}`.padStart(10)}`);
   }
   console.log('\n  A COVERAGE FLOOR — refusing a pairing that marked less of the take than this');
   console.log('    floor    RIGHT refused       WRONG refused');

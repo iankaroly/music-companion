@@ -5393,15 +5393,34 @@ It is nearly inert on a photograph — the Scanned page's stem pass goes from
 byte-identical — because at that size a notehead and a line-crossing are four
 pixels across and three. **Where it works is clean paper, which is what a PDF
 import produces.** The cost is `scan:floor`, written up under its own heading in
-CLAUDE.md and beside the constant: wrong takes refused fall from 117 of 128 to
-83. Thirty-four takes changed side and TWO mechanisms did it, separated by
+CLAUDE.md and beside the constant: wrong takes refused fall from 116 of 128 to
+79, and `COVER_FLOOR` in scan-view.js has since brought that back to 86. Thirty-four takes changed side and TWO mechanisms did it, separated by
 dumping every crossing's verdict in both states and diffing — 31 are same-key
 same-clef crossings whose agreement the phantoms had been suppressing (A major
 arpeggio on A major scale, 0.39 to 0.79), which the note above `FLOOR` already
 calls blind by construction, and **7 are takes the `ENOUGH` gate used to refuse
 outright** because their marks were landing on phantom circles the page never
 priced. Those 7 are a guard that was load-bearing by accident, and the corpus
-argument does not cover them. The lever that would answer that — a COVERAGE floor, which
+argument does not cover them.
+
+**`COVER_FLOOR` closes part of it and NOT that part.** With the phantoms gone a
+wrong take also marks less of itself, so coverage — marks / notes played —
+separates the two where it could not before (wrong takes covered 77% at worst
+with the phantoms in, and 40% without them). `scan:floor` gained `--miss`, the
+knob `align-check.mjs` has always had, because that is the measurement which
+decides it: on a clean page a coverage floor of 0.9 refuses 31 of the 49
+survivors and no right take, and on a page half of whose noteheads were never
+found **the same 0.9 refuses 113 right takes of 113.** 0.45 is the last value
+that refuses none anywhere measured, including a page two-thirds unread. It
+takes 7 back — 42 survive rather than 49, and 6 rather than 13 on a half-read
+page — with `scan:align` byte-identical in and out at both read qualities.
+
+But the 7 it catches are **not** the 7 from the `ENOUGH` gate. All seven of
+those still survive; the seven recovered were refused by the agreement floor
+before. That was checked by dumping every crossing's verdict in all three states
+and diffing them, rather than inferred from two totals happening to move by the
+same number — which they did. **The ENOUGH seven are still open and are the
+first thing to pick up here.** The lever that would answer that — a COVERAGE floor, which
 only became usable once the phantoms were gone — is measured and printed by
 `scan:floor` and deliberately not shipped, because the argument that pinned
 `FLOOR` at 0.70 is about a badly-read page and that measurement has not been run.

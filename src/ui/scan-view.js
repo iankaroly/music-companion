@@ -456,6 +456,10 @@ const FLOOR = 0.70;
 // should look at the other one first.
 const ENOUGH_JUDGED = 8;
 
+// The least of a take that has to find a notehead at all. See the sweep beside
+// the test that uses it, in pairNotes.
+const COVER_FLOOR = 0.45;
+
 // The share of judgeable marks whose pitch agreed EXACTLY.
 //
 // null, not a number, where there is nothing to compute it from. Rule 5: the
@@ -597,6 +601,68 @@ export function pairNotes(heads, played) {
           ...common,
           marks: [], unmarked: played.length, spare: heads.length, placed: false,
           why: 'what was played does not match the notes on these pages',
+        };
+      }
+      // …AND HOW MUCH OF THE TAKE FOUND A NOTEHEAD AT ALL, which is a different
+      // question from whether the notes it did find agreed.
+      //
+      // `exactAgreement` is a share of the marks that were MADE. A take of a
+      // different piece can put a mark on eight notes, agree on all eight and
+      // leave the other thirty with nowhere to go, and that scores 100% — the
+      // statistic never sees the thirty. This is the other half of the same
+      // question and it costs one division.
+      //
+      // WHY IT COULD NOT BE ASKED BEFORE STEM_BODY. On a page carrying phantom
+      // circles a wrong take marks nearly all of itself, because there is
+      // always some spare circle near enough to take a note: `scan:floor`
+      // measured wrong takes covering 77% at worst, against right takes' 92%,
+      // and no cut through that is worth having. With the phantoms gone the
+      // wrong takes fall to 40% and the lever opens up.
+      //
+      // SWEPT, and the number that decides is not on a clean page. `scan:floor`
+      // now takes `--miss`, the knob `align-check.mjs` has always had, because
+      // a coverage floor is dangerous in exactly the way the note above FLOOR
+      // describes: on a page half of whose noteheads were never found, a RIGHT
+      // take has fewer heads to mark and its coverage falls for a reason that
+      // is not its fault. RIGHT refused / WRONG refused, at three read
+      // qualities:
+      //
+      //   floor   clean page     half the heads gone   two thirds gone
+      //    0.40    0 /  0 of 49       0 / 7 of 13         0 / 4 of 11
+      //    0.45    0 /  7 of 49       0 / 7 of 13         0 / 4 of 11
+      //    0.50    0 / 14 of 49       0 / 7 of 13         3 / 6 of 11
+      //    0.55    0 / 18 of 49       0 / 7 of 13        29 / 10 of 11
+      //    0.90    0 / 31 of 49     113 / 11 of 13        82 / 11 of 11
+      //
+      // 0.90 is what the clean page alone would have chosen and it refuses
+      // EVERY right take on a page the reader read badly — which is the page
+      // this is for. 0.45 is the last value that refuses none of them anywhere
+      // measured, including a page two-thirds of which was never found, and
+      // that is why it is 0.45 rather than the 0.50 that catches twice as many
+      // on clean paper and costs three right takes at the far end.
+      //
+      // WHAT IT BUYS, AND WHAT IT DOES NOT. Wrong-piece takes surviving both
+      // floors: 42 of 128 against 49, and on a half-read page 6 against 13. It
+      // costs nothing anywhere that has been measured — `scan:align` is
+      // byte-identical with it in and out at both read qualities, so it only
+      // ever fires on music that does not belong to the page.
+      //
+      // IT IS NOT THE REPAIR FOR THE SEVEN. The note beside STEM_BODY in
+      // scan-read.js records that seven wrong takes got through because
+      // ENOUGH_JUDGED used to refuse them for want of judgeable marks, their
+      // marks having landed on phantom circles the page never priced. Every one
+      // of the seven THIS catches was refused by the AGREEMENT floor before,
+      // not by that gate, and all seven of the ENOUGH escapees still survive —
+      // checked by dumping every crossing's verdict in all three states and
+      // diffing, not inferred from two totals moving by the same number, which
+      // they did. Those seven are still open and this is not what closes them.
+      if (fit.marks.length < played.length * COVER_FLOOR) {
+        return {
+          ...common,
+          marks: [], unmarked: played.length, spare: heads.length, placed: false,
+          // The notes it DID find agreed — saying "does not match" would be
+          // wrong about what was measured. Most of the take found nothing.
+          why: 'most of what was played is not on these pages',
         };
       }
       return {

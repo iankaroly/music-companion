@@ -71,18 +71,24 @@ npm run scan:floor       the OTHER question about the pairing: is this take
                          Run it whenever that floor or the statistic moves.
                          IT WENT BACKWARDS THIS ROUND and the reason is written
                          beside STEM_BODY: of 128 takes played from a DIFFERENT
-                         study, 117 were refused and 83 now are. TWO
-                         mechanisms, counted rather than assumed: 31 of the 34
-                         that changed side are same-key same-clef crossings
-                         whose score the phantom circles had been suppressing
-                         (an arpeggio against its own scale, a relative minor),
+                         study, 116 were refused, 79 after STEM_BODY and 86
+                         once COVER_FLOOR was added. TWO mechanisms behind the
+                         loss, counted rather than assumed: 31 of the 37 that
+                         changed side are same-key same-clef crossings whose
+                         score the phantom circles had been suppressing (an
+                         arpeggio against its own scale, a relative minor),
                          which the note above FLOOR says this statistic is blind
                          to by construction — but 7 are takes the ENOUGH gate
                          used to refuse outright because their marks landed on
-                         phantoms the page never priced. Those 7 are a guard
-                         that was load-bearing by accident and is now gone. The
-                         lever that would answer it is COVERAGE, printed here
-                         and not yet used.
+                         phantoms the page never priced. COVER_FLOOR took 7 of
+                         the 31 back at no cost to any right take; ALL SEVEN OF
+                         THE ENOUGH ESCAPEES ARE STILL OPEN, and they are the
+                         first thing to pick up here.
+                         `--miss <f>` reads the whole board on a page that
+                         fraction of whose noteheads were never found, which is
+                         the measurement that set COVER_FLOOR and the one this
+                         tool did not have: the value the clean corpus alone
+                         would have chosen refuses EVERY right take there.
 npm run scan:key-gate    the GATE on the one failure this reader is not allowed
                          to have: a note named from a key the page could not
                          agree. `scan:studies --phone` with a non-zero exit.
