@@ -602,6 +602,56 @@ The slurred case is the loose one and is honestly loose: a slurred boundary is
 not as sharp as an attack, and `tests/onset.test.js` holds the articulated case
 to 20ms and the slurred one to 40.
 
+## THE FALSE CIRCLES ON A PRINTED ACCIDENTAL — four ways, all measured, none works
+
+`scan-values.js` says the next thing worth doing is to stop circling things that
+are not noteheads, because a bar that has one extra circle in it cannot add up
+and the written-value route stays refused. On the Bach photograph the whole
+population is seven circles, and they were cropped and looked at one at a time
+at 6x: **one is the time signature, and six are the lower-left corner of a
+printed sharp** — two thick strokes crossed by two thin ones, whose corner is a
+solid blob the size and shape of a notehead.
+
+The reader already knows those six are accidentals. `accidentalFor` looks at a
+patch one and a third staff spaces left of each head and had NAMED them, so the
+rule writes itself: a circle standing where a named accidental was found is that
+accidental. It is the same reading used twice and it costs nothing.
+
+**It does not work, and here is every version of it.** `npm run bench`, where
+the baseline is Bach 97.8 / 99.7, Concerto 91.8 / 95.4, Scanned 91.5 / 99.5:
+
+```
+  rule                                   Bach invented   Scanned recall
+  baseline                                    7             99.5%
+  at the accidental model's floor (0.5)       6             98.5%   (-4 notes)
+  …only where it is sure (0.9)                6             98.8%   (-3 notes)
+  …only where it is certain (0.98)            7             99.0%   (-2 notes)
+  …and only where the circle has NO STEM      7             99.5%   (inert)
+```
+
+The middle two buy one false circle on one page for three or four real notes on
+another, which is the trade rule 2 forbids in the plainest terms. And the
+version that keeps every note keeps every false circle with it, for a reason
+that is obvious once seen: **a sharp is drawn with two vertical strokes**, so
+`findStem` finds a stem through the corner and the circle is spared.
+
+What defeats it in every version is the same fact about music: dense engraving
+puts a real note exactly where the next note's accidental would be, and neither
+position, nor the model's own confidence, nor the presence of a stem separates
+those two populations.
+
+**AND THE MODEL CANNOT BE ASKED DIRECTLY EITHER** — that was the first attempt,
+in an earlier round, and it is worse: showing each head to the accidental model
+centred on ITSELF takes `bench` from 93.7 / 98.2 to **48.7 / 8.8**, the Bach down
+to two circles of its 319 notes, because the model reads a patch 4.8 spaces
+across and a notehead's own patch looks like the patches it was fitted on.
+
+So the population is understood, cropped and measured, and every route to it
+through the reader's existing machinery is closed. What is left is a real
+accidental DETECTOR — glyphs found by their own shape in the space before a
+head, rather than a patch judged at a fixed offset — which is the thing
+scan-key.js has been waiting for since the key signature was read.
+
 ## Run it
 
 ```
