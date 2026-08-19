@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import { cp, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -62,6 +62,22 @@ function askEndpoint() {
   return {
     name: 'ask-endpoint',
     configureServer(server) {
+      // The key, from .env.local.
+      //
+      // vite loads .env files for the CLIENT — import.meta.env — and
+      // deliberately keeps them out of process.env, so that a secret cannot
+      // reach the browser by accident. The handler reads process.env because
+      // that is what a Vercel function is handed. MEASURED: a key written to
+      // .env.local left the endpoint still answering "no ANTHROPIC_API_KEY
+      // set", which is the worst kind of wrong answer — the setting looks done.
+      // `vercel env pull` writes that file and .env* is git-ignored, so it is
+      // where the key is going to be. Bridged here, and only here: nothing
+      // under src/ can see it.
+      const env = loadEnv(server.config.mode, process.cwd(), '');
+      if (!process.env.ANTHROPIC_API_KEY && env.ANTHROPIC_API_KEY) {
+        process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
+      }
+
       server.middlewares.use('/api/ask', async (req, res, next) => {
         if (req.method !== 'POST') { next(); return; }
         try {
