@@ -3704,6 +3704,126 @@
       .ld-name { width: 5.4rem; }
       .ld-val { width: 4.9rem; font-size: 0.78rem; }
     }
+
+    /* ---- the ask button and its chat (ui/ask.js) -------------------------
+       It floats on the right edge rather than sitting in the review, because a
+       question you have while looking at the chart is a question you stop
+       having on the way down to a box under the landing section. The glass and
+       the shadow are the tab bar's, so the two read as one layer of chrome.
+       It is BELOW the tab bar in z-order and clear of it in position: the six
+       tabs are how you move around the app and nothing may cover them. */
+    .ask-fab {
+      position: fixed;
+      right: max(0.9rem, env(safe-area-inset-right, 0px));
+      bottom: calc(6.3rem + env(safe-area-inset-bottom, 0px));
+      z-index: 49;
+      width: 3.1rem;
+      height: 3.1rem;
+      display: grid;
+      place-items: center;
+      padding: 0;
+      border-radius: 50%;
+      color: var(--primary);
+      background: rgb(var(--sf) / 0.55);
+      -webkit-backdrop-filter: blur(30px) saturate(1.9);
+      backdrop-filter: blur(30px) saturate(1.9);
+      border: 1px solid var(--glass-line);
+      box-shadow:
+        0 14px 34px rgb(var(--sh) / 0.22),
+        0 2px 8px rgb(var(--sh) / 0.08),
+        inset 0 1.5px 0 var(--edge-top),
+        inset 0 -1px 0 var(--edge-bottom);
+      cursor: pointer;
+      transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.18s ease;
+    }
+    .ask-fab svg { width: 1.45rem; height: 1.45rem; }
+    .ask-fab:hover { background: rgb(var(--sf) / 0.75); }
+    .ask-fab:active { transform: scale(0.93); }
+    .ask-fab[aria-expanded="true"] { background: var(--primary); color: var(--on-primary); }
+    .ask-fab:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+    /* The reader and the full-screen score take the whole display, and the tab
+       bar goes with them — see html[data-reading]. This goes too. */
+    html[data-reading] .ask-fab,
+    html[data-score-full] .ask-fab,
+    html[data-reading] .ask-pop,
+    html[data-score-full] .ask-pop { display: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .ask-fab { transition: background 0.18s ease; }
+      .ask-fab:active { transform: none; }
+    }
+
+    .ask-pop {
+      position: fixed;
+      right: max(0.9rem, env(safe-area-inset-right, 0px));
+      bottom: calc(9.9rem + env(safe-area-inset-bottom, 0px));
+      z-index: 49;
+      width: min(23rem, calc(100vw - 1.8rem));
+      max-height: min(30rem, calc(100vh - 13.5rem));
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      padding: 0.9rem;
+      border-radius: 1.4rem;
+      background: rgb(var(--sf) / 0.72);
+      -webkit-backdrop-filter: blur(34px) saturate(1.9);
+      backdrop-filter: blur(34px) saturate(1.9);
+      border: 1px solid var(--glass-line);
+      box-shadow:
+        0 24px 60px rgb(var(--sh) / 0.28),
+        inset 0 1.5px 0 var(--edge-top),
+        inset 0 -1px 0 var(--edge-bottom);
+    }
+    .ask-pop[hidden] { display: none; }
+    .ask-head { display: flex; align-items: center; justify-content: space-between; }
+    .ask-close {
+      display: grid;
+      place-items: center;
+      width: 1.7rem;
+      height: 1.7rem;
+      padding: 0;
+      border: 0;
+      border-radius: 50%;
+      background: var(--fill);
+      color: var(--muted);
+      cursor: pointer;
+    }
+    .ask-close svg { width: 0.85rem; height: 0.85rem; }
+    .ask-close:hover { background: var(--fill-2); color: var(--ink); }
+    .ask-note { color: var(--muted); font-size: 0.78rem; line-height: 1.45; margin: 0; }
+    .ask-log { display: grid; gap: 0.5rem; overflow-y: auto; flex: 1; min-height: 0; }
+    .ask-log:empty { display: none; }
+    .ask-turn { display: flex; }
+    .ask-you { justify-content: flex-end; }
+    .ask-app { justify-content: flex-start; }
+    .ask-bubble {
+      max-width: 90%;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.95rem;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      background: rgb(var(--sf) / 0.75);
+      color: var(--ink);
+    }
+    .ask-you .ask-bubble { background: rgb(var(--primary-rgb) / 0.16); }
+    .ask-bubble.ask-failed { color: var(--bad); }
+    .ask-row { display: flex; gap: 0.45rem; align-items: flex-end; }
+    .ask-field {
+      flex: 1;
+      min-width: 0;
+      resize: none;
+      min-height: 2.3rem;
+      max-height: 7rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 1rem;
+      border: 1px solid var(--line-strong);
+      background: var(--surface-solid);
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.9rem;
+    }
+    .ask-field:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+    .ask-send { flex-shrink: 0; }
   </style>
 </head>
 <body>
@@ -4360,6 +4480,19 @@
           <button type="button" role="radio" data-motion-pick="off" aria-checked="false">Still</button>
         </div>
         <p class="set-hint">Stills the colour behind the glass if the drift is distracting.</p>
+      </div>
+      <div class="set-group">
+        <span class="set-label" id="ask-label">Ask about a take</span>
+        <div class="seg" role="radiogroup" aria-labelledby="ask-label" id="ask-seg">
+          <button type="button" role="radio" data-ask="off" aria-checked="true">Off</button>
+          <button type="button" role="radio" data-ask="on" aria-checked="false">On</button>
+        </div>
+        <p class="set-hint">Off by default, and the only thing in this app that sends
+        anything anywhere. On, a question box appears under a take's review. Asking a
+        question sends that take's <em>numbers</em> — note names, cents, milliseconds —
+        to Anthropic's API, which answers it. The recording itself never leaves this
+        device, nothing is sent until you ask something, and nothing is sent at all
+        while this is off.</p>
       </div>
       <div class="set-group">
         <span class="set-label">Your practice history</span>

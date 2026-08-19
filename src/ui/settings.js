@@ -21,6 +21,9 @@ import { INSTRUMENTS, instrument, saveInstrument, loadInstrument, forgetInstrume
 const MOTION_KEY = 'mc-motion';
 const TOLERANCE_KEY = 'tolerance';
 const AWAKE_KEY = 'keepAwake';
+// The one preference that changes what leaves the device, so it is off unless
+// the player has said otherwise and the default is never inferred from anything.
+const ASK_KEY = 'askEnabled';
 
 // Preferences only — the library, the presets and anything the player made
 // stay put. "Restore defaults" that quietly deleted takes would be a trap.
@@ -29,7 +32,7 @@ const PREFERENCE_KEYS = [
   'volume', 'droneLevel', 'clickLevel', 'clickPitch',
   'a4', 'tunerSettings', 'timbre', 'vizMode',
   'bpm', 'beatsPerBar', 'subdivision', 'trainer',
-  'chartPxPerSec', 'chartMode', 'anyDrone', 'timingPulse', 'tab',
+  'chartPxPerSec', 'chartMode', 'anyDrone', 'timingPulse', 'tab', ASK_KEY,
 ];
 
 function read(key, fallback) {
@@ -48,6 +51,12 @@ function write(key, value) {
 
 function announce(doc, key) {
   doc.dispatchEvent(new CustomEvent('settings-change', { detail: { key } }));
+}
+
+// Whether the Ask panel appears under a review. Read by ui/ask.js on every
+// render; a `false` here means nothing is ever sent anywhere.
+export function askEnabled() {
+  return read(ASK_KEY, 'off') === 'on';
 }
 
 export function readTolerance() {
@@ -197,6 +206,11 @@ export function initSettings(doc = document) {
 
   wireSegment(doc.querySelector('#mic-seg'), 'data-mic', micRetains() ? 'on' : 'off', (value) => {
     setMicRetains(value === 'on');
+  });
+
+  wireSegment(doc.querySelector('#ask-seg'), 'data-ask', askEnabled() ? 'on' : 'off', (value) => {
+    write(ASK_KEY, value);
+    announce(doc, ASK_KEY);
   });
 
   wireSegment(doc.querySelector('#awake-seg'), 'data-awake', wantsAwake() ? 'on' : 'off', (value) => {

@@ -37,9 +37,11 @@ import { readyHaptics } from './ui/haptics.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
+import { initAsk } from './ui/ask.js';
 import { instrument, segmentation } from './analysis/instruments.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
+initAsk(document);      // …and the ask button follows the setting it just read
 
 // Safari raises gesture events for any two-finger pinch — trackpad included —
 // and zooming the whole app is never what's wanted here: the charts do their
