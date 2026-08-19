@@ -87,6 +87,15 @@ npm run scan:light       the two pages a photograph becomes: the bright one
                          still ink) and the plain one the reader reads. They are
                          separate because brightening what the reader reads
                          costs it notes — see scan:import.
+npm run audio:fast       how fast you can play before the app stops HEARING
+                         the notes — scales synthesised at 2 to 16 notes a
+                         second through the real Analyzer + NoteSegmenter, with
+                         no browser and no microphone. Every note heard and
+                         named right up to 12 a second (83ms notes); at 16 a
+                         second only 8 of 24 survive, because the analysis
+                         window is 93ms. Onsets come back 16-31ms late with a
+                         spread of ±20-30ms. Run it whenever the analyzer, the
+                         segmenter or their windows move.
 npm run score:open       a PDF imported THROUGH THE PICKER and then opened
                          through the shelf — the two things a player does and
                          the two things every other tool skips (they build a
