@@ -71,15 +71,18 @@ npm run scan:floor       the OTHER question about the pairing: is this take
                          Run it whenever that floor or the statistic moves.
                          IT WENT BACKWARDS THIS ROUND and the reason is written
                          beside STEM_BODY: of 128 takes played from a DIFFERENT
-                         study, 117 were refused and 83 now are, because the
-                         phantom circles STEM_BODY removed were suppressing a
-                         wrong take's score by injecting disagreement. 101 of
-                         the 125 crossings it can now score are same-key,
-                         same-clef — on a corpus of scales that is very nearly
-                         the same notes in the same order, which the note above
-                         FLOOR says this statistic is blind to by construction.
-                         The lever that would answer it is COVERAGE, and it is
-                         printed here and not yet used.
+                         study, 117 were refused and 83 now are. TWO
+                         mechanisms, counted rather than assumed: 31 of the 34
+                         that changed side are same-key same-clef crossings
+                         whose score the phantom circles had been suppressing
+                         (an arpeggio against its own scale, a relative minor),
+                         which the note above FLOOR says this statistic is blind
+                         to by construction — but 7 are takes the ENOUGH gate
+                         used to refuse outright because their marks landed on
+                         phantoms the page never priced. Those 7 are a guard
+                         that was load-bearing by accident and is now gone. The
+                         lever that would answer it is COVERAGE, printed here
+                         and not yet used.
 npm run scan:key-gate    the GATE on the one failure this reader is not allowed
                          to have: a note named from a key the page could not
                          agree. `scan:studies --phone` with a non-zero exit.

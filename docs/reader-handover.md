@@ -5394,8 +5394,14 @@ byte-identical — because at that size a notehead and a line-crossing are four
 pixels across and three. **Where it works is clean paper, which is what a PDF
 import produces.** The cost is `scan:floor`, written up under its own heading in
 CLAUDE.md and beside the constant: wrong takes refused fall from 117 of 128 to
-83, because the phantoms were suppressing a wrong take's agreement by injecting
-disagreement into it. The lever that would answer that — a COVERAGE floor, which
+83. Thirty-four takes changed side and TWO mechanisms did it, separated by
+dumping every crossing's verdict in both states and diffing — 31 are same-key
+same-clef crossings whose agreement the phantoms had been suppressing (A major
+arpeggio on A major scale, 0.39 to 0.79), which the note above `FLOOR` already
+calls blind by construction, and **7 are takes the `ENOUGH` gate used to refuse
+outright** because their marks were landing on phantom circles the page never
+priced. Those 7 are a guard that was load-bearing by accident, and the corpus
+argument does not cover them. The lever that would answer that — a COVERAGE floor, which
 only became usable once the phantoms were gone — is measured and printed by
 `scan:floor` and deliberately not shipped, because the argument that pinned
 `FLOOR` at 0.70 is about a badly-read page and that measurement has not been run.

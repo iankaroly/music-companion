@@ -1888,14 +1888,34 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
 //
 // WHAT IT COSTS, WRITTEN DOWN RATHER THAN BURIED. `npm run scan:floor` asks
 // whether a take is even this piece, and it got worse: of 128 takes played from
-// a DIFFERENT study, 117 were refused and now 83 are. The reason is visible in
-// the tool's own breakdown — 101 of the 125 crossings it can now score are
-// same-key, same-clef, which on a corpus of scales and arpeggios is very nearly
-// the same notes in the same order, and the note above FLOOR in scan-view.js
-// already says a statistic made of pitch agreement is blind to those BY
-// CONSTRUCTION. The phantom circles were suppressing that score by injecting
-// disagreement, so some of the old 117 was the reader being wrong twice and
-// getting the right answer. It is still a real loss of a real guard.
+// a DIFFERENT study, 117 were refused and now 83 are. Thirty-four takes changed
+// side, and they did NOT all change for the same reason — the two mechanisms
+// were separated by dumping every crossing's verdict in both states and
+// diffing, because "the corpus is made of scales" is a story until it is
+// counted:
+//
+//   was          is now       n
+//   refused      survives    31    scored under the floor before, over it now
+//   unscorable   survives     7    the ENOUGH gate used to refuse these outright
+//   survives     refused       1
+//
+// THE 31 ARE THE CORPUS AND NOT THE READER. 46 of the 49 survivors are
+// same-key, same-clef crossings, and the moves are the family the note above
+// FLOOR in scan-view.js already writes down as blind BY CONSTRUCTION: A major
+// arpeggio against A major scale 0.39 to 0.79, A minor arpeggio against A minor
+// scale 0.40 to 0.71, C major scale against A minor arpeggio — a relative minor
+// — 0.64 to 0.91. Every note of those takes really is on that page in that
+// order. The phantom circles were suppressing the score by injecting
+// disagreement into it, so part of the old 117 was the reader being wrong twice
+// and getting the right answer.
+//
+// THE 7 ARE A DIFFERENT THING AND ARE NOT COVERED BY THAT ARGUMENT. Twenty-two
+// wrong pairings used to have too few JUDGEABLE marks to be scored at all,
+// because their marks were landing on phantom circles the page never priced,
+// and the ENOUGH gate refused them for it. With the phantoms gone those marks
+// land on priced heads, all but three of the 22 now reach the floor, and 7 get
+// past it. That is a guard which was doing load-bearing work by accident and is
+// now gone, and no amount of "the studies are all scales" explains it away.
 //
 // WHAT THE REMAINING 67 ARE. `npm run scan:bars-believed -- --shots <dir>`
 // draws them, and on the A major scale the four survivors sit where a stem
@@ -1921,6 +1941,10 @@ const STEM_BODY = 0.15;   // staff spaces of ink across, off the line
 /**
  * The widest run of ink within a staff space of `cx`, on the rows around `cy`
  * that are NOT part of a staff line, in staff spaces.
+ *
+ * Exported for `tests/stem-body.test.js` and for nothing else — it is a test on
+ * a candidate, not a way to read a page. Same reason `headProbe` and `barProbe`
+ * are out here.
  *
  * The line's own rows are found by walking out from where the line is printed
  * for as long as the ink holds, rather than by a fixed thickness — a scanned
