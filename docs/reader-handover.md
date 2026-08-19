@@ -5351,9 +5351,54 @@ against the heads actually printed in it. On those clean, computer-drawn pages:
   bars believed (as shipped)    6 of 200, of which 2 are a printed bar
 ```
 
-A page in three sharps has whole beats added to its bars by its own key
-signature. **No arithmetic over those sums can recover a printed bar**, and that
-is why the values being 97.7% right does not help.
+**No arithmetic over those sums can recover a printed bar**, and that is why the
+values being 97.7% right does not help.
+
+**AND THEN THE 251 GOT AN ADDRESS.** That count sat here for weeks and nothing
+could say WHICH circles they were. `value-bars.mjs` now tallies them by the
+`via` field every head already carried, and the answer is a clean split:
+
+```
+  pass       real heads   circles on nothing
+  shape           692                    0
+  stem              0                  251
+```
+
+Every one came from `stemHeads`, the rescue pass that proposes a notehead at the
+end of a bare stem. Drawn — the engraved page with a green ring on every printed
+head and a red one on the rest — all 251 sit exactly where a **stem crosses a
+staff line**. The classifier scores that little cross of ink 0.95 and over.
+
+`STEM_BODY` in `scan-read.js` is the test that tells them apart, and it asks
+about the candidate's own ink rather than about stem ends, which is why it is
+not the sixth of the five geometric vetoes that failed before it: on the rows
+that are NOT the staff line, is there anything across here wider than the stem?
+The write-up beside the constant carries the sweep, the cost and what it does
+not do. What it bought:
+
+```
+                                       before      after
+  circles on nothing               251 of 943   67 of 759
+  printed heads found              692 of 692  692 of 692
+  BARS BELIEVED                      6 of 200    52 of 200
+  …and IS ONE PRINTED BAR            2 of 6      52 of 52
+  values right inside a believed bar 20 of 24   187 of 187
+  scan:align, on the right head        94.8%       97.5%
+  …on the WRONG head                     124          43
+  …takes marking a squeak nobody wrote  53/64       38/64
+```
+
+It is nearly inert on a photograph — the Scanned page's stem pass goes from
+37 real / 18 invented to 36 / 17, and `scan:import` at a 6px staff space is
+byte-identical — because at that size a notehead and a line-crossing are four
+pixels across and three. **Where it works is clean paper, which is what a PDF
+import produces.** The cost is `scan:floor`, written up under its own heading in
+CLAUDE.md and beside the constant: wrong takes refused fall from 117 of 128 to
+83, because the phantoms were suppressing a wrong take's agreement by injecting
+disagreement into it. The lever that would answer that — a COVERAGE floor, which
+only became usable once the phantoms were gone — is measured and printed by
+`scan:floor` and deliberately not shipped, because the argument that pinned
+`FLOOR` at 0.70 is about a badly-read page and that measurement has not been run.
 
 **THE OBVIOUS REPAIR WAS BUILT, MEASURED AND REJECTED.** Merging consecutive
 bar-groups until their values add up to a bar — merging only, never splitting,

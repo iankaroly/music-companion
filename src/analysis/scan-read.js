@@ -1812,6 +1812,151 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
 // This costs nothing in precision because it does not accept anything. It
 // PROPOSES, and the classifier decides, which is the same division of labour
 // that made showing it the stem worth doing in the first place.
+// A NOTEHEAD HAS A BODY. A STEM CROSSING A STAFF LINE HAS ONLY THE TWO STROKES
+// IT IS MADE OF, and until this was written the reader could not tell them
+// apart.
+//
+// HOW IT WAS FOUND, because the method is the point. `scan:bars-believed` has
+// reported "251 of the 943 circles on these clean pages are NOT printed
+// noteheads" for weeks and nothing could say WHICH 251. Tallying them by the
+// `via` field every head already carries answers it in one line:
+//
+//   proposed by   real heads   circles on nothing
+//   shape             692              0
+//   stem                0            251
+//
+// Every one. Drawn — the engraved page with every circle on it, green for a
+// printed head and red for the rest — all 251 sit exactly where a stem crosses
+// a staff line. The classifier scores that little cross of ink 0.95 and over,
+// which is the judging failure the note above STEM_CUT records.
+//
+// WHY IT IS NOT A SIXTH GEOMETRIC VETO OF STEM ENDS. Every rule that failed
+// before asked about the STEM — which end already has a head, how far down it
+// the proposal fell, whether the run was long enough to hold two notes — and
+// each surrendered a real note printed at the far end of a shared column of
+// ink. This asks about the CANDIDATE'S OWN INK: on the rows that are not the
+// staff line, is there anything across here wider than the stem? A notehead is
+// a filled ellipse a space and a bit across and answers yes; a crossing is two
+// thin strokes and answers no. It runs on the STEM PASS ONLY, so it cannot move
+// a single mark the shape tests made.
+//
+// SWEPT, on the Scanned score, which is the one page whose stem pass does real
+// work (37 rescued notes of its 412):
+//
+//   STEM_BODY   Scanned P / R      stem pass: real / invented
+//     none       91.5 / 99.5             37 / 18
+//     0.15       91.7 / 99.3             36 / 17
+//     0.22       91.8 / 98.3
+//     0.30       91.8 / 98.3
+//     0.45       94.8 / 92.5              8 /  1
+//
+// 0.45 is the value that reads like the right one and it costs twenty-nine real
+// notes — seven points of recall on the page a user photographed. Rule 2 allows
+// three tenths, so it is 0.15, and 0.15 is nearly inert on a photograph: at a
+// 9.6px staff space a head and a line-crossing are four pixels apart and three,
+// and no bound separates them. `scan:import`, which reads the same three pages
+// at the 6px space a phone actually delivers, is byte-identical with this in
+// and out — 51.4%, 544 of 1059. THE TEST CANNOT HURT A PHONE SCAN BECAUSE AT
+// THAT SIZE IT DOES NOT FIRE.
+//
+// WHERE IT DOES ITS WORK IS CLEAN PAPER, which is what a PDF import produces
+// and what every synthetic corpus here is made of. `scan:bars-believed`, the
+// 32 engraved studies:
+//
+//                                        before      after
+//   circles on nothing                251 of 943   67 of 759
+//   printed heads found               692 of 692  692 of 692
+//   BARS BELIEVED                       6 of 200    52 of 200
+//   …and IS ONE PRINTED BAR             2 of 6      52 of 52
+//   values right inside a believed bar 20 of 24    187 of 187
+//
+// That third row is the one CLAUDE.md calls the number that matters, and the
+// fourth says the bars it now believes are bars rather than a looser glue.
+// `scan:corpus`, `scan:sizes` and `scan:few`: recall stays 100% on every page
+// of all three and precision rises on nearly all of them — `faint` 121 circles
+// for 120 notes becomes exactly 120, `clean28` 83% precision becomes 99%.
+// `scan:bars`, `scan:clef` and `scan:clef-hard` are byte-identical. Keys are
+// untouched: `scan:key-read` still reads 0 signatures as the wrong key,
+// `scan:key-gate` and `scan:key-safety` pass. `scan:steps` moves by one note on
+// the Scanned page (278 right of 303 to 277) and not at all on the other two.
+//
+// AND THE PAIRING, which is what a player sees. `scan:align`, 2672 played notes
+// over 128 takes: 94.8% land on the right notehead against 97.5%, notes landing
+// on the WRONG head fall from 124 to 43, and takes marking a squeak nobody
+// wrote fall from 53 of 64 to 38. Eight more played notes come back unmarked,
+// which is the price.
+//
+// WHAT IT COSTS, WRITTEN DOWN RATHER THAN BURIED. `npm run scan:floor` asks
+// whether a take is even this piece, and it got worse: of 128 takes played from
+// a DIFFERENT study, 117 were refused and now 83 are. The reason is visible in
+// the tool's own breakdown — 101 of the 125 crossings it can now score are
+// same-key, same-clef, which on a corpus of scales and arpeggios is very nearly
+// the same notes in the same order, and the note above FLOOR in scan-view.js
+// already says a statistic made of pitch agreement is blind to those BY
+// CONSTRUCTION. The phantom circles were suppressing that score by injecting
+// disagreement, so some of the old 117 was the reader being wrong twice and
+// getting the right answer. It is still a real loss of a real guard.
+//
+// WHAT THE REMAINING 67 ARE. `npm run scan:bars-believed -- --shots <dir>`
+// draws them, and on the A major scale the four survivors sit where a stem
+// crosses a LEDGER line rather than a staff line. `staff.lines` holds the five
+// printed lines and nothing else, so those rows are not excluded and a ledger
+// line is wide enough to look like a body. The obvious extension is to exclude
+// ledger rows too, and it is NOT free: 176 of the 692 heads on these pages are
+// ledger notes, and excluding the line a head sits on is exactly what makes
+// this test blind at a six-pixel space. It has not been measured, so it has not
+// been done.
+//
+// THE LEVER THAT NOW EXISTS AND DID NOT BEFORE, for whoever picks this up: with
+// the phantoms gone a wrong take also MARKS LESS OF ITSELF. `scan:floor` prints
+// it — right takes mark 92% to 100% of the notes played, wrong ones 40% to
+// 100%, median 77% — and a coverage floor of 0.9 refuses 31 of the 49
+// survivors and 0 of the 128 right takes. Before this change that lever was
+// flat (wrong takes marked 77% at worst) and there was nothing to cut on. It is
+// NOT shipped here, because the argument that kept FLOOR at 0.70 is about a
+// page the reader read BADLY — `align-check --miss 0.5` — where a RIGHT take
+// also marks little of itself, and that measurement has not been run.
+const STEM_BODY = 0.15;   // staff spaces of ink across, off the line
+
+/**
+ * The widest run of ink within a staff space of `cx`, on the rows around `cy`
+ * that are NOT part of a staff line, in staff spaces.
+ *
+ * The line's own rows are found by walking out from where the line is printed
+ * for as long as the ink holds, rather than by a fixed thickness — a scanned
+ * line is two rows at a ten-pixel staff space and one at six, and excluding a
+ * fixed band takes the head's body with it at the small end. That is the way
+ * this test could fail on exactly the pages a player scans, so it is measured
+ * from the ink instead of assumed.
+ */
+export function bodyAcross(ink, w, h, staff, stripW, space, cx, cy) {
+  const lineAt = (index) => staff.lines[index].at[
+    Math.min(staff.lines[index].at.length - 1, Math.max(0, Math.floor(cx / stripW)))
+  ];
+  // The rows the printed lines occupy at this column, from the ink itself.
+  const onLine = new Set();
+  const most = Math.max(1, Math.round(space * 0.3));
+  for (let k = 0; k < 5; k++) {
+    const ly = Math.round(lineAt(k));
+    if (!Number.isFinite(ly)) continue;
+    onLine.add(ly);
+    for (let d = 1; d <= most && ly - d >= 0 && ink[(ly - d) * w + cx]; d++) onLine.add(ly - d);
+    for (let d = 1; d <= most && ly + d < h && ink[(ly + d) * w + cx]; d++) onLine.add(ly + d);
+  }
+  const reach = Math.max(1, Math.round(space * 0.45));
+  const side = Math.max(1, Math.round(space));
+  let widest = 0;
+  for (let dy = -reach; dy <= reach; dy++) {
+    const y = cy + dy;
+    if (y < 1 || y >= h - 1 || onLine.has(y)) continue;
+    let run = 0;
+    for (let x = Math.max(0, cx - side); x <= Math.min(w - 1, cx + side); x++) {
+      run = ink[y * w + x] ? run + 1 : 0;
+      if (run > widest) widest = run;
+    }
+  }
+  return widest / space;
+}
 const STEM_TALL = 2;      // staff spaces; shorter than this is a flag or a bar
 const STEM_WIDE = 0.35;   // staff spaces; wider than this is not a stem
 const STEM_HUNT = 0.5;    // how far around the proposal to look for the best fit
@@ -1863,6 +2008,7 @@ const STEM_CUT = 0.95;
 
 function stemHeads(ink, w, h, staff, space, gray, background, taken) {
   const found = [];
+  const stripW = w / staff.lines[0].at.length;
   const tall = Math.round(space * STEM_TALL);
   const wide = Math.max(1, Math.round(space * STEM_WIDE));
   const top = Math.max(1, Math.round(staff.lines[0].mid - space * 7));
@@ -1999,7 +2145,12 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
             if (!best || score > best.score) best = { x: hx, y: hy, score };
           }
         }
-        if (best && best.score >= STEM_CUT) found.push(best);
+        // …and it has to be a notehead rather than the place this stem crosses a
+        // staff line. See STEM_BODY.
+        if (best && best.score >= STEM_CUT
+          && bodyAcross(ink, w, h, staff, stripW, space, best.x, best.y) >= STEM_BODY) {
+          found.push(best);
+        }
       }
       y = end + 1;
     }

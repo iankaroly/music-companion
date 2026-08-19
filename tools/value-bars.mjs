@@ -37,7 +37,7 @@
 // not replace it. What this measures is the GROUPING: whether the barlines the
 // reader found, and the merge that reconciles them with the values, put the
 // right heads in a bar.
-import { readFile, readdir } from 'node:fs/promises';
+import { readFile, readdir, writeFile, mkdir } from 'node:fs/promises';
 import { join, resolve, basename } from 'node:path';
 import puppeteer from 'puppeteer-core';
 
@@ -55,6 +55,14 @@ const dir = resolve(flag('dir', `${process.env.HOME}/Downloads/cello-studies`));
 const phone = args.includes('--phone');
 const space = Number(flag('space', 14));
 const only = flag('only', null);
+// LOOK AT THE PAGE. A count of circles standing on nothing cannot say what they
+// are standing on, and every real bug in this reader was found by drawing
+// something on top of it. `--shots <dir>` writes each study out with a green
+// ring on every circle that is a printed notehead and a red one on every circle
+// that is not. That picture is what identified all 251 of them as the place a
+// stem crosses a staff line — see STEM_BODY in scan-read.js.
+const shots = flag('shots', null);
+if (shots) await mkdir(shots, { recursive: true });
 
 // --- MusicXML, only as much of it as a scale study uses ---------------------
 //
@@ -123,7 +131,7 @@ await new Promise((r) => setTimeout(r, 1500));
 const results = [];
 for (const file of files) {
   const study = parseStudy(await readFile(join(dir, file), 'utf8'));
-  const out = await page.evaluate(async ({ b64, study, space, phone, keyAlterArr, bottomDeg }) => {
+  const out = await page.evaluate(async ({ b64, study, space, phone, wantShots, keyAlterArr, bottomDeg }) => {
     const face = new FontFace('Bravura', `url(data:font/otf;base64,${b64})`);
     await face.load();
     document.fonts.add(face);
@@ -237,6 +245,10 @@ for (const file of files) {
     if (!read) return { failed: 'the reader could not read its own engraving' };
     const heads = R.notesInOrder(read).map((h, i) => ({
       hid: i, staff: h.staff, bar: h.bar, beats: h.beats ?? 0, x: h.x, y: h.y,
+      // WHICH PASS PROPOSED IT. The count of circles standing on nothing has
+      // been printed here for weeks and could not say which 251 of the 943
+      // they were; this one field answered it in a line. See STEM_BODY.
+      via: h.via ?? 'shape',
     }));
 
     // --- which head is which printed note, by POSITION ----------------------
@@ -258,12 +270,33 @@ for (const file of files) {
       tookH.add(p.hi); tookT.add(p.ti);
       truthOf[p.hi] = p.ti;
     }
-    return { heads, truth, truthOf, found: tookT.size };
+    let marked = null;
+    if (wantShots) {
+      const m = document.createElement('canvas');
+      m.width = shot.width;
+      m.height = shot.height;
+      const mg = m.getContext('2d');
+      mg.drawImage(shot, 0, 0);
+      mg.lineWidth = Math.max(1, space * 0.14);
+      for (const [hi, hh] of heads.entries()) {
+        mg.strokeStyle = truthOf[hi] >= 0 ? 'rgb(0 160 0)' : 'rgb(220 0 0)';
+        mg.beginPath();
+        mg.arc(hh.x * m.width, hh.y * m.height, space * 0.7, 0, Math.PI * 2);
+        mg.stroke();
+      }
+      marked = m.toDataURL('image/png');
+    }
+    return { heads, truth, truthOf, found: tookT.size, marked };
   }, {
-    b64: font, study, space, phone,
+    b64: font, study, space, phone, wantShots: !!shots,
     keyAlterArr: keyAlter(study.fifths), bottomDeg: BOTTOM[study.clef],
   });
   if (out.failed) { results.push({ file, failed: out.failed }); continue; }
+  if (out.marked) {
+    const at = join(shots, `${basename(file, '.musicxml')}.png`);
+    await writeFile(at, Buffer.from(out.marked.split(',')[1], 'base64'));
+  }
+  delete out.marked;
   results.push({ file, ...out });
   process.stdout.write('.');
 }
@@ -498,6 +531,11 @@ for (const r of results) {
     believed, believedRight, believedWrong,
     notesInBelieved, valuesRightInBelieved,
     scored, valuesRight, falseBeats: [...falseBeats.entries()],
+    byRoute: r.heads.reduce((m, h) => {
+      const box = (m[h.via] ??= { real: 0, onNothing: 0 });
+      if (r.truthOf[h.hid] >= 0) box.real += 1; else box.onNothing += 1;
+      return m;
+    }, {}),
   });
 }
 
@@ -541,6 +579,22 @@ if (process.env.PER_PAGE) {
 }
 const fb = new Map();
 for (const r of good) for (const [v, n] of r.falseBeats) fb.set(v, (fb.get(v) ?? 0) + n);
+// WHICH PASS PROPOSED WHAT — the line that turned "251 circles are wrong" into
+// a bug with an address. A route that circles nothing real is a route with a
+// missing test, and no other number here can see one.
+const routes = {};
+for (const r of good) {
+  for (const [via, box] of Object.entries(r.byRoute ?? {})) {
+    const into = (routes[via] ??= { real: 0, onNothing: 0 });
+    into.real += box.real;
+    into.onNothing += box.onNothing;
+  }
+}
+console.log('\n  WHO PROPOSED THEM');
+console.log('    pass       real heads   circles on nothing');
+for (const [via, box] of Object.entries(routes).sort((a, b) => b[1].real - a[1].real)) {
+  console.log(`    ${via.padEnd(10)}${String(box.real).padStart(9)}${String(box.onNothing).padStart(21)}`);
+}
 console.log(`\n  CIRCLES THAT ARE NOT A PRINTED NOTEHEAD: ${[...fb.values()].reduce((a, b) => a + b, 0)}`
   + ` of ${good.reduce((a, r) => a + r.circled, 0)} circled — and the value each was given:`);
 console.log(`    ${[...fb.entries()].sort((a, b) => b[1] - a[1]).map(([v, n]) => `${v} beats x${n}`).join(' · ')}`);

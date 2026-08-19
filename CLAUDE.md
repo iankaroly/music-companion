@@ -44,14 +44,19 @@ npm run scan:bars-believed  the OTHER half of the value question, and the one
                          BELIEVES, is the music in one of them one printed bar?
                          The same 32 engraved studies, every printed bar four
                          crotchet beats and every printed head's coordinates
-                         known. Today: 6 bars believed of 200, 2 of them a
-                         printed bar — and 251 of the 943 things the reader
-                         circles on those clean pages are NOT printed
-                         noteheads, 218 of them priced at a full crotchet
-                         each, which is why no bar can add up. MERGE=1 runs
-                         the rejected regrouping experiment beside it.
-                         Run it whenever anything about note values,
-                         barlines or the bar decision moves.
+                         known. Today: 52 bars believed of 200 and every one of
+                         the 52 is one printed bar; 67 of the 759 circles on
+                         those clean pages are not printed noteheads, down from
+                         251 of 943. It also prints WHO PROPOSED THEM — the
+                         shape tests against the stem rescue — which is the
+                         line that turned "251 circles are wrong" into a bug
+                         with an address (all 251 came from the stem pass and
+                         none of the 692 real heads did; see STEM_BODY in
+                         scan-read.js). A route that circles nothing real is a
+                         route with a missing test. MERGE=1 runs the rejected
+                         regrouping experiment beside it. Run it whenever
+                         anything about note values, barlines or the bar
+                         decision moves.
 npm run scan:align       the only instrument that can see `headsOf`, the
                          aligner and the pairing: 32 engraved studies, 4 seeded
                          takes each, scored as WHICH NOTEHEAD each played note
@@ -64,6 +69,17 @@ npm run scan:floor       the OTHER question about the pairing: is this take
                          Prints both score distributions and the trade curve
                          the confidence floor in `pairNotes` was read off.
                          Run it whenever that floor or the statistic moves.
+                         IT WENT BACKWARDS THIS ROUND and the reason is written
+                         beside STEM_BODY: of 128 takes played from a DIFFERENT
+                         study, 117 were refused and 83 now are, because the
+                         phantom circles STEM_BODY removed were suppressing a
+                         wrong take's score by injecting disagreement. 101 of
+                         the 125 crossings it can now score are same-key,
+                         same-clef — on a corpus of scales that is very nearly
+                         the same notes in the same order, which the note above
+                         FLOOR says this statistic is blind to by construction.
+                         The lever that would answer it is COVERAGE, and it is
+                         printed here and not yet used.
 npm run scan:key-gate    the GATE on the one failure this reader is not allowed
                          to have: a note named from a key the page could not
                          agree. `scan:studies --phone` with a non-zero exit.
