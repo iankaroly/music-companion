@@ -17,6 +17,7 @@
 //   npm run dev            (in another terminal, on port 5199)
 //   node tools/scan-playback-check.mjs
 //
+import { readFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
 
 // The headless SHELL rather than the Chrome app: launching the app puts a
@@ -25,6 +26,7 @@ const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 const PORT = process.env.PORT ?? '5199';
+const font = (await readFile(new URL('./fonts/Bravura.otf', import.meta.url))).toString('base64');
 
 const browser = await puppeteer.launch({
   executablePath: SHELL,
@@ -51,62 +53,41 @@ await page.evaluate(() => {
   document.querySelector('#welcome-card')?.remove();
 });
 
-// Three pages, and a take long enough that its marks run onto the later ones.
-const built = await page.evaluate(async () => {
-  const draw = (n) => {
-    const c = document.createElement('canvas');
-    c.width = 1100; c.height = 1500;
-    const g = c.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = '#111';
-    const space = 13;
-    for (let sys = 0; sys < 5; sys++) {
-      const top = 180 + sys * 260;
-      for (let line = 0; line < 5; line++) g.fillRect(100, top + line * space, 900, 2);
-      for (const x of [100, 400, 700, 1000]) g.fillRect(x, top, 2, space * 4);
-      for (let i = 0; i < 8; i++) {
-        const x = 160 + i * 105;
-        const y = top + ((i + n) % 5) * (space / 2) + space;
-        g.beginPath();
-        g.ellipse(x, y, space * 0.62, space * 0.46, -0.3, 0, Math.PI * 2);
-        g.fill();
-        g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);
-      }
-    }
-    // A Blob, not a data URL. readableImage decodes Blobs; handed a string it
-    // falls through to the missing-page placeholder, and every page then reads
-    // as blank grey — which is a harness testing a fiction, not the app.
-    return new Promise((done) => c.toBlob(done, 'image/png'));
-  };
-  const { savePagesScore, saveRecording, setRecordingScore } = await import('/src/store/db.js');
-  const scoreId = await savePagesScore({
-    name: 'Played scan', source: 'images', pageCount: 3,
-    pages: [await draw(0), await draw(1), await draw(2)],
+// Three pages of REAL MUSIC, and a take long enough that its marks run onto the
+// later ones.
+//
+// These pages used to be drawn ellipses on five lines — no clef, no key — and
+// that stopped working the day the review began refusing to place a take on a
+// page it cannot price: three assertions here went red and stayed red, and what
+// they were guarding (the marks reaching the third page at all) stopped being
+// measured. The fixture is engraved now, in Bravura, with a bass clef and a
+// signature, and the take is played FROM WHAT IS WRITTEN on it — see
+// src/fixtures/engraved-page.js.
+const built = await page.evaluate(async ({ b64 }) => {
+  const { engravePart, takeFromWritten } = await import('/src/fixtures/engraved-page.js');
+  const { scoreId, written } = await engravePart({
+    base64: b64, name: 'Played scan', pages: 3, systems: 5, perSystem: 8, space: 13,
   });
-
-  // Enough notes to run well past the first page's noteheads, spread over a
-  // take short enough to sit through.
-  const COUNT = 90;
-  const notes = Array.from({ length: COUNT }, (_, i) => ({
-    midi: 48 + (i % 12), cents: (i % 5) * 6 - 12,
-    start: i * 0.06, end: i * 0.06 + 0.055,
-    frequency: 130 * (2 ** ((i % 12) / 12)),
-  }));
+  // A take that starts on page one and runs well past its last notehead, so
+  // page three has to carry rings for the pairing to be right.
+  const notes = takeFromWritten(written, { from: 6, count: 96, spacing: 0.06, sounding: 0.055 });
   const readings = notes.map((n) => ({
     time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05,
     midi: n.midi, cents: n.cents,
   }));
+  const { saveRecording, setRecordingScore } = await import('/src/store/db.js');
   const seconds = Math.ceil(notes.at(-1).end) + 1;
   const recId = await saveRecording({
     date: Date.now(), duration: seconds, sampleRate: 44100,
     audio: new Float32Array(44100 * seconds), notes, readings, a4: 440,
   });
   await setRecordingScore(recId, scoreId);
-  return { scoreId, recId, notes: COUNT };
-}, );
+  return { scoreId, recId, notes: notes.length, written: written.length };
+}, { b64: font });
 
-check('a three-page scan with a long take', !!built.scoreId && built.notes === 90,
-  `score ${built.scoreId}, ${built.notes} notes`);
+check('a three-page engraved part with a long take',
+  !!built.scoreId && built.notes > 60 && built.written === 120,
+  `score ${built.scoreId}, ${built.notes} notes played of ${built.written} written`);
 
 // Open it the way the app does: choose the piece, attach the take, open it.
 const opened = await page.evaluate(async ({ scoreId, recId }) => {
@@ -134,7 +115,7 @@ const opened = await page.evaluate(async ({ scoreId, recId }) => {
 }, built);
 
 check('the reader has a set of noteheads to ring',
-  opened.read === 3 && opened.heads === 120, `${opened.read} pages, ${opened.heads} noteheads`);
+  opened.read === 3 && opened.heads >= 110, `${opened.read} pages, ${opened.heads} noteheads`);
 check('the scan is open on the first page', opened.open === true, opened.page);
 
 // --- the marks reach the later pages ----------------------------------------

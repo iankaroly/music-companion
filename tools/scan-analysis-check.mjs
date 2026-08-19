@@ -14,6 +14,7 @@
 //   npm run dev            (in another terminal, on port 5199)
 //   node tools/scan-analysis-check.mjs
 //
+import { readFile } from 'node:fs/promises';
 import puppeteer from 'puppeteer-core';
 
 // The headless SHELL rather than the Chrome app: launching the app puts a
@@ -22,6 +23,7 @@ const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 const PORT = process.env.PORT ?? '5199';
+const font = (await readFile(new URL('./fonts/Bravura.otf', import.meta.url))).toString('base64');
 
 const browser = await puppeteer.launch({ executablePath: SHELL, headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
@@ -44,64 +46,31 @@ await page.evaluate(() => {
 });
 
 // --- a scanned part, and a take played against it ----------------------------
-const built = await page.evaluate(async () => {
-  // A page of music, drawn: three systems of five lines with filled heads on
-  // them, black on white, at roughly the proportions of a photographed part.
-  const draw = () => {
-    const c = document.createElement('canvas');
-    c.width = 1200; c.height = 1600;
-    const g = c.getContext('2d');
-    g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
-    g.fillStyle = '#111';
-    const space = 14;
-    for (let sys = 0; sys < 3; sys++) {
-      const top = 240 + sys * 420;
-      for (let line = 0; line < 5; line++) {
-        g.fillRect(120, top + line * space, 960, 2);
-      }
-      // Bar lines, so the reader has bars to put the heads into.
-      for (const x of [120, 440, 760, 1080]) g.fillRect(x, top, 2, space * 4);
-      // Filled noteheads, slightly elliptical, sitting on and between lines.
-      for (let n = 0; n < 8; n++) {
-        const x = 180 + n * 110;
-        const y = top + (n % 5) * (space / 2) + space;
-        g.beginPath();
-        g.ellipse(x, y, space * 0.62, space * 0.46, -0.3, 0, Math.PI * 2);
-        g.fill();
-        g.fillRect(x + space * 0.55, y - space * 3, 2, space * 3);   // a stem
-      }
-    }
-    // A Blob, not a data URL. readableImage decodes Blobs; handed a string it
-    // falls through to the missing-page placeholder, and every page then reads
-    // as blank grey — which is a harness testing a fiction, not the app.
-    return new Promise((done) => c.toBlob(done, 'image/png'));
-  };
-
-  const { savePagesScore, saveRecording, setRecordingScore, listScores } = await import('/src/store/db.js');
-  const scoreId = await savePagesScore({
-    name: 'Scanned part', source: 'images', pageCount: 1, pages: [await draw()],
+// A page of REAL MUSIC and a take played from it.
+//
+// It used to be drawn ellipses on five lines with no clef, and a page with no
+// clef prices no notehead — so the review refuses to place a take on it, which
+// is right and which left this check asserting the opposite. Engraved now, in
+// Bravura, with a clef and a signature: see src/fixtures/engraved-page.js.
+const built = await page.evaluate(async ({ b64 }) => {
+  const { engravePart, takeFromWritten } = await import('/src/fixtures/engraved-page.js');
+  const { scoreId, written } = await engravePart({
+    base64: b64, name: 'Scanned part', pages: 1, systems: 3, perSystem: 8, space: 14,
   });
-
-  // A take: eight notes with pitch and timing, the shape the app stores.
-  const notes = [];
-  for (let i = 0; i < 8; i++) {
-    notes.push({
-      midi: 48 + i, cents: (i % 3) * 7 - 7,
-      start: i * 0.5, end: i * 0.5 + 0.45, frequency: 130 * (2 ** (i / 12)),
-    });
-  }
-  const readings = notes.flatMap((n, i) => Array.from({ length: 12 }, (_, k) => ({
+  const notes = takeFromWritten(written, { from: 2, count: 8, spacing: 0.5, sounding: 0.45, lead: 0 });
+  const readings = notes.flatMap((n) => Array.from({ length: 12 }, (_, k) => ({
     time: n.start + k * 0.03, frequency: n.frequency, confidence: 0.95, rms: 0.05,
     midi: n.midi, cents: n.cents,
   })));
+  const { saveRecording, setRecordingScore, listScores } = await import('/src/store/db.js');
   const recId = await saveRecording({
     date: Date.now(), duration: 4, sampleRate: 44100,
     audio: new Float32Array(44100 * 4), notes, readings, a4: 440,
   });
   await setRecordingScore(recId, scoreId);
   const rows = await listScores();
-  return { scoreId, recId, kind: rows.find((r) => r.id === scoreId)?.kind };
-});
+  return { scoreId, recId, kind: rows.find((r) => r.id === scoreId)?.kind, notes: notes.length };
+}, { b64: font });
 
 check('a scanned part can be stored with a take attached to it',
   !!built?.scoreId && !!built?.recId && built.kind === 'pages',

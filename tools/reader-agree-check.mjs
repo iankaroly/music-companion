@@ -291,8 +291,27 @@ const reader = await page.evaluate(async () => {
 });
 // The versioned-module trap in CLAUDE.md, caught rather than reasoned about: if
 // this check's `import('/src/ui/reader.js')` got a SECOND instance of the
-// module, `paperPairing()` would answer about a reader that never opened. A run
-// that fails here wants `npm run dev` restarted, not a code change.
+// module, `paperPairing()` would answer about a reader that never opened.
+//
+// AND IT STOPS HERE WHEN IT DOES, which is the point of this block. Every
+// assertion below reads `reader.answer`, so one stale module produced ELEVEN
+// failures describing things that were never wrong — "0 noteheads lit", "the
+// two views mark a different number of notes", "the reader is counting from the
+// top of page one" — and a suite that has been red for a week is a suite nobody
+// reads. This round lost an hour to exactly that: score:agree was reported as
+// eleven pre-existing failures, was baselined as such, and turned out to be
+// sixteen passes the moment the dev server was restarted.
+if (reader.open && !reader.answer) {
+  console.log('\n  ────────────────────────────────────────────────────────────');
+  console.log('  THE DEV SERVER HAS SERVED AN EDITED MODULE, and this check is');
+  console.log('  reading a different copy of reader.js from the one the app is');
+  console.log('  using. Nothing below would mean anything, so it is not run.');
+  console.log('');
+  console.log('    restart `npm run dev`, then run this again');
+  console.log('  ────────────────────────────────────────────────────────────\n');
+  await browser.close();
+  process.exit(2);
+}
 check('the reader opened on the same score, and it is the same module instance',
   reader.open && !!reader.answer,
   reader.answer ? `${reader.answer.heads} noteheads, route=${reader.answer.route}`

@@ -263,8 +263,17 @@ BEHAVIOUR and what it cost, with the numbers.
   `src/analysis/scan-sync.js`, `src/analysis/scan-rhythm.js`,
   `src/audio/written-pitch.js` and `src/fixtures/take-fixture.js` are all
   untracked as this is written. A stash takes the review's whole scanned half.
+- **THE SCAN FIXTURES ARE ENGRAVED, and must stay that way.** `score:review`,
+  `score:playback`, `score:scan` and `score:agree` build their pages with
+  `src/fixtures/engraved-page.js` — Bravura noteheads, a bass clef, one sharp —
+  because a page with no clef prices no notehead, and the review REFUSES to
+  place a take on a page it cannot price. Fixtures drawn as bare ellipses (which
+  is what three of those four used) leave twenty-nine assertions about the
+  review failing for one reason that is not the app.
 - **A BROWSER CHECK RUN STRAIGHT AFTER AN EDIT MEASURES A DIFFERENT MODULE FROM
-  THE ONE THE APP IS USING.** Vite serves an edited module at a versioned URL
+  THE ONE THE APP IS USING.** `score:agree` now DETECTS this and stops with the
+  instruction rather than emitting eleven phantom failures — one round baselined
+  those eleven as pre-existing, and they were sixteen passes after a restart. Vite serves an edited module at a versioned URL
   (`/src/x.js?t=…`) to everything that imports it, while a check's own
   `await import('/src/x.js')` asks for the unversioned one — so the check gets a
   SECOND INSTANCE with its own module state. MEASURED, this round: five checks
