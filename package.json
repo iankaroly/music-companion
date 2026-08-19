@@ -1,7 +1,7 @@
 {
   "name": "music-companion",
   "version": "1.0.0",
-  "description": "A practice companion for anyone who plays a pitch — strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Your recordings stay on your device; the optional Ask panel sends a take's measurements, never its audio.",
+  "description": "A practice companion for anyone who plays a pitch — strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,7 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/scan-playback-check.mjs && node tools/scan-review-check.mjs && node tools/scan-heads-check.mjs && node tools/scan-pdf-check.mjs && node tools/a11y-prefs-check.mjs && node tools/ask-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/scan-playback-check.mjs && node tools/scan-review-check.mjs && node tools/scan-heads-check.mjs && node tools/scan-pdf-check.mjs && node tools/a11y-prefs-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
@@ -25,7 +25,6 @@
     "reader:drag": "node tools/reader-drag-check.mjs",
     "audio:route": "node tools/audio-route-check.mjs",
     "a11y:prefs": "node tools/a11y-prefs-check.mjs",
-    "ask:check": "node tools/ask-check.mjs",
     "reader:stamp": "node tools/reader-stamp-check.mjs",
     "reader:taps": "node tools/reader-taps-check.mjs",
     "score:flow": "node tools/score-flow-check.mjs",
@@ -104,7 +103,6 @@
     "vitest": "^4.1.10"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.117.1",
     "@capacitor/haptics": "^8.0.2",
     "opensheetmusicdisplay": "^2.1.2",
     "pdfjs-dist": "^6.2.108"

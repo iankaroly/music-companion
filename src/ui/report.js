@@ -11,7 +11,6 @@ import { initPassages, hidePassages, offerNote } from './passages.js';
 import { scheduleClick } from '../audio/metronome.js';
 import { rhythmReport } from '../analysis/rhythm.js';
 import { stopWrittenPitch, whenWrittenPitchStarts } from '../audio/written-pitch.js';
-import { setAskTake } from './ask.js';
 
 // The one status line the app has, shared with the recorder above.
 function say(root, message) {
@@ -1169,19 +1168,6 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     hideLanding(root);
     hidePassages(root);
   }
-
-  // Tell the floating chat which take is on the screen. It draws nothing here —
-  // the button lives on the edge of the app, not in this card.
-  setAskTake({
-    notes: allNotes,
-    readings: extras.readings ?? [],
-    a4: extras.a4 ?? 440,
-    duration: recording?.duration ?? (allNotes.at(-1)?.end ?? null),
-    name: extras.takeName ?? null,
-    date: extras.date ?? null,
-    scoreName: extras.scoreName ?? null,
-    key: extras.recordingId ?? 'unsaved',
-  });
 }
 
 // Select one of the take's notes from another view. A no-op when no report is
@@ -1191,10 +1177,6 @@ export function selectPlayedNote(note) {
 }
 
 export function hideReport(root) {
-  // Nothing on screen to ask about any more. The chat stays reachable — the
-  // library is still a fair thing to ask about — but it must stop claiming to
-  // be reading a take that has been put away.
-  setAskTake(null);
   selectFromOutside = null;
   stopPlayback(root);
   stopRefDrone();

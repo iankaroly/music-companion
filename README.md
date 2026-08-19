@@ -1,6 +1,6 @@
 # Practice Partner
 
-A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Your recordings never leave your device — the one feature that sends anything at all is **Ask about a take**, it is off until you turn it on, and what it sends is numbers, never audio.
+A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Nothing you record leaves your device.
 
 **Tuner · Record & analyze · Library · Coach · Metronome**
 
@@ -14,55 +14,6 @@ A practice companion for anyone who plays a pitch — strings, winds, brass or v
 - **Coach** — habits mined from every saved take: weekly streak, per-piece and per-passage progress, the notes most worth drilling, a tendency map, and a 14-day trend.
 - **Metronome** — lookahead-scheduled on the audio clock, 20–260 BPM with tempo names, tap tempo, subdivisions (eighths, triplets, sixteenths, shuffle), per-bar accent, practice timer.
 - **Light and dark** — a settings sheet in the top right; the theme follows the system by default, and the canvases repaint from the same palette the CSS uses.
-
-## Ask about a take
-
-**Off by default.** Settings → *Ask about a take* → On puts a small button on the
-right edge of the app, above the tab bar. Press it and a chat pops out over
-whatever you are looking at: "which notes went flat?", "did I rush the second
-half?", "is this better than last week's?". Escape or a press anywhere else
-closes it.
-
-It reads the take on the screen if a review is open, and the one-line index of
-your saved takes either way — so it can still answer "how has my intonation
-moved this month" with nothing open. When no take is open it says so rather than
-answering as though one were.
-
-It is not listening to the recording, and it says so when you ask it to be. The
-Messages API takes text, images and PDFs — there is no audio content block — so
-no product can hand a language model a WAV and have it hear you. What this sends
-is the **digest**: every note the app already detected, with its onset time, its
-name, its cents from equal temperament, its milliseconds from the pulse, its
-duration, and how long it took to settle. Those numbers are far more precise
-about pitch and timing than a general audio model would be, and completely
-silent about tone — so the model is instructed to say "the app measures pitch and
-timing, not tone" rather than guess at your sound.
-
-```
-your take ──► digest (text) ──► /api/ask ──► Claude ──► the answer, streamed back
-     audio stays here ────────────x
-```
-
-- Nothing is sent while the setting is off, nothing is sent when a review opens,
-  and nothing is sent when the chat opens — only when you press Ask. `npm run ask:check` proves all three in a
-  headless browser, with the request intercepted so it needs no key and sends
-  nothing anywhere; one of its checks reads the outgoing body and fails if any
-  audio, reading or sample rate is in it.
-- The key lives on the server, never in the bundle: `api/ask.js` in production,
-  the same handler mounted on the dev server by `vite.config.js`. Set
-  `ANTHROPIC_API_KEY` in the environment (and in the Vercel project). Without
-  one the panel says so instead of failing silently.
-- `@anthropic-ai/sdk` is a **server-only** dependency. The client bundle still
-  has no runtime dependencies — `src/ui/ask.js` talks to the endpoint over
-  `fetch`.
-- `vite preview` serves the static build with no functions, so the panel only
-  answers under `npm run dev` or a deploy.
-- **Not yet run against the live API** — it was built on a machine with no key,
-  so everything up to the request is measured and the request itself is not. The
-  first thing to check when a key exists is the request shape in
-  `src/ai/ask-handler.js`: a two-block `system` with `cache_control` on the
-  second, `output_config.effort`, and no `thinking` field. A 400 there arrives in
-  the panel as "the answer stopped: …" and nowhere else.
 
 ## How the analysis works
 
@@ -93,7 +44,6 @@ onsets → autocorrelation → grid period → least-squares fit → local devia
 npm install
 npm run dev      # local
 npm test         # the DSP and analysis are unit-tested with synthesized signals
-npm run ask:check # the Ask panel, end to end, with the request intercepted
 npm run build    # static bundle in dist/
 ```
 

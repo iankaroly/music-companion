@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import { cp, mkdir } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
@@ -48,50 +48,6 @@ function pdfjsAssets() {
   };
 }
 
-// /api/ask in the dev server.
-//
-// In production that path is a Vercel function (api/ask.js); `npm run dev` is
-// plain vite and has no functions, so without this the Ask panel works when
-// deployed and does nothing at all on the machine it was written on. Both hosts
-// import the SAME handler, so there is one code path to get right.
-//
-// The import is dynamic so a checkout with no @anthropic-ai/sdk installed still
-// starts the dev server — every measuring tool in tools/ needs it up, and none
-// of them ask anything.
-function askEndpoint() {
-  return {
-    name: 'ask-endpoint',
-    configureServer(server) {
-      // The key, from .env.local.
-      //
-      // vite loads .env files for the CLIENT — import.meta.env — and
-      // deliberately keeps them out of process.env, so that a secret cannot
-      // reach the browser by accident. The handler reads process.env because
-      // that is what a Vercel function is handed. MEASURED: a key written to
-      // .env.local left the endpoint still answering "no ANTHROPIC_API_KEY
-      // set", which is the worst kind of wrong answer — the setting looks done.
-      // `vercel env pull` writes that file and .env* is git-ignored, so it is
-      // where the key is going to be. Bridged here, and only here: nothing
-      // under src/ can see it.
-      const env = loadEnv(server.config.mode, process.cwd(), '');
-      if (!process.env.ANTHROPIC_API_KEY && env.ANTHROPIC_API_KEY) {
-        process.env.ANTHROPIC_API_KEY = env.ANTHROPIC_API_KEY;
-      }
-
-      server.middlewares.use('/api/ask', async (req, res, next) => {
-        if (req.method !== 'POST') { next(); return; }
-        try {
-          const { default: handler } = await import('./src/ai/ask-handler.js');
-          await handler(req, res);
-        } catch (err) {
-          res.statusCode = 500;
-          res.end(`The ask endpoint could not start: ${err.message}`);
-        }
-      });
-    },
-  };
-}
-
 // Which build is this?
 //
 // Added on the day a bug could not be told apart from a bug already fixed:
@@ -106,7 +62,7 @@ const stamp = [
 ].join(' · ');
 
 export default defineConfig({
-  plugins: [pdfjsAssets(), askEndpoint()],
+  plugins: [pdfjsAssets()],
   // Every measuring tool in tools/ talks to localhost:5199, so the dev server
   // has to BE there. Vite's own default moved with an upgrade, and the whole
   // bench went red with a connection refused rather than a reading — which
