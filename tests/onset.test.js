@@ -66,6 +66,55 @@ describe('when a note is reported to have started', () => {
     }
   });
 
+  // A SLUR, which is most of what a flute or a cello plays. There is no attack
+  // to find — the sound never stops — so the boundary comes out of the pitch:
+  // interpolated between the last frame that was still the old note and the
+  // first that was the new one, less the window's own bias. MEASURED, `npm run
+  // audio:fast -- --gap 0`: median lag 33ms without any of that, 6-22ms with.
+  it('finds a slurred boundary from the pitch, not the loudness', () => {
+    const SR2 = SR;
+    const samples = new Float32Array(Math.round(2.4 * SR2));
+    let phase = 0;
+    const at = 1.2;                       // where the pitch changes
+    for (let k = 0; k < samples.length; k++) {
+      const t = k / SR2;
+      const hz = 440 * 2 ** (((t < at ? 69 : 74) - 69) / 12);
+      phase += (2 * Math.PI * hz) / SR2;
+      const env = Math.min(1, k / (SR2 * 0.004))
+        * Math.min(1, (samples.length - k) / (SR2 * 0.01));
+      samples[k] = 0.5 * env * Math.sin(phase);
+    }
+    const notes = heard(samples);
+    expect(notes.length).toBeGreaterThanOrEqual(2);
+    const second = notes.find((n) => n.midi === 74);
+    expect(second).toBeTruthy();
+    // Within about a frame and a half of where the pitch actually changed. A
+    // slurred boundary is not as sharp as an attack and this test says so: the
+    // articulated case is held to 20ms above, this one to 40. `audio:fast`
+    // carries the distribution — 6-22ms in the middle across 2 to 12 notes a
+    // second — and this is one case of it, at 31ms.
+    expect(Math.abs(second.start - at)).toBeLessThan(0.04);
+    expect(second.start).toBeGreaterThanOrEqual(notes[0].end - 1e-9);
+  });
+
+  // The same music recorded quietly — a flute across a room, a phone in a case.
+  // An absolute loudness floor finds the noise rather than the attack there and
+  // reports every note 25ms EARLY; the floor follows the room instead.
+  it('is right on a quiet recording as well as a loud one', () => {
+    const played = [
+      { midi: 69, at: 0.5, hold: 0.4 },
+      { midi: 71, at: 0.9, hold: 0.4 },
+      { midi: 72, at: 1.3, hold: 0.4 },
+    ];
+    const loud = play(played);
+    const quiet = Float32Array.from(loud, (v) => v * 0.03);
+    for (const [i, want] of played.entries()) {
+      const notes = heard(quiet);
+      expect(notes.length).toBeGreaterThanOrEqual(3);
+      expect(Math.abs(notes[i].start - want.at)).toBeLessThan(0.025);
+    }
+  });
+
   it('does not invent an attack for a note that has none', () => {
     // One unbroken sound that changes pitch halfway: the second note is slurred
     // out of the first and has no attack of its own, so it keeps the time it

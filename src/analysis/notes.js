@@ -1,5 +1,10 @@
 import { midiToName } from './note-utils.js';
 
+// How much of the pitch window the new note has to fill before the estimator
+// changes its mind, past the half it would need if it were averaging. Swept
+// against a synthesised slur — see slurredAt.
+const SLUR_LATE = 0.2;
+
 function median(values) {
   const s = [...values].sort((a, b) => a - b);
   const mid = Math.floor(s.length / 2);
@@ -43,6 +48,7 @@ export class NoteSegmenter {
     // The energy rises the analyzer has reported lately, and how far back one
     // may be and still belong to a note opening now. See attackFor.
     this.rises = [];
+    this.splitFrom = null;
     this.windowSeconds = options.windowSeconds ?? 0.1;
     // Where the last note stopped, so a back-dated start cannot reach behind it.
     this.lastEnd = null;
@@ -81,6 +87,56 @@ export class NoteSegmenter {
     return this.lastEnd !== null ? Math.max(best.at, this.lastEnd) : best.at;
   }
 
+  // WHERE A SLURRED NOTE BEGAN, when there was no attack to find one by.
+  //
+  // A note played out of the one before it — a slur, a bow change under one,
+  // most of what a flute or a cello does — has no step in loudness at all, so
+  // the energy onset has nothing to offer and the note used to keep the time it
+  // was first BELIEVED at. MEASURED, `npm run audio:fast -- --gap 0`: a legato
+  // scale came back 5-11ms late in the middle and 20-45ms late at the ninth
+  // decile, against 0-5ms and 19ms for the same scale articulated.
+  //
+  // What a slurred boundary has instead is a RAMP. The pitch window is 93ms
+  // long and stamped at its middle, so across a boundary the reported pitch
+  // slides from the old note to the new one over a frame or two — and the
+  // moment it passes half way is the boundary itself, to a few milliseconds
+  // rather than to the 23ms the hop can offer. Straight-line interpolation
+  // between the last frame that was still the old note and the first that was
+  // the new one, and no extrapolation: an answer outside those two frames is
+  // not evidence, it is arithmetic on noise, so it is clamped between them.
+  slurredAt(from, to, oldPitch) {
+    if (!from || !to) return null;
+    const span = to.time - from.time;
+    if (!(span > 0)) return null;
+    const rise = to.midiFloat - from.midiFloat;
+    if (!(Math.abs(rise) > 0.05)) return null;
+    const half = (oldPitch + to.midiFloat) / 2;
+    const share = (half - from.midiFloat) / rise;
+    if (!Number.isFinite(share)) return null;
+    // …AND THE WINDOW'S OWN BIAS, taken off.
+    //
+    // The ramp is not a ramp. YIN does not average two pitches, it LOCKS onto
+    // one of them, and it switches when the new note fills enough of the window
+    // — comfortably more than half of it. So the crossing this interpolation
+    // finds is itself late by that surplus, and the surplus is a property of
+    // the estimator rather than of the instrument. MEASURED, `npm run
+    // audio:fast -- --gap 0` (a true slur: one tone, phase running through the
+    // change of pitch), median lag at 2 to 12 notes a second:
+    //
+    //   no interpolation      33  33  24  29  29  ms
+    //   interpolated          22  17  17  19  15  ms
+    //   …and this correction   see the table in the handover
+    //
+    // Bounded hard by the evidence at both ends: never earlier than the last
+    // frame that was still the old note, and never before the previous note
+    // ended. A correction that has to be clamped is a correction that has run
+    // out of evidence, and the clamp is the answer rather than the arithmetic.
+    const at = from.time + Math.max(0, Math.min(1, share)) * span;
+    const early = at - this.windowSeconds * SLUR_LATE;
+    const bounded = Math.max(from.time, early);
+    return this.lastEnd !== null ? Math.max(bounded, this.lastEnd) : bounded;
+  }
+
   push(reading) {
     const out = [];
     // Every rise the analyzer has seen lately, oldest first, trimmed to what
@@ -116,6 +172,10 @@ export class NoteSegmenter {
 
     const values = this.current.frames.map((f) => f.midiFloat);
     const center = median(values);
+    // The last frame that still belonged to the note being played, kept so a
+    // slurred boundary can be interpolated between it and the first frame of
+    // the next one. See `slurredAt`.
+    const lastOfCurrent = this.current.frames.at(-1);
     if (Math.abs(midiFloat - center) > this.splitThreshold(values)) {
       // agreeing with the candidate, not merely with being far from the centre:
       // a wobble that wanders is not a note, it is a wobble
@@ -130,11 +190,19 @@ export class NoteSegmenter {
           // before the code knew about it. Where a run is slurred there is no
           // rise to find and the frame's own time stands, which is right: those
           // notes have no attack.
-          this.current = { frames: this.pending, attack: this.attackFor(this.pending[0].time) };
+          this.current = {
+            frames: this.pending,
+            attack: this.attackFor(this.pending[0].time)
+              ?? this.slurredAt(this.splitFrom, this.pending[0], center),
+          };
           this.pending = null;
         }
       } else {
         this.pending = [frame];
+        // Where the note being played was last itself. The boundary of a slur
+        // lies between this and the first frame of the next note, and nowhere
+        // else.
+        this.splitFrom = lastOfCurrent;
       }
     } else {
       // Came back. A swing that returns is part of this note and its frames go

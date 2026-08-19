@@ -546,6 +546,62 @@ start, the note is long enough to keep.
   clamp two notes overlap — and everything that asks "what is sounding now"
   would have two answers for one instant.
 
+## THE TWO CASES THE ONSET WORK DID NOT COVER, and now does
+
+The energy onset put an articulated note within a few milliseconds of where it
+was played. It left two kinds of playing where it was, and both are ordinary:
+
+**A SLUR HAS NO ATTACK.** A note played out of the one before it — most of what a
+flute or a cello does — has no step in loudness at all, so there is nothing for
+the energy to find and the note kept the time it was first BELIEVED at. What a
+slurred boundary has instead is a ramp: the pitch window is 93ms and stamped at
+its middle, so across a boundary the reported pitch slides from one note to the
+other over a frame or two. The boundary is interpolated from that, clamped
+between the last frame that was still the old note and the first that was the
+new one — no extrapolation, because an answer outside those two frames is
+arithmetic on noise.
+
+And then the window's own bias comes off. The ramp is not really a ramp: YIN does
+not average two pitches, it LOCKS onto one, and it changes its mind only when the
+new note fills comfortably more than half the window. That surplus is a property
+of the estimator, not of the instrument, and it is worth about a fifth of a
+window. MEASURED, `npm run audio:fast -- --gap 0` — a true slur, one tone with
+the phase running through the change of pitch, which is not the same thing as
+notes with no silence between them (those still have their own fades, and the
+energy onset finds them; measuring that and calling it legato is a trap this
+round fell into first):
+
+```
+  median lag, 2 to 12 notes a second
+  no interpolation            33  33  24  29  29  ms
+  interpolated                22  17  17  19  15  ms
+  …and the window's bias off  22   6   9  16  11  ms
+```
+
+Past a fifth of a window the correction stops doing anything, because the clamp
+binds — which is the right way for a calibration to end: out of evidence rather
+than out of nerve.
+
+**AND AN ABSOLUTE LOUDNESS FLOOR ONLY WORKS AT ONE VOLUME.** `ATTACK_FLOOR` was
+0.01, which is right for a cello a foot from the microphone and wrong for a flute
+across a room or a phone in a case. MEASURED, `npm run audio:fast -- --gain 0.03`
+(the same scale recorded quietly): with the fixed floor every note came back a
+median of **25ms EARLY**, spread −36 to −17ms — what clears an absolute floor in
+a quiet recording is not the attack but the noise around it. The floor now
+follows the room: the quietest block heard lately, times three, with an absolute
+minimum underneath so silence cannot make a hiss an attack. Same scale, same
+gain: **0ms**.
+
+```
+                      articulated      legato        quiet (gain 0.03)
+  median lag           0-5ms          6-22ms          0-5ms
+  10th..90th          -1..19ms       -9..43ms        -0..19ms
+```
+
+The slurred case is the loose one and is honestly loose: a slurred boundary is
+not as sharp as an attack, and `tests/onset.test.js` holds the articulated case
+to 20ms and the slurred one to 40.
+
 ## Run it
 
 ```

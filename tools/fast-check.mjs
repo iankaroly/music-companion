@@ -29,16 +29,31 @@ const flag = (name, fallback) => (argv.includes(`--${name}`)
 const SR = flag('sr', 44100);
 const BASE = flag('midi', 72);         // C5 — a flute sits around here
 const HARMONICS = flag('harmonics', 1);
+// LEGATO: no silence between the notes, so no note has an attack of its own.
+// This is how a flute or a cello plays most of the time, and it is the case the
+// energy onset cannot help with — the boundary has to come out of the PITCH.
+const GAP = flag('gap', 0.12);
+// How loud the recording is. A flute across a room, a phone in a case and a
+// cello a foot from the microphone are the same music at very different
+// levels, and an attack detector with a fixed floor only works at one of them.
+const GAIN = flag('gain', 1);
 
 // A scale, played at a given number of notes per second, as audio. Each note is
 // a sine with a short attack and release — not an instrument, but the thing the
 // pitch reader is looking at is the periodicity, and that is honest.
 function scale(notesPerSecond, count = 24) {
   const step = SR / notesPerSecond;
-  const gap = Math.round(step * 0.12);          // a little air between notes
+  const gap = Math.round(step * GAP);          // a little air between notes
   const samples = new Float32Array(Math.round(step * count) + SR);
   const played = [];
   const STEPS = [0, 2, 4, 5, 7, 9, 11, 12];
+  // LEGATO IS ONE SOUND, and building it as separate notes with no silence
+  // between them is not the same thing: each still has its own fade in and out,
+  // which is an attack, and the energy onset finds it. A slur has no edges at
+  // all — the phase runs on through the change of pitch — so it is built as one
+  // continuous tone whose frequency steps. This is the difference between
+  // measuring the slurred case and thinking you are.
+  let phase = 0;
   for (let i = 0; i < count; i++) {
     const midi = BASE + STEPS[i % STEPS.length] + 12 * Math.floor(i / STEPS.length / 2);
     const from = Math.round(i * step);
@@ -46,13 +61,20 @@ function scale(notesPerSecond, count = 24) {
     const hz = 440 * 2 ** ((midi - 69) / 12);
     for (let k = 0; k < len; k++) {
       const t = k / SR;
-      // A short attack and decay, so a note has an edge to find.
-      const env = Math.min(1, k / (SR * 0.004)) * Math.min(1, (len - k) / (SR * 0.01));
-      let v = Math.sin(2 * Math.PI * hz * t);
-      // …and, optionally, a strong second harmonic — which is what a flute is,
-      // and why a flute is the instrument that gets heard an octave high.
-      for (let h = 2; h <= HARMONICS + 1; h++) v += Math.sin(2 * Math.PI * hz * h * t) / h;
-      samples[from + k] += 0.5 * env * v;
+      // Articulated: a short attack and decay, so a note has an edge to find.
+      // Slurred: nothing but the fade at the very start and end of the whole
+      // run, so no note but the first has an edge.
+      const at = from + k;
+      const env = gap > 0
+        ? Math.min(1, k / (SR * 0.004)) * Math.min(1, (len - k) / (SR * 0.01))
+        : Math.min(1, at / (SR * 0.004))
+          * Math.min(1, (Math.round(step * count) - at) / (SR * 0.01));
+      let v = Math.sin(gap > 0 ? 2 * Math.PI * hz * t : phase);
+      for (let h = 2; h <= HARMONICS + 1; h++) {
+        v += Math.sin((gap > 0 ? 2 * Math.PI * hz * t : phase) * h) / h;
+      }
+      samples[at] += 0.5 * GAIN * env * v;
+      phase += (2 * Math.PI * hz) / SR;
     }
     played.push({ midi, start: from / SR, end: (from + len) / SR });
   }
@@ -119,7 +141,7 @@ function score(played, heard) {
 }
 
 const PACES = [2, 4, 6, 8, 10, 12, 16];
-console.log(`\nHOW FAST BEFORE THE NOTES STOP BEING HEARD — sine at midi ${BASE},`
+console.log(`\nHOW FAST BEFORE THE NOTES STOP BEING HEARD — ${GAP > 0 ? `${Math.round(GAP * 100)}% gap` : 'LEGATO, no gap'}, sine at midi ${BASE},`
   + ` ${SR / 1000}kHz, 4096-sample window (${(4096 / SR * 1000).toFixed(0)}ms)`
   + `${HARMONICS ? `, with ${HARMONICS} added harmonic(s)` : ''}\n`);
 console.log('  notes/s   note length   played  heard  on the right pitch   lag    10th..90th    worst');

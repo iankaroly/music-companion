@@ -10,7 +10,20 @@ import { detectTwoPitches } from './dual-pitch.js';
 // this is not trying to name the attack of a note, only to say which
 // millisecond it began at, and everything downstream of it can already tell a
 // note from a noise.
-const ATTACK_FLOOR = 0.01;
+// …AND THE FLOOR FOLLOWS THE ROOM, rather than being a number.
+//
+// A fixed floor of 0.01 is right for a cello a foot from the microphone and
+// wrong for everything else: a flute across a room, a phone in a case, anything
+// recorded quietly has every real attack under it, and one note in six kept the
+// late time because of it. MEASURED, `npm run audio:fast`, ninth decile of the
+// onset error: 18-28ms with the fixed floor, and the notes that made it up were
+// the quiet ones.
+//
+// So the floor is the quietest thing heard lately, times a margin — with an
+// absolute minimum underneath so that silence itself cannot make every hiss an
+// attack.
+const ATTACK_QUIETEST = 0.0015;   // the floor's own floor
+const ATTACK_OVER = 3;            // …and how far over the room a sound must be
 const ATTACK_JUMP = 2.2;
 
 export class Analyzer {
@@ -30,6 +43,10 @@ export class Analyzer {
     // The tail of the energy trace, kept across hops so a rise that straddles
     // the join between two of them is still one rise. See `attackIn`.
     this.wasLoud = 0;
+    // The quietest block heard lately — the room, near enough — which is what
+    // an attack has to stand out from. It follows quiet down at once and back
+    // up very slowly, so a loud passage does not raise it.
+    this.roomIs = 1;
   }
 
   push(chunk) {
@@ -91,7 +108,9 @@ export class Analyzer {
       // began: median lag went from 0ms back to 8-27ms. And taking the biggest
       // jump rather than the first takes the peak of the attack rather than its
       // start.
-      if (!best && loud > ATTACK_FLOOR && loud > before * ATTACK_JUMP) {
+      this.roomIs = loud < this.roomIs ? loud : this.roomIs * 0.999 + loud * 0.001;
+      const floor = Math.max(ATTACK_QUIETEST, this.roomIs * ATTACK_OVER);
+      if (!best && loud > floor && loud > before * ATTACK_JUMP) {
         best = { rise: loud / Math.max(1e-4, before), at: (this.totalSamples - (window.length - at)) / this.sampleRate };
       }
       before = loud;
