@@ -100,15 +100,21 @@ function score(played, heard) {
   const octave = matched.filter((m) => m.heard.midi !== m.played.midi
     && Math.abs(m.heard.midi - m.played.midi) % 12 === 0);
   const offsets = matched.map((m) => m.heard.start - m.played.start).sort((a, b) => a - b);
-  const median = offsets.length ? offsets[Math.floor(offsets.length / 2)] : NaN;
-  const worst = offsets.length ? Math.max(...offsets.map((o) => Math.abs(o - median))) : NaN;
+  const at = (q) => (offsets.length
+    ? offsets[Math.min(offsets.length - 1, Math.floor(offsets.length * q))] : NaN);
+  const median = at(0.5);
+  // The spread that matters is where the notes actually sit, not the one note
+  // that sat furthest out — a mix of back-dated notes and notes with no attack
+  // to back-date to is two populations, and a maximum cannot show that.
   return {
     heard: heard.length,
     matched: matched.length,
     right: right.length,
     octave: octave.length,
     lag: median,
-    spread: worst,
+    tenth: at(0.1),
+    ninetieth: at(0.9),
+    worst: offsets.length ? Math.max(...offsets.map((o) => Math.abs(o - median))) : NaN,
   };
 }
 
@@ -116,7 +122,7 @@ const PACES = [2, 4, 6, 8, 10, 12, 16];
 console.log(`\nHOW FAST BEFORE THE NOTES STOP BEING HEARD — sine at midi ${BASE},`
   + ` ${SR / 1000}kHz, 4096-sample window (${(4096 / SR * 1000).toFixed(0)}ms)`
   + `${HARMONICS ? `, with ${HARMONICS} added harmonic(s)` : ''}\n`);
-console.log('  notes/s   note length   played  heard  on the right pitch  octave out   lag    spread');
+console.log('  notes/s   note length   played  heard  on the right pitch   lag    10th..90th    worst');
 for (const pace of PACES) {
   const { samples, played } = scale(pace);
   const got = score(played, hear(samples));
@@ -124,9 +130,9 @@ for (const pace of PACES) {
   console.log(`  ${String(pace).padStart(5)}   ${ms(1 / pace).padStart(11)}`
     + `${String(played.length).padStart(9)}${String(got.heard).padStart(7)}`
     + `${`${got.right} of ${got.matched}`.padStart(20)}`
-    + `${String(got.octave).padStart(12)}`
     + `${(Number.isFinite(got.lag) ? ms(got.lag) : '—').padStart(8)}`
-    + `${(Number.isFinite(got.spread) ? `±${ms(got.spread)}` : '—').padStart(10)}`);
+    + `${(Number.isFinite(got.tenth) ? `${ms(got.tenth)}..${ms(got.ninetieth)}` : '—').padStart(14)}`
+    + `${(Number.isFinite(got.worst) ? `±${ms(got.worst)}` : '—').padStart(9)}`);
 }
 console.log('\n  lag is how late the note is reported against when it was played — a constant'
   + '\n  lag shifts the light evenly and is correctable; the SPREAD is what cannot be'

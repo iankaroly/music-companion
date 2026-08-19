@@ -501,6 +501,51 @@ nothing to read, and page 1's "40 staves and 492 noteheads" are lines of TEXT.
 The crop was following the ink correctly the whole time. Look at the page before
 believing a table about it — the oldest rule in this file, and it cost an hour.
 
+## A NOTE STARTS WHEN THE SOUND STARTS — the last of the sync work
+
+`npm run audio:fast` measured the recording half of "can a fast piece stay in
+step with the page", and the answer had a systematic error in it: every note
+came back **16-31 ms late**, with a spread of ±20-30 ms. A note was opened on the
+first frame whose PITCH the segmenter believed, and believing a pitch takes a
+4096-sample window plus a hop or two to settle. At semiquavers at 180 that is a
+quarter of a note.
+
+Energy needs no window. The analyzer now walks each hop in 1.4 ms blocks and
+reports where the sound STEPPED UP — the first block more than 2.2× the one
+before it — beside the pitch, and the segmenter opens its note there.
+
+```
+  notes/s   note      heard    lag (was)   lag (now)   10th..90th
+     2      500ms     23/24      16ms        -0ms       -1ms..0ms
+     4      250ms     23/24      20ms         0ms       -1ms..19ms
+     8      125ms     23/24      29ms         2ms       -1ms..18ms
+    12       83ms     22/24      31ms         5ms       -0ms..19ms
+    16       63ms      8/24      23ms        -0ms       -1ms..18ms
+```
+
+**And it raised the ceiling as a side effect.** At sixteen notes a second the app
+heard 8 of 24; it now hears 21. Nothing about the pitch reading changed — a note
+was being thrown away by `minDuration` because its measured length was the part
+AFTER the attack, which at 63 ms notes is under the 40 ms floor. Given its real
+start, the note is long enough to keep.
+
+**Three things it deliberately does not do**, each of which was wrong when tried:
+
+- **It does not invent an attack.** A slurred note, a bow change under a slur, a
+  note growing out of the one before it: no step in loudness, no back-dating,
+  and the note keeps the time it was heard at. Inventing one would move it
+  earlier than it was played.
+- **It does not measure the rise against a floor that adapts.** Tried first: with
+  a slowly-adapting floor every block of a loud note beats it, so the biggest
+  ratio in a hop is wherever the note is loudest rather than where it began —
+  median lag went straight back to 8-27 ms.
+- **It does not take the biggest jump, but the first.** The biggest is the peak
+  of the attack; the first is its start.
+- **And it never reaches back behind the previous note's end.** Back-dating moves
+  a start earlier and leaves the last note's end where it was, so without a
+  clamp two notes overlap — and everything that asks "what is sounding now"
+  would have two answers for one instant.
+
 ## Run it
 
 ```

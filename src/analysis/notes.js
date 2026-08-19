@@ -39,13 +39,57 @@ export class NoteSegmenter {
       minDuration, splitSemitones, confidenceFloor, rmsFloor, silenceFrames,
       holdFrames, swingTolerance, a4,
     });
-    this.current = null;   // { frames: [{time, midiFloat}] }
+    this.current = null;   // { frames: [{time, midiFloat}], attack }
+    // The energy rises the analyzer has reported lately, and how far back one
+    // may be and still belong to a note opening now. See attackFor.
+    this.rises = [];
+    this.windowSeconds = options.windowSeconds ?? 0.1;
+    // Where the last note stopped, so a back-dated start cannot reach behind it.
+    this.lastEnd = null;
     this.pending = null;   // frames of a possible pitch change, not yet committed
     this.silentRun = 0;
   }
 
+  // THE ATTACK A NOTE OPENED ON, chosen from the rises the analyzer has
+  // reported lately.
+  //
+  // A note is opened on the first frame whose PITCH is believable, and by then
+  // the sound has been going for a window and a hop or two: measured on
+  // synthesised scales (`npm run audio:fast`), every note came back 16-31ms
+  // late with a spread of ±20-30ms. The analyzer now reports where the sound
+  // itself stepped up, to a millisecond or two, and this picks the one that
+  // belongs to the note being opened: the most recent rise that is not older
+  // than the ear could account for, and never in the future.
+  //
+  // A note with no rise behind it keeps the time it was heard at. That is not a
+  // failure to find one — it is a note that has no attack: a slur, a bow change
+  // under one, a note growing out of the note before it. Inventing an onset for
+  // those would move them EARLIER than they were played.
+  attackFor(time) {
+    const reach = this.windowSeconds + 0.05;
+    let best = null;
+    for (const rise of this.rises) {
+      if (rise.at > time || rise.at < time - reach) continue;
+      if (!best || rise.at > best.at) best = rise;
+    }
+    if (best === null) return null;
+    // …AND NEVER BEFORE THE NOTE BEFORE IT ENDED. Back-dating moves a start
+    // earlier and leaves the previous note's end where it was, so without this
+    // two notes can overlap — and everything that asks "what is sounding now"
+    // (the light on the page, the tile that highlights, the clip a press plays)
+    // would have two answers for the same instant.
+    return this.lastEnd !== null ? Math.max(best.at, this.lastEnd) : best.at;
+  }
+
   push(reading) {
     const out = [];
+    // Every rise the analyzer has seen lately, oldest first, trimmed to what
+    // could still belong to a note being opened now.
+    if (reading.attack) {
+      this.rises.push(reading.attack);
+      const keep = reading.time - (this.windowSeconds + 0.2);
+      while (this.rises.length && this.rises[0].at < keep) this.rises.shift();
+    }
     const voiced =
       reading.frequency !== null &&
       reading.confidence >= this.confidenceFloor &&
@@ -66,7 +110,7 @@ export class NoteSegmenter {
     const frame = { time: reading.time, midiFloat };
 
     if (!this.current) {
-      this.current = { frames: [frame] };
+      this.current = { frames: [frame], attack: this.attackFor(frame.time) };
       return out;
     }
 
@@ -80,7 +124,13 @@ export class NoteSegmenter {
         if (this.pending.length >= this.holdFrames) {
           const note = this.closeCurrent();
           if (note) out.push(note);
-          this.current = { frames: this.pending };
+          // A SPLIT gets its attack the same way, from the first frame of the
+          // new note rather than from the moment the split was confirmed — a
+          // split is only believed after `holdFrames` frames, so the note began
+          // before the code knew about it. Where a run is slurred there is no
+          // rise to find and the frame's own time stands, which is right: those
+          // notes have no attack.
+          this.current = { frames: this.pending, attack: this.attackFor(this.pending[0].time) };
           this.pending = null;
         }
       } else {
@@ -147,11 +197,14 @@ export class NoteSegmenter {
 
   closeCurrent() {
     if (!this.current) return null;
-    const { frames } = this.current;
+    const { frames, attack } = this.current;
     this.current = null;
 
-    const start = frames[0].time;
+    // Where the sound started, where there was an attack to find; where it was
+    // first believed, where there was not. See attackFor.
+    const start = attack ?? frames[0].time;
     const end = frames.at(-1).time;
+    this.lastEnd = end;
     if (end - start < this.minDuration) return null;
 
     const centerMidi = median(frames.map((f) => f.midiFloat));
