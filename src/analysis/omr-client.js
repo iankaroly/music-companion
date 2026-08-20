@@ -17,15 +17,64 @@
 //
 // The pipeline lives in server/ of this repo. `npm start` there.
 
-const DEFAULT_URL = 'http://127.0.0.1:4000';
+const LOOPBACK = 'http://127.0.0.1:4000';
 const URL_KEY = 'omr-service-url';
+const PORT = 4000;
+
+/**
+ * Where the service is, by default: THE MACHINE THAT SERVED THE APP.
+ *
+ * This used to be 127.0.0.1 always, which is right on a laptop and useless on a
+ * phone — where 127.0.0.1 is the phone, and there is no pipeline on a phone.
+ * Scanning on the phone therefore never converted anything, which is not what
+ * "it converts by itself" is supposed to mean.
+ *
+ * If the app is being served from a machine on the network — you opened
+ * http://192.168.1.50:5199 on your phone, off the Mac running `npm run dev` —
+ * then that same machine is where the pipeline will be, on its own port. So
+ * that is the default, and there is nothing to set up.
+ *
+ * Only over plain http, which means a dev or home-network server. A page served
+ * over https cannot call a plain-http service at all — the browser refuses it as
+ * mixed content — so on the deployed app the default stays loopback, finds
+ * nothing, and the feature stays quietly hidden. That is the honest behaviour:
+ * pretending otherwise would put a button there that can never work.
+ */
+function defaultUrl() {
+  try {
+    const { protocol, hostname } = window.location;
+    if (protocol === 'http:' && hostname && !/^(localhost|127\.0\.0\.1|\[::1\])$/.test(hostname)) {
+      return `http://${hostname}:${PORT}`;
+    }
+  } catch { /* no window, or a locked-down one */ }
+  return LOOPBACK;
+}
 
 /** Where the service is. Overridable, because it need not be this machine. */
 export function omrUrl() {
   try {
-    return localStorage.getItem(URL_KEY) || DEFAULT_URL;
+    return localStorage.getItem(URL_KEY) || defaultUrl();
   } catch {
-    return DEFAULT_URL;   // private browsing, or storage refused
+    return defaultUrl();   // private browsing, or storage refused
+  }
+}
+
+/**
+ * Is this service on the machine the app came from?
+ *
+ * The rule that decides whether the pages go by themselves or wait for a
+ * button. Loopback is obviously this machine. So is the host that served the
+ * page — if you are reading the app off that Mac, its pipeline is not
+ * "somewhere else", it is the same computer, and asking twice is pedantry.
+ * Anything else waits to be asked.
+ */
+export function isOwnMachine(url) {
+  try {
+    const at = new URL(url);
+    if (/^(localhost|127\.0\.0\.1|\[::1\])$/.test(at.hostname)) return true;
+    return typeof window !== 'undefined' && at.hostname === window.location.hostname;
+  } catch {
+    return false;
   }
 }
 

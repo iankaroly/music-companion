@@ -469,10 +469,35 @@ never uploads anything twice:
 from `addPaper`, beside the existing background page-measuring, so nothing
 blocks and the score is open and playable while the reading happens.
 
-**It starts by itself only when the service is on this machine.** The default is
-`127.0.0.1:4000`, which keeps the app's promise that nothing leaves the device
-literally true. Point `localStorage['omr-service-url']` somewhere else and the
-automatic path switches off: a remote service is only ever used by pressing the
+### Scanning on a phone, recognising on the laptop
+
+The scanning happens on a phone; the recogniser is a JVM and a neural network
+and runs on a computer. So the arrangement that makes "scan it and it converts"
+real is the app served off that computer and opened on the phone over the house
+wifi:
+
+```bash
+cd server && npm run start:lan     # the pipeline, reachable on the network
+cd .. && npm run dev -- --host     # the app, reachable on the network
+# then on the phone: http://<the laptop's address>:5199
+```
+
+Nothing to configure: the app looks for the pipeline on **the machine that
+served it**, so a page opened from `192.168.1.50:5199` looks at
+`192.168.1.50:4000` and finds it. Measured end to end over a home network: a
+PDF imported on the phone came back paired, 31 bars and 152 notes, in 24
+seconds.
+
+**This does not work from the deployed app**, and cannot: a page served over
+https is not allowed to call a plain-http service — the browser blocks it as
+mixed content — so on `practicepartner.vercel.app` the pipeline is simply never
+found and the feature stays hidden rather than offering a button that fails.
+
+**It starts by itself only when the service is on the machine the app came
+from** — loopback, or the host that served the page. Both are the same
+computer, and asking twice for a computer you are already reading the app off
+is pedantry. Point `localStorage['omr-service-url']` at anything else and the
+automatic path switches off: another machine is only ever used by pressing the
 "Read the notes" button on the score card.
 
 If no service answers, or one answers with no OMR engine installed, the app is

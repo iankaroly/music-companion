@@ -196,6 +196,24 @@ function buildTimemapFor(timeline, body) {
 /** Local origins, unless told otherwise. See config.corsOrigins for why. */
 const LOCAL_ORIGIN = /^(https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|capacitor:\/\/localhost|ionic:\/\/localhost|file:\/\/)$/;
 
+// The home network, so a phone can use the pipeline on the laptop.
+//
+// Scanning happens on a phone; the recogniser is a JVM and a neural network and
+// runs on a computer. The one arrangement that makes the feature real is the
+// app served off that computer and opened on the phone over the house wifi —
+// and every request in it is then cross-origin from a private address. These
+// are the private ranges and nothing else: 10/8, 172.16/12, 192.168/16 and
+// link-local, which cannot be reached from outside the house.
+const PRIVATE_ORIGIN = new RegExp(
+  '^http://('
+  + '10\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}'
+  + '|172\\.(1[6-9]|2\\d|3[01])\\.\\d{1,3}\\.\\d{1,3}'
+  + '|192\\.168\\.\\d{1,3}\\.\\d{1,3}'
+  + '|169\\.254\\.\\d{1,3}\\.\\d{1,3}'
+  + '|[a-z0-9-]+\\.local'
+  + ')(:\\d+)?$',
+);
+
 function allowedOrigin(origin) {
   if (!origin) return null;                       // curl, or a same-origin page
   const configured = config.corsOrigins;
@@ -204,7 +222,7 @@ function allowedOrigin(origin) {
     const list = configured.split(',').map((o) => o.trim()).filter(Boolean);
     return list.includes(origin) ? origin : null;
   }
-  return LOCAL_ORIGIN.test(origin) ? origin : null;
+  return LOCAL_ORIGIN.test(origin) || PRIVATE_ORIGIN.test(origin) ? origin : null;
 }
 
 /**

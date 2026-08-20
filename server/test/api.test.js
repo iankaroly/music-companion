@@ -389,3 +389,18 @@ test('the Java engine is told not to open a window', async () => {
   if (!audiveris?.ok) return;   // not installed on this machine; nothing to check
   assert.equal(audiveris.headless, true);
 });
+
+test('a phone on the house wifi may use the pipeline; the open web may not', async () => {
+  // The one arrangement that makes scanning-then-converting real: the app
+  // served off the laptop, opened on a phone over the local network. Every
+  // request in it is cross-origin from a private address.
+  for (const origin of ['http://192.168.1.50:5199', 'http://10.0.0.7:5199', 'http://mac.local:5199']) {
+    const response = await api('/v1/engines', { headers: { origin } });
+    assert.equal(response.headers.get('access-control-allow-origin'), origin, origin);
+  }
+  // A public address is not the house.
+  for (const origin of ['http://93.184.216.34:5199', 'https://example.com', 'http://172.32.0.1:5199']) {
+    const response = await api('/v1/engines', { headers: { origin } });
+    assert.equal(response.headers.get('access-control-allow-origin'), null, origin);
+  }
+});
