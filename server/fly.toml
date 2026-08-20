@@ -20,6 +20,11 @@ primary_region = "iad"
   # A shared machine, so the scans do not stay on it.
   KEEP_UPLOADS = "0"
   CONVERSIONS_PER_HOUR = "20"
+  # The app's own origin, because a browser will not send a page anywhere the
+  # server has not named. Without a password the origin list is the only thing
+  # standing here, so it names the app and nothing else; curl never sees this
+  # (it sends no Origin), which is why it has to be checked with a preflight.
+  CORS_ORIGINS = "https://practicepartner.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
 
 [http_service]
   internal_port = 8080

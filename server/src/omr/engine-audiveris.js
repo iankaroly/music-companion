@@ -56,9 +56,21 @@ const JAVA_HOMES = [
 // load it, and logs "Tesseract couldn't load any languages!". Left alone,
 // Audiveris uses its own folder — which scripts/install-audiveris.sh fills with
 // the full file from the tessdata repository.
-const AUDIVERIS_TESSDATA = process.env.HOME
-  ? path.join(process.env.HOME, 'Library/Application Support/AudiverisLtd/audiveris/tessdata')
-  : null;
+//
+// The order here is Audiveris's own (TesseractOCR.findOcrFolder): TESSDATA_PREFIX
+// if it is set, then the folder it keeps for itself — which is per-platform, and
+// nothing alike between them. Reporting only the macOS one made the hosted
+// service say "ocr: none" while its logs said "Installed OCR languages: eng"; a
+// health report that lies is worse than no health report, because the next
+// person to read it goes hunting for a fault that is not there.
+const AUDIVERIS_TESSDATA = (() => {
+  if (process.env.TESSDATA_PREFIX) return process.env.TESSDATA_PREFIX;
+  if (!process.env.HOME) return null;
+  return process.platform === 'darwin'
+    ? path.join(process.env.HOME, 'Library/Application Support/AudiverisLtd/audiveris/tessdata')
+    : path.join(process.env.XDG_CONFIG_HOME || path.join(process.env.HOME, '.config'),
+                'AudiverisLtd/audiveris/tessdata');
+})();
 
 async function firstExisting(paths) {
   for (const candidate of paths) {
