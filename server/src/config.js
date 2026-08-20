@@ -45,6 +45,20 @@ export const config = {
     keepWork: process.env.OMR_KEEP_WORK === '1',
   },
 
+  // A PASSWORD FOR THE PIPELINE, when it is reachable from outside the house.
+  //
+  // On a home network the address itself is the protection: nobody outside can
+  // route to 192.168.x.x. Put the service behind a tunnel so a phone can reach
+  // it from anywhere and that protection is gone — the URL is public, and a
+  // stranger who finds it can queue twenty-minute recognition jobs on somebody's
+  // laptop and read whatever is uploaded.
+  //
+  // So: set OMR_TOKEN and every call must carry it. Unset, nothing changes and
+  // the service stays as open as the network it is on — which is the right
+  // default for loopback and the wrong one for a tunnel, so the tunnel script
+  // makes one up if there is none.
+  token: process.env.OMR_TOKEN ?? null,
+
   // Who may call this from a browser.
   //
   // The app is served by Vite on another port, and the iOS build runs from

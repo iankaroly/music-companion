@@ -389,7 +389,7 @@ function offerPipeline(row) {
  */
 async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
   const {
-    omrAvailable, readWithOmr, sayQuality, omrUrl, isOwnMachine,
+    omrAvailable, readWithOmr, sayQuality, omrUrl, maySendFreely,
   } = await import('../analysis/omr-client.js');
 
   const service = await omrAvailable();
@@ -407,7 +407,7 @@ async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
   // Opening the app off the Mac on a phone and then being told the Mac is
   // "somewhere else" was pedantry that stopped the feature working at all where
   // it is most wanted.
-  if (!isOwnMachine(service.url) && !asked) return null;
+  if (!maySendFreely(service.url) && !asked) return null;
 
   const payload = await loadScorePages(paperId);
   if (!payload) return null;

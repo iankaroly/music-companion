@@ -15,7 +15,8 @@
     "demo:check": "node scripts/demo-check.mjs",
     "convert": "node scripts/convert.mjs",
     "osmd:check": "node scripts/osmd-check.mjs",
-    "start:lan": "HOST=0.0.0.0 node src/index.js"
+    "start:lan": "HOST=0.0.0.0 node src/index.js",
+    "tunnel": "./scripts/tunnel.sh"
   },
   "dependencies": {
     "express": "^4.21.2",

@@ -19,6 +19,7 @@
 
 const LOOPBACK = 'http://127.0.0.1:4000';
 const URL_KEY = 'omr-service-url';
+const TOKEN_KEY = 'omr-service-token';
 const PORT = 4000;
 
 /**
@@ -78,11 +79,55 @@ export function isOwnMachine(url) {
   }
 }
 
+/**
+ * May the pages go without asking?
+ *
+ * Yes for the machine the app came from, which is the same computer. And yes
+ * for an address somebody typed into Settings: typing the address of a
+ * recogniser IS the asking, and being asked again on every scan afterwards is
+ * the kind of politeness that makes a feature not worth having. Anything the
+ * app guessed at, and is not this machine, still waits for the button.
+ */
+export function maySendFreely(url) {
+  return isOwnMachine(url) || omrChosen();
+}
+
 export function setOmrUrl(url) {
   try {
     if (url) localStorage.setItem(URL_KEY, url.replace(/\/+$/, ''));
     else localStorage.removeItem(URL_KEY);
   } catch { /* the default still works */ }
+}
+
+/** The password the service was started with, if it has one. */
+export function omrToken() {
+  try {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  } catch {
+    return '';
+  }
+}
+
+export function setOmrToken(token) {
+  try {
+    if (token) localStorage.setItem(TOKEN_KEY, token);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch { /* it will simply be refused */ }
+}
+
+/** Was the address chosen by hand, rather than guessed from the page? */
+export function omrChosen() {
+  try {
+    return Boolean(localStorage.getItem(URL_KEY));
+  } catch {
+    return false;
+  }
+}
+
+/** Every call carries the password, when there is one. */
+function headers() {
+  const token = omrToken();
+  return token ? { 'x-omr-token': token } : {};
 }
 
 /**
@@ -100,7 +145,7 @@ export async function omrAvailable({ timeoutMs = 1500 } = {}) {
   const url = omrUrl();
   const stop = AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined;
   try {
-    const response = await fetch(`${url}/v1/engines`, { signal: stop });
+    const response = await fetch(`${url}/v1/engines`, { signal: stop, headers: headers() });
     if (!response.ok) return { ok: false, real: false, engines: [], url };
     const { engines } = await response.json();
     const ready = engines.filter((e) => e.ok).map((e) => e.id);
@@ -161,7 +206,9 @@ export async function readWithOmr(payload, { name = 'score', onProgress = null, 
 
   onProgress?.({ stage: files.length > 1 ? `sending ${files.length} pages` : 'sending the scan', percent: 0 });
 
-  const started = await fetch(`${url}/v1/scores`, { method: 'POST', body: form, signal });
+  const started = await fetch(`${url}/v1/scores`, {
+    method: 'POST', body: form, signal, headers: headers(),
+  });
   if (!started.ok) {
     const body = await started.json().catch(() => null);
     throw new Error(body?.error?.message ?? `the service refused the upload (${started.status})`);
@@ -175,7 +222,7 @@ export async function readWithOmr(payload, { name = 'score', onProgress = null, 
   // same machine.
   for (;;) {
     if (signal?.aborted) throw new Error('stopped');
-    const response = await fetch(`${url}/v1/jobs/${jobId}`, { signal });
+    const response = await fetch(`${url}/v1/jobs/${jobId}`, { signal, headers: headers() });
     if (!response.ok) throw new Error('lost contact with the service');
     const { job } = await response.json();
 
@@ -185,10 +232,11 @@ export async function readWithOmr(payload, { name = 'score', onProgress = null, 
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
 
+  const get = (path) => fetch(`${url}${path}`, { signal, headers: headers() });
   const [xml, quality, pages] = await Promise.all([
-    fetch(`${url}/v1/scores/${scoreId}/musicxml`, { signal }).then((r) => r.text()),
-    fetch(`${url}/v1/scores/${scoreId}/quality`, { signal }).then((r) => r.json()),
-    fetch(`${url}/v1/scores/${scoreId}/pages`, { signal }).then((r) => r.json()),
+    get(`/v1/scores/${scoreId}/musicxml`).then((r) => r.text()),
+    get(`/v1/scores/${scoreId}/quality`).then((r) => r.json()),
+    get(`/v1/scores/${scoreId}/pages`).then((r) => r.json()),
   ]);
 
   return { xml, quality: quality.quality, omr: quality.omr, pages, scoreId };

@@ -17,6 +17,7 @@
 // comes next needs no new endpoints: an aligner is just something that POSTs
 // better anchors.
 
+import { timingSafeEqual } from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -218,6 +219,15 @@ function allowedOrigin(origin) {
   if (!origin) return null;                       // curl, or a same-origin page
   const configured = config.corsOrigins;
   if (configured === '*') return '*';
+  // A PASSWORD MAKES THE ORIGIN LIST BESIDE THE POINT.
+  //
+  // Without one, the address is the protection and only the house may call in.
+  // With one, the pipeline is deliberately reachable from anywhere — that is
+  // what a tunnel is for — and the app doing the calling is served from
+  // whatever host it is deployed at. Refusing that origin while accepting the
+  // password would leave the feature broken in exactly the arrangement it was
+  // set up for.
+  if (config.token) return origin;
   if (configured) {
     const list = configured.split(',').map((o) => o.trim()).filter(Boolean);
     return list.includes(origin) ? origin : null;
@@ -252,12 +262,48 @@ function cors(req, res, next) {
   next();
 }
 
+
+/**
+ * The password, when one is set.
+ *
+ * Checked on everything but the health probe, which says only that something is
+ * listening — that is what a tunnel's own checks ask for, and it gives nothing
+ * away. The demo page and its assets are behind it too: if the pipeline is
+ * reachable from the open web, so is that page.
+ *
+ * Compared in constant time, because a token that can be guessed a character at
+ * a time is not a token.
+ */
+function password(req, res, next) {
+  const wanted = config.token;
+  if (!wanted) return next();
+  if (req.path === '/healthz') return next();
+
+  const given = req.get('x-omr-token')
+    ?? (typeof req.query.token === 'string' ? req.query.token : '');
+  const a = Buffer.from(String(given));
+  const b = Buffer.from(String(wanted));
+  const ok = a.length === b.length && timingSafeEqual(a, b);
+  if (!ok) {
+    res.status(401).json({
+      error: {
+        message: 'this pipeline needs the password it was started with — see OMR_TOKEN',
+        status: 401,
+        details: null,
+      },
+    });
+    return;
+  }
+  return next();
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: '4mb' }));       // anchor lists can be long
   app.disable('x-powered-by');
 
   app.use(cors);
+  app.use(password);
 
   // A demo client at /. It is not the product — it is the API being used, in a
   // browser, so a change to an endpoint can be seen rather than only asserted.
