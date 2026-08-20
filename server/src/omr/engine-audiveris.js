@@ -17,12 +17,13 @@
 //   audiveris -batch -export -output <dir> -- <input.pdf>
 // which writes <dir>/<book>/<book>.mxl (compressed MusicXML).
 
-import { access, readdir, readFile, stat } from 'node:fs/promises';
+import { access, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { run } from './run.js';
 import { rasterisePdf } from './pdf.js';
 import { mapWithConcurrency } from '../util/pool.js';
+import { imagesToPdf } from '../scan/images-to-pdf.js';
 import { readMusicXmlBuffer } from '../musicxml/mxl.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -130,6 +131,24 @@ async function locate() {
   return null;
 }
 
+
+/**
+ * A photograph, wrapped in a page so it can be re-rendered bigger.
+ *
+ * Null when it is not an image this can embed — a caller with nothing to gain
+ * should keep the error it already had rather than a different one.
+ */
+async function asPage(imagePath, workDir) {
+  try {
+    const buffer = await readFile(imagePath);
+    const pdf = imagesToPdf([{ buffer, name: path.basename(imagePath) }]);
+    const out = path.join(workDir, 'as-page.pdf');
+    await writeFile(out, pdf);
+    return out;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * What went wrong, in a sentence somebody can act on.
@@ -249,15 +268,36 @@ export const audiverisEngine = {
     // ourselves on that path, a page that failed can be retried BIGGER, which
     // is what Audiveris asks for by name when it drops one.
 
+    let book = inputPath;
     try {
       onProgress?.(0, 'reading the whole book');
-      return await runBook({ bin, env, inputPath, outDir: path.join(workDir, 'audiveris'), onLog, onProgress, timeoutMs });
+      return await runBook({ bin, env, inputPath: book, outDir: path.join(workDir, 'audiveris'), onLog, onProgress, timeoutMs });
     } catch (err) {
-      if (kind !== 'pdf') throw err;
-      onLog?.(`audiveris could not read the book in one pass (${err.message}) — retrying page by page`);
+      if (kind === 'pdf') {
+        onLog?.(`audiveris could not read the book in one pass (${err.message}) — retrying page by page`);
+      } else {
+        // A PHOTOGRAPH GETS THE SAME SECOND CHANCE A PDF GETS.
+        //
+        // Everything below this — render the page, and render it again half as
+        // big again if Audiveris drops it — was reachable only from the PDF
+        // path, so a single photographed page had exactly one go and no rescue.
+        // Which is how a scan came back "too small to read" at an interline of
+        // TEN PIXELS, against Audiveris's floor of eleven: one pixel short,
+        // with the machinery for fixing it sitting behind a kind check.
+        //
+        // Wrapping it in a page turns it into the case that already works —
+        // the same thing that happens to a scan of two pages or more, which is
+        // why those read and this did not. Rendering an A4 page at 300 dpi is
+        // about 1.7x for a page off a phone camera, which takes an interline of
+        // ten to seventeen and well inside what Audiveris wants.
+        const wrapped = await asPage(book, workDir);
+        if (!wrapped) throw err;
+        book = wrapped;
+        onLog?.(`audiveris could not read that image (${err.message}) — retrying it as a page`);
+      }
     }
 
-    const { pages, truncated } = await rasterisePdf(inputPath, path.join(workDir, 'pages'), {
+    const { pages, truncated } = await rasterisePdf(book, path.join(workDir, 'pages'), {
       dpi, maxPages, onLog,
     });
 
@@ -287,7 +327,7 @@ export const audiverisEngine = {
         try {
           let imagePath = attempt.path;
           if (!imagePath) {
-            const bigger = await rasterisePdf(inputPath, path.join(workDir, `pages-${Math.round(dpi * 1.5)}`), {
+            const bigger = await rasterisePdf(book, path.join(workDir, `pages-${Math.round(dpi * 1.5)}`), {
               dpi: Math.round(dpi * 1.5), maxPages, onLog: () => {},
             });
             imagePath = bigger.pages.find((p) => p.page === page.page)?.path;
