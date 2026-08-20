@@ -1,0 +1,342 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>score pipeline</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  A demo client, not a product. It exists so the API can be seen working end to
+  end in a browser: upload a scan, watch the job, tap along to a recording, and
+  see the cursor land on the right bar. Every call it makes is a plain fetch to
+  the documented endpoints — read it as executable API documentation.
+-->
+<style>
+  :root { color-scheme: light dark; --line: color-mix(in srgb, currentColor 15%, transparent); }
+  body { font: 15px/1.5 ui-sans-serif, system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 14px; text-transform: uppercase; letter-spacing: .08em; opacity: .6; margin: 28px 0 8px; }
+  .muted { opacity: .6; }
+  section { border: 1px solid var(--line); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+  button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; cursor: pointer; }
+  button:disabled { opacity: .4; cursor: default; }
+  input[type=number] { width: 7em; font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: transparent; color: inherit; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 3px 8px 3px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  tr.now { background: color-mix(in srgb, currentColor 12%, transparent); font-weight: 600; }
+  pre { font-size: 12px; max-height: 160px; overflow: auto; background: color-mix(in srgb, currentColor 6%, transparent); padding: 8px; border-radius: 6px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .big { font-size: 28px; font-variant-numeric: tabular-nums; }
+</style>
+
+<h1>score pipeline</h1>
+<p class="muted">scanned PDF → OMR → MusicXML → structured score → bars and notes on a clock</p>
+
+<section>
+  <h2>1 · engines on this machine</h2>
+  <div id="engines" class="muted">checking…</div>
+</section>
+
+<section>
+  <h2>2 · upload a scan</h2>
+  <div class="row">
+    <input type="file" id="file" multiple
+           accept=".pdf,.png,.jpg,.jpeg,.tif,.tiff,.musicxml,.xml,.mxl">
+    <button id="upload">convert</button>
+    <span id="jobStatus" class="muted"></span>
+  </div>
+  <p class="muted" id="selection" style="margin:8px 0 0">
+    Pick one file, or photograph every page and pick them all at once — several
+    images are combined into one PDF, in the order they are listed, which is
+    what lets a failed page fall back rather than fail the job.
+  </p>
+  <pre id="jobLog" hidden></pre>
+  <div class="row" style="margin-top:10px">
+    <label>or open one already converted:
+      <select id="recent"><option value="">—</option></select>
+    </label>
+  </div>
+</section>
+
+<section id="scoreBox" hidden>
+  <h2>3 · what came back</h2>
+  <div id="scoreInfo"></div>
+  <div class="row" style="margin-top:12px">
+    <button id="download">download the MusicXML</button>
+    <span id="xmlNote" class="muted"></span>
+  </div>
+  <table id="pages" hidden style="margin-top:12px"><thead><tr>
+    <th>page</th><th>status</th><th>bars</th><th>notes</th><th></th>
+  </tr></thead><tbody></tbody></table>
+</section>
+
+<section id="alignBox" hidden>
+  <h2>4 · align it to a recording</h2>
+  <p class="muted">
+    Either give a tempo, or press <b>tap</b> on each bar line while the clock runs —
+    each tap is one anchor, and the alignment is re-fitted as they arrive.
+  </p>
+  <div class="row">
+    <label>quarter bpm <input type="number" id="bpm" value="90" min="20" max="300"></label>
+    <label>offset s <input type="number" id="offset" value="0" step="0.1"></label>
+    <button id="constant">align at this tempo</button>
+  </div>
+  <div class="row" style="margin-top:12px">
+    <button id="startTap">start clock</button>
+    <button id="tap" disabled>tap (bar line)</button>
+    <button id="fit" disabled>align from taps</button>
+    <span id="tapClock" class="muted">0.00 s</span>
+    <span id="tapCount" class="muted"></span>
+  </div>
+</section>
+
+<section id="playBox" hidden>
+  <h2>5 · the cursor</h2>
+  <div class="row">
+    <button id="play">play</button>
+    <input type="range" id="scrub" min="0" max="100" value="0" step="0.01" style="flex:1">
+    <span class="big" id="clock">0.00</span>
+  </div>
+  <div class="row" style="margin-top:8px">
+    <div class="big" id="where">—</div>
+    <div class="muted" id="sounding"></div>
+  </div>
+  <div style="max-height:280px; overflow:auto; margin-top:12px">
+    <table id="bars"><thead><tr>
+      <th>#</th><th>bar</th><th>pass</th><th>page</th><th>start</th><th>end</th>
+    </tr></thead><tbody></tbody></table>
+  </div>
+</section>
+
+<script type="module">
+const $ = (id) => document.getElementById(id);
+const api = async (path, init) => {
+  const response = await fetch(path, init);
+  const body = response.status === 204 ? null : await response.json().catch(() => null);
+  if (!response.ok) throw new Error(body?.error?.message ?? `${response.status} ${path}`);
+  return body;
+};
+
+let scoreId = null;
+let alignmentId = null;
+let bars = [];
+
+// --- engines ---------------------------------------------------------------
+const { engines } = await api('/v1/engines');
+$('engines').innerHTML = engines.map((e) =>
+  `${e.ok ? '✅' : '⬜️'} <b>${e.id}</b> — ${e.label}${e.ok ? '' : ` <span class="muted">(${e.reason})</span>`}`,
+).join('<br>');
+if (!engines.some((e) => e.ok && (e.id === 'audiveris' || e.id === 'oemer'))) {
+  $('engines').innerHTML += '<br><b>No OMR engine installed</b> — uploads will return a fixture score, not a reading of your scan.';
+}
+
+// --- already-converted scores ---------------------------------------------
+async function refreshRecent() {
+  const { scores } = await api('/v1/scores');
+  $('recent').innerHTML = '<option value="">—</option>' + scores
+    .filter((s) => s.status === 'ready')
+    .map((s) => `<option value="${s.id}">${s.title ?? s.id} · ${s.measureCount ?? '?'} bars</option>`)
+    .join('');
+}
+await refreshRecent();
+
+$('recent').onchange = async () => {
+  if (!$('recent').value) return;
+  scoreId = $('recent').value;
+  await showScore();
+};
+
+// --- upload ----------------------------------------------------------------
+$('file').onchange = () => {
+  const files = [...$('file').files];
+  $('selection').textContent = files.length > 1
+    ? `${files.length} files → they will be combined into one ${files.length}-page document, in this order: `
+      + files.map((f) => f.name).join(', ')
+    : (files[0]?.name ?? '');
+};
+
+$('upload').onclick = async () => {
+  const files = [...$('file').files];
+  if (files.length === 0) return;
+  $('upload').disabled = true;
+  $('jobLog').hidden = false;
+  try {
+    const form = new FormData();
+    // Every file goes under the same field name; the server combines them.
+    for (const file of files) form.append('file', file);
+    const { jobId, scoreId: id } = await api('/v1/scores', { method: 'POST', body: form });
+    scoreId = id;
+    await pollJob(jobId);
+    await showScore();
+    await refreshRecent();
+  } catch (err) {
+    $('jobStatus').textContent = `failed: ${err.message}`;
+  } finally {
+    $('upload').disabled = false;
+  }
+};
+
+async function pollJob(jobId) {
+  for (;;) {
+    const { job } = await api(`/v1/jobs/${jobId}`);
+    $('jobStatus').textContent = job.progress.stage === job.status
+      ? job.status
+      : `${job.status} · ${job.progress.stage} · ${job.progress.percent}%`;
+    $('jobLog').textContent = job.log.slice(-12).join('\n');
+    if (job.status === 'done') return job;
+    if (job.status === 'failed') throw new Error(job.error?.message ?? 'conversion failed');
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
+
+async function showScore() {
+  const score = await api(`/v1/scores/${scoreId}`);
+  const { quality, omr } = await api(`/v1/scores/${scoreId}/quality`);
+  const pages = await api(`/v1/scores/${scoreId}/pages`);
+  $('scoreBox').hidden = false;
+
+  const parts = quality.parts?.length > 1
+    ? ` across ${quality.parts.length} parts (${quality.parts.map((p) => p.notes).join(' + ')} notes)`
+    : '';
+  $('scoreInfo').innerHTML = `
+    <b>${score.title ?? 'untitled'}</b>${score.source?.assembledFrom ? ` <span class="muted">(${score.source.assembledFrom.length} files combined)</span>` : ''} — ${score.measureCount} bars played,
+    ${score.noteCount} notes${parts}, ${score.totalQuarters} quarters${score.repeated ? ', with a repeat' : ''}<br>
+    <span class="muted">engine: ${omr.engine}${omr.rescuedBy ? ` → ${omr.rescuedBy} re-read ${omr.rescuedPages?.length ? `page ${omr.rescuedPages.join(', ')}` : 'the book'}` : ''}${omr.degraded ? ' — DEGRADED, this is a fixture not a reading' : ''} ·
+    ${pages.read}/${pages.pages.length} pages read${pages.failed ? `, ${pages.failed} FAILED` : ''} ·
+    rhythm score ${quality.rhythmScore} · ${quality.irregularMeasures.length} bars that do not add up
+    ${pages.truncated ? '<br><b>This PDF is longer than the page limit — only the first pages were read.</b>' : ''}</span>`;
+
+  // Per page, because a hole in the middle of a piece is the thing that makes
+  // an alignment wrong rather than short.
+  $('pages').hidden = pages.pages.length < 2;
+  $('pages').tBodies[0].innerHTML = pages.pages.map((p) => `<tr>
+    <td>${p.page}</td>
+    <td>${p.status === 'read' ? 'read' : '<b>failed</b>'}</td>
+    <td>${p.measures || '—'}</td>
+    <td>${p.notes || '—'}</td>
+    <td class="muted">${p.rescuedBy ? `rescued by ${p.rescuedBy}` : (p.error ?? '')}</td>
+  </tr>`).join('');
+
+  $('xmlNote').textContent = omr.generatedMusicXml
+    ? 'written from the joined pages — notes and structure, no engraving'
+    : `exactly what ${omr.engine} wrote`;
+  $('download').onclick = () => { window.location.href = `/v1/scores/${scoreId}/musicxml`; };
+
+  $('alignBox').hidden = false;
+}
+
+// --- alignment -------------------------------------------------------------
+$('constant').onclick = async () => {
+  const { alignment } = await api(`/v1/scores/${scoreId}/alignments`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'constant', quarterBpm: Number($('bpm').value), offsetSeconds: Number($('offset').value) }),
+  });
+  await useAlignment(alignment.id);
+};
+
+let tapStart = null;
+let taps = [];
+let tapTimer = null;
+
+$('startTap').onclick = () => {
+  tapStart = performance.now();
+  taps = [];
+  $('tap').disabled = false;
+  $('fit').disabled = true;
+  $('tapCount').textContent = '';
+  clearInterval(tapTimer);
+  tapTimer = setInterval(() => {
+    $('tapClock').textContent = `${((performance.now() - tapStart) / 1000).toFixed(2)} s`;
+  }, 50);
+};
+
+$('tap').onclick = () => {
+  // One tap = one bar line. The nth tap is the nth played bar, which is what
+  // makes this work across a repeat without the player thinking about it.
+  taps.push({ ordinal: taps.length, time: (performance.now() - tapStart) / 1000 });
+  $('tapCount').textContent = `${taps.length} taps`;
+  $('fit').disabled = taps.length < 2;
+};
+
+$('fit').onclick = async () => {
+  clearInterval(tapTimer);
+  const { alignment } = await api(`/v1/scores/${scoreId}/alignments`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ mode: 'anchors', anchors: taps }),
+  });
+  await useAlignment(alignment.id);
+};
+
+async function useAlignment(id) {
+  alignmentId = id;
+  bars = (await api(`/v1/alignments/${id}/measures`)).measures;
+  $('playBox').hidden = false;
+  $('bars').tBodies[0].innerHTML = bars.map((b) => `<tr data-ordinal="${b.ordinal}">
+    <td>${b.ordinal + 1}</td><td>${b.measureNumber}</td><td>${b.pass}</td>
+    <td>${b.page ?? '—'}</td><td>${b.startTime.toFixed(2)}</td><td>${b.endTime.toFixed(2)}</td></tr>`).join('');
+  $('scrub').max = bars.at(-1).endTime.toFixed(2);
+  $('scrub').value = bars[0].startTime;
+  await draw(Number($('scrub').value));
+}
+
+// --- the cursor ------------------------------------------------------------
+let playing = false;
+let raf = null;
+
+$('scrub').oninput = () => draw(Number($('scrub').value));
+
+$('play').onclick = () => {
+  playing = !playing;
+  $('play').textContent = playing ? 'pause' : 'play';
+  if (!playing) { cancelAnimationFrame(raf); return; }
+  let last = performance.now();
+  const step = (now) => {
+    const t = Number($('scrub').value) + (now - last) / 1000;
+    last = now;
+    $('scrub').value = t;
+    draw(t);
+    if (t < Number($('scrub').max) && playing) raf = requestAnimationFrame(step);
+    else { playing = false; $('play').textContent = 'play'; }
+  };
+  raf = requestAnimationFrame(step);
+};
+
+// The cursor is asked for from the server on a throttle rather than every
+// frame; the bar highlight in between comes from the measure table we already
+// have, which is what a real client should do too.
+//
+// The throttle has a TRAILING edge. A throttle that simply drops calls made
+// too soon leaves the display showing wherever it last managed to ask — drag
+// the scrubber and let go inside the window, and the position never catches
+// up. The last call inside a window is deferred, not discarded.
+let lastAsk = 0;
+let askSeq = 0;
+let trailing = null;
+async function draw(t) {
+  $('clock').textContent = t.toFixed(2);
+  const bar = bars.find((b) => t >= b.startTime && t < b.endTime) ?? null;
+  for (const row of $('bars').tBodies[0].rows) {
+    row.classList.toggle('now', bar !== null && Number(row.dataset.ordinal) === bar.ordinal);
+  }
+  const since = performance.now() - lastAsk;
+  if (since < 120) {
+    clearTimeout(trailing);
+    trailing = setTimeout(() => draw(t), 120 - since);
+    return;
+  }
+  lastAsk = performance.now();
+
+  // Two cursor requests can be in flight at once, and the network does not
+  // promise to answer them in order — an older one landing last would paint a
+  // position the player has already passed. Number them and drop the stale.
+  const seq = ++askSeq;
+  const cursor = await api(`/v1/alignments/${alignmentId}/cursor?t=${t.toFixed(3)}`);
+  if (seq !== askSeq) return;
+
+  $('where').textContent = cursor.measure
+    ? `bar ${cursor.measure.measureNumber} · beat ${cursor.measure.beat.toFixed(2)}${cursor.measure.pass > 1 ? ` · pass ${cursor.measure.pass}` : ''}`
+    : '—';
+  $('sounding').textContent = cursor.sounding.length
+    ? `sounding: ${cursor.sounding.map((s) => s.midi).join(', ')} (midi)`
+    : (cursor.finished ? 'finished' : 'rest');
+}
+</script>
