@@ -62,3 +62,12 @@ test('a score that could NOT be read keeps nothing either', async () => {
   assert.equal(status, 'failed');
   assert.ok(!uploadsLeft().includes(scoreId), `${scoreId} survived a failed reading`);
 });
+
+test('a score that could not be read says so, rather than converting for ever', async () => {
+  const { scoreId } = await send(
+    Buffer.from('this is not musicxml either'), 'nope.musicxml',
+  );
+  const score = await fetch(`${base}/v1/scores/${scoreId}`).then((r) => r.json());
+  assert.equal(score.status, 'failed');
+  assert.ok(score.error?.message, 'a failed score carries the reason');
+});

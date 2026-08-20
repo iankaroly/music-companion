@@ -235,6 +235,84 @@ function guardQuad(source, width, height, quad) {
 }
 
 /**
+ * The background the margin let in, taken back off.
+ *
+ * `widen` lets the outline out by a tenth before cutting, so an outline that
+ * lands a little inside the paper does not cost a line of music. The price is
+ * a border of whatever the page was lying on — "the blue part was only on the
+ * page, but when I clicked done there was part of the background in it".
+ *
+ * So it is trimmed here, on the SQUARED page, where it is safe to do: music is
+ * printed on paper, so a border that is not paper cannot contain any. Each edge
+ * is walked inwards while its line is darker than the paper it borders, and
+ * stops at the first line that is paper — which is why an outline that was
+ * short keeps everything `widen` recovered for it: that border IS paper, and
+ * the walk does not start.
+ *
+ * Capped at a seventh per side, a little more than the margin, so no amount of
+ * shadow can eat into the page itself.
+ */
+const TRIM_MOST = 1 / 7;
+const TRIM_DARKER = 0.78;   // a line this much darker than the paper is not paper
+
+function trimBackground(page) {
+  const w = page.width;
+  const h = page.height;
+  if (w < 40 || h < 40) return page;
+  let data;
+  try {
+    data = page.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h).data;
+  } catch {
+    return page;                      // a page that cannot be read is left alone
+  }
+  const luma = (x, y) => {
+    const i = (y * w + x) * 4;
+    return (data[i] * 299 + data[i + 1] * 587 + data[i + 2] * 114) / 1000;
+  };
+  // What paper looks like here: the middle of the page, which the margin never
+  // reaches. The median rather than the mean, so printed music does not drag it
+  // down.
+  const middle = [];
+  for (let y = Math.round(h * 0.3); y < h * 0.7; y += 3) {
+    for (let x = Math.round(w * 0.3); x < w * 0.7; x += 3) middle.push(luma(x, y));
+  }
+  if (!middle.length) return page;
+  middle.sort((a, b) => a - b);
+  const paper = middle[Math.floor(middle.length / 2)];
+  const floor = paper * TRIM_DARKER;
+
+  const lineIsPaper = (along, fixed) => {
+    const values = [];
+    if (along === 'row') {
+      for (let x = 0; x < w; x += 3) values.push(luma(x, fixed));
+    } else {
+      for (let y = 0; y < h; y += 3) values.push(luma(fixed, y));
+    }
+    values.sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)] >= floor;
+  };
+
+  let top = 0;
+  let bottom = h - 1;
+  let left = 0;
+  let right = w - 1;
+  const mostY = Math.floor(h * TRIM_MOST);
+  const mostX = Math.floor(w * TRIM_MOST);
+  while (top < mostY && !lineIsPaper('row', top)) top += 1;
+  while (bottom > h - 1 - mostY && !lineIsPaper('row', bottom)) bottom -= 1;
+  while (left < mostX && !lineIsPaper('col', left)) left += 1;
+  while (right > w - 1 - mostX && !lineIsPaper('col', right)) right -= 1;
+
+  const cutW = right - left + 1;
+  const cutH = bottom - top + 1;
+  if (cutW === w && cutH === h) return page;
+  if (cutW < w * 0.5 || cutH < h * 0.5) return page;   // that is not a margin
+  const cut = scratch(cutW, cutH);
+  cut.getContext('2d').drawImage(page, left, top, cutW, cutH, 0, 0, cutW, cutH);
+  return cut;
+}
+
+/**
  * The outline, let out a little.
  *
  * Every wrong answer this has given has been the same wrong answer: the outline
@@ -421,6 +499,10 @@ export function straightenCanvas(source, width, height, known = null) {
   if (!page) {
     page = scratch(w, h);
     page.getContext('2d').drawImage(src, 0, 0, w, h);
+  } else if (quad) {
+    // Only when there was an outline: a page found by brightness alone has no
+    // margin of ours around it to take back off.
+    page = trimBackground(page);
   }
   try {
     const ctx = page.getContext('2d', { willReadFrequently: true });

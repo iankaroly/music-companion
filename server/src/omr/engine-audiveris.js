@@ -130,6 +130,39 @@ async function locate() {
   return null;
 }
 
+
+/**
+ * What went wrong, in a sentence somebody can act on.
+ *
+ * "Audiveris exited with code 1" is true and useless: it is what a player was
+ * shown as "failed (100%)", and what a maintainer was shown three times before
+ * opening the machine by hand to run the same command again. The lines that
+ * carry a cause now travel with the error (see `why` in run.js); this turns the
+ * ones that recur into plain English, and passes everything else through rather
+ * than inventing a diagnosis it does not have.
+ *
+ * @param {Error & {details?:{why?:string[]}}} err
+ * @returns {string}
+ */
+export function plainly(err) {
+  const lines = err?.details?.why ?? [];
+  const all = lines.join(' | ');
+  if (/too low interline|interline value of \d+ pixels/i.test(all)) {
+    return 'that page came out too small or too blurred to read — the staves are '
+      + 'only a few pixels apart, and about 300 dpi is needed';
+  }
+  if (/sheet ignored/i.test(all)) {
+    return 'nothing on that page looked like a staff of music to the recogniser';
+  }
+  if (/out ?of ?memory/i.test(all)) {
+    return 'that book was too large for the recogniser to hold at once';
+  }
+  if (/no staff/i.test(all)) {
+    return 'no staves were found on that page';
+  }
+  return lines[0] ? `the recogniser stopped: ${lines[0]}` : err?.message ?? 'the recogniser stopped';
+}
+
 /** Every .mxl/.xml Audiveris wrote, newest first. */
 async function findExports(dir) {
   const found = [];
@@ -331,17 +364,27 @@ async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeout
     }
   };
 
-  const result = await run(bin, [
-    '-batch',       // no GUI
-    '-export',      // write MusicXML
-    // Swap each sheet out of memory once it is done. On a long book the JVM
-    // otherwise holds every sheet's image at once and dies of heap exhaustion
-    // half way through — which looks like a crash, not a memory setting.
-    '-swap',
-    '-output', outDir,
-    '--',           // everything after this is an input file
-    inputPath,
-  ], { timeoutMs, onLog: watch, cwd: path.dirname(outDir), env });
+  let result;
+  try {
+    result = await run(bin, [
+      '-batch',       // no GUI
+      '-export',      // write MusicXML
+      // Swap each sheet out of memory once it is done. On a long book the JVM
+      // otherwise holds every sheet's image at once and dies of heap exhaustion
+      // half way through — which looks like a crash, not a memory setting.
+      '-swap',
+      '-output', outDir,
+      '--',           // everything after this is an input file
+      inputPath,
+    ], { timeoutMs, onLog: watch, cwd: path.dirname(outDir), env });
+  } catch (err) {
+    // The exit code told a player "failed (100%)". This tells them what to do
+    // about it, and keeps everything the process said for whoever looks later.
+    const said = new Error(plainly(err));
+    said.details = err.details;
+    said.cause = err;
+    throw said;
+  }
 
   const exports = await findExports(outDir);
   if (exports.length === 0) {

@@ -453,6 +453,19 @@ export function createApp() {
           degraded: result.omr.degraded,
           quality: result.quality,
         };
+      } catch (err) {
+        // A SCORE THAT COULD NOT BE READ SAYS SO.
+        //
+        // The job knew it had failed and the score record did not: it stayed
+        // "converting" for good, so anything asking about the score rather than
+        // the job was told a conversion was still running hours later. It also
+        // now carries the reason, which is a sentence about the page rather
+        // than an exit code — see plainly() in omr/engine-audiveris.js.
+        record.status = 'failed';
+        record.error = { message: err.message };
+        record.failedAt = new Date().toISOString();
+        await saveScore(record, '').catch(() => { /* the job still carries it */ });
+        throw err;
       } finally {
         // THE UPLOAD GOES, WHATEVER BECAME OF IT.
         //

@@ -17,6 +17,35 @@ import { spawn } from 'node:child_process';
 const MAX_CAPTURE = 256 * 1024; // keep the last quarter-megabyte of each stream
 const MAX_LINE = 300;           // one log line, however chatty the tool is
 
+
+// THE LINES THAT SAY WHY.
+//
+// The tail of a failed run is the death rattle — "Error in export", the stack
+// of the CLI that noticed. The cause is hundreds of lines above it: "Sheet
+// ignored", "too low interline value", "OutOfMemory". Keeping only the tail
+// cost three separate diagnoses on a real server, each one needing the machine
+// opened up by hand to run the same command again.
+//
+// So the whole capture is sifted for the lines that carry a cause, and those
+// travel with the error.
+const WHY = /(sheet ignored|interline|no staff|could not|out ?of ?memory|unsupported|corrupt|Caused by|UnsatisfiedLink|Exception in|refused)/i;
+const NOISE = /^\s*at [\w.$]+\(|^\s*\.\.\. \d+ more|^WARNING: /;
+
+function why(text, limit = 10) {
+  const seen = new Set();
+  const lines = [];
+  for (const raw of String(text).split('\n')) {
+    const line = raw.trim();
+    if (!line || NOISE.test(raw) || !WHY.test(line)) continue;
+    const key = line.slice(0, 120);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    lines.push(line.length > 300 ? `${line.slice(0, 300)}…` : line);
+    if (lines.length >= limit) break;
+  }
+  return lines;
+}
+
 export class ProcessError extends Error {
   constructor(message, details) {
     super(message);
@@ -88,13 +117,16 @@ export function run(command, args, options = {}) {
       const ms = Date.now() - startedAt;
       if (killedByTimeout) {
         reject(new ProcessError(`${command} did not finish within ${Math.round(timeoutMs / 1000)}s`, {
-          command, args, stderr: stderr.slice(-2000), ms,
+          command, args, ms, why: why(`${stdout}\n${stderr}`), stderr: stderr.slice(-2000),
         }));
         return;
       }
       if (code !== 0) {
         reject(new ProcessError(`${command} exited with code ${code}`, {
-          command, args, code, stderr: stderr.slice(-2000), stdout: stdout.slice(-2000), ms,
+          command, args, code, ms,
+          // The lines that carry a cause, from ANYWHERE in the run — see `why`.
+          why: why(`${stdout}\n${stderr}`),
+          stderr: stderr.slice(-2000), stdout: stdout.slice(-2000),
         }));
         return;
       }

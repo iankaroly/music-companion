@@ -412,14 +412,29 @@ async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
   const payload = await loadScorePages(paperId);
   if (!payload) return null;
 
-  const result = await readWithOmr(payload, {
-    name,
-    onProgress: ({ stage, percent }) => {
-      // The player is looking at their scan while this happens; the line
-      // underneath it says what is going on rather than spinning.
-      status(`reading the notes — ${stage}${percent ? ` (${percent}%)` : ''}…`);
-    },
-  });
+  let result;
+  try {
+    result = await readWithOmr(payload, {
+      name,
+      onProgress: ({ stage, percent }) => {
+        // The player is looking at their scan while this happens; the line
+        // underneath it says what is going on rather than spinning.
+        status(`reading the notes — ${stage}${percent ? ` (${percent}%)` : ''}…`);
+      },
+    });
+  } catch (err) {
+    // SAY WHY IT FAILED.
+    //
+    // "reading the notes — failed (100%)" is the progress line stopping where
+    // it stopped: the reason was thrown, and the caller swallowed it because a
+    // scan that could not be read is still a usable scan. That is true of the
+    // SCORE and false of the sentence — the reader was left with a dead end and
+    // no idea whether to hold the camera closer or give up. The service now
+    // says which of those it is; this is the only place it can be shown.
+    status(`could not read the notes — ${err.message}`, 'bad');
+    if (el('score-omr')) el('score-omr').hidden = false;   // so it can be tried again
+    throw err;
+  }
 
   const file = new File([result.xml], `${String(name).replace(/[^\w. -]/g, '_')}.musicxml`, {
     type: 'application/vnd.recordare.musicxml+xml',
