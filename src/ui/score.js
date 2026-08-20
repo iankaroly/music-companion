@@ -431,7 +431,17 @@ async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
     // SCORE and false of the sentence — the reader was left with a dead end and
     // no idea whether to hold the camera closer or give up. The service now
     // says which of those it is; this is the only place it can be shown.
-    status(`could not read the notes — ${err.message}`, 'bad');
+    // WITH THE ADDRESS IT TRIED.
+    //
+    // "could not read the notes — Load failed" is Safari saying the request
+    // never completed, and it is the same sentence whether the recogniser is
+    // down, the wifi dropped, or the app is still pointed at a tunnel that
+    // stopped existing in August. The address is the difference between those,
+    // and it costs one line to say it.
+    const said = /load failed|failed to fetch|network/i.test(err.message)
+      ? `could not reach ${omrUrl()}`
+      : err.message;
+    status(`could not read the notes — ${said}`, 'bad');
     if (el('score-omr')) el('score-omr').hidden = false;   // so it can be tried again
     throw err;
   }

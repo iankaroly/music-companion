@@ -154,6 +154,34 @@ function headers() {
 }
 
 /**
+ * An address that was never going to last.
+ *
+ * `npm run tunnel` hands out a fresh trycloudflare address every run and it
+ * dies with the window that made it. One of those typed into the settings
+ * outlives the tunnel by months, and `omrUrl` prefers whatever was typed over
+ * everything else — so every scan afterwards fails at the network, which Safari
+ * reports as "Load failed" and which looks exactly like the recogniser being
+ * broken.
+ *
+ * Nobody chooses one of these on purpose for keeps, so a dead one is forgotten
+ * rather than honoured. An address somebody actually runs — a machine on the
+ * wifi, their own server — is never touched: it may be down for a minute and
+ * it is still their choice.
+ */
+export function isTemporary(url) {
+  try {
+    return /\.trycloudflare\.com$/i.test(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** Forget a dead tunnel, so the app goes back to the recogniser everyone uses. */
+function forgetTemporary() {
+  try { localStorage.removeItem(URL_KEY); } catch { /* nothing to forget */ }
+}
+
+/**
  * How long to wait for a service to say hello.
  *
  * A pipeline on this machine either answers at once or is not running, and
@@ -185,7 +213,15 @@ export function probePatience(url) {
  * @returns {Promise<{ok:boolean, real:boolean, engines:string[], url:string}>}
  */
 export async function omrAvailable({ timeoutMs } = {}) {
-  const url = omrUrl();
+  const first = await askService(omrUrl(), timeoutMs);
+  if (first.ok || !isTemporary(first.url)) return first;
+  // A tunnel that is gone: forget it and ask the one that is always there,
+  // which is what a fresh install would have used anyway.
+  forgetTemporary();
+  return askService(omrUrl(), timeoutMs);
+}
+
+async function askService(url, timeoutMs) {
   timeoutMs ??= probePatience(url);
   const stop = AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined;
   try {
@@ -233,6 +269,29 @@ function filesFrom(payload, name) {
   throw new Error('there are no pages in that score to send');
 }
 
+/** Was this the network giving out, rather than the service answering? */
+function droppedOut(err) {
+  return err instanceof TypeError || /load failed|network|fetch/i.test(err?.message ?? '');
+}
+
+/**
+ * A request that survives one blip.
+ *
+ * @param {string} where
+ * @param {object} init
+ * @param {Function|null} onProgress
+ */
+async function sending(where, init, onProgress = null) {
+  try {
+    return await fetch(where, init);
+  } catch (err) {
+    if (init.signal?.aborted || !droppedOut(err)) throw err;
+    onProgress?.({ stage: 'the connection dropped — sending it again', percent: 0 });
+    await new Promise((r) => setTimeout(r, 1500));
+    return fetch(where, init);
+  }
+}
+
 /**
  * Send a stored scan to the service and wait for the MusicXML.
  *
@@ -250,9 +309,18 @@ export async function readWithOmr(payload, { name = 'score', onProgress = null, 
 
   onProgress?.({ stage: files.length > 1 ? `sending ${files.length} pages` : 'sending the scan', percent: 0 });
 
-  const started = await fetch(`${url}/v1/scores`, {
+  // ONE RETRY, BECAUSE THIS IS A PHONE.
+  //
+  // A scan is megabytes, going out over whatever the wifi is doing while
+  // somebody stands over a music stand. A connection that drops mid-upload is
+  // a `TypeError` with no status and no body — Safari calls it "Load failed" —
+  // and it reached the player as "could not read the notes — Load failed",
+  // which sounds like the recogniser refusing the music rather than a blip.
+  // Nothing has been created on the far side when this happens, so sending it
+  // again is safe.
+  const started = await sending(`${url}/v1/scores`, {
     method: 'POST', body: form, signal, headers: headers(),
-  });
+  }, onProgress);
   if (!started.ok) {
     const body = await started.json().catch(() => null);
     throw new Error(body?.error?.message ?? `the service refused the upload (${started.status})`);
@@ -264,10 +332,27 @@ export async function readWithOmr(payload, { name = 'score', onProgress = null, 
   // rather than a socket because there is nothing to keep open: a poll every
   // second for a five-minute job is three hundred requests to a service on this
   // same machine.
+  // A POLL THAT DROPS IS NOT A CONVERSION THAT FAILED.
+  //
+  // The reading goes on at the far end whether or not this phone can hear it,
+  // and a minute of polling from a pocket will lose a request or two. Giving up
+  // on the first one threw away a job that was busy succeeding.
+  let missed = 0;
   for (;;) {
     if (signal?.aborted) throw new Error('stopped');
-    const response = await fetch(`${url}/v1/jobs/${jobId}`, { signal, headers: headers() });
+    let response;
+    try {
+      response = await fetch(`${url}/v1/jobs/${jobId}`, { signal, headers: headers() });
+    } catch (err) {
+      if (signal?.aborted || !droppedOut(err)) throw err;
+      missed += 1;
+      if (missed > 5) throw new Error(`lost contact with ${url} while it was reading`);
+      onProgress?.({ stage: 'waiting for the connection', percent: 0 });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      continue;
+    }
     if (!response.ok) throw new Error('lost contact with the service');
+    missed = 0;
     const { job } = await response.json();
 
     onProgress?.({ stage: job.progress?.stage ?? job.status, percent: job.progress?.percent ?? 0 });

@@ -102,3 +102,36 @@ describe('how long to wait for a service to answer', () => {
     expect(probePatience('https://score-pipeline.fly.dev')).toBeGreaterThan(7800);
   });
 });
+
+describe('an address that was never going to last', () => {
+  it('knows a tunnel from a machine somebody actually runs', async () => {
+    const { isTemporary } = await import('../src/analysis/omr-client.js');
+    // `npm run tunnel` hands out one of these per run and it dies with the
+    // window. Typed into the settings, it outlives the tunnel and every scan
+    // afterwards fails at the network — which Safari reports as "Load failed".
+    expect(isTemporary('https://neat-blue-otter.trycloudflare.com')).toBe(true);
+    expect(isTemporary('http://192.168.1.50:4000')).toBe(false);
+    expect(isTemporary('https://score-pipeline.fly.dev')).toBe(false);
+    expect(isTemporary('not a url at all')).toBe(false);
+  });
+
+  it('forgets a dead one and falls back to the recogniser everyone uses', async () => {
+    const client = await import('../src/analysis/omr-client.js');
+    setLocation('https://practicepartner.vercel.app/');   // the deployed app
+    localStorage.setItem('omr-service-url', 'https://gone.trycloudflare.com');
+    const calls = [];
+    globalThis.fetch = async (where) => {
+      calls.push(String(where));
+      if (String(where).includes('trycloudflare')) throw new TypeError('Load failed');
+      return {
+        ok: true,
+        json: async () => ({ engines: [{ id: 'audiveris', ok: true }] }),
+      };
+    };
+    const service = await client.omrAvailable();
+    expect(service.real).toBe(true);
+    expect(service.url).toContain('score-pipeline.fly.dev');
+    expect(localStorage.getItem('omr-service-url')).toBe(null);
+    expect(calls[0]).toContain('trycloudflare');
+  });
+});
