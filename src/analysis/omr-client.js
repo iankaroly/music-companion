@@ -18,6 +18,19 @@
 // The pipeline lives in server/ of this repo. `npm start` there.
 
 const LOOPBACK = 'http://127.0.0.1:4000';
+
+// THE ONE THAT IS RUNNING FOR EVERYBODY.
+//
+// The recogniser is a JVM and a neural network: it cannot run on a phone, and
+// asking every player to run a laptop for it is not a feature anybody would
+// use. So there is a service, it sleeps when nobody is scanning, and the app
+// finds it without being told.
+//
+// It carries no password, and that is deliberate rather than lax: a secret
+// shipped inside a public app is not a secret. What protects it is that it
+// keeps nothing — the pages are deleted the moment they have been read — and
+// that one caller may only convert so many scans an hour.
+const HOSTED = 'https://score-pipeline.fly.dev';
 const URL_KEY = 'omr-service-url';
 const TOKEN_KEY = 'omr-service-token';
 const PORT = 4000;
@@ -48,7 +61,17 @@ function defaultUrl() {
       return `http://${hostname}:${PORT}`;
     }
   } catch { /* no window, or a locked-down one */ }
+  // A page served over https cannot call a plain-http service, so the hosted
+  // one is the only thing it can use — and it is the one people will have.
+  try {
+    if (window.location.protocol === 'https:') return HOSTED;
+  } catch { /* no window */ }
   return LOOPBACK;
+}
+
+/** Is this the service that runs for everybody? */
+export function isHosted(url) {
+  return String(url).replace(/\/+$/, '') === HOSTED;
 }
 
 /** Where the service is. Overridable, because it need not be this machine. */
@@ -89,7 +112,7 @@ export function isOwnMachine(url) {
  * app guessed at, and is not this machine, still waits for the button.
  */
 export function maySendFreely(url) {
-  return isOwnMachine(url) || omrChosen();
+  return isOwnMachine(url) || isHosted(url) || omrChosen();
 }
 
 export function setOmrUrl(url) {

@@ -36,7 +36,7 @@ import { quarterAt } from '../musicxml/timeline.js';
 import {
   deleteAlignment, deleteScore, listAlignments, listJobs, listScores,
   loadAlignment, loadMusicXml, loadScore, newId, publicSource, saveAlignment,
-  saveScore, saveUpload, sha256, workDirFor,
+  saveScore, saveUpload, sha256, workDirFor, forgetUpload,
 } from '../storage/store.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -297,6 +297,44 @@ function password(req, res, next) {
   return next();
 }
 
+
+/**
+ * How much one caller may ask of a shared machine.
+ *
+ * Recognition is thirty seconds of two cores a page. On a laptop that is your
+ * own time; on a service other people share, one enthusiastic caller is
+ * everybody else's queue and the whole bill. So: a few conversions an hour per
+ * caller, counted in memory, forgotten on restart. Reading a score back is not
+ * limited — it is a file read, and a player polling a job must not be throttled
+ * into thinking it failed.
+ */
+const asked = new Map();
+function rateLimit(req, res, next) {
+  const perHour = Number(process.env.CONVERSIONS_PER_HOUR ?? 0);
+  if (!perHour || req.method !== 'POST' || !req.path.startsWith('/v1/scores')) return next();
+
+  const who = (req.get('x-forwarded-for') ?? req.socket.remoteAddress ?? 'unknown').split(',')[0].trim();
+  const hour = 60 * 60 * 1000;
+  const now = Date.now();
+  const seen = (asked.get(who) ?? []).filter((at) => now - at < hour);
+  if (seen.length >= perHour) {
+    res.status(429).json({
+      error: {
+        message: `that is ${perHour} scans in an hour from one place, which is all this service allows —`
+          + ' try again later',
+        status: 429,
+        details: null,
+      },
+    });
+    return;
+  }
+  seen.push(now);
+  asked.set(who, seen);
+  // Keep the map from growing for ever on a long-running service.
+  if (asked.size > 5000) for (const [key, times] of asked) if (!times.some((at) => now - at < hour)) asked.delete(key);
+  return next();
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: '4mb' }));       // anchor lists can be long
@@ -304,6 +342,7 @@ export function createApp() {
 
   app.use(cors);
   app.use(password);
+  app.use(rateLimit);
 
   // A demo client at /. It is not the product — it is the API being used, in a
   // browser, so a change to an endpoint can be seen rather than only asserted.
@@ -404,6 +443,14 @@ export function createApp() {
       record.readyAt = new Date().toISOString();
       await saveScore(record, result.musicXml);
       await result.cleanup();
+      // THE UPLOAD GOES, ONCE IT HAS BEEN READ.
+      //
+      // On a laptop keeping it is a convenience — the same scan can be read
+      // again with a better engine. On a service other people share it is
+      // somebody else's sheet music sitting on a disk that is not theirs, and
+      // the conversion is finished. KEEP_UPLOADS=1 puts it back for a machine
+      // that is only ever your own.
+      if (process.env.KEEP_UPLOADS !== '1') await forgetUpload(scoreId);
 
       return {
         scoreId,

@@ -8,11 +8,13 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 // useless on a phone, where 127.0.0.1 is the phone and there is no recogniser
 // on a phone. Scanning on the phone therefore never converted anything.
 
-import { omrUrl, setOmrUrl, isOwnMachine } from '../src/analysis/omr-client.js';
+import {
+  omrUrl, setOmrUrl, isOwnMachine, isHosted, maySendFreely,
+} from '../src/analysis/omr-client.js';
 
 // Nothing is cached in the module: both of these read the page's location and
 // the stored setting when they are asked, so one import is enough.
-const load = async () => ({ omrUrl, setOmrUrl, isOwnMachine });
+const load = async () => ({ omrUrl, setOmrUrl, isOwnMachine, isHosted, maySendFreely });
 
 const setLocation = (href) => {
   const url = new URL(href);
@@ -47,12 +49,23 @@ describe('finding the recogniser', () => {
     expect(omrUrl()).toBe('http://127.0.0.1:4000');
   });
 
-  it('does not guess at a service over https, where the browser would refuse it', async () => {
+  it('uses the service that runs for everybody when the app is the deployed one', async () => {
     // A page on https cannot call a plain-http service — it is blocked as mixed
-    // content — so pointing at one would put a button there that can never work.
+    // content — so the machine that served it is no use here. The hosted
+    // recogniser is what a player on a phone actually has.
     setLocation('https://practicepartner.vercel.app/');
-    const { omrUrl } = await load();
-    expect(omrUrl()).toBe('http://127.0.0.1:4000');
+    const { omrUrl, isHosted } = await load();
+    expect(omrUrl()).toBe('https://score-pipeline.fly.dev');
+    expect(isHosted(omrUrl())).toBe(true);
+  });
+
+  it('sends to the hosted one without asking, and says so in Settings', async () => {
+    // Typing an address is consent; so is the app shipping with one, provided
+    // the app SAYS where the pages go — which the words under the field do.
+    setLocation('https://practicepartner.vercel.app/');
+    const { maySendFreely, omrUrl } = await load();
+    expect(maySendFreely(omrUrl())).toBe(true);
+    expect(maySendFreely('https://someone-elses-recogniser.example')).toBe(false);
   });
 
   it('lets a person say where it is instead', async () => {

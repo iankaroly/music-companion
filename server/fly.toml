@@ -1,0 +1,49 @@
+# The score pipeline as a service other people can use.
+#
+# It sleeps when nobody is scanning and wakes on a request, so the bill is the
+# seconds of recognising and nothing else. A page is about thirty seconds of two
+# cores; waking from stopped adds a few seconds to the first one after a quiet
+# spell, which is nothing beside the job itself.
+app = "score-pipeline"
+primary_region = "iad"
+
+[build]
+
+[env]
+  PORT = "8080"
+  HOST = "0.0.0.0"
+  OMR_ENGINE = "audiveris"
+  # One at a time: recognition is CPU-bound, and two on this size of machine
+  # makes both slower rather than the queue shorter.
+  OMR_CONCURRENCY = "1"
+  MAX_PAGES = "30"
+  # A shared machine, so the scans do not stay on it.
+  KEEP_UPLOADS = "0"
+  CONVERSIONS_PER_HOUR = "20"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  # Nothing runs between scans. This is the whole reason it is affordable.
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    # The work is queued inside the service; the requests themselves are small.
+    soft_limit = 20
+    hard_limit = 40
+
+[[vm]]
+  # Audiveris is a JVM holding a page of pixels. Two cores because it uses them,
+  # 4GB because a sheet at 300dpi plus the JVM is comfortably under it and
+  # uncomfortably over 2.
+  size = "shared-cpu-2x"
+  memory = "4gb"
+
+# The scores and their MusicXML, kept across restarts. Uploads are deleted as
+# soon as they are read; this holds theresult, not the source material.
+[[mounts]]
+  source = "score_data"
+  destination = "/data"

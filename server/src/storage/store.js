@@ -61,6 +61,11 @@ export async function saveUpload(scoreId, filename, buffer) {
   return file;
 }
 
+/** The uploaded bytes, gone. The score and its MusicXML stay. */
+export async function forgetUpload(scoreId) {
+  await rm(path.join(dirs.uploads, safe(scoreId)), { recursive: true, force: true });
+}
+
 export function workDirFor(scoreId) {
   return path.join(dirs.work, scoreId);
 }
