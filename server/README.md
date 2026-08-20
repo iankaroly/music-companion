@@ -521,6 +521,9 @@ fly volumes create score_data --region iad --size 3
 fly deploy --remote-only    # Audiveris is built from source; ~4 minutes
 npm run score:hosted        # from the repo root: the DEPLOYED app, in a browser,
                             # against the HOSTED service, end to end
+npm run score:scan          # and the CAMERA door: photographed pages through
+                            # addPaper(…, {straightened:true}), which is a
+                            # different payload from the PDF button
 ```
 
 **Audiveris only.** oemer is the rescue engine on a laptop and takes about four

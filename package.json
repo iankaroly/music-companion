@@ -30,7 +30,7 @@
     "score:flow": "node tools/score-flow-check.mjs",
     "score:probe": "node tools/scan-probe.mjs",
     "reader:targets": "node tools/reader-targets-check.mjs",
-    "score:scan": "node tools/scan-analysis-check.mjs",
+    "score:scan": "node tools/omr-scan-check.mjs",
     "reader:turns:cold": "node tools/reader-cold-turns.mjs",
     "score:playback": "node tools/scan-playback-check.mjs",
     "score:review": "node tools/scan-review-check.mjs",
