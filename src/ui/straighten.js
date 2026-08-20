@@ -201,6 +201,39 @@ function trustEdges(luma, w, h, quad) {
   return out;
 }
 
+/**
+ * Every outline goes through the guard, whoever found it.
+ *
+ * THE BUG THIS EXISTS TO CLOSE: the guard used to live inside `paperIn`, and
+ * the scanner does not call `paperIn`. It finds its own corners with
+ * `papersIn`, shows them to the player, and hands them to `straightenCanvas` as
+ * `known` — which used them as given. So every photograph taken with the CAMERA
+ * skipped all of it, and the only path that was protected was the one for
+ * pictures chosen out of the library. That is why a page scanned with the phone
+ * still came out with its top cut off while every measurement here said it was
+ * fixed: the measurements went in through the other door.
+ *
+ * So the guard is applied where the outline is USED, not where one of the two
+ * finders happens to return.
+ *
+ * It is skipped for an outline that is plainly one page of several — a spread
+ * photographed open, where each sheet is half the frame. Pushing the sides of
+ * one of those out to the frame would swallow the facing page.
+ */
+function guardQuad(source, width, height, quad) {
+  if (!quad) return null;
+  const xs = quad.map(([x]) => x);
+  const share = Math.max(...xs) - Math.min(...xs);
+  if (share < 0.45) return quad;   // one of a spread, or a page with room round it
+  const w = Math.min(LOOK_AT, width);
+  const h = Math.max(1, Math.round(height * (w / width)));
+  try {
+    return trustEdges(lumaOf(source, w, h), w, h, quad);
+  } catch {
+    return quad;
+  }
+}
+
 // Where the paper is, in the picture's own 0–1 terms. Null when nothing in the
 // frame looks enough like a sheet of paper to risk it — and null for an open
 // book too, because one quadrilateral cannot describe two pages and this is
@@ -209,9 +242,8 @@ export function paperIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    const luma = lumaOf(source, w, h);
-    const quad = findPage(luma, w, h);
-    return quad ? trustEdges(luma, w, h, quad) : null;
+    const quad = findPage(lumaOf(source, w, h), w, h);
+    return guardQuad(source, width, height, quad);
   } catch {
     return null;
   }
@@ -224,7 +256,11 @@ export function papersIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    return findPages(lumaOf(source, w, h), w, h);
+    const found = findPages(lumaOf(source, w, h), w, h);
+    // The scanner draws these on the screen and shoots with them, so they are
+    // guarded here too — otherwise the outline a player is shown is not the one
+    // the page is cut to.
+    return found.map((quad) => guardQuad(source, width, height, quad));
   } catch {
     return [];
   }
@@ -346,7 +382,9 @@ export function straightenCanvas(source, width, height, known = null) {
     src = scratch(w, h);
     src.getContext('2d').drawImage(source, 0, 0, w, h);
   }
-  const quad = known ?? paperIn(src, w, h);
+  // Guarded whether it was found here or handed in: see guardQuad. The scanner
+  // hands in the corners the player saw, and those went straight through.
+  const quad = guardQuad(src, w, h, known ?? paperIn(src, w, h));
   let page = null;
   try {
     page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);

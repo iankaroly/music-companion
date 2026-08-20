@@ -164,10 +164,46 @@ const result = await page.evaluate(async () => {
   const shaded = await sizeOf((await loadScorePages(shadedId)).pages[0]);
   await deleteScore(shadedId);
 
+  // AND THE DOOR THE CAMERA ACTUALLY USES.
+  //
+  // The scanner finds its own corners, shows them to the player and hands them
+  // to straightenCanvas as `known`. That path took the corners as given, so
+  // every fix to the outline applied to pictures picked from the library and to
+  // nothing taken with the phone — which is exactly the difference between
+  // every measurement here passing and the scan on the phone still being wrong.
+  //
+  // So: a page that fills the frame, with corners that cut the top off it, as
+  // the scanner would hand them over. The top must survive.
+  const camera = document.createElement('canvas');
+  camera.width = 1000;
+  camera.height = 1400;
+  const mx = camera.getContext('2d');
+  mx.fillStyle = '#f4f2ec';
+  mx.fillRect(0, 0, camera.width, camera.height);
+  mx.fillStyle = '#111';
+  mx.font = 'bold 44px serif';
+  mx.fillText('CONCERTO', 300, 80);                 // the title, near the top
+  for (let system = 0; system < 9; system++) {
+    const top = 150 + system * 135;
+    for (let line = 0; line < 5; line++) mx.fillRect(70, top + line * 12, camera.width - 140, 2);
+    for (let head = 0; head < 10; head++) {
+      mx.beginPath();
+      mx.ellipse(110 + head * 85, top + 12 + (head % 5) * 6, 9, 6, -0.3, 0, Math.PI * 2);
+      mx.fill();
+    }
+  }
+  const { straightenCanvas } = await import('/src/ui/straighten.js');
+  // Corners as the scanner might find them on a page held close: the top edge
+  // landed under the title.
+  const cut = [[0, 0.09], [1, 0.09], [1, 1], [0, 1]];
+  const straightened = straightenCanvas(camera, camera.width, camera.height, cut);
+  const cameraKept = straightened.height / camera.height;
+
   return {
     source: { w: W, h: H }, kept, squared, filled,
     fullFrame: { w: full.width, h: full.height },
     shaded, pageBox,
+    cameraKept: Math.round(cameraKept * 100),
   };
 });
 
@@ -206,6 +242,13 @@ console.log(`a page with its top shaded  ${result.pageBox.w}x${result.pageBox.h}
 if (keptShare < 0.92) {
   problems.push(`a page with its top in shadow lost ${Math.round((1 - keptShare) * 100)}% of its height — `
     + 'the outline landed under the shadow, and the title went with it');
+}
+
+// The camera's own door: corners handed in must be guarded like any others.
+console.log(`corners handed in by the scanner  ${result.cameraKept}% of the page height kept`);
+if (result.cameraKept < 92) {
+  problems.push(`corners handed in by the scanner cut ${100 - result.cameraKept}% off the page — `
+    + 'the guard is not being applied to the path the camera uses');
 }
 
 if (problems.length) {
