@@ -565,10 +565,65 @@ function missingPage(index) {
 // so six is the most that can ever be in flight. Eight leaves room to be wrong.
 const DECODED_PAGES = 8;
 
+// THE BIGGEST A PAGE IS EVER DECODED AT.
+//
+// A stored page is up to 2000 pixels across; decoded, that is around 20MB of
+// bitmap, and this used to hold eight of them while the measuring pass — which
+// opens the same pages through a SECOND reader of its own — decoded them again
+// beside it. On a phone that has just been used to photograph the pages, iOS
+// answers the next decode with a failure rather than with pixels, and the page
+// on screen is replaced by a card saying it could not be read.
+//
+// The reader draws at about 1400 across. Decoding at 1800 leaves room for a
+// pinch without holding four times the memory the screen can show.
+const DECODE_MAX = 1800;
+
 async function openImages(blobs, known = {}) {
   const cache = new Map();
   const crops = new Map();
   const sizes = new Map();
+
+  // A small copy of each page that has been decoded, so a decode that fails
+  // later has something true to fall back on. Three of them, because the
+  // failure that matters is on the page being looked at.
+  const backups = new Map();
+  // Small enough that keeping several costs less than one full decode — a spare
+  // is 1.5MB where the page it stands in for is twenty — and big enough to read
+  // a stave off while the device gets its memory back.
+  const BACKUP_WIDE = 560;
+  // MORE SPARES THAN DECODED PAGES, deliberately. A spare costs about a
+  // megabyte where the page it stands in for costs twenty, and the whole point
+  // of it is to still be there when the decoded one has been thrown away — so
+  // a pool smaller than the decode cache would be empty exactly when it was
+  // needed. Ten of these is fifteen megabytes; the decode cap this round put in
+  // saved four times that.
+  const BACKUP_KEEP = DECODED_PAGES + 2;
+  const failures = { soft: 0, card: 0 };
+  // Kept by LAST USE, not by when it was made. The first version of this threw
+  // away the spare for page 1 as soon as pages 2 to 12 had been looked at,
+  // which is exactly the part a reader does before coming back to page 1.
+  const touchBackup = (index) => {
+    if (!backups.has(index)) return backups.get(index);
+    const held = backups.get(index);
+    backups.delete(index);
+    backups.set(index, held);
+    return held;
+  };
+  const keepBackup = (index, image, w, h) => {
+    if (backups.has(index)) { touchBackup(index); return; }
+    try {
+      const scale = Math.min(1, BACKUP_WIDE / w);
+      const spare = scratch(Math.round(w * scale), Math.round(h * scale));
+      spare.getContext('2d').drawImage(image, 0, 0, spare.width, spare.height);
+      backups.set(index, { el: spare, w: spare.width, h: spare.height });
+      while (backups.size > BACKUP_KEEP) {
+        const oldest = backups.keys().next().value;
+        const going = backups.get(oldest);
+        backups.delete(oldest);
+        if (going?.el) { going.el.width = 0; going.el.height = 0; }
+      }
+    } catch { /* no spare copy is still a page */ }
+  };
   // Every page is decoded through the same door as the importer, so a format
   // one of them accepts is a format the other one draws.
   //
@@ -591,6 +646,12 @@ async function openImages(blobs, known = {}) {
       const blob = blobs[index];
       if (!blob) return { el: missingPage(index), w: 1000, h: 1400, missing: true };
 
+      // Decoded no bigger than the reader can use — see DECODE_MAX. The size
+      // measured when the page came in says whether it needs shrinking, so
+      // this costs nothing to ask.
+      const already = sizes.get(index) ?? known.sizes?.[index] ?? null;
+      const big = already?.w > DECODE_MAX;
+
       // ONE FAILED DECODE IS NOT A BROKEN PAGE.
       //
       // "when i finish scanning something it says page not read after a couple
@@ -605,17 +666,38 @@ async function openImages(blobs, known = {}) {
       // So: try again after a moment, then try at half the size, and if the
       // page still will not come, do not remember the failure. The next page
       // turn asks again.
-      let image = await readableImage(blob);
+      let image = big ? await readableImageSmall(blob, DECODE_MAX) : await readableImage(blob);
       if (!image) {
         await new Promise((wait) => setTimeout(wait, 150));
         image = await readableImage(blob);
       }
-      if (!image) image = await readableImageSmall(blob);
+      if (!image) image = await readableImageSmall(blob, DECODE_MAX);
+      if (!image) image = await readableImageSmall(blob, 700);
       if (!image) {
         cache.delete(index);
+        // A PAGE THAT HAS BEEN SEEN IS NEVER REPLACED BY A CARD SAYING IT
+        // CANNOT BE.
+        //
+        // "after i open it, i see it for a few seconds and then it says page
+        // not read and i have to reopen it." The page was fine both times: the
+        // first decode worked, a later one — during a redraw, while the
+        // measuring pass was decoding the same page beside it — did not, and
+        // the failure was drawn over a page that was already on the screen.
+        //
+        // So a small copy is kept of every page that has been decoded once, and
+        // that is what a failure falls back to. Softer than the page itself,
+        // and the player keeps reading. The card is for a page that has never
+        // been read at all, which is the only case it was ever true of.
+        const spare = touchBackup(index);
+        if (spare) {
+          failures.soft += 1;
+          return { el: spare.el, w: spare.w, h: spare.h, missing: false, soft: true };
+        }
+        failures.card += 1;
         return { el: missingPage(index), w: 1000, h: 1400, missing: true };
       }
       const { w, h } = sizeOfImage(image);
+      keepBackup(index, image, w, h);
       return { el: image, w, h, missing: false };
     })();
     cache.set(index, promise);
@@ -664,6 +746,9 @@ async function openImages(blobs, known = {}) {
       return sizes.get(index);
     },
     measured() { return measuredSoFar(blobs.length, crops, sizes); },
+    // For the check that keeps the card off a page that has been read: how many
+    // decodes fell back to a spare copy, and how many got as far as the card.
+    trouble() { return { ...failures }; },
     // The whole photograph, uncropped — see the note on the PDF side.
     async drawWhole(index, canvas, width, height, { plain = false } = {}) {
       const page = await load(index);
