@@ -91,7 +91,8 @@
     "audio:fast": "node tools/fast-check.mjs",
     "score:omr": "node tools/omr-app-check.mjs",
     "scan:once": "node tools/scan-once-check.mjs",
-    "scan:contrast": "node tools/contrast-check.mjs"
+    "scan:contrast": "node tools/contrast-check.mjs",
+    "reader:top": "node tools/reader-top-check.mjs"
   },
   "keywords": [],
   "author": "",

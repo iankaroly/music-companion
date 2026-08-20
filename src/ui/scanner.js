@@ -48,7 +48,9 @@ import {
   findPages, coverageOf, quadsMoved, aimedPage,
 } from '../analysis/page-edges.js';
 import { saying } from './why.js';
-import { straightenCanvas, readableImage, sizeOfImage, papersIn } from './straighten.js';
+import {
+  straightenCanvas, readableImage, sizeOfImage, papersIn, paperRunsOffTheFrame,
+} from './straighten.js';
 
 let root = null;
 let video = null;
@@ -326,7 +328,19 @@ function watch() {
     const fills = keeping < 0 ? 0 : coverageOf([paper[keeping]]);
     const steady = paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH;
     const close = fills >= FILL_FRAME * (paper.length > 1 ? FILL_SPREAD : 1);
-    const ready = paper.length > 0 && steady && close && lit >= 25;
+    // IS THE WHOLE SHEET IN THE PICTURE?
+    //
+    // This asked for the page to FILL the frame and never asked whether it
+    // overflowed it, so a page held close enough to run off the top was as
+    // ready as a page framed properly — and the shot came out with the title
+    // and the first system missing, which no straightening or cropping
+    // afterwards can put back. "it was still not showing the top of the page."
+    //
+    // A sheet that reaches both sides of the picture is bigger than the picture.
+    // There is nothing to do about that but move the phone, so that is what it
+    // now says, and the shutter waits.
+    const whole = keeping < 0 || !paperRunsOffTheFrame(paper[keeping]);
+    const ready = paper.length > 0 && steady && close && whole && lit >= 25;
     showPaper(paper, ready);
     readyToShoot(ready);
     // What to do about it, in one line, and each of these is a different thing
@@ -340,6 +354,7 @@ function watch() {
         return bright > 0.72 ? 'back off a little — the edges are off the frame'
           : 'show the whole page, edges and all';
       }
+      if (!whole) return 'back off — the page runs off the edge of the frame';
       if (!close) return 'closer — fill the frame with the page';
       if (!steady) return 'hold it steady…';
       return paper.length > 1
@@ -761,7 +776,10 @@ export async function openScanner() {
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
-  say('hold it close, so the page fills the frame — the button lights when it has it');
+  // Not "hold it close": that is the instruction that produced scans with the
+  // title missing. Close enough to fill the frame AND far enough that all four
+  // edges are in it — which is what the advice line now polices, tick by tick.
+  say('fill the frame with the whole page, edges and all — the button lights when it has it');
   watch();
   return new Promise((resolve) => { done = resolve; });
 }

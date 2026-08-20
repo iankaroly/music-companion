@@ -141,7 +141,15 @@ function printBeyond(luma, w, h, side, at) {
   return marks / beyond.length > 0.004;
 }
 
-function paperRunsOffTheFrame(quad) {
+/**
+ * Does the sheet reach both sides of the picture in either direction?
+ *
+ * If it does, it is bigger than the frame and part of it was never in the
+ * photograph at all. Two callers need to know: the crop, which must not then
+ * trust any boundary it finds inside the picture, and the SCANNER, which must
+ * not take the shot.
+ */
+export function paperRunsOffTheFrame(quad) {
   const [tl, tr, br, bl] = quad;
   const across = Math.max(tr[0], br[0]) - Math.min(tl[0], bl[0]);
   const down = Math.max(bl[1], br[1]) - Math.min(tl[1], tr[1]);

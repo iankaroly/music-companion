@@ -89,16 +89,65 @@ function contentBox(canvas) {
   // The paper is whatever most of the page is; ink is what is darker than that.
   const paper = total / (w * h);
   const dark = paper - INK_MARGIN;
-  let left = w; let right = 0; let top = h; let bottom = 0;
+
+  // HOW MUCH INK IS IN EACH ROW AND EACH COLUMN, rather than where the single
+  // darkest pixel in the whole page is.
+  //
+  // This used to walk the extremes: the topmost dark pixel anywhere set the top
+  // of the crop. One speck of sensor noise, one fleck of the table, one dark
+  // pixel at the edge of a scan, and the crop is the whole page — which is what
+  // was happening. Measured on a photographed page: the top of the crop was set
+  // by a speck three rows down, so the margins were never taken off and the
+  // reader showed the whole sheet fitted to the glass with a band of nothing
+  // above and below it.
+  //
+  // A row of MUSIC has a staff line in it, which is hundreds of dark pixels. A
+  // row of margin has none. So the edge of the printing is the first row with
+  // enough ink in it to be printing, and a speck cannot vote.
+  const rowInk = new Float64Array(h);
+  const colInk = new Float64Array(w);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (luma[y * w + x] > dark) continue;
-      if (x < left) left = x;
-      if (x > right) right = x;
-      if (y < top) top = y;
-      if (y > bottom) bottom = y;
+      rowInk[y] += 1;
+      colInk[x] += 1;
     }
   }
+  // Half a per cent of the way across is a staff line seen end-on; two pixels
+  // is the floor, so this still works on a thumbnail of a very small page.
+  const enoughAcross = Math.max(2, w * 0.005);
+  const enoughDown = Math.max(2, h * 0.005);
+
+  // AND THE OUTERMOST SLIVER IS NOT PRINTING.
+  //
+  // Nothing is printed to the very edge of a sheet of paper. What lives there
+  // is the edge itself: the dark line a scanner leaves, the shadow under the
+  // curl of a book, the sliver of table a photograph could not avoid. All of it
+  // reads as ink, all of it hugs the border, and any one of those rows makes
+  // the crop the whole page — measured on a photographed page, rows nine to
+  // eleven of seven hundred held a dark edge, so the margins were never taken
+  // off and the reader showed the whole sheet with a band of nothing above and
+  // below it.
+  //
+  // So the search starts a little way in. A page loses nothing by it: a page
+  // that really does have music in its outermost one and a half per cent has
+  // been cropped too tight already.
+  const insetY = Math.round(h * 0.015);
+  const insetX = Math.round(w * 0.015);
+  const firstWith = (counts, enough, from) => {
+    for (let i = from; i < counts.length - from; i++) if (counts[i] >= enough) return i;
+    return -1;
+  };
+  const lastWith = (counts, enough, from) => {
+    for (let i = counts.length - 1 - from; i >= from; i--) if (counts[i] >= enough) return i;
+    return -1;
+  };
+
+  const top = firstWith(rowInk, enoughAcross, insetY);
+  const bottom = lastWith(rowInk, enoughAcross, insetY);
+  const left = firstWith(colInk, enoughDown, insetX);
+  const right = lastWith(colInk, enoughDown, insetX);
+
   if (right <= left || bottom <= top) return { x: 0, y: 0, w: 1, h: 1 };
   const pad = CROP_PAD;
   const box = {
