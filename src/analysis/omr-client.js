@@ -154,6 +154,26 @@ function headers() {
 }
 
 /**
+ * How long to wait for a service to say hello.
+ *
+ * A pipeline on this machine either answers at once or is not running, and
+ * nobody should watch a spinner to be told the second one.
+ *
+ * A HOSTED ONE IS ASLEEP. It stops when nobody is scanning — that is what makes
+ * it cost nothing to leave running — and waking it takes time: measured at 7.8s
+ * cold against 0.4s warm. At 1.5s the deployed app asked, gave up, and decided
+ * there was no recogniser anywhere; the scan imported with no notes and nothing
+ * said why. Twenty seconds is that measurement with room for a phone on a slow
+ * connection, and it costs nothing on the warm answer that follows.
+ *
+ * @param {string} url
+ * @returns {number} milliseconds
+ */
+export function probePatience(url) {
+  return isOwnMachine(url) ? 1500 : 20000;
+}
+
+/**
  * Is the service there, and can it actually read music?
  *
  * The difference matters: a pipeline with no OMR engine installed answers
@@ -164,8 +184,9 @@ function headers() {
  *
  * @returns {Promise<{ok:boolean, real:boolean, engines:string[], url:string}>}
  */
-export async function omrAvailable({ timeoutMs = 1500 } = {}) {
+export async function omrAvailable({ timeoutMs } = {}) {
   const url = omrUrl();
+  timeoutMs ??= probePatience(url);
   const stop = AbortSignal.timeout ? AbortSignal.timeout(timeoutMs) : undefined;
   try {
     const response = await fetch(`${url}/v1/engines`, { signal: stop, headers: headers() });

@@ -92,3 +92,13 @@ describe('deciding whether the pages may go by themselves', () => {
     expect(isOwnMachine('nonsense')).toBe(false);
   });
 });
+
+describe('how long to wait for a service to answer', () => {
+  it('waits a moment for one on this machine, and long enough to wake a hosted one', async () => {
+    const { probePatience } = await import('../src/analysis/omr-client.js');
+    // Measured: the hosted machine answers in 7.8s cold, 0.4s warm. At 1.5s the
+    // deployed app decided there was no recogniser at all.
+    expect(probePatience('http://127.0.0.1:4000')).toBe(1500);
+    expect(probePatience('https://score-pipeline.fly.dev')).toBeGreaterThan(7800);
+  });
+});
