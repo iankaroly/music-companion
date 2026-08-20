@@ -126,7 +126,49 @@ const result = await page.evaluate(async () => {
   const filled = await sizeOf((await loadScorePages(fullId)).pages[0]);
   await deleteScore(fullId);
 
-  return { source: { w: W, h: H }, kept, squared, filled, fullFrame: { w: full.width, h: full.height } };
+  // AND A PAGE WHOSE TOP IS IN SHADOW, lying on a table — the case a phone
+  // actually produces. The page is well inside the frame, so its edges can be
+  // seen and the frame rule does not apply; but a band of shade across the top
+  // is a stronger boundary than the paper's own edge, and the outline lands
+  // under it. What gets cut off is the title, the composer, and the first line
+  // of music.
+  const shot = document.createElement('canvas');
+  shot.width = 1500;
+  shot.height = 1100;
+  const sx = shot.getContext('2d');
+  sx.fillStyle = '#37332c';
+  sx.fillRect(0, 0, shot.width, shot.height);
+  const pageBox = { x: 300, y: 90, w: 900, h: 920 };
+  sx.fillStyle = '#f4f2ec';
+  sx.fillRect(pageBox.x, pageBox.y, pageBox.w, pageBox.h);
+  sx.fillStyle = '#111';
+  sx.font = 'bold 34px serif';
+  sx.fillText('CONCERTO', pageBox.x + 320, pageBox.y + 60);   // in the shaded strip
+  for (let system = 0; system < 7; system++) {
+    const top = pageBox.y + 110 + system * 115;
+    for (let line = 0; line < 5; line++) sx.fillRect(pageBox.x + 40, top + line * 10, pageBox.w - 80, 2);
+    for (let head = 0; head < 9; head++) {
+      sx.beginPath();
+      sx.ellipse(pageBox.x + 70 + head * 90, top + 10 + (head % 5) * 5, 8, 5, -0.3, 0, Math.PI * 2);
+      sx.fill();
+    }
+  }
+  // The shade across the top fifth of the page.
+  const shade = sx.createLinearGradient(0, pageBox.y, 0, pageBox.y + pageBox.h * 0.22);
+  shade.addColorStop(0, 'rgba(0,0,0,0.42)');
+  shade.addColorStop(1, 'rgba(0,0,0,0)');
+  sx.fillStyle = shade;
+  sx.fillRect(pageBox.x, pageBox.y, pageBox.w, pageBox.h * 0.22);
+  const shotBlob = await new Promise((res) => shot.toBlob(res, 'image/jpeg', 0.92));
+  const shadedId = await addPaper([new File([shotBlob], 'shaded.jpg', { type: 'image/jpeg' })], { name: 'shaded' });
+  const shaded = await sizeOf((await loadScorePages(shadedId)).pages[0]);
+  await deleteScore(shadedId);
+
+  return {
+    source: { w: W, h: H }, kept, squared, filled,
+    fullFrame: { w: full.width, h: full.height },
+    shaded, pageBox,
+  };
 });
 
 await browser.close();
@@ -154,6 +196,16 @@ console.log(`a page filling the frame  ${result.fullFrame.w}x${result.fullFrame.
 if (shrink > 0.02) {
   problems.push(`a page that fills the frame lost ${(shrink * 100).toFixed(1)}% of itself — `
     + 'the outline landed where the printing stops, not where the paper does');
+}
+
+// The shaded-top page: the stored page must still be the whole sheet. Cropping
+// under the shadow is what takes the title off.
+const keptShare = result.shaded.h / (result.shaded.w / result.pageBox.w * result.pageBox.h);
+console.log(`a page with its top shaded  ${result.pageBox.w}x${result.pageBox.h} on the table`
+  + ` -> ${result.shaded.w}x${result.shaded.h} (${Math.round(keptShare * 100)}% of its height kept)`);
+if (keptShare < 0.92) {
+  problems.push(`a page with its top in shadow lost ${Math.round((1 - keptShare) * 100)}% of its height — `
+    + 'the outline landed under the shadow, and the title went with it');
 }
 
 if (problems.length) {

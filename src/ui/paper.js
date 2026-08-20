@@ -14,7 +14,7 @@
 // PDF.js is fetched on FIRST USE and never at startup, exactly like the
 // engraver. A tuner has no business paying for a PDF renderer.
 
-import { readableImage, sizeOfImage } from './straighten.js';
+import { readableImage, readableImageSmall, sizeOfImage } from './straighten.js';
 import { why } from './why.js';
 import { unshadow } from '../analysis/unshadow.js';
 
@@ -540,8 +540,32 @@ async function openImages(blobs, known = {}) {
     }
     const promise = (async () => {
       const blob = blobs[index];
-      const image = blob ? await readableImage(blob) : null;
-      if (!image) return { el: missingPage(index), w: 1000, h: 1400, missing: true };
+      if (!blob) return { el: missingPage(index), w: 1000, h: 1400, missing: true };
+
+      // ONE FAILED DECODE IS NOT A BROKEN PAGE.
+      //
+      // "when i finish scanning something it says page not read after a couple
+      // of seconds" — and the page was fine. A phone that has just taken half a
+      // dozen photographs, straightened them and opened the reader has no
+      // memory to spare, and iOS answers the next decode with a failure rather
+      // than with pixels. That was taken as proof the page was unreadable, the
+      // "could not be read" card was drawn, and — because the failure was
+      // cached like any other answer — it stayed drawn for as long as the score
+      // was open, however much memory came free afterwards.
+      //
+      // So: try again after a moment, then try at half the size, and if the
+      // page still will not come, do not remember the failure. The next page
+      // turn asks again.
+      let image = await readableImage(blob);
+      if (!image) {
+        await new Promise((wait) => setTimeout(wait, 150));
+        image = await readableImage(blob);
+      }
+      if (!image) image = await readableImageSmall(blob);
+      if (!image) {
+        cache.delete(index);
+        return { el: missingPage(index), w: 1000, h: 1400, missing: true };
+      }
       const { w, h } = sizeOfImage(image);
       return { el: image, w, h, missing: false };
     })();
