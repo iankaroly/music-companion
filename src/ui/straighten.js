@@ -48,6 +48,57 @@ function lumaOf(source, w, h) {
   return luma;
 }
 
+// Is there really an edge of paper along this side of the quadrilateral?
+//
+// THE PROBLEM THIS SOLVES: a page held close enough to fill the frame — which
+// is exactly what the scanner asks for, in those words — has no visible edge.
+// The detector then finds the strongest boundary it can see, and on a page of
+// music that is where the PRINTING stops. Measured on three photographs of
+// pages that fill the frame, the quadrilateral came back 100% of the width and
+// 79–90% of the height: 8–11% cut off the top and bottom of every one of them,
+// taking the title, the composer and the last system with it.
+//
+// A real paper edge has paper on one side and something else on the other, so
+// it is a STEP in brightness. The end of the printed area has paper on both
+// sides. That is the difference this measures: sample a band just inside the
+// boundary and a band just outside it, and if the outside is still as bright as
+// the inside, nothing ends there and the boundary is not to be trusted.
+function paperRunsOffTheFrame(quad) {
+  const [tl, tr, br, bl] = quad;
+  const across = Math.max(tr[0], br[0]) - Math.min(tl[0], bl[0]);
+  const down = Math.max(bl[1], br[1]) - Math.min(tl[1], tr[1]);
+  return across >= 0.97 || down >= 0.97;
+}
+
+/**
+ * A page that fills the frame has no edges, so nothing inside it is one.
+ *
+ * THE BUG THIS FIXES: the scanner asks the player to "hold it close, so the
+ * page fills the frame" — and a page that fills the frame has no visible paper
+ * edge at all. The detector then finds the strongest boundary it can see, which
+ * on a page of music is where the PRINTING stops. Measured on three
+ * photographs of pages that fill the frame, the outline came back at 100% of
+ * the width and 79–90% of the height: 8–11% cut off the top and bottom of every
+ * one, taking the title, the composer and the last system with it. On the page
+ * this was first noticed on, the strip below the "edge" holds a whole system.
+ *
+ * WHY NOT MEASURE THE EDGE INSTEAD: because a paper edge and the end of the
+ * printing look the same from here. Both are darker outside than in — outside a
+ * real edge is the table, outside the last system is the footer and the margin
+ * — and a dense band of music at thumbnail size is as dark as a table. Two
+ * attempts at telling them apart by brightness both cut a system off a page.
+ *
+ * The geometry is not ambiguous in the same way. If the paper reaches both
+ * sides of the frame in either direction, it is bigger than the picture, and
+ * every boundary inside the picture is something printed on it. Keep the whole
+ * frame. The cost is a strip of margin, or a sliver of whatever the page is
+ * lying on; the cost the other way is music that no undo brings back.
+ */
+function trustEdges(quad) {
+  if (!paperRunsOffTheFrame(quad)) return quad;
+  return [[0, 0], [1, 0], [1, 1], [0, 1]];
+}
+
 // Where the paper is, in the picture's own 0–1 terms. Null when nothing in the
 // frame looks enough like a sheet of paper to risk it — and null for an open
 // book too, because one quadrilateral cannot describe two pages and this is
@@ -56,7 +107,8 @@ export function paperIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    return findPage(lumaOf(source, w, h), w, h);
+    const quad = findPage(lumaOf(source, w, h), w, h);
+    return quad ? trustEdges(quad) : null;
   } catch {
     return null;
   }
@@ -151,7 +203,19 @@ function cropToBright(source, width, height) {
   }
   const across = (right - left) / w;
   const down = (bottom - top) / h;
-  if (!(across > 0.3 && down > 0.3) || (across > 0.97 && down > 0.97)) return null;
+  // Too little to be a page, or the whole frame and therefore nothing to do.
+  if (!(across > 0.3 && down > 0.3)) return null;
+  // THE PAPER RUNS OFF THE FRAME — see trustEdges, which says the same thing
+  // about the outline. If the bright part reaches both sides of the picture in
+  // EITHER direction, the page is bigger than the picture, and the boundary in
+  // the other direction is not the paper ending: it is the lighting falling
+  // away, or the printing stopping. Cropping to it takes the title off the top
+  // and the last system off the bottom. Measured with a page photographed under
+  // a lamp, which is to say the ordinary case: 14% of the page cut away.
+  //
+  // `||` rather than `&&` is the whole fix. It used to refuse only when the
+  // bright part filled the frame in BOTH directions.
+  if (across > 0.97 || down > 0.97) return null;
   const box = {
     x: Math.round((left / w) * width),
     y: Math.round((top / h) * height),

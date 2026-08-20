@@ -89,7 +89,8 @@
     "scan:light": "node tools/lighting-check.mjs",
     "score:open": "node tools/pdf-open-check.mjs",
     "audio:fast": "node tools/fast-check.mjs",
-    "score:omr": "node tools/omr-app-check.mjs"
+    "score:omr": "node tools/omr-app-check.mjs",
+    "scan:once": "node tools/scan-once-check.mjs"
   },
   "keywords": [],
   "author": "",

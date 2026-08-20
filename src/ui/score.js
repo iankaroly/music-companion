@@ -223,7 +223,10 @@ async function chooseScore(id) {
 // can be — this is a picture of music, and the app is honest about that: it can
 // be read from, paged through and drawn on, and it is never offered as
 // something to record against.
-async function addPaper(files, { name: given = null, raws = null } = {}) {
+// Exported so the import can be measured from outside — see
+// tools/scan-once-check.mjs, which is what keeps a scanned page from being
+// straightened a second time.
+export async function addPaper(files, { name: given = null, raws = null, straightened = false } = {}) {
   const list = [...files];
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
@@ -269,15 +272,35 @@ async function addPaper(files, { name: given = null, raws = null } = {}) {
     // found in it, pulled square, with the lighting taken off. A picture of a
     // book on a table is not a page of music, and the whole app downstream —
     // the reader, the crop, the page reader — is measuring the paper.
-    const { straightenFile } = await import('./straighten.js');
+    const { straightenFile, readableImage, unreadableReason } = await import('./straighten.js');
     const flattened = [];
     // A page that cannot be decoded is refused HERE, before anything is
     // written, and named while the player still knows which one it was. It used
     // to be stored anyway and the score simply would not open afterwards.
     const refused = [];
     for (const [at, file] of pages.entries()) {
-      status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
       try {
+        // STRAIGHTENED ONCE, NEVER TWICE.
+        //
+        // The scanner squares its own pages — it has the corners the player
+        // adjusted, which is better information than anything that can be
+        // recovered afterwards — and this used to square them again on the way
+        // in. A second pass over a page that is already nothing but paper finds
+        // "paper" inside the printed area and crops to THAT, divides the
+        // lighting out of an image the lighting has already been divided out
+        // of, and re-encodes a JPEG that was encoded a moment ago.
+        //
+        // MEASURED on a photographed page, first pass then second:
+        //   2000x2339 -> 2000x1784   a portrait page came out landscape
+        //   pure white 37% -> 50%    half the page burnt out
+        // which is exactly "it zooms in, the quality goes, the lighting goes
+        // strange". One pass. The scanner's, when the scanner took it.
+        if (straightened) {
+          if (!await readableImage(file)) throw new Error(unreadableReason(file));
+          flattened.push(file);
+          continue;
+        }
+        status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
         flattened.push(await straightenFile(file));
       } catch (err) {
         refused.push(`page ${at + 1}: ${why(err, 'it could not be read')}`);
@@ -604,7 +627,12 @@ export async function scanPages() {
     // thing is the moment you know what it is called.
     const count = taken.pages.length;
     const name = await askScoreName(`${count} ${count === 1 ? 'page' : 'pages'} scanned`);
-    return await addPaper(taken.pages, { name: name || 'Scanned score', raws: taken.raws });
+    // `straightened`: the scanner has already squared these, with the corners
+    // the player saw and could move. Doing it again is the bug this flag exists
+    // to prevent — see addPaper.
+    return await addPaper(taken.pages, {
+      name: name || 'Scanned score', raws: taken.raws, straightened: true,
+    });
   } catch (err) {
     status(err.message, 'bad');
     return null;
