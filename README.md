@@ -1,6 +1,6 @@
 # Practice Partner
 
-A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Nothing you record leaves your device.
+A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Nothing you record leaves your device. The one exception is scanning: importing photographed sheet music sends those pages to a recogniser to be turned into notation, and they are deleted there as soon as they are read — audio never goes anywhere, and you can point the app at your own recogniser instead (Settings → Score recogniser).
 
 **Tuner · Record & analyze · Library · Coach · Metronome**
 

@@ -510,6 +510,46 @@ service running) drives the whole thing in a real browser: it imports a PDF
 through the app's own file input and then asks the app's database whether the
 scan ended up with notation that parses to actual notes.
 
+## Hosting it, so it is not somebody's laptop
+
+The deployed app looks for the service at `https://score-pipeline.fly.dev`, an
+image of this repo on Fly. `Dockerfile` and `fly.toml` are the whole of it:
+
+```bash
+fly launch --no-deploy      # once
+fly volumes create score_data --region iad --size 3
+fly deploy --remote-only    # Audiveris is built from source; ~4 minutes
+npm run score:hosted        # from the repo root: the DEPLOYED app, in a browser,
+                            # against the HOSTED service, end to end
+```
+
+**Audiveris only.** oemer is the rescue engine on a laptop and takes about four
+minutes a page against Audiveris's thirty seconds — two hundred times the
+compute, usually for a worse page. On a machine other people share that is the
+whole bill, so a page Audiveris cannot read comes back as a page that could not
+be read.
+
+**It sleeps.** `auto_stop_machines` with `min_machines_running = 0`: nobody
+scanning, nothing running, nothing charged. Waking it costs 7.8 seconds against
+0.4 warm, which is why the app waits twenty seconds for a service that is not on
+this machine (`probePatience` in `src/analysis/omr-client.js`) — at the old 1.5
+it decided there was no recogniser at all.
+
+**No password, deliberately.** A secret shipped inside a public app is not a
+secret. What stands in its place: the upload is deleted the moment it has been
+read (`KEEP_UPLOADS=0`, the default here), twenty conversions an hour per
+caller, thirty pages a book, and `CORS_ORIGINS` naming the app — which is the
+only door a browser can come through. `OMR_TOKEN` still exists and still matters
+for a pipeline you run yourself and expose through a tunnel.
+
+**Three things only a real server could say**, all fixed in the image and all
+invisible on a Mac: Audiveris on Linux reads its language file from
+`$HOME/.config`, not the macOS folder (`TESSDATA_PREFIX` settles it on every
+OS); it asks GTK about the monitor through JNA and dies of an
+`UnsatisfiedLinkError` — an `Error`, so its own `catch (Exception)` does not
+hold it — unless `GDK_SCALE` is set; and `/v1/engines` reported `ocr: none`
+while the logs said `Installed OCR languages: eng`.
+
 ## Two ways in, one pipeline
 
 | | |

@@ -93,7 +93,8 @@
     "scan:once": "node tools/scan-once-check.mjs",
     "scan:contrast": "node tools/contrast-check.mjs",
     "reader:top": "node tools/reader-top-check.mjs",
-    "reader:holds": "node tools/page-holds-check.mjs"
+    "reader:holds": "node tools/page-holds-check.mjs",
+    "score:hosted": "node tools/omr-hosted-check.mjs"
   },
   "keywords": [],
   "author": "",
