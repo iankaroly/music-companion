@@ -453,6 +453,38 @@ quarter 0 at 9s, then quarter 4 at 1s"*); a 500 means a bug here.
 
 ---
 
+## In the practice app
+
+The app in this repo uses this service directly, so a player who scans a part
+never uploads anything twice:
+
+1. import a scan the way they always have — the PDF button, or photographing
+   the pages;
+2. the app sends those pages here by itself and waits;
+3. the MusicXML comes back and is **paired to the scan** through the app's own
+   mechanism, so the page they are looking at now has notes behind it and a
+   take can be marked for wrong notes, not just timing.
+
+`src/analysis/omr-client.js` is the whole client; `src/ui/score.js` calls it
+from `addPaper`, beside the existing background page-measuring, so nothing
+blocks and the score is open and playable while the reading happens.
+
+**It starts by itself only when the service is on this machine.** The default is
+`127.0.0.1:4000`, which keeps the app's promise that nothing leaves the device
+literally true. Point `localStorage['omr-service-url']` somewhere else and the
+automatic path switches off: a remote service is only ever used by pressing the
+"Read the notes" button on the score card.
+
+If no service answers, or one answers with no OMR engine installed, the app is
+exactly what it was before — a scan you can play from and mark up — and the
+button stays hidden. A pipeline with no engine returns a FIXTURE score, so
+"answers" is not enough to earn the button.
+
+`npm run score:omr` (from the repo root, with both `npm run dev` and this
+service running) drives the whole thing in a real browser: it imports a PDF
+through the app's own file input and then asks the app's database whether the
+scan ended up with notation that parses to actual notes.
+
 ## Two ways in, one pipeline
 
 | | |

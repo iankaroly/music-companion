@@ -45,6 +45,16 @@ export const config = {
     keepWork: process.env.OMR_KEEP_WORK === '1',
   },
 
+  // Who may call this from a browser.
+  //
+  // The app is served by Vite on another port, and the iOS build runs from
+  // capacitor://localhost, so every real caller is cross-origin even though
+  // nothing here leaves the machine. The default allows LOCAL origins only —
+  // anything on localhost, 127.0.0.1 or ::1, plus Capacitor's own scheme — so a
+  // page on the open web cannot quietly use somebody's pipeline. CORS_ORIGINS
+  // ("https://a.example,https://b.example", or "*") widens it deliberately.
+  corsOrigins: process.env.CORS_ORIGINS ?? null,
+
   // Trim the job list so a long-running server does not grow without bound.
   jobRetention: number(process.env.JOB_RETENTION, 200),
 };

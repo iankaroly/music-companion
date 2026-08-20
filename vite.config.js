@@ -74,4 +74,11 @@ export default defineConfig({
   define: {
     __BUILD__: JSON.stringify(stamp),
   },
+  test: {
+    // server/ is a separate service with its own suite, run by node:test
+    // (`npm test` inside server/). Vitest cannot run those files and reports
+    // every one of them as a failed suite, which turns a green run red for no
+    // reason anybody can act on.
+    exclude: ['node_modules/**', 'dist/**', 'server/**', 'ios/**'],
+  },
 });

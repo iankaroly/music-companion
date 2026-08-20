@@ -192,10 +192,54 @@ function buildTimemapFor(timeline, body) {
   };
 }
 
+
+/** Local origins, unless told otherwise. See config.corsOrigins for why. */
+const LOCAL_ORIGIN = /^(https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?|capacitor:\/\/localhost|ionic:\/\/localhost|file:\/\/)$/;
+
+function allowedOrigin(origin) {
+  if (!origin) return null;                       // curl, or a same-origin page
+  const configured = config.corsOrigins;
+  if (configured === '*') return '*';
+  if (configured) {
+    const list = configured.split(',').map((o) => o.trim()).filter(Boolean);
+    return list.includes(origin) ? origin : null;
+  }
+  return LOCAL_ORIGIN.test(origin) ? origin : null;
+}
+
+/**
+ * Cross-origin access, for the app.
+ *
+ * The practice app is served by Vite on another port and the iOS build from
+ * capacitor://localhost, so it is cross-origin to this service even though both
+ * are on the same machine. Without this the browser refuses every call and the
+ * app looks as though no pipeline is running.
+ */
+function cors(req, res, next) {
+  const origin = allowedOrigin(req.headers.origin);
+  if (origin) {
+    res.set('Access-Control-Allow-Origin', origin);
+    res.set('Vary', 'Origin');
+    // The score download names its own file; a browser cannot read that header
+    // cross-origin unless it is exposed.
+    res.set('Access-Control-Expose-Headers', 'Content-Disposition, X-Score-Generated');
+  }
+  if (req.method === 'OPTIONS') {
+    res.set('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
+    res.set('Access-Control-Allow-Headers', req.headers['access-control-request-headers'] ?? 'content-type');
+    res.set('Access-Control-Max-Age', '600');
+    res.status(204).end();
+    return;
+  }
+  next();
+}
+
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: '4mb' }));       // anchor lists can be long
   app.disable('x-powered-by');
+
+  app.use(cors);
 
   // A demo client at /. It is not the product — it is the API being used, in a
   // browser, so a change to an endpoint can be seen rather than only asserted.

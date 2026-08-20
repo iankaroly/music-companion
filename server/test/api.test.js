@@ -346,3 +346,35 @@ test('a single upload still behaves exactly as it did', async () => {
   assert.equal(score.source.assembledFrom, null);
   assert.equal(score.source.filename, 'scan.pdf');
 });
+
+test('the app can call this from another origin, but the open web cannot', async () => {
+  // The practice app is served by Vite on another port and the iOS build from
+  // capacitor://localhost — cross-origin to this service even though both are
+  // on the same machine. Without the header the browser refuses every call and
+  // the app looks as though no pipeline is running.
+  for (const origin of ['http://localhost:5173', 'http://127.0.0.1:4173', 'capacitor://localhost']) {
+    const response = await api('/v1/engines', { headers: { origin } });
+    assert.equal(response.headers.get('access-control-allow-origin'), origin, origin);
+  }
+
+  // A page on the open web must not be able to use somebody's pipeline.
+  const stranger = await api('/v1/engines', { headers: { origin: 'https://example.com' } });
+  assert.equal(stranger.headers.get('access-control-allow-origin'), null);
+
+  // The preflight a multipart POST triggers.
+  const preflight = await api('/v1/scores', {
+    method: 'OPTIONS',
+    headers: {
+      origin: 'http://localhost:5173',
+      'access-control-request-method': 'POST',
+      'access-control-request-headers': 'content-type',
+    },
+  });
+  assert.equal(preflight.status, 204);
+  assert.match(preflight.headers.get('access-control-allow-methods') ?? '', /POST/);
+
+  // And the filename the app names its download with is readable cross-origin.
+  const { scoreId } = await uploadFixture();
+  const xml = await api(`/v1/scores/${scoreId}/musicxml`, { headers: { origin: 'http://localhost:5173' } });
+  assert.match(xml.headers.get('access-control-expose-headers') ?? '', /Content-Disposition/);
+});
