@@ -234,6 +234,30 @@ function guardQuad(source, width, height, quad) {
   }
 }
 
+/**
+ * The outline, let out a little.
+ *
+ * Every wrong answer this has given has been the same wrong answer: the outline
+ * landed inside the paper and took music with it — under a shadow, under a
+ * title, under the top of the frame. Four rounds of making the outline cleverer
+ * each fixed the case in front of it and left the next one.
+ *
+ * So the outline is let out by a tenth before anything is cut. It cannot make a
+ * page wrong that was right — the worst it adds is a sliver of whatever the
+ * page was lying on, which is a thing a player can see past and the reader
+ * crops off for the screen anyway. What it buys is that an outline which is a
+ * few per cent short no longer costs a system of music, and there is no undo
+ * for a system of music.
+ */
+function widen(quad, by = 0.1) {
+  const cx = quad.reduce((sum, [x]) => sum + x, 0) / quad.length;
+  const cy = quad.reduce((sum, [, y]) => sum + y, 0) / quad.length;
+  return quad.map(([x, y]) => [
+    Math.max(0, Math.min(1, cx + (x - cx) * (1 + by))),
+    Math.max(0, Math.min(1, cy + (y - cy) * (1 + by))),
+  ]);
+}
+
 // Where the paper is, in the picture's own 0–1 terms. Null when nothing in the
 // frame looks enough like a sheet of paper to risk it — and null for an open
 // book too, because one quadrilateral cannot describe two pages and this is
@@ -384,7 +408,10 @@ export function straightenCanvas(source, width, height, known = null) {
   }
   // Guarded whether it was found here or handed in: see guardQuad. The scanner
   // hands in the corners the player saw, and those went straight through.
-  const quad = guardQuad(src, w, h, known ?? paperIn(src, w, h));
+  const found = guardQuad(src, w, h, known ?? paperIn(src, w, h));
+  // Let out before it is cut: see widen. The margin is the difference between
+  // an outline that is a little wrong and a page that has lost a line of music.
+  const quad = found ? widen(found) : null;
   let page = null;
   try {
     page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);

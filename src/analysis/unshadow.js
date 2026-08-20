@@ -158,7 +158,17 @@ export function unshadow(data, w, h, { lift = false } = {}) {
       // and what is in between moves in proportion. The gap between the two —
       // which is the only thing that makes a note easy to see — widens.
       ? Math.min(255, gray[i] + (r * PAPER_TO - gray[i]) * paperness)
-      : Math.min(255, gray[i] * Math.min(GAIN, target / paper));
+      // AND THE SAME ON THE PAGE THAT IS STORED, which is the half of this that
+      // was missed the first time. Flattening the lighting multiplies every
+      // pixel where the light was poor — INCLUDING THE INK. A black notehead in
+      // the shadowed corner of a photograph, at 40, comes back at 88: grey, on
+      // a page that has just been made whiter around it. That is the whole of
+      // "it makes it more white and harder to see the black notes", and fixing
+      // only the brightening left it in place, because this is the page a
+      // player actually looks at.
+      //
+      // The lift is the same shape as above: full on paper, none on ink.
+      : Math.min(255, gray[i] + (Math.min(255, gray[i] * Math.min(GAIN, target / paper)) - gray[i]) * paperness);
     // Applied as one scale on all three channels, so the page keeps whatever
     // colour it had — cream stays cream, a blue-lit page stays blue-lit, and
     // nothing here can turn a photograph into a two-tone facsimile.

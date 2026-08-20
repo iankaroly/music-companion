@@ -53,27 +53,36 @@ for (const file of files) {
     };
 
     const before = levels(image.data);
+    // The page as it is STORED — the pixels the reader and the player both
+    // look at — and then the same page brightened for the screen. Both were
+    // lifting the ink; only one of them was ever measured.
+    const stored = new ImageData(new Uint8ClampedArray(image.data), w, h);
+    unshadow(stored.data, w, h);
+    const kept = levels(stored.data);
     unshadow(image.data, w, h, { lift: true });
     const after = levels(image.data);
-    return { name, before, after };
+    return { name, before, stored: kept, after };
   }, [...readFileSync(file)], file.split('/').pop());
   rows.push(row);
 }
 await browser.close();
 
 console.log('\nWHAT A BRIGHTENED PAGE LOOKS LIKE — ink, paper, and the gap that makes a note visible\n');
-console.log('  page                    ink   paper   gap        ink   paper   gap');
-console.log('                        ——— before ———          ——— after ———');
+console.log('  page                 photographed        as stored          on screen');
+console.log('                       ink paper  gap    ink paper  gap    ink paper  gap');
 for (const r of rows) {
-  const b = r.before;
-  const a = r.after;
-  console.log(`  ${r.name.padEnd(20)} ${String(b.ink).padStart(4)} ${String(b.paper).padStart(6)} ${String(b.paper - b.ink).padStart(6)}`
-    + `     ${String(a.ink).padStart(6)} ${String(a.paper).padStart(6)} ${String(a.paper - a.ink).padStart(6)}`);
+  const cell = (x) => `${String(x.ink).padStart(4)}${String(x.paper).padStart(6)}${String(x.paper - x.ink).padStart(5)}`;
+  console.log(`  ${r.name.padEnd(20)} ${cell(r.before)}  ${cell(r.stored)}  ${cell(r.after)}`);
 }
-const worse = rows.filter((r) => (r.after.paper - r.after.ink) < (r.before.paper - r.before.ink));
+const gap = (x) => x.paper - x.ink;
+// Both pages have to end up easier to read than the photograph, not just the
+// one that goes to the screen.
+const worse = rows.filter((r) => gap(r.after) < gap(r.before) || gap(r.stored) < gap(r.before)
+  || r.stored.ink > r.before.ink + 6);
 console.log(`\n  the paper is taken to white; the ink must not come with it.`);
 if (worse.length) {
-  console.error(`\nFAILED: ${worse.map((r) => r.name).join(', ')} — the notes are harder to see after brightening`);
+  console.error(`\nFAILED: ${worse.map((r) => r.name).join(', ')} — the notes came out lighter, `
+    + 'or with less contrast, than they were photographed with');
   process.exit(1);
 }
 console.log('  every page: the notes stand out more than they did.\n');
