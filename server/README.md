@@ -549,6 +549,17 @@ most-used engine in this repo:
 
 ---
 
+### Audiveris opens no window
+
+Audiveris is a desktop application being used here as a library, and its
+launcher starts a JVM with the AWT toolkit — so macOS treats every conversion as
+an app being launched and puts a Java icon in the Dock while you are working.
+The adapter therefore passes `-Djava.awt.headless=true -Dapple.awt.UIElement=true`
+(appended to any `AUDIVERIS_OPTS` you set). The image classes recognition
+actually needs work headless; verified by converting a page with it on.
+`GET /v1/engines` reports `headless: true` so this can be checked without
+starting a JVM.
+
 ### Audiveris and Tesseract, which is fiddlier than it looks
 
 Audiveris initialises Tesseract in LEGACY mode. Homebrew's `eng.traineddata` is

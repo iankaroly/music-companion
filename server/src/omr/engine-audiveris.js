@@ -79,6 +79,26 @@ async function environment() {
   const env = {};
   const javaHome = await firstExisting(JAVA_HOMES);
   if (javaHome) env.JAVA_HOME = javaHome;
+
+  // NO WINDOW, AND NOTHING IN THE DOCK.
+  //
+  // Audiveris is a desktop application being used as a library here, and its
+  // launcher starts a JVM with the AWT toolkit — so macOS treats every
+  // conversion as an app being launched, and a Java icon jumps into the Dock
+  // while somebody is trying to work. It surprised the person whose machine it
+  // is, which is the definition of a thing that should not happen: they asked
+  // for a score to be read, not for a program to open.
+  //
+  // `java.awt.headless` keeps it from ever making a window (the image classes
+  // it actually needs work perfectly well headless — verified by running a
+  // conversion with it on), and `apple.awt.UIElement` tells macOS this process
+  // is not an app even if something does touch the toolkit.
+  //
+  // Appended to whatever the caller set, so AUDIVERIS_OPTS still works.
+  const quiet = '-Djava.awt.headless=true -Dapple.awt.UIElement=true';
+  env.AUDIVERIS_OPTS = process.env.AUDIVERIS_OPTS
+    ? `${process.env.AUDIVERIS_OPTS} ${quiet}`
+    : quiet;
   // Only when the caller asked for it — see AUDIVERIS_TESSDATA above.
   if (process.env.TESSDATA_PREFIX) env.TESSDATA_PREFIX = process.env.TESSDATA_PREFIX;
   return env;
@@ -148,6 +168,9 @@ export const audiverisEngine = {
       bin,
       javaHome: env.JAVA_HOME ?? null,
       ocr: ocr ? 'eng' : 'none — run scripts/install-audiveris.sh to fetch the language file',
+      // Reported so it can be checked without starting a JVM: this is what
+      // keeps a Java icon from jumping into the Dock mid-conversion.
+      headless: /java\.awt\.headless=true/.test(env.AUDIVERIS_OPTS ?? ''),
     };
   },
 

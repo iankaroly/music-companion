@@ -378,3 +378,14 @@ test('the app can call this from another origin, but the open web cannot', async
   const xml = await api(`/v1/scores/${scoreId}/musicxml`, { headers: { origin: 'http://localhost:5173' } });
   assert.match(xml.headers.get('access-control-expose-headers') ?? '', /Content-Disposition/);
 });
+
+test('the Java engine is told not to open a window', async () => {
+  // Audiveris is a desktop application used here as a library. Its launcher
+  // starts a JVM with the AWT toolkit, and macOS then treats every conversion
+  // as an app being launched — a Java icon in the Dock while somebody is
+  // trying to work. Asking for a score to be read must not open a program.
+  const { engines } = await (await api('/v1/engines')).json();
+  const audiveris = engines.find((e) => e.id === 'audiveris');
+  if (!audiveris?.ok) return;   // not installed on this machine; nothing to check
+  assert.equal(audiveris.headless, true);
+});
