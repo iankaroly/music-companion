@@ -421,45 +421,53 @@ export function createApp() {
     const job = enqueue({ id: jobId, scoreId, kind, filename: uploadName }, async (liveJob) => {
       const report = reporter(liveJob);
       if (assembled) report.log(assembled.note);
-      const result = await convert({
-        scoreId,
-        filePath,
-        filename: uploadName,
-        kind,
-        engineId: req.body.engine || req.query.engine,
-        // Only a title the client actually typed overrides what is printed on
-        // the score; the filename is a fallback, not an instruction.
-        title: req.body.title || null,
-        report,
-      });
+      try {
+        const result = await convert({
+          scoreId,
+          filePath,
+          filename: uploadName,
+          kind,
+          engineId: req.body.engine || req.query.engine,
+          // Only a title the client actually typed overrides what is printed on
+          // the score; the filename is a fallback, not an instruction.
+          title: req.body.title || null,
+          report,
+        });
 
-      record.status = 'ready';
-      record.pages = result.pages;
-      record.score = result.score;
-      record.timeline = result.timeline;
-      record.omr = result.omr;
-      record.quality = result.quality;
-      record.title = result.score.title ?? record.title;
-      record.readyAt = new Date().toISOString();
-      await saveScore(record, result.musicXml);
-      await result.cleanup();
-      // THE UPLOAD GOES, ONCE IT HAS BEEN READ.
-      //
-      // On a laptop keeping it is a convenience — the same scan can be read
-      // again with a better engine. On a service other people share it is
-      // somebody else's sheet music sitting on a disk that is not theirs, and
-      // the conversion is finished. KEEP_UPLOADS=1 puts it back for a machine
-      // that is only ever your own.
-      if (process.env.KEEP_UPLOADS !== '1') await forgetUpload(scoreId);
+        record.status = 'ready';
+        record.pages = result.pages;
+        record.score = result.score;
+        record.timeline = result.timeline;
+        record.omr = result.omr;
+        record.quality = result.quality;
+        record.title = result.score.title ?? record.title;
+        record.readyAt = new Date().toISOString();
+        await saveScore(record, result.musicXml);
+        await result.cleanup();
 
-      return {
-        scoreId,
-        measures: result.timeline.measureCount,
-        notes: result.timeline.noteCount,
-        engine: result.omr.engine,
-        degraded: result.omr.degraded,
-        quality: result.quality,
-      };
+        return {
+          scoreId,
+          measures: result.timeline.measureCount,
+          notes: result.timeline.noteCount,
+          engine: result.omr.engine,
+          degraded: result.omr.degraded,
+          quality: result.quality,
+        };
+      } finally {
+        // THE UPLOAD GOES, WHATEVER BECAME OF IT.
+        //
+        // On a laptop keeping it is a convenience — the same scan can be read
+        // again with a better engine. On a service other people share it is
+        // somebody else's sheet music sitting on a disk that is not theirs, and
+        // the conversion is over either way. KEEP_UPLOADS=1 puts it back for a
+        // machine that is only ever your own.
+        //
+        // In a `finally` because it used to be in the success path, so the pages
+        // left on the disk were exactly the ones nothing could be done with —
+        // two failed conversions, still in /data/uploads on the server, found by
+        // looking rather than by re-reading the code that says they are deleted.
+        if (process.env.KEEP_UPLOADS !== '1') await forgetUpload(scoreId);
+      }
     });
 
     res.status(202)
