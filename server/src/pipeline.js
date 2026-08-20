@@ -1,0 +1,662 @@
+// The pipeline, end to end.
+//
+//   upload -> sniff -> OMR engine -> MusicXML -> score model -> timeline
+//
+// Each arrow is a module that knows nothing about the ones on either side of
+// it, and this file is the only place that knows the order. That is the whole
+// architecture: the OMR engine can be swapped, the storage can be swapped, and
+// the alignment layer sits on the timeline rather than on any of it.
+//
+// The timeline is built and STORED at conversion time rather than computed per
+// request. It is a pure function of the score, so caching it is safe, and it
+// turns every later alignment call into a lookup rather than a re-parse.
+
+import { mkdir } from 'node:fs/promises';
+import { cpus } from 'node:os';
+import path from 'node:path';
+import { chooseEngine, ENGINES } from './omr/registry.js';
+import { isPdf, rasterisePdf } from './omr/pdf.js';
+import { looksLikeZip } from './musicxml/mxl.js';
+import { parseMusicXml } from './musicxml/parse.js';
+import { joinScores } from './musicxml/assemble.js';
+import { buildTimeline } from './musicxml/timeline.js';
+import { scoreToMusicXml, withTitle } from './musicxml/serialise.js';
+import { clearWork, workDirFor } from './storage/store.js';
+import { mapWithConcurrency } from './util/pool.js';
+import { thinPages } from './util/thin-pages.js';
+import config from './config.js';
+
+/**
+ * What kind of file did we just receive?
+ *
+ * Sniffed from the BYTES, not from the filename or the browser's content-type,
+ * both of which are supplied by whoever is uploading. A .mxl and a .pdf are
+ * routed completely differently, so getting this from a trusted source matters.
+ */
+export function sniffKind(buffer, filename = '') {
+  if (isPdf(buffer)) return 'pdf';
+
+  const head = buffer.subarray(0, 512).toString('latin1');
+  // A .mxl is a zip; so is a .docx, so check that the zip smells like MusicXML.
+  if (looksLikeZip(buffer)) {
+    return head.includes('META-INF/container.xml') || /\.(musicxml|xml)/i.test(head) ? 'musicxml' : 'unknown';
+  }
+  if (/<\s*(score-partwise|score-timewise)/i.test(head) || head.includes('<?xml')) return 'musicxml';
+
+  if (buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8) return 'image';                       // JPEG
+  if (head.startsWith('II*') || head.startsWith('MM\0*')) return 'image';             // TIFF, what scanners emit
+
+  // Last resort: trust the extension, and let the engine fail loudly.
+  if (/\.(png|jpe?g|tiff?|bmp)$/i.test(filename)) return 'image';
+  if (/\.(musicxml|xml|mxl)$/i.test(filename)) return 'musicxml';
+  return 'unknown';
+}
+
+/**
+ * Run one upload all the way through.
+ *
+ * @param {{scoreId:string, filePath:string, filename:string, kind:string,
+ *          engineId?:string, title?:string, workDir?:string,
+ *          report:{stage:Function, log:Function}}} input
+ * @returns {Promise<object>} the score, its timeline, the MusicXML, and what
+ *   happened to each page along the way
+ */
+export async function convert({
+  scoreId, filePath, filename, kind, engineId, title, report, workDir: workDirOverride,
+  // The engine registry, injectable ONLY so the multi-page orchestration can be
+  // tested without half an hour of real OMR. Production never passes it.
+  registry = { chooseEngine, engines: ENGINES },
+}) {
+  report.stage('choosing an engine', 5);
+  const { engine, degraded, note } = await registry.chooseEngine({ kind, requested: engineId });
+  report.log(`engine: ${engine.label}${degraded ? ' (DEGRADED — not a real reading)' : ''}`);
+  if (note) report.log(note);
+
+  report.stage(`recognising with ${engine.id}`, 15);
+
+  // Every engine runs as a child process with this as its working directory,
+  // and spawn() fails with ENOENT when the cwd does not exist — reported as if
+  // the BINARY were missing, which sends you looking in entirely the wrong
+  // place. Make it before anyone can trip over it.
+  //
+  // The server keeps its scratch under the data directory so a failed job can
+  // be inspected; the CLI passes its own temporary one and deletes it after.
+  const workDir = workDirOverride ?? workDirFor(scoreId);
+  await mkdir(workDir, { recursive: true });
+
+  const omr = await engine.convert({
+    inputPath: filePath,
+    workDir,
+    kind,
+    // The engine's own preference wins over the global default: see
+    // engine-oemer.js for why one number cannot serve both engines.
+    dpi: engine.preferredDpi ?? config.omr.dpi,
+    maxPages: config.upload.maxPages,
+    timeoutMs: config.omr.timeoutMs,
+    onLog: (line) => report.log(line),
+    // Recognition is nearly all of the wall clock, so it owns most of the bar:
+    // 15% when it starts, 65% when it finishes.
+    onProgress: (fraction, label) => report.stage(
+      label ? `${engine.id}: ${label}` : `recognising with ${engine.id}`,
+      15 + Math.max(0, Math.min(1, fraction)) * 50,
+    ),
+  });
+
+  report.stage('parsing MusicXML', 68);
+  const pageErrors = [];
+  const parsedDocuments = [];
+  for (const document of omr.documents) {
+    try {
+      parsedDocuments.push({
+        page: document.page,
+        musicXml: document.musicXml,
+        score: stampPage(parseMusicXml(document.musicXml, { title }), document.page),
+      });
+    } catch (err) {
+      // One page of a scan that the engine mangled beyond parsing should cost
+      // that page, not the job.
+      pageErrors.push({ page: document.page, error: err.message });
+      report.log(`page ${document.page ?? '?'} did not parse: ${err.message}`);
+    }
+  }
+
+  // A second opinion on the pages that went badly.
+  //
+  // Two kinds of bad, and the second is the dangerous one. A page the engine
+  // REFUSED throws, and everyone knows. A page it returned nearly EMPTY — two
+  // bars where there are twenty — succeeds quietly and leaves a hole that only
+  // shows up later as drift. Both get handed to the other engine, and whichever
+  // read more of the page wins.
+  const rescued = await rescueBadPages({
+    kind, engine, omr, workDir, filePath, title, parsedDocuments, report,
+    engines: registry.engines,
+  });
+  // Recorded whenever a second opinion actually RAN — not only when it helped.
+  // A page both engines failed on must say so: "audiveris refused page 2" alone
+  // sends someone off to fix Audiveris, when the truth is that nothing on this
+  // machine can read that page.
+  if (rescued.engineId) {
+    omr.meta = {
+      ...omr.meta,
+      failures: rescued.stillFailed,
+      rescuedPages: [...rescued.replaced.keys(), ...rescued.added.map((d) => d.page)],
+      rescuedBy: rescued.replaced.size || rescued.added.length ? rescued.engineId : null,
+    };
+  }
+
+  // The documents that actually made it into the score: what the primary read,
+  // with any page a rescue read better swapped in, plus any page only the
+  // rescue could read at all.
+  const documents = parsedDocuments
+    .map((d) => rescued.replaced.get(d.page) ?? d)
+    .concat(rescued.added)
+    .sort((a, b) => (a.page ?? 0) - (b.page ?? 0));
+  const parsed = documents.map((d) => d.score);
+
+  if (parsed.length === 0) {
+    throw new Error(`the engine produced MusicXML that could not be parsed: ${pageErrors.map((p) => p.error).join('; ')}`);
+  }
+
+  const score = joinScores(parsed);
+
+  // Titles. An explicit one wins. Otherwise keep what is printed on the score —
+  // unless the engine invented it, which it does constantly: oemer names every
+  // score after the image file it was handed. That is "Page-001" for a
+  // rasterised page, and "Source" for an upload the server stored as
+  // source.jpg — a name from this pipeline's own plumbing, handed back to the
+  // person as the title of their music.
+  if (title) {
+    score.title = title;
+  } else if (!score.title || isInventedTitle(score.title, filePath, filename)) {
+    score.title = filename ? filename.replace(/\.[^.]+$/, '') : score.title;
+  }
+
+  report.stage('building the timeline', 85);
+  const timeline = buildTimeline(score);
+
+  // The MusicXML we keep.
+  //
+  // ONE document from the engine: keep it exactly as written. It is the
+  // engine's own output, with everything it knows that this model does not —
+  // beams, slurs, layout — and provenance beats round-tripping.
+  //
+  // SEVERAL documents (a page-at-a-time engine): write the joined score out
+  // ourselves. Handing back page 1 of a twelve-page scan and calling it the
+  // MusicXML is the wrong answer to "turn my scan into a file", and stitching
+  // the documents as TEXT would be guesswork about someone else's markup. The
+  // model is what actually knows how the pages join, so it does the writing —
+  // and what it cannot carry (engraving) is stated rather than implied.
+  // Counted on the documents that made it into the SCORE, not on what the
+  // engine first returned: a page swapped in by a rescue means the engine's own
+  // file no longer describes what was parsed, and serving it would hand back a
+  // document that disagrees with every other endpoint.
+  const generatedMusicXml = documents.length > 1;
+  const musicXml = generatedMusicXml
+    ? scoreToMusicXml(score, { software: `score-pipeline (from ${engine.id})` })
+    // The engine's file, with only its title corrected when the engine invented
+    // one — see withTitle. Everything else in it is exactly as written.
+    : withTitle(documents[0].musicXml, score.title);
+
+  report.stage('done', 100);
+  return {
+    score,
+    timeline,
+    musicXml,
+    omr: {
+      engine: engine.id,
+      degraded,
+      note,
+      documents: documents.length,
+      generatedMusicXml,
+      // Which engine's reading actually survived. `engine` is the one that was
+      // chosen and ran first; when a second opinion replaced pages — or the
+      // whole book — saying only the first would credit the wrong reader.
+      rescuedBy: omr.meta?.rescuedBy ?? null,
+      rescuedPages: omr.meta?.rescuedPages ?? [],
+      meta: omr.meta,
+      pageErrors,
+    },
+    // One row per page of the upload: what was read, and what was not. On a
+    // twenty-page scan this is the first thing a person needs to see — a score
+    // with a hole in it is worse than a short one, because an alignment that
+    // spans the hole is wrong rather than incomplete.
+    pages: pageReport(score, omr, pageErrors),
+    // Quality signals a caller should look at before trusting an alignment.
+    // OMR output that says "half these bars are the wrong length" is worth
+    // surfacing at upload time, not discovering when the cursor drifts.
+    quality: qualityReport(score),
+    cleanup: async () => {
+      if (workDirOverride) return;   // the caller owns its own directory
+      if (!config.omr.keepWork) await clearWork(scoreId);
+    },
+  };
+}
+
+/**
+ * Is this "title" just the name of the file the engine was handed?
+ *
+ * Matches a rasterised page name ("page-001"), the name the server stored the
+ * upload under ("source"), and any exact echo of the input's own stem — all of
+ * which are plumbing, not titles. A real <work-title> is left alone.
+ */
+function isInventedTitle(title, filePath, filename) {
+  const stem = (name) => (name ? path.basename(name).replace(/\.[^.]+$/, '').toLowerCase() : null);
+  const candidate = title.trim().toLowerCase();
+  if (/^page[-_ ]?\d+$/.test(candidate)) return true;
+  if (candidate === 'source' || candidate === stem(filePath)) return true;
+  // An engine echoing the user's own filename is not wrong, just not useful —
+  // and replacing it with the same string changes nothing.
+  return candidate === stem(filename);
+}
+
+/**
+ * Give the pages that went badly to a different engine.
+ *
+ * "Badly" is two things. A page the primary engine REFUSED — it threw, and its
+ * page number is in `omr.meta.failures`. And a page it returned nearly EMPTY,
+ * which is the more dangerous one: nothing errors, the job succeeds, and the
+ * score has a hole in it that shows up much later as an alignment that drifts.
+ * See util/thin-pages.js for where the line is drawn and why.
+ *
+ * The engines fail on different things — Audiveris on a page whose scale it
+ * cannot measure, oemer on a page whose stafflines it cannot align — so the
+ * second opinion is worth having. Whichever read MORE OF THE PAGE wins; a
+ * rescue that came back thinner than the original is discarded.
+ *
+ * Bounded on purpose: one alternative engine, one attempt per bad page, only
+ * for a PDF, and only when the primary read the pages separately — replacing
+ * part of a whole-book document would mean splicing someone else's markup.
+ *
+ * @returns {Promise<{replaced:Map<number,object>, added:{page:number,score:object}[],
+ *                    stillFailed:object[], engineId:string|null}>}
+ */
+async function rescueBadPages({
+  kind, engine, omr, workDir, filePath, title, parsedDocuments, report, engines = ENGINES,
+}) {
+  const failures = omr.meta?.failures ?? [];
+  const nothing = { replaced: new Map(), added: [], stillFailed: failures, engineId: null };
+  // MusicXML that came in as MusicXML has nothing to re-read.
+  if (kind !== 'pdf' && kind !== 'image') return nothing;
+
+  const perPage = parsedDocuments.filter((d) => Number.isFinite(d.page));
+
+  // A WHOLE-BOOK result is one document that covers every page, so a thin page
+  // inside it cannot be swapped out — splicing into someone else's markup is
+  // exactly what this pipeline refuses to do. But when EVERY page of it looks
+  // thin, the document as a whole is the thing that went badly, and the other
+  // engine can be asked for the entire book instead.
+  //
+  // This is the single-page case in disguise, and it is not rare: Audiveris
+  // read a printed menuet page as 2 bars and reported success, where oemer read
+  // 20. With one page there is no median to catch it, so without this the best
+  // available answer is quietly thrown away.
+  // A single image, or a whole-book PDF result: one document covering
+  // everything. Both are handled the same way — count what came back, and if it
+  // is nearly nothing, ask the other engine for the lot.
+  if (perPage.length === 0 && parsedDocuments.length) {
+    const byPage = new Map();
+    for (const part of parsedDocuments[0].score.parts) {
+      for (const measure of part.measures) {
+        const page = measure.layout?.page ?? 1;
+        byPage.set(page, (byPage.get(page) ?? new Set()).add(measure.index));
+      }
+    }
+    const counts = [...byPage.entries()].map(([page, bars]) => ({ page, measures: bars.size }));
+    const suspect = thinPages(counts);
+    if (counts.length && suspect.length === counts.length) {
+      return await rescueWholeBook({
+        kind, engine, filePath, workDir, title, counts, parsedDocuments, report, engines,
+      });
+    }
+    return nothing;
+  }
+
+  // Past this point a page is re-rendered from the PDF, which an upload that
+  // was already one image cannot do — for that, the whole-document path above
+  // is the only one, and it has already run.
+  if (kind !== 'pdf') return nothing;
+
+  const thin = perPage.length
+    ? thinPages(perPage.map((d) => ({ page: d.page, measures: d.score.measureCount })))
+    : [];
+  const failed = failures.map((f) => f.page).filter(Number.isFinite);
+  const wanted = [...new Set([...failed, ...thin])].sort((a, b) => a - b);
+  if (wanted.length === 0) return nothing;
+
+  const alternative = await firstAvailableEngine(
+    engines.filter((e) => e.id !== engine.id && e.id !== 'fixture' && e.accepts.includes('image')),
+  );
+  if (!alternative) return nothing;
+
+  report.log(
+    `${wanted.length} page(s) went badly in ${engine.id}`
+    + `${thin.length ? ` (${thin.length} came back nearly empty)` : ''}`
+    + ` — asking ${alternative.id}`,
+  );
+
+  const dpi = alternative.preferredDpi ?? config.omr.dpi;
+  const rescueDir = path.join(workDir, `rescue-${alternative.id}`);
+  let rendered;
+  try {
+    rendered = await rasterisePdf(filePath, path.join(rescueDir, 'pages'), {
+      dpi,
+      maxPages: config.upload.maxPages,
+      onLog: () => {},
+    });
+  } catch (err) {
+    report.log(`could not re-render the pages to rescue: ${err.message}`);
+    return nothing;
+  }
+
+  const replaced = new Map();
+  const added = [];
+  const stillFailed = [];
+
+  // The rescues run concurrently, like the pages did: a book with six bad
+  // pages would otherwise spend half an hour doing them one after another.
+  const attempts = await mapWithConcurrency(wanted, rescueConcurrency(alternative), async (number) => {
+    const image = rendered.pages.find((p) => p.page === number);
+    if (!image) throw new Error('page could not be re-rendered');
+    const result = await alternative.convert({
+      inputPath: image.path,
+      workDir: path.join(rescueDir, `p${number}`),
+      kind: 'image',
+      dpi,
+      maxPages: 1,
+      // Shorter than the primary's: see config.omr.rescueTimeoutMs.
+      timeoutMs: config.omr.rescueTimeoutMs,
+      // The rescuing engine sees one image and calls it "page 1", whichever
+      // page of the book it really is. Say which, or the log is unreadable.
+      onLog: (line) => report.log(`page ${number}: ${line}`),
+    });
+    // The alternative engine read one image, so its single document IS this
+    // page, whatever page number it thinks it is looking at.
+    return {
+      musicXml: result.documents[0].musicXml,
+      score: stampPage(parseMusicXml(result.documents[0].musicXml, { title }), number),
+    };
+  });
+
+  for (const attempt of attempts) {
+    const number = attempt.item;
+    const original = perPage.find((d) => d.page === number) ?? null;
+
+    if (attempt.error) {
+      if (!original) {
+        stillFailed.push({
+          page: number,
+          error: `${engine.id} and ${alternative.id} both failed: ${attempt.error.message}`,
+        });
+      } else if (/did not finish within/.test(attempt.error.message)) {
+        // Worth distinguishing: this page was not refused, it was abandoned,
+        // and a longer RESCUE_TIMEOUT_MS might have read it.
+        report.log(`page ${number}: ${alternative.id} was still working after the rescue time limit — `
+          + `keeping ${engine.id}'s reading (raise RESCUE_TIMEOUT_MS to wait longer)`);
+      } else {
+        report.log(`page ${number}: ${alternative.id} could not read it either`);
+      }
+      continue;
+    }
+
+    const { score, musicXml } = attempt.value;
+    if (!original) {
+      added.push({ page: number, score, musicXml });
+      report.log(`page ${number} rescued by ${alternative.id}: ${score.measureCount} bars`);
+    } else if (score.measureCount > original.score.measureCount) {
+      replaced.set(number, { page: number, score, musicXml });
+      report.log(
+        `page ${number}: ${alternative.id} read ${score.measureCount} bars where `
+        + `${engine.id} read ${original.score.measureCount} — keeping ${alternative.id}`,
+      );
+    } else {
+      report.log(
+        `page ${number}: ${alternative.id} read ${score.measureCount} bars, no better than `
+        + `${engine.id}'s ${original.score.measureCount} — keeping ${engine.id}`,
+      );
+    }
+  }
+
+  return { replaced, added, stillFailed, engineId: alternative.id };
+}
+
+/**
+ * How many rescues at once.
+ *
+ * The rescuing engine is running alongside nothing else at this point, so it
+ * gets the same width it would get as the primary.
+ */
+function rescueConcurrency(engine) {
+  const asked = Number(process.env.RESCUE_CONCURRENCY);
+  if (Number.isFinite(asked) && asked > 0) return Math.floor(asked);
+  return engine.id === 'oemer' ? Math.max(1, Math.floor(cpus().length / 4)) : 2;
+}
+
+/**
+ * Ask the other engine for the whole book, when the primary barely read it.
+ *
+ * Only called when EVERY page of a whole-book result came back thin — see
+ * rescueBadPages. Whichever engine read more of the book wins, so a wasted
+ * attempt costs time and nothing else.
+ */
+async function rescueWholeBook({
+  kind, engine, filePath, workDir, title, counts, parsedDocuments, report, engines = ENGINES,
+}) {
+  const nothing = { replaced: new Map(), added: [], stillFailed: [], engineId: null };
+  const alternative = await firstAvailableEngine(
+    engines.filter((e) => e.id !== engine.id && e.id !== 'fixture' && e.accepts.includes(kind)),
+  );
+  if (!alternative) return nothing;
+
+  const had = counts.reduce((n, c) => n + c.measures, 0);
+  report.log(
+    `${engine.id} read the whole book as ${had} bar(s) over ${counts.length} page(s) — `
+    + `that is nearly empty, so ${alternative.id} is being asked for the book instead`,
+  );
+
+  let result;
+  try {
+    result = await alternative.convert({
+      inputPath: filePath,
+      workDir: path.join(workDir, `rescue-${alternative.id}`),
+      kind,
+      dpi: alternative.preferredDpi ?? config.omr.dpi,
+      maxPages: config.upload.maxPages,
+      timeoutMs: config.omr.rescueTimeoutMs,
+      onLog: (line) => report.log(line),
+    });
+  } catch (err) {
+    report.log(`${alternative.id} could not read it either: ${err.message}`);
+    return nothing;
+  }
+
+  const rescuedDocuments = [];
+  for (const document of result.documents) {
+    try {
+      rescuedDocuments.push({
+        page: document.page,
+        musicXml: document.musicXml,
+        score: stampPage(parseMusicXml(document.musicXml, { title }), document.page),
+      });
+    } catch (err) {
+      report.log(`${alternative.id}'s output did not parse: ${err.message}`);
+    }
+  }
+
+  const got = rescuedDocuments.reduce((n, d) => n + d.score.measureCount, 0);
+  if (got <= had) {
+    report.log(`${alternative.id} read ${got} bar(s), no better than ${engine.id}'s ${had} — keeping ${engine.id}`);
+    return nothing;
+  }
+
+  report.log(`${alternative.id} read ${got} bars where ${engine.id} read ${had} — keeping ${alternative.id}`);
+  // The primary's document is dropped entirely: this is a replacement of the
+  // whole book, not of one page inside it.
+  parsedDocuments.length = 0;
+  return {
+    replaced: new Map(),
+    added: rescuedDocuments,
+    stillFailed: result.meta?.failures ?? [],
+    engineId: alternative.id,
+  };
+}
+
+/** The first engine in the list that this machine can actually run. */
+async function firstAvailableEngine(candidates) {
+  for (const candidate of candidates) {
+    if ((await candidate.available()).ok) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Put the page number back on a document that was recognised one page at a time.
+ *
+ * A per-page engine hands us N documents, each of which believes it is a whole
+ * piece printed on page 1 — there is no <print page-number> in its output
+ * because it never saw the other pages. Joining them without stamping would
+ * report every bar of a twelve-page scan as page 1, which is exactly the
+ * information the layout fields exist to carry.
+ *
+ * An engine that read the whole book itself passes `page: null` here, because
+ * its MusicXML already knows.
+ */
+function stampPage(score, page) {
+  if (!page) return score;
+  for (const part of score.parts) {
+    for (const measure of part.measures) {
+      measure.layout.page = page;
+      for (const note of measure.notes) note.layout.page = page;
+    }
+  }
+  return score;
+}
+
+/**
+ * One row per page: read or not, and how much came back.
+ *
+ * Two shapes have to produce the same table. A whole-book engine returns ONE
+ * document that knows its own page breaks (`<print>`), so the pages are read
+ * off the parsed measures. A per-page engine returns one document per page, so
+ * the pages are the documents. Callers should not have to know which ran.
+ */
+export function pageReport(score, omr, pageErrors = []) {
+  const failures = omr.meta?.failures ?? [];
+  const rescued = new Set(omr.meta?.rescuedPages ?? []);
+  const rows = new Map();
+
+  // BARS are counted once each; NOTES are counted across every part.
+  //
+  // Both halves of that matter. Audiveris routinely splits one scanned page
+  // into two parts — a photographed page came back as P1 and P2 holding 76
+  // notes each — so counting notes on the first part alone halves the score.
+  // But bar 12 of P1 and bar 12 of P2 are the SAME BAR, so counting measures
+  // across parts would double it, and the rows would not sum to the score's
+  // own bar count.
+  const barsSeen = new Map();   // page -> Set of measure indices
+  for (const part of score.parts) {
+    for (const measure of part.measures) {
+      const page = measure.layout?.page ?? 1;
+      const row = rows.get(page) ?? { page, status: 'read', measures: 0, notes: 0 };
+      if (!barsSeen.has(page)) barsSeen.set(page, new Set());
+      barsSeen.get(page).add(measure.index);
+      row.notes += measure.notes.filter((n) => !n.rest).length;
+      rows.set(page, row);
+    }
+  }
+  for (const [page, bars] of barsSeen) rows.get(page).measures = bars.size;
+
+  for (const failure of failures) {
+    rows.set(failure.page, {
+      page: failure.page, status: 'failed', measures: 0, notes: 0, error: failure.error,
+    });
+  }
+  for (const problem of pageErrors) {
+    if (problem.page == null) continue;
+    rows.set(problem.page, {
+      page: problem.page,
+      status: 'failed',
+      measures: 0,
+      notes: 0,
+      error: `the engine's MusicXML for this page did not parse: ${problem.error}`,
+    });
+  }
+  for (const page of rescued) {
+    const row = rows.get(page);
+    if (row) row.rescuedBy = omr.meta?.rescuedBy ?? null;
+  }
+
+  return [...rows.values()].sort((a, b) => a.page - b.page);
+}
+
+/**
+ * Cheap, honest checks on what came back.
+ *
+ * None of these can tell you a note was read as the wrong PITCH — nothing can,
+ * without the original. What they can tell you is that the RHYTHM does not add
+ * up, which is the failure that actually breaks audio alignment: a bar half a
+ * beat short shifts everything after it.
+ */
+export function qualityReport(score) {
+  if (!score.parts?.length) return { ok: false, reason: 'no parts' };
+
+  // BARS ARE COUNTED ONCE, NOTES ACROSS EVERY PART — the same rule as
+  // pageReport, and for the same two reasons.
+  //
+  // Notes: Audiveris splits one scanned line into two parts, so counting the
+  // first part alone halves the score.
+  //
+  // Bars: measure 12 of P1 and measure 12 of P2 are the SAME BAR, and joining
+  // pages pads the parts that a page did not have with silent bars to keep them
+  // in step. Counting part-measures would therefore compare against a total
+  // twice the size of the piece — a book of 230 bars reporting "264 bars that
+  // do not add up", which is not a number anyone can act on.
+  const byIndex = new Map();
+  let notes = 0;
+  for (const part of score.parts) {
+    for (const measure of part.measures) {
+      notes += measure.notes.filter((n) => !n.rest).length;
+      const seen = byIndex.get(measure.index);
+      if (!seen) { byIndex.set(measure.index, measure); continue; }
+      // Keep the copy that carries the music: a padded silent bar must not
+      // shadow the real one, in either direction.
+      if (measure.notes.length > seen.notes.length) byIndex.set(measure.index, measure);
+    }
+  }
+  const measures = [...byIndex.values()].sort((a, b) => a.index - b.index);
+
+  // A first bar SHORTER than its time signature is a pickup and normal. A first
+  // bar LONGER than it is an OMR error, and the worst one to hide: everything
+  // after it is shifted. So the exemption is by direction, not by position.
+  const isPickup = (m) => m.implicit || (m.index === 0 && m.durationQuarters < m.nominalQuarters);
+  const irregular = measures.filter((m) => m.irregular && !isPickup(m));
+
+  return {
+    parts: score.parts.map((p) => ({
+      id: p.id,
+      name: p.name,
+      measures: p.measures.length,
+      notes: p.measures.flatMap((m) => m.notes).filter((n) => !n.rest).length,
+    })),
+    measures: measures.length,
+    notes,
+    // The list is capped so a badly-read book does not return a thousand rows;
+    // the COUNT is not, because a capped number printed as a total is a lie
+    // that only shows up on the books that are worst.
+    irregularCount: irregular.length,
+    irregularMeasures: irregular.map((m) => ({
+      number: m.number, index: m.index, quarters: m.durationQuarters, expected: m.nominalQuarters,
+    })).slice(0, 50),
+    // A bar with nothing in it in ANY part — padding does not count, because
+    // padding is this pipeline's doing, not the engine's failure.
+    emptyMeasures: measures.filter((m) => m.notes.length === 0).length,
+    unpitchedNotes: measures.flatMap((m) => m.notes).filter((n) => !n.rest && n.midi === null).length,
+    // Pages that did not agree how many parts they held — see assemble.js. The
+    // timeline follows the part with the most notes, so alignment still works,
+    // but a client drawing "the score" should know it is not one clean stack.
+    partCountMismatch: score.partCountMismatch ?? null,
+    // A single number for a UI to threshold on. 1.0 means every bar adds up.
+    rhythmScore: measures.length ? Math.round((1 - irregular.length / measures.length) * 1000) / 1000 : 0,
+    ok: notes > 0 && irregular.length <= measures.length * 0.25,
+  };
+}

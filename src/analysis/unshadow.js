@@ -60,6 +60,25 @@ const GAIN = 2.2;      // the most a shadow may be lifted
 // photographed at 214 comes back at 248 — and nothing near it is thrown away.
 const PAPER_TO = 248;
 
+// HOW CLOSE TO THE PAPER A PIXEL HAS TO BE BEFORE IT IS LIFTED WITH IT.
+//
+// The brightening used to scale every pixel by the same ratio — paper and ink
+// together — which takes the paper to white and the ink most of the way there
+// with it. On a page of dense semiquavers, where the local paper level is held
+// up by FLOOR, a black notehead came back mid-grey: "it makes it more white and
+// harder to see the black notes. if anything it should be easier to see the
+// notes."
+//
+// So the lift now fades out as a pixel gets darker than the paper. At 1 it is
+// paper and goes to white; at INK_AT and below it is ink and is left exactly as
+// photographed. Between the two it is blended, so a faint staff line is not
+// snapped either way.
+//
+// This only ever REDUCES the lift, so it cannot push ink towards black — the
+// thing `test/scan-enhance.test.js` has forbidden since long before this round,
+// and the reason a pencilled fingering still looks like pencil.
+const INK_AT = 0.82;
+
 // The lighting, taken out of a page of RGBA pixels in place. Kept apart from
 // the canvas so it can be looked at on its own: given a page with a shadow
 // across it, the paper should come out one shade all over and the ink should
@@ -131,8 +150,14 @@ export function unshadow(data, w, h, { lift = false } = {}) {
     // takes the faintest staff lines with it, and they are what a stave is
     // found by. So the reader gets the page with its lighting flattened and
     // nothing else, and the player looking at it gets the bright one.
+    // How paper-like this pixel is: 1 at the paper's own level, 0 once it is
+    // ink. Only the paper end of that is lifted.
+    const paperness = Math.max(0, Math.min(1, (r - INK_AT) / (1 - INK_AT)));
     const want = lift
-      ? Math.min(255, r * PAPER_TO)
+      // Ink stays where it was photographed, paper goes to just under white,
+      // and what is in between moves in proportion. The gap between the two —
+      // which is the only thing that makes a note easy to see — widens.
+      ? Math.min(255, gray[i] + (r * PAPER_TO - gray[i]) * paperness)
       : Math.min(255, gray[i] * Math.min(GAIN, target / paper));
     // Applied as one scale on all three channels, so the page keeps whatever
     // colour it had — cream stays cream, a blue-lit page stays blue-lit, and

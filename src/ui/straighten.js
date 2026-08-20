@@ -48,6 +48,192 @@ function lumaOf(source, w, h) {
   return luma;
 }
 
+// Is there really an edge of paper along this side of the quadrilateral?
+//
+// THE PROBLEM THIS SOLVES: a page held close enough to fill the frame — which
+// is exactly what the scanner asks for, in those words — has no visible edge.
+// The detector then finds the strongest boundary it can see, and on a page of
+// music that is where the PRINTING stops. Measured on three photographs of
+// pages that fill the frame, the quadrilateral came back 100% of the width and
+// 79–90% of the height: 8–11% cut off the top and bottom of every one of them,
+// taking the title, the composer and the last system with it.
+//
+// A real paper edge has paper on one side and something else on the other, so
+// it is a STEP in brightness. The end of the printed area has paper on both
+// sides. That is the difference this measures: sample a band just inside the
+// boundary and a band just outside it, and if the outside is still as bright as
+// the inside, nothing ends there and the boundary is not to be trusted.
+/**
+ * Is there PRINT just outside this boundary?
+ *
+ * The one thing a crop must never do is cut through the music, and the two
+ * things it has to tell apart are a sheet of paper ending and a page of print
+ * continuing. Both are darker outside than in, so brightness cannot do it —
+ * that was tried twice and cut a system off a page each time.
+ *
+ * Print has a shape brightness does not: it is thin dark marks with paper
+ * showing between them. A table, a shadow, the dark of the room — whatever is
+ * beyond a real paper edge — is dark in a lump, with no paper in it. So the
+ * question is not "is it darker out there" but "are there dark marks out there
+ * WITH PAPER AROUND THEM", and that is what this counts.
+ */
+function printBeyond(luma, w, h, side, at) {
+  const along = side === 'top' || side === 'bottom' ? w : h;
+  const depth = Math.max(3, Math.round((side === 'top' || side === 'bottom' ? h : w) * 0.04));
+  const inside = [];
+  const beyond = [];
+
+  const value = (x, y) => (x < 0 || y < 0 || x >= w || y >= h ? null : luma[y * w + x]);
+  const step = (i, d) => {
+    if (side === 'top') return [i, at - d];
+    if (side === 'bottom') return [i, at + d];
+    if (side === 'left') return [at - d, i];
+    return [at + d, i];
+  };
+
+  // A gap, so the boundary itself is never sampled. The pixels either side of
+  // an edge are a blend of both sides, and counting those as "a dark mark with
+  // paper beside it" is how the first version of this refused to crop a page
+  // lying on a table.
+  const gap = Math.max(2, Math.round(depth * 0.3));
+
+  for (let i = 0; i < along; i += 1) {
+    for (let d = gap; d <= depth + gap; d += 1) {
+      const [ox, oy] = step(i, d);
+      const out = value(ox, oy);
+      if (out !== null) beyond.push([ox, oy, out]);
+      const [ix, iy] = step(i, -d);
+      const inn = value(ix, iy);
+      if (inn !== null) inside.push(inn);
+    }
+  }
+  if (beyond.length < 200 || inside.length < 200) return false;   // nothing out there to judge
+
+  const sorted = [...inside].sort((a, b) => a - b);
+  const paper = sorted[Math.floor(sorted.length * 0.6)];
+  const dark = paper - 45;
+  const light = paper - 20;
+
+  // IS IT STILL A PAGE OUT THERE? Beyond a boundary that has music past it,
+  // most of what you see is paper — printing is thin, and a page is mostly
+  // white even where it is busy. Beyond the real edge of the sheet, hardly any
+  // of it is. This is the half of the test that tells a table from a margin,
+  // and it does the work the brightness comparisons could not.
+  const paperShare = beyond.filter(([, , level]) => level > light).length / beyond.length;
+  if (paperShare < 0.5) return false;
+
+  let marks = 0;
+  for (const [x, y, level] of beyond) {
+    if (level >= dark) continue;
+    // Paper within two pixels: a mark ON a page, rather than a piece of a
+    // large dark thing that is not a page at all.
+    let hasPaper = false;
+    for (let dx = -2; dx <= 2 && !hasPaper; dx += 1) {
+      for (let dy = -2; dy <= 2 && !hasPaper; dy += 1) {
+        const near = value(x + dx, y + dy);
+        if (near !== null && near > light) hasPaper = true;
+      }
+    }
+    if (hasPaper) marks += 1;
+  }
+  // Four marks in a thousand pixels is a staff line; blank margin has none
+  // either, and cutting blank margin costs nothing.
+  return marks / beyond.length > 0.004;
+}
+
+/**
+ * Does the sheet reach both sides of the picture in either direction?
+ *
+ * If it does, it is bigger than the frame and part of it was never in the
+ * photograph at all. Two callers need to know: the crop, which must not then
+ * trust any boundary it finds inside the picture, and the SCANNER, which must
+ * not take the shot.
+ */
+export function paperRunsOffTheFrame(quad) {
+  const [tl, tr, br, bl] = quad;
+  const across = Math.max(tr[0], br[0]) - Math.min(tl[0], bl[0]);
+  const down = Math.max(bl[1], br[1]) - Math.min(tl[1], tr[1]);
+  return across >= 0.97 || down >= 0.97;
+}
+
+/**
+ * A page that fills the frame has no edges, so nothing inside it is one.
+ *
+ * THE BUG THIS FIXES: the scanner asks the player to "hold it close, so the
+ * page fills the frame" — and a page that fills the frame has no visible paper
+ * edge at all. The detector then finds the strongest boundary it can see, which
+ * on a page of music is where the PRINTING stops. Measured on three
+ * photographs of pages that fill the frame, the outline came back at 100% of
+ * the width and 79–90% of the height: 8–11% cut off the top and bottom of every
+ * one, taking the title, the composer and the last system with it. On the page
+ * this was first noticed on, the strip below the "edge" holds a whole system.
+ *
+ * WHY NOT MEASURE THE EDGE INSTEAD: because a paper edge and the end of the
+ * printing look the same from here. Both are darker outside than in — outside a
+ * real edge is the table, outside the last system is the footer and the margin
+ * — and a dense band of music at thumbnail size is as dark as a table. Two
+ * attempts at telling them apart by brightness both cut a system off a page.
+ *
+ * The geometry is not ambiguous in the same way. If the paper reaches both
+ * sides of the frame in either direction, it is bigger than the picture, and
+ * every boundary inside the picture is something printed on it. Keep the whole
+ * frame. The cost is a strip of margin, or a sliver of whatever the page is
+ * lying on; the cost the other way is music that no undo brings back.
+ */
+function trustEdges(luma, w, h, quad) {
+  if (paperRunsOffTheFrame(quad)) return [[0, 0], [1, 0], [1, 1], [0, 1]];
+
+  // The page sits inside the frame, so its edges CAN be seen — but a boundary
+  // with music printed just beyond it is not one of them. This is the case the
+  // frame rule above cannot catch: a page held at arm's length, its top in
+  // shadow, and the outline landing under the title.
+  const [tl, tr, br, bl] = quad;
+  const top = Math.min(tl[1], tr[1]);
+  const bottom = Math.max(bl[1], br[1]);
+  const left = Math.min(tl[0], bl[0]);
+  const right = Math.max(tr[0], br[0]);
+
+  const out = quad.map(([x, y]) => [x, y]);
+  if (top > 0.02 && printBeyond(luma, w, h, 'top', Math.round(top * h))) { out[0][1] = 0; out[1][1] = 0; }
+  if (bottom < 0.98 && printBeyond(luma, w, h, 'bottom', Math.round(bottom * h))) { out[2][1] = 1; out[3][1] = 1; }
+  if (left > 0.02 && printBeyond(luma, w, h, 'left', Math.round(left * w))) { out[0][0] = 0; out[3][0] = 0; }
+  if (right < 0.98 && printBeyond(luma, w, h, 'right', Math.round(right * w))) { out[1][0] = 1; out[2][0] = 1; }
+  return out;
+}
+
+/**
+ * Every outline goes through the guard, whoever found it.
+ *
+ * THE BUG THIS EXISTS TO CLOSE: the guard used to live inside `paperIn`, and
+ * the scanner does not call `paperIn`. It finds its own corners with
+ * `papersIn`, shows them to the player, and hands them to `straightenCanvas` as
+ * `known` — which used them as given. So every photograph taken with the CAMERA
+ * skipped all of it, and the only path that was protected was the one for
+ * pictures chosen out of the library. That is why a page scanned with the phone
+ * still came out with its top cut off while every measurement here said it was
+ * fixed: the measurements went in through the other door.
+ *
+ * So the guard is applied where the outline is USED, not where one of the two
+ * finders happens to return.
+ *
+ * It is skipped for an outline that is plainly one page of several — a spread
+ * photographed open, where each sheet is half the frame. Pushing the sides of
+ * one of those out to the frame would swallow the facing page.
+ */
+function guardQuad(source, width, height, quad) {
+  if (!quad) return null;
+  const xs = quad.map(([x]) => x);
+  const share = Math.max(...xs) - Math.min(...xs);
+  if (share < 0.45) return quad;   // one of a spread, or a page with room round it
+  const w = Math.min(LOOK_AT, width);
+  const h = Math.max(1, Math.round(height * (w / width)));
+  try {
+    return trustEdges(lumaOf(source, w, h), w, h, quad);
+  } catch {
+    return quad;
+  }
+}
+
 // Where the paper is, in the picture's own 0–1 terms. Null when nothing in the
 // frame looks enough like a sheet of paper to risk it — and null for an open
 // book too, because one quadrilateral cannot describe two pages and this is
@@ -56,7 +242,8 @@ export function paperIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    return findPage(lumaOf(source, w, h), w, h);
+    const quad = findPage(lumaOf(source, w, h), w, h);
+    return guardQuad(source, width, height, quad);
   } catch {
     return null;
   }
@@ -69,7 +256,11 @@ export function papersIn(source, width, height) {
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    return findPages(lumaOf(source, w, h), w, h);
+    const found = findPages(lumaOf(source, w, h), w, h);
+    // The scanner draws these on the screen and shoots with them, so they are
+    // guarded here too — otherwise the outline a player is shown is not the one
+    // the page is cut to.
+    return found.map((quad) => guardQuad(source, width, height, quad));
   } catch {
     return [];
   }
@@ -151,7 +342,19 @@ function cropToBright(source, width, height) {
   }
   const across = (right - left) / w;
   const down = (bottom - top) / h;
-  if (!(across > 0.3 && down > 0.3) || (across > 0.97 && down > 0.97)) return null;
+  // Too little to be a page, or the whole frame and therefore nothing to do.
+  if (!(across > 0.3 && down > 0.3)) return null;
+  // THE PAPER RUNS OFF THE FRAME — see trustEdges, which says the same thing
+  // about the outline. If the bright part reaches both sides of the picture in
+  // EITHER direction, the page is bigger than the picture, and the boundary in
+  // the other direction is not the paper ending: it is the lighting falling
+  // away, or the printing stopping. Cropping to it takes the title off the top
+  // and the last system off the bottom. Measured with a page photographed under
+  // a lamp, which is to say the ordinary case: 14% of the page cut away.
+  //
+  // `||` rather than `&&` is the whole fix. It used to refuse only when the
+  // bright part filled the frame in BOTH directions.
+  if (across > 0.97 || down > 0.97) return null;
   const box = {
     x: Math.round((left / w) * width),
     y: Math.round((top / h) * height),
@@ -179,7 +382,9 @@ export function straightenCanvas(source, width, height, known = null) {
     src = scratch(w, h);
     src.getContext('2d').drawImage(source, 0, 0, w, h);
   }
-  const quad = known ?? paperIn(src, w, h);
+  // Guarded whether it was found here or handed in: see guardQuad. The scanner
+  // hands in the corners the player saw, and those went straight through.
+  const quad = guardQuad(src, w, h, known ?? paperIn(src, w, h));
   let page = null;
   try {
     page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);
@@ -240,6 +445,29 @@ export async function readableImage(file) {
     } catch { /* nothing can read it */ }
   }
   return null;
+}
+
+/**
+ * The same picture, decoded SMALLER, for when decoding it whole fails.
+ *
+ * A phone that has just taken half a dozen twelve-megapixel photographs, held
+ * the straightened copies of them, and then opened the reader is a phone with
+ * no memory left, and what iOS does about that is refuse the next decode. The
+ * page is not broken; there is simply no room for it at full size right now.
+ * Half the width is a quarter of the memory, and a page at 1400px is what the
+ * reader draws at anyway.
+ */
+export async function readableImageSmall(file, width = 1400) {
+  if (typeof createImageBitmap !== 'function') return null;
+  try {
+    return await createImageBitmap(file, {
+      resizeWidth: width,
+      resizeQuality: 'high',
+      imageOrientation: 'from-image',
+    });
+  } catch {
+    return null;
+  }
 }
 
 export function sizeOfImage(image) {
