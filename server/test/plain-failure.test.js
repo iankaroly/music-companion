@@ -71,3 +71,19 @@ test('the scale comes from the interline Audiveris measured, not from a fixed dp
   assert.equal(at(20), null);                // already big enough: no rescue
   assert.equal(scaleFor(new Error('exited with code 1')), null);
 });
+
+test('a reading is judged by bars that hold their beats, not by note count', async () => {
+  // The rule that decides whether to keep a second opinion. Measured on three
+  // real pages: as a picture and as a page each won on one of them, and always
+  // wrapping cost the middle page a third of its music — so neither can be the
+  // default and the better one has to be chosen after the fact.
+  const { chooseReading } = await import('../src/pipeline.js');
+  const worse = { good: 9, notes: 200 };
+  const better = { good: 13, notes: 182 };
+  const tidyHalfPage = { good: 14, notes: 90 };
+  assert.equal(chooseReading(worse, better), 'second');
+  assert.equal(chooseReading(better, worse), 'first');
+  assert.equal(chooseReading(worse, worse), 'first', 'a tie keeps what it had');
+  assert.equal(chooseReading(worse, tidyHalfPage), 'first',
+    'tidier bars with half the notes is a tidier half of the page');
+});

@@ -11,7 +11,7 @@
 // request. It is a pure function of the score, so caching it is safe, and it
 // turns every later alignment call into a lookup rather than a re-parse.
 
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import path from 'node:path';
 import { chooseEngine, ENGINES } from './omr/registry.js';
@@ -22,6 +22,7 @@ import { joinScores } from './musicxml/assemble.js';
 import { buildTimeline } from './musicxml/timeline.js';
 import { scoreToMusicXml, withTitle } from './musicxml/serialise.js';
 import { repairForEngraving } from './musicxml/repair.js';
+import { imagesToPdf } from './scan/images-to-pdf.js';
 import { clearWork, workDirFor } from './storage/store.js';
 import { mapWithConcurrency } from './util/pool.js';
 import { thinPages } from './util/thin-pages.js';
@@ -63,6 +64,68 @@ export function sniffKind(buffer, filename = '') {
  * @returns {Promise<object>} the score, its timeline, the MusicXML, and what
  *   happened to each page along the way
  */
+/**
+ * How much of a reading is actually usable: bars that hold their beats.
+ *
+ * Not a count of notes — a page can come back with plenty of noteheads in bars
+ * that make no rhythmic sense, and that is worse than fewer notes read
+ * properly, because an alignment follows the bars. Not a percentage either: a
+ * reading that found eight bars and got six right is not better than one that
+ * found forty and got twenty.
+ */
+function barsThatAddUp(documents, title) {
+  let good = 0;
+  let notes = 0;
+  for (const document of documents) {
+    try {
+      const score = parseMusicXml(document.musicXml, { title });
+      for (const part of score.parts) {
+        for (const measure of part.measures) {
+          if (!measure.irregular) good += 1;
+          notes += measure.notes.filter((n) => !n.rest).length;
+        }
+      }
+    } catch {
+      return { good: 0, notes: 0 };
+    }
+  }
+  return { good, notes };
+}
+
+/**
+ * A SECOND OPINION ON A PAGE THAT READ BADLY.
+ *
+ * A photograph can be handed to Audiveris as a picture, or wrapped in a page
+ * and handed over as a document it renders itself. Neither is better than the
+ * other — measured on three real pages, same camera, same music:
+ *
+ *   1800px page   as a picture 202 notes, 9 bars adding up   as a page 182, 13
+ *   2000px page   as a picture 246 notes, 11 bars            as a page 120, 4
+ *   3200px page   as a picture 151 notes, 8 bars             as a page 227, 11
+ *
+ * Always wrapping would have cost the middle page a third of its music; never
+ * wrapping costs the other two. So a page that reads badly is read the other
+ * way too, and the better of the two is kept. A page that read well is left
+ * alone, and costs nothing.
+ */
+const GOOD_ENOUGH = 0.6;   // of its bars holding their beats
+const KEPT_THE_MUSIC = 0.6;   // of the notes the first reading found
+
+/**
+ * Which of two readings of the same page to keep.
+ *
+ * More bars holding their beats wins — but only if it did not lose the music
+ * getting there. A reading with tidier bars and half the notes is a tidier half
+ * of the page, and a tie keeps what it already had rather than paying for the
+ * second one twice.
+ *
+ * @returns {'first'|'second'}
+ */
+export function chooseReading(first, second) {
+  if (second.good <= first.good) return 'first';
+  return second.notes >= first.notes * KEPT_THE_MUSIC ? 'second' : 'first';
+}
+
 export async function convert({
   scoreId, filePath, filename, kind, engineId, title, report, workDir: workDirOverride,
   // The engine registry, injectable ONLY so the multi-page orchestration can be
@@ -104,10 +167,42 @@ export async function convert({
     ),
   });
 
+  // A single photograph that read badly is read again as a page — see
+  // barsThatAddUp for the measurements behind this.
+  let reading = omr;
+  if (kind === 'image') {
+    const first = barsThatAddUp(omr.documents, title);
+    const bars = omr.documents.reduce((n, d) => n + (d.musicXml.match(/<measure[ >]/g) ?? []).length, 0);
+    if (bars > 0 && first.good / bars < GOOD_ENOUGH) {
+      report.log(`${first.good} of ${bars} bars hold their beats — reading it again as a page`);
+      try {
+        const pdfPath = path.join(workDir, 'as-page.pdf');
+        await writeFile(pdfPath, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
+        const second = await engine.convert({
+          inputPath: pdfPath,
+          workDir: path.join(workDir, 'as-page'),
+          kind: 'pdf',
+          dpi: engine.preferredDpi ?? config.omr.dpi,
+          maxPages: config.upload.maxPages,
+          timeoutMs: config.omr.timeoutMs,
+          onLog: (line) => report.log(line),
+          onProgress: () => {},
+        });
+        const other = barsThatAddUp(second.documents, title);
+        report.log(`as a page: ${other.good} bars hold their beats against ${first.good}`);
+        // Kept only if it is better AND did not lose the music doing it: a
+        // reading with half the notes and tidier bars is a tidier half-page.
+        if (chooseReading(first, other) === 'second') reading = second;
+      } catch (err) {
+        report.log(`reading it as a page did not work (${err.message}) — keeping the first reading`);
+      }
+    }
+  }
+
   report.stage('parsing MusicXML', 68);
   const pageErrors = [];
   const parsedDocuments = [];
-  for (const document of omr.documents) {
+  for (const document of reading.documents) {
     try {
       parsedDocuments.push({
         page: document.page,
