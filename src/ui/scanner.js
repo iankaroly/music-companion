@@ -72,6 +72,8 @@ let armed = true;      // may the auto-shutter fire?
 // a thick part at a rhythm; it starts off.
 let auto = false;
 let cleanUp = true;    // pull the page square and take the shadows out, on the way in
+// The camera's own still-photo taker, when the browser has one. See openScanner.
+let stills = null;
 let paper = [];        // where the page or pages are in the LIVE picture: the outline
 let held = null;       // where they were a tick ago, for deciding it is being held still
 let done = null;       // resolve the promise openScanner returned
@@ -456,9 +458,24 @@ async function pageFrom(canvas, name) {
 async function capture() {
   if (!video?.videoWidth) return;
   const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth;
-  canvas.height = video.videoHeight;
-  canvas.getContext('2d').drawImage(video, 0, 0);
+  // A REAL PHOTOGRAPH IF THE BROWSER WILL TAKE ONE, the frame on screen if not.
+  //
+  // The corners are found on whatever this returns, and they are kept in the
+  // picture's own 0-1 terms, so a still four times the size of the preview
+  // needs nothing else changed.
+  let shot = null;
+  if (stills) {
+    try {
+      const photo = await stills.takePhoto();
+      shot = await createImageBitmap(photo);
+    } catch {
+      shot = null;     // a camera that will not take a still still has a frame
+    }
+  }
+  canvas.width = shot?.width ?? video.videoWidth;
+  canvas.height = shot?.height ?? video.videoHeight;
+  canvas.getContext('2d').drawImage(shot ?? video, 0, 0);
+  shot?.close?.();
   // Where the paper was, on the frame actually taken. Kept with the shot, so
   // the edges can be moved afterwards without the corners having to be found
   // all over again from a picture the hand has since moved on from.
@@ -776,6 +793,34 @@ export async function openScanner() {
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
+
+  // THE FULL-SIZE PICTURE, WHERE THE BROWSER WILL GIVE ONE.
+  //
+  // A video frame is not a photograph. The camera in a phone takes twelve
+  // megapixels; the video track it hands a web page is a fraction of that, and
+  // the difference is the difference between a recogniser finding the beams on
+  // a run of semiquavers and finding none of them.
+  //
+  // ImageCapture asks the camera for a real still at the moment of the shutter.
+  // Chrome and Android have it; Safari does not, and on an iPhone this stays
+  // null and the frame is used as before — which is why the menu also offers
+  // the camera app, the one route to a full-size picture on that phone.
+  stills = null;
+  try {
+    const track = stream.getVideoTracks?.()[0];
+    if (track && typeof window.ImageCapture === 'function') {
+      // Ask the track for everything it has while we are at it: a track that
+      // can give 4032 and was opened at 1280 gives 1280 until it is asked.
+      const can = track.getCapabilities?.();
+      if (can?.width?.max || can?.height?.max) {
+        await track.applyConstraints({
+          width: { ideal: can.width?.max ?? undefined },
+          height: { ideal: can.height?.max ?? undefined },
+        }).catch(() => {});
+      }
+      stills = new window.ImageCapture(track);
+    }
+  } catch { /* the frame will do */ }
   // Not "hold it close": that is the instruction that produced scans with the
   // title missing. Close enough to fill the frame AND far enough that all four
   // edges are in it — which is what the advice line now polices, tick by tick.

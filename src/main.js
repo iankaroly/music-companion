@@ -1764,8 +1764,16 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
       onPick: () => scanPages(),
     },
     {
-      label: 'Photos already taken',
-      hint: 'Pictures of the part from your library',
+      // THE ROUTE TO A FULL-SIZE PICTURE, and on an iPhone the only one.
+      //
+      // The scanner works off the video the browser gives a web page, which is
+      // a fraction of what the camera can take — Safari has no way to ask for a
+      // real still, so on that phone this is it. It was called "Photos already
+      // taken", which reads as the library and hid the one thing that gets the
+      // most notes off a photographed page: the camera app's own twelve
+      // megapixels, which the reader has four times as much to work with.
+      label: 'Photograph it (full size)',
+      hint: 'Opens the camera app — the sharpest pictures, and the most notes read',
       onPick: () => document.querySelector('#score-photos')?.click(),
     },
     {

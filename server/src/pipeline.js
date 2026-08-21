@@ -269,7 +269,12 @@ export async function convert({
     // rendering cost about what one costs in wall clock, and turn "it read
     // almost nothing this time" into a thing that has to happen three times
     // over before anybody sees it.
-    for (const [label, times] of [['smaller', 0.7], ['bigger', 1.4]]) {
+    // The full ladder is for ONE page — the scan somebody is standing over. A
+    // book of four pages read four ways is sixteen readings and two minutes of
+    // waiting, so it gets the two that earn their keep most often: as it is,
+    // and as a page the recogniser renders itself.
+    const sizes = pagesIn > 1 ? [] : [['smaller', 0.7], ['bigger', 1.4]];
+    for (const [label, times] of sizes) {
       attempts.push({
         label: `${label} (${times}x)`,
         run: async (signal) => {

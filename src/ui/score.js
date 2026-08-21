@@ -38,6 +38,10 @@ import {
 } from './paper.js';
 import { openScanner } from './scanner.js';
 
+// The long edge under which a photographed page starts losing its beams — see
+// the note in readNotesFromPipeline for where the number comes from.
+const SHARP_ENOUGH = 2000;
+
 let current = null;   // { id, name, xml, partIndex, notes }
 let view = null;      // the rendered page, if one is up
 let onPick = null;    // hand a chosen note back to the report
@@ -416,6 +420,29 @@ async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
 
   const payload = await loadScorePages(paperId);
   if (!payload) return null;
+
+  // HOW BIG THE PAGE ACTUALLY IS, said before the reading rather than after.
+  //
+  // A recogniser needs the staff lines far enough apart to see what is between
+  // them: measured, a page engraved at the size it wants comes back at 94% of
+  // its notes, and the same music photographed small comes back at about 60%
+  // with the beams unresolved — which reads as "it missed all my quavers".
+  //
+  // The size is knowable here, before anything is sent, so it is said here. A
+  // page under about two thousand across is one to take again with the camera
+  // app, which gives four times the picture the scanner's video frame does.
+  try {
+    const first = payload.pages?.[0];
+    if (first) {
+      const shot = await createImageBitmap(first);
+      const across = Math.max(shot.width, shot.height);
+      shot.close?.();
+      if (across < SHARP_ENOUGH) {
+        status(`this page is ${across} across — small for reading notes off. `
+          + 'Photograph it (full size) from the + menu gives a sharper one.', 'bad');
+      }
+    }
+  } catch { /* a page that will not decode is the reader's problem, not this */ }
 
   let result;
   try {
