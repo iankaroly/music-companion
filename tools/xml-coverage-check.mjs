@@ -53,12 +53,21 @@ const out = await page.evaluate(async ({ data, text }) => {
   // the app's own reading of a score drops those on purpose, and they are
   // noteheads on the page all the same.
   const inTheXml = (text.match(/<note\b[^>]*>(?:(?!<\/note>)[\s\S])*?<pitch>/g) ?? []).length;
-  return { onThePage, staves, inTheXml, parts: parsed.parts?.length ?? 1,
-    played: parsed.notes.length };
+  // Systems: what the file says the page is laid out as, against what the page
+  // reader actually finds on it. "13 lines when the real one is 11" is this
+  // number disagreeing, and nothing measured it before.
+  const parts = parsed.parts?.length ?? 1;
+  const breaks = (text.match(/new-system="yes"/g) ?? []).length;
+  const systems = Math.round(breaks / Math.max(1, parts)) + 1;
+  return { onThePage, staves, inTheXml, parts, systems, played: parsed.notes.length };
 }, { data: image, text: xml });
 
 await browser.close();
 console.log(`the page reader finds   ${out.onThePage} noteheads across ${out.staves} staves`);
+console.log(`the XML is laid out as  ${out.systems} system(s)`);
+if (out.staves && out.systems !== out.staves) {
+  console.log(`   MISMATCH — the page has ${out.staves} lines of music and the file says ${out.systems}`);
+}
 console.log(`the XML holds           ${out.inTheXml} noteheads across ${out.parts} part(s)`);
 if (out.onThePage) {
   console.log(`covered                 ${Math.round((out.inTheXml / out.onThePage) * 100)}%`);

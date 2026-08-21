@@ -22,6 +22,7 @@ import { joinScores } from './musicxml/assemble.js';
 import { buildTimeline } from './musicxml/timeline.js';
 import { scoreToMusicXml, withTitle } from './musicxml/serialise.js';
 import { repairForEngraving } from './musicxml/repair.js';
+import { steadyClefsAndKeys } from './musicxml/steady.js';
 import { imagesToPdf } from './scan/images-to-pdf.js';
 import { clearWork, workDirFor } from './storage/store.js';
 import { mapWithConcurrency } from './util/pool.js';
@@ -422,14 +423,40 @@ export async function convert({
   // Repaired either way. A file this pipeline WROTE should not need it — but a
   // ten-page book came back unengravable over two rests of no length, and a
   // score nobody can draw is a score nobody can use, whoever wrote it.
-  const musicXml = repairForEngraving(generatedMusicXml
+  const written = repairForEngraving(generatedMusicXml
     ? scoreToMusicXml(score, { software: `score-pipeline (from ${engine.id})` })
     : withTitle(documents[0].musicXml, score.title)).xml;
 
+  // And the clefs and keys steadied — the recogniser's most expensive mistakes,
+  // because a clef and a key persist. See musicxml/steady.js.
+  const steadied = steadyClefsAndKeys(written);
+  for (const line of steadied.notes) report.log(line);
+  const musicXml = steadied.xml;
+
+  // EVERY ANSWER OFF THE SAME READING.
+  //
+  // The score and the timeline were parsed before the clefs were steadied, so
+  // leaving them would hand a client notes in one place and a file in another —
+  // the bars a wrong clef displaced would be right in the download and wrong in
+  // the API, which is the worst of both. Re-parsed from what is actually
+  // served, and only when something changed.
+  let finalScore = score;
+  let finalTimeline = timeline;
+  if (steadied.clefsFixed || steadied.keysFixed) {
+    try {
+      finalScore = parseMusicXml(musicXml, { title });
+      finalTimeline = buildTimeline(finalScore);
+    } catch (err) {
+      report.log(`the steadied score would not re-parse (${err.message}) — keeping the first reading`);
+      finalScore = score;
+      finalTimeline = timeline;
+    }
+  }
+
   report.stage('done', 100);
   return {
-    score,
-    timeline,
+    score: finalScore,
+    timeline: finalTimeline,
     musicXml,
     omr: {
       engine: engine.id,
