@@ -5461,7 +5461,7 @@ async function applyCorrection(xml, what) {
   // Parsed again so what is drawn, what is played and what a take is marked
   // against are all the corrected score rather than the read one.
   try {
-    score.notes = parseScore(xml, { partIndex: score.partIndex ?? 0 }).notes;
+    score.notes = parseScore(xml, { partIndex: score.partIndex ?? 0, steadyBars: asPrinted }).notes;
   } catch { /* the engraver will complain louder than this could */ }
   await saveCorrection(score.id, xml).catch(() => say('that correction could not be saved'));
   const keep = chosen;
@@ -5554,11 +5554,11 @@ function notesOfEveryPart() {
   const mine = score?.notes ?? [];
   if (!score?.xml) return mine;
   try {
-    const parsed = parseScore(score.xml, { partIndex: 0 });
+    const parsed = parseScore(score.xml, { partIndex: 0, steadyBars: asPrinted });
     if ((parsed.parts?.length ?? 1) < 2) return mine;
     const all = [];
     for (let i = 0; i < parsed.parts.length; i += 1) {
-      all.push(...parseScore(score.xml, { partIndex: i }).notes);
+      all.push(...parseScore(score.xml, { partIndex: i, steadyBars: asPrinted }).notes);
     }
     return all;
   } catch {

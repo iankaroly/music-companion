@@ -117,6 +117,21 @@ function mergeTies(events) {
     const key = `${event.voice}/${event.staff}/${event.midi}`;
     if (event.tieStop && open.has(key)) {
       const head = open.get(key);
+      // AND IT HAS TO BE THE NEXT NOTE, not merely a later one.
+      //
+      // A tie joins a note to the one that follows it. A recogniser reading a
+      // photograph invents a tie start now and then, and nothing closed it
+      // until the same pitch turned up again — twenty bars later, on a page it
+      // read badly — at which point a crotchet became thirty-two quarters long
+      // and everything the audio side believed about that voice went with it.
+      // A tail that does not abut its head is not the other half of anything.
+      const abuts = Math.abs(event.startQuarter - (head.startQuarter + head.durationQuarters)) < 1e-6;
+      if (!abuts) {
+        open.delete(key);
+        if (event.tieStart && event.midi !== null) open.set(key, event);
+        merged.push(event);
+        continue;
+      }
       head.durationQuarters = q(event.startQuarter + event.durationQuarters - head.startQuarter);
       head.tiedNoteIds.push(event.noteId);
       if (event.tieStart) open.set(key, head); else open.delete(key);

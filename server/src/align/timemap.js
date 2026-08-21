@@ -88,6 +88,14 @@ export function buildTimemap(anchors, options = {}) {
   // The tempo used outside the anchored span. With one anchor it is the only
   // tempo there is, so it is required rather than guessed.
   let edgeBpm = options.quarterBpm ?? null;
+  // A tempo has to be a tempo. constantTimemap already refuses nonsense here;
+  // this path took whatever it was handed, so a single anchor and a quarterBpm
+  // of 0, -60 or NaN built a map that ran backwards or resolved to NaN, and
+  // every answer taken off it was wrong without ever saying so.
+  if (options.quarterBpm != null
+    && (!Number.isFinite(options.quarterBpm) || options.quarterBpm <= 0)) {
+    throw new AlignmentError(`quarterBpm must be a positive number, not ${options.quarterBpm}`);
+  }
   if (segments.length === 0 && !edgeBpm) {
     throw new AlignmentError(
       'a single anchor cannot define a tempo — send a second anchor, or quarterBpm',

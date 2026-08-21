@@ -219,6 +219,11 @@ export async function saveBookmarks(scoreId, bookmarks) {
 export async function wasReadFromPages(row) {
   if (!row || row.kind === 'pages') return false;
   if (row.readFromPages === true) return true;
+  // A notation opened THROUGH its scan carries the scan on `paper` — and its
+  // own id has been swapped for the scan's by then, so the pairing lookup below
+  // cannot find it. Without this the answer is a silent no on exactly the
+  // scores the question is asked about.
+  if (row.paper?.kind === 'pages') return true;
   if (row.id == null) return false;
   try {
     const all = await listScores();

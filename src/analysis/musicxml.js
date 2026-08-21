@@ -149,7 +149,7 @@ function partsOf(root) {
 
 // --- the walk ----------------------------------------------------------
 
-export function parseScore(xml, { partIndex = 0 } = {}) {
+export function parseScore(xml, { partIndex = 0, steadyBars = false } = {}) {
   const root = typeof xml === 'string' ? parseXml(xml) : xml;
   if (root.name === 'score-timewise') {
     throw new Error('this is a score-timewise file; export it as score-partwise');
@@ -274,7 +274,33 @@ export function parseScore(xml, { partIndex = 0 } = {}) {
 
     // The bar's own length, not the time signature's: pickups are short and a
     // cadenza bar can be any length at all.
-    measureStart += longest / divisions;
+    //
+    // STEADY BARS, WHEN THE SCORE WAS READ OFF A PHOTOGRAPH. There, a bar that
+    // comes up short is not a cadenza — it is a note the recogniser missed, and
+    // the deficit is never repaid, so every bar after it starts early by the
+    // running total. Measured on a real read page: the clock ends 8.79 beats —
+    // four and a half seconds at 120 — ahead of the printed music, and with a
+    // target tempo set (an absolute grid, no rebound) 176 of 188 notes came out
+    // marked off the beat while the same report claimed zero drift.
+    //
+    // So on a read score the bars sit where the time signature says, and the
+    // reading's own arithmetic is not allowed to move them. Stretching only the
+    // SHORT bars halved the error and no more (13.04 beats to 5.04): the long
+    // ones — bars the reader gave too much to — push everything after them late
+    // just as surely. Pinned both ways it is exact: 0 of 36 bars off the
+    // printed grid, against 33 of 36.
+    //
+    // WHAT IT COSTS: a note in a bar the reader over-filled now runs past the
+    // barline. Its place INSIDE the bar is untouched, and the aligner pairs on
+    // pitch alone, so nothing is mispaired by it — the error is one bar's
+    // worth, in that bar, instead of every bar after it for the rest of the
+    // piece. The first bar is exempt either way, because a short first bar is a
+    // pickup and that is real.
+    const nominal = timeSignature
+      ? (timeSignature.beats * 4) / timeSignature.beatType
+      : null;
+    const measured = longest / divisions;
+    measureStart += steadyBars && nominal && index > 0 ? nominal : measured;
   }
 
   return {

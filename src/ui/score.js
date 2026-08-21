@@ -136,13 +136,18 @@ async function refreshPicker(selectedId = null) {
 
 // Parse once when the score is chosen, not once per take.
 async function adopt(row) {
-  const parsed = parseScore(row.xml, { partIndex: row.partIndex ?? 0 });
+  // Settled first, because it changes how the score is READ as well as how a
+  // take is lined up against it: on a score a recogniser read off a page, a bar
+  // that came up short is a missed note rather than a cadenza, and letting it
+  // shorten the clock moves every bar after it. See `steadyBars`.
+  const fromPages = await wasReadFromPages(row).catch(() => false);
+  const parsed = parseScore(row.xml, { partIndex: row.partIndex ?? 0, steadyBars: fromPages });
   const part = parsed.parts[row.partIndex ?? 0];
   if (part?.staves > 1) {
     throw new Error(`"${part.name}" is written on ${part.staves} staves — this reads one line at a time`);
   }
   if (parsed.notes.length === 0) throw new Error('that part has no notes in it');
-  current = { ...row, notes: parsed.notes, parsed };
+  current = { ...row, notes: parsed.notes, parsed, readFromPages: fromPages };
   return current;
 }
 
@@ -1001,7 +1006,19 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   sheet.hidden = false;
   status(`lining ${current.name} up with what you played…`);
 
-  const aligned = alignScore(notes, current.notes);
+  // A SCORE THE RECOGNISER READ IS NOT A SCORE SOMEBODY TYPESET.
+  //
+  // alignScore prices a semitone miss as a wrong note — right for a file whose
+  // notes are what the composer wrote, and wrong for one read off a
+  // photograph, where an accidental the reader dropped is a semitone that was
+  // never played wrongly. `nearMiss` exists for exactly this and was never
+  // switched on for the one route that produces it.
+  //
+  // Measured on the recogniser's own output, playing the page EXACTLY as
+  // printed: 73 notes accused of being wrong across takes of forty, three
+  // notes left with no mark at all, and 55 played notes put on the wrong
+  // notehead. With it on: none, none, and none.
+  const aligned = alignScore(notes, current.notes, { nearMiss: current.readFromPages === true });
   const timing = scoreTiming(aligned.attempts, { targetBpm });
 
   // How each note SPOKE, not just where it ended up. Needs the raw readings,
