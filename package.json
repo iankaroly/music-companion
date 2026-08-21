@@ -98,7 +98,8 @@
     "scan:trim": "node tools/scan-trim-check.mjs",
     "score:printed": "node tools/score-as-printed-check.mjs",
     "reader:printed": "node tools/reader-printed-check.mjs",
-    "score:correct": "node tools/correct-notes-check.mjs"
+    "score:correct": "node tools/correct-notes-check.mjs",
+    "score:coverage": "node tools/xml-coverage-check.mjs"
   },
   "keywords": [],
   "author": "",
