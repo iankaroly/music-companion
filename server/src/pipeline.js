@@ -23,7 +23,7 @@ import { buildTimeline } from './musicxml/timeline.js';
 import { scoreToMusicXml, withTitle } from './musicxml/serialise.js';
 import { repairForEngraving } from './musicxml/repair.js';
 import { steadyClefsAndKeys } from './musicxml/steady.js';
-import { imagesToPdf } from './scan/images-to-pdf.js';
+import { imagesToPdf, imageSize } from './scan/images-to-pdf.js';
 import { clearWork, workDirFor } from './storage/store.js';
 import { mapWithConcurrency } from './util/pool.js';
 import { thinPages } from './util/thin-pages.js';
@@ -111,8 +111,10 @@ function barsThatAddUp(documents, title) {
  * way too, and the better of the two is kept. A page that read well is left
  * alone, and costs nothing.
  */
-const GOOD_ENOUGH = 0.6;   // of its bars holding their beats
 const RHYTHM_FLOOR = 0.6;   // of the other reading's share of sound bars
+// The long edge a page is read at. Audiveris renders at 300 dpi — about 2500
+// across — so more than this is memory spent on pixels it throws away.
+const BIGGEST_WORTH_READING = 2600;
 
 /**
  * Which of two readings of the same page to keep.
@@ -181,11 +183,48 @@ export async function convert({
   // are independent, the machine has two cores, and nobody is waiting on the
   // first to decide whether to start the second. Run together, a scan costs
   // about what the slower one costs, and the better of the two is still kept.
+  // A TWELVE-MEGAPIXEL PHOTOGRAPH IS NOT TWELVE MEGAPIXELS OF MUSIC.
+  //
+  // Audiveris renders a page at 300 dpi — about 2500 pixels across — whatever
+  // it is given, so the pixels beyond that buy nothing and cost a great deal:
+  // four readings of a 12MP photograph at once put the service into memory it
+  // does not have, and a page that reads as 306 notes on a laptop came back as
+  // 51 from the machine. Brought down to the size the recogniser works at,
+  // once, and every reading starts from that.
+  let base = filePath;
+  if (kind === 'image') {
+    const size = imageSize(await readFile(filePath).catch(() => null) ?? Buffer.alloc(0));
+    const longest = Math.max(size?.width ?? 0, size?.height ?? 0);
+    if (longest > BIGGEST_WORTH_READING) {
+      try {
+        const smallerDir = path.join(workDir, 'to-size');
+        await mkdir(smallerDir, { recursive: true });
+        const wrapped = path.join(smallerDir, 'page.pdf');
+        await writeFile(wrapped, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
+        // The page is rendered at whatever dpi lands the long edge on the size
+        // the recogniser wants.
+        const shrink = BIGGEST_WORTH_READING / longest;
+        const rendered = await rasterisePdf(wrapped, path.join(smallerDir, 'pages'), {
+          dpi: Math.max(72, Math.round((engine.preferredDpi ?? config.omr.dpi) * shrink)),
+          maxPages: 1,
+          onLog: () => {},
+        });
+        if (rendered.pages.length) {
+          base = rendered.pages[0].path;
+          report.log(`the photograph is ${longest}px on its long edge; `
+            + `read at ${BIGGEST_WORTH_READING}, which is what the recogniser works at`);
+        }
+      } catch (err) {
+        report.log(`could not bring the photograph down to size (${err.message}) — reading it whole`);
+      }
+    }
+  }
+
   const attempts = [{
     label: 'as it is',
     run: (signal) => engine.convert({
       signal,
-      inputPath: filePath,
+      inputPath: base,
       workDir,
       kind,
       // The engine's own preference wins over the global default: see
@@ -203,10 +242,64 @@ export async function convert({
     }),
   }];
 
-  // A book of twenty pages read twice is twenty pages of somebody's time and
-  // twice the machine. The second way is for the scan somebody is waiting on.
+  // A book of twenty pages read several ways is twenty pages of somebody's time
+  // and the whole machine. The other ways are for the scan somebody is waiting
+  // on.
   const pagesIn = kind === 'pdf' ? await countPdfPages(filePath) : 1;
   if (pagesIn <= 4) {
+    // MORE THAN ONE SIZE, BECAUSE ONE READING OF A HARD PAGE IS A LOTTERY.
+    //
+    // The same photographed page of a Mozart cadenza — dense semiquaver runs,
+    // printed, clean — read as 271 notes at one size, 22 at the next size up,
+    // and 298 at the one after that. Not a gradual falling-off with resolution:
+    // a page where the recogniser either finds the beams or does not, and which
+    // way it goes turns on a few pixels of staff spacing.
+    //
+    // There is no way to know in advance which size is the lucky one, and there
+    // is no need to: they are independent, the machine has four cores, and the
+    // reading that found most of the music is picked afterwards by measurement
+    // rather than by hope (see chooseReading). Three sizes and the engine's own
+    // rendering cost about what one costs in wall clock, and turn "it read
+    // almost nothing this time" into a thing that has to happen three times
+    // over before anybody sees it.
+    for (const [label, times] of [['smaller', 0.7], ['bigger', 1.4]]) {
+      attempts.push({
+        label: `${label} (${times}x)`,
+        run: async (signal) => {
+          const at = path.join(workDir, `at-${times}`);
+          await mkdir(at, { recursive: true });
+          const source = kind === 'image' ? base : null;
+          const asPdf = path.join(at, 'page.pdf');
+          if (source) {
+            await writeFile(asPdf, imagesToPdf([{ buffer: await readFile(source), name: filename }]));
+          }
+          const dpi = Math.round((engine.preferredDpi ?? config.omr.dpi) * times);
+          const rendered = await rasterisePdf(source ? asPdf : base, path.join(at, 'pages'), {
+            dpi, maxPages: config.upload.maxPages, onLog: () => {},
+          });
+          if (!rendered.pages.length) throw new Error('nothing came out of that render');
+          const book = path.join(at, 'book.pdf');
+          await writeFile(book, imagesToPdf(await Promise.all(rendered.pages.map(async (page) => ({
+            buffer: await readFile(page.path),
+            name: path.basename(page.path),
+          })))));
+          return engine.convert({
+            signal,
+            inputPath: book,
+            workDir: at,
+            kind: 'pdf',
+            // The engine's own default: the page has already been rendered at
+            // the size we wanted, and this number is what it renders its own
+            // retries at.
+            dpi: engine.preferredDpi ?? config.omr.dpi,
+            maxPages: config.upload.maxPages,
+            timeoutMs: config.omr.timeoutMs,
+            onLog: () => {},
+            onProgress: () => {},
+          });
+        },
+      });
+    }
     attempts.push({
       label: kind === 'image' ? 'as a page' : 'at a bigger render',
       run: async (signal) => {
@@ -267,27 +360,30 @@ export async function convert({
   // take thirteen. So the first reading is looked at as soon as it lands: if it
   // is good, the other is stopped where it stands, which on a machine that
   // takes one job at a time is the next person's scan getting started sooner.
+  // The readings share one signal, so a caller that gives up stops all of them
+  // rather than leaving JVMs finishing answers nobody will read.
   const stopTheOther = new AbortController();
   const running = attempts.map((attempt, i) => attempt
     .run(i === 0 ? undefined : stopTheOther.signal)
     .then((documents) => ({ label: attempt.label, documents }))
     .catch((err) => ({ label: attempt.label, error: err })));
 
-  const firstAttempt = await running[0];
+  // NO EARLY EXIT ON A GOOD-LOOKING FIRST READING.
+  //
+  // There was one, and it kept a reading of TWENTY-TWO notes off a page holding
+  // three hundred — because it judged "good" by the SHARE of bars that hold
+  // their beats, and a reading that found four bars and got three of them tidy
+  // scores 75%. A ratio cannot tell a good reading from one that found almost
+  // nothing; only the other readings can, and they were already running.
+  //
+  // So they are all waited for. On four cores that costs about what the slowest
+  // one costs, and it is the difference between "sometimes it reads almost
+  // nothing" and "it would have to go wrong three times over".
+  const settled = await Promise.all(running);
+  const firstAttempt = settled[0];
   const firstScore = firstAttempt.documents
     ? barsThatAddUp(firstAttempt.documents.documents, title)
     : null;
-  const goodFirstTime = firstScore && firstScore.bars > 0
-    && firstScore.good / firstScore.bars >= GOOD_ENOUGH;
-
-  let settled = [firstAttempt];
-  if (goodFirstTime && running.length > 1) {
-    stopTheOther.abort();
-    report.log(`read it ${firstAttempt.label}: `
-      + `${firstScore.notes} notes, ${firstScore.good} of ${firstScore.bars} bars hold their beats`);
-  } else {
-    settled = await Promise.all(running);
-  }
 
   const read = settled.filter((r) => r.documents);
   if (!read.length) throw settled[0].error;

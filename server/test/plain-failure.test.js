@@ -94,3 +94,14 @@ test('the reading with more of the music wins, unless its rhythm collapses', asy
   const noise = { notes: 400, good: 1, bars: 40 };
   assert.equal(chooseReading(pdf300, noise), 'first', 'a reading whose bars collapse is refused');
 });
+
+test('a reading that found almost nothing does not win on tidiness', async () => {
+  const { chooseReading } = await import('../src/pipeline.js');
+  // The reading that cost a whole page: 22 notes in 4 bars, 3 of them tidy — a
+  // 75% share, which an early exit read as "good enough" and kept over three
+  // readings still running. Against the reading that actually found the music:
+  const almostNothing = { notes: 22, good: 3, bars: 4 };
+  const theMusic = { notes: 271, good: 39, bars: 72 };
+  assert.equal(chooseReading(almostNothing, theMusic), 'second');
+  assert.equal(chooseReading(theMusic, almostNothing), 'first');
+});
