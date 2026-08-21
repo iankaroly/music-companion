@@ -72,18 +72,25 @@ test('the scale comes from the interline Audiveris measured, not from a fixed dp
   assert.equal(scaleFor(new Error('exited with code 1')), null);
 });
 
-test('a reading is judged by bars that hold their beats, not by note count', async () => {
-  // The rule that decides whether to keep a second opinion. Measured on three
-  // real pages: as a picture and as a page each won on one of them, and always
-  // wrapping cost the middle page a third of its music — so neither can be the
-  // default and the better one has to be chosen after the fact.
+test('the reading with more of the music wins, unless its rhythm collapses', async () => {
   const { chooseReading } = await import('../src/pipeline.js');
-  const worse = { good: 9, notes: 200 };
-  const better = { good: 13, notes: 182 };
-  const tidyHalfPage = { good: 14, notes: 90 };
-  assert.equal(chooseReading(worse, better), 'second');
-  assert.equal(chooseReading(better, worse), 'first');
-  assert.equal(chooseReading(worse, worse), 'first', 'a tie keeps what it had');
-  assert.equal(chooseReading(worse, tidyHalfPage), 'first',
-    'tidier bars with half the notes is a tidier half of the page');
+  // The four readings this rule was written against — notes, and the bars that
+  // hold their beats out of the bars found.
+  const picture1800 = { notes: 202, good: 9, bars: 37 };
+  const page1800 = { notes: 182, good: 13, bars: 37 };
+  const picture2000 = { notes: 246, good: 11, bars: 36 };
+  const page2000 = { notes: 120, good: 4, bars: 23 };
+  const picture3200 = { notes: 151, good: 8, bars: 36 };
+  const page3200 = { notes: 227, good: 11, bars: 36 };
+  const pdf300 = { notes: 152, good: 19, bars: 62 };
+  const pdf450 = { notes: 215, good: 10, bars: 37 };
+
+  assert.equal(chooseReading(picture1800, page1800), 'first', 'fewer notes never wins');
+  assert.equal(chooseReading(picture2000, page2000), 'first');
+  assert.equal(chooseReading(picture3200, page3200), 'second', '76 more notes, better bars too');
+  assert.equal(chooseReading(pdf300, pdf450), 'second', '63 more notes at much the same rhythm');
+
+  // The floor: noteheads that make no rhythmic sense are not more of the page.
+  const noise = { notes: 400, good: 1, bars: 40 };
+  assert.equal(chooseReading(pdf300, noise), 'first', 'a reading whose bars collapse is refused');
 });

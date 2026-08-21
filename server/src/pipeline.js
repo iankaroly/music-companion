@@ -75,21 +75,23 @@ export function sniffKind(buffer, filename = '') {
  */
 function barsThatAddUp(documents, title) {
   let good = 0;
+  let bars = 0;
   let notes = 0;
   for (const document of documents) {
     try {
       const score = parseMusicXml(document.musicXml, { title });
       for (const part of score.parts) {
         for (const measure of part.measures) {
+          bars += 1;
           if (!measure.irregular) good += 1;
           notes += measure.notes.filter((n) => !n.rest).length;
         }
       }
     } catch {
-      return { good: 0, notes: 0 };
+      return { good: 0, bars: 0, notes: 0 };
     }
   }
-  return { good, notes };
+  return { good, bars, notes };
 }
 
 /**
@@ -109,21 +111,36 @@ function barsThatAddUp(documents, title) {
  * alone, and costs nothing.
  */
 const GOOD_ENOUGH = 0.6;   // of its bars holding their beats
-const KEPT_THE_MUSIC = 0.6;   // of the notes the first reading found
+const RHYTHM_FLOOR = 0.6;   // of the other reading's share of sound bars
 
 /**
  * Which of two readings of the same page to keep.
  *
- * More bars holding their beats wins — but only if it did not lose the music
- * getting there. A reading with tidier bars and half the notes is a tidier half
- * of the page, and a tie keeps what it already had rather than paying for the
- * second one twice.
+ * MORE OF THE MUSIC WINS. What is wanted from a scan is the notes that are on
+ * the page — "it should get all of the notes" — and a reading that found two
+ * hundred of them is more of the page than one that found a hundred and twenty,
+ * whatever else is true of it.
+ *
+ * WITH A FLOOR UNDER THE RHYTHM, because noteheads alone are a bad master: a
+ * reading can come back covered in notes that make no rhythmic sense, and an
+ * alignment follows bars, not noteheads. So a reading with more notes is kept
+ * unless its bars are markedly worse than the one it would replace — worse by
+ * more than a third of the proportion holding their beats.
+ *
+ * Measured, on the four readings this rule was written against (notes, and the
+ * share of bars that hold their beats):
+ *
+ *   1800px  picture 202 @ 0.24   page 182 @ 0.35   -> the picture, 202
+ *   2000px  picture 246 @ 0.31   page 120 @ 0.17   -> the picture, 246
+ *   3200px  picture 151 @ 0.22   page 227 @ 0.31   -> the page, 227
+ *   a PDF   300dpi  152 @ 0.31   450dpi 215 @ 0.27 -> the bigger render, 215
  *
  * @returns {'first'|'second'}
  */
 export function chooseReading(first, second) {
-  if (second.good <= first.good) return 'first';
-  return second.notes >= first.notes * KEPT_THE_MUSIC ? 'second' : 'first';
+  if (second.notes <= first.notes) return 'first';
+  const share = (r) => (r.bars > 0 ? r.good / r.bars : 0);
+  return share(second) >= share(first) * RHYTHM_FLOOR ? 'second' : 'first';
 }
 
 export async function convert({
@@ -167,35 +184,67 @@ export async function convert({
     ),
   });
 
-  // A single photograph that read badly is read again as a page — see
-  // barsThatAddUp for the measurements behind this.
+  // A SCAN THAT READ BADLY IS READ A SECOND WAY.
+  //
+  // There is more than one way to hand the same page to a recogniser, and none
+  // of them is best — see chooseReading for the measurements. A photograph can
+  // go as a picture or wrapped in a page it renders itself; a PDF can be
+  // rendered by the recogniser at its own resolution or by us at half again,
+  // which on a real page found 215 notes against 152. So a reading that came
+  // back poor is done the other way too and the better one kept, and a reading
+  // that came back well is left alone and costs nothing.
   let reading = omr;
-  if (kind === 'image') {
-    const first = barsThatAddUp(omr.documents, title);
-    const bars = omr.documents.reduce((n, d) => n + (d.musicXml.match(/<measure[ >]/g) ?? []).length, 0);
-    if (bars > 0 && first.good / bars < GOOD_ENOUGH) {
-      report.log(`${first.good} of ${bars} bars hold their beats — reading it again as a page`);
-      try {
-        const pdfPath = path.join(workDir, 'as-page.pdf');
-        await writeFile(pdfPath, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
-        const second = await engine.convert({
-          inputPath: pdfPath,
-          workDir: path.join(workDir, 'as-page'),
-          kind: 'pdf',
-          dpi: engine.preferredDpi ?? config.omr.dpi,
-          maxPages: config.upload.maxPages,
-          timeoutMs: config.omr.timeoutMs,
-          onLog: (line) => report.log(line),
-          onProgress: () => {},
+  const first = barsThatAddUp(omr.documents, title);
+  const secondWay = kind === 'image' ? 'as a page' : (kind === 'pdf' ? 'at a bigger render' : null);
+  // A book of twenty pages read twice is twenty pages of somebody's time. The
+  // second opinion is for the scan somebody is waiting on, not for a book.
+  const shortEnough = omr.documents.length <= 4;
+  if (secondWay && shortEnough && first.bars > 0 && first.good / first.bars < GOOD_ENOUGH) {
+    report.log(`${first.good} of ${first.bars} bars hold their beats — reading it ${secondWay}`);
+    try {
+      // The engine spawns with this as its cwd, and spawn() reports a missing
+      // directory as a missing BINARY — which sent this one looking for
+      // Audiveris on the PATH instead of for a folder nobody had made.
+      const secondDir = path.join(workDir, 'second-opinion');
+      await mkdir(secondDir, { recursive: true });
+      let input = filePath;
+      let asKind = kind;
+      let dpi = engine.preferredDpi ?? config.omr.dpi;
+      if (kind === 'image') {
+        input = path.join(workDir, 'as-page.pdf');
+        await writeFile(input, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
+        asKind = 'pdf';
+      } else {
+        // The recogniser renders a PDF at 300; the pages it missed are often
+        // there at 450, which it will only see if we do the rendering.
+        const bigger = await rasterisePdf(filePath, path.join(workDir, 'bigger'), {
+          dpi: Math.round(dpi * 1.5), maxPages: config.upload.maxPages, onLog: () => {},
         });
-        const other = barsThatAddUp(second.documents, title);
-        report.log(`as a page: ${other.good} bars hold their beats against ${first.good}`);
-        // Kept only if it is better AND did not lose the music doing it: a
-        // reading with half the notes and tidier bars is a tidier half-page.
-        if (chooseReading(first, other) === 'second') reading = second;
-      } catch (err) {
-        report.log(`reading it as a page did not work (${err.message}) — keeping the first reading`);
+        if (!bigger.pages.length) throw new Error('nothing came out of the bigger render');
+        input = bigger.pages[0].path;
+        asKind = 'image';
+        // NOT the bigger dpi: the page has already been rendered bigger, and
+        // this number is what the engine renders its OWN retries at. Passing
+        // 450 here had it rescue the page a second time at 450 on top of a
+        // 4800-pixel render — 109 notes, against 236 when it is left alone.
       }
+      const second = await engine.convert({
+        inputPath: input,
+        workDir: secondDir,
+        kind: asKind,
+        dpi,
+        maxPages: config.upload.maxPages,
+        timeoutMs: config.omr.timeoutMs,
+        onLog: (line) => report.log(line),
+        onProgress: () => {},
+      });
+      const other = barsThatAddUp(second.documents, title);
+      const keep = chooseReading(first, other);
+      report.log(`${secondWay}: ${other.notes} notes, ${other.good} of ${other.bars} bars `
+        + `— against ${first.notes} notes, ${first.good} of ${first.bars}; keeping the ${keep}`);
+      if (keep === 'second') reading = second;
+    } catch (err) {
+      report.log(`reading it ${secondWay} did not work (${err.message}) — keeping the first reading`);
     }
   }
 

@@ -88,8 +88,12 @@ console.log(`notation alone     ${alone.pages} page(s)   ${alone.noteheads} note
 console.log(`read off a scan    ${paired.pages} page(s)   ${paired.noteheads} noteheads   ${paired.stafflines} staff lines`);
 
 const fits = paired.pages > 0 && paired.pages <= sheetPages;
-const whole = paired.noteheads > alone.noteheads;
+// A score the recogniser read as ONE part has no hidden staves to reveal, so
+// "more noteheads" is not the claim to make about it — "none missing" is.
+const whole = parts > 1 ? paired.noteheads > alone.noteheads : paired.noteheads >= alone.noteheads;
 console.log(fits ? '\na page of the sheet is a page on the screen' : `\nFAIL — ${paired.pages} pages for ${sheetPages}`);
-console.log(whole ? 'every staff is drawn' : `FAIL — no more noteheads than the one-part view (${paired.noteheads})`);
+console.log(whole
+  ? (parts > 1 ? 'every staff is drawn' : 'one part, and all of it is drawn')
+  : `FAIL — fewer noteheads than the one-part view (${paired.noteheads} against ${alone.noteheads})`);
 console.log(fits && whole ? '\nPASS' : '\nFAIL');
 process.exit(fits && whole ? 0 : 1);
