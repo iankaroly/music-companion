@@ -226,8 +226,18 @@ export async function convert({
             dpi: Math.round(dpi * 1.5), maxPages: config.upload.maxPages, onLog: () => {},
           });
           if (!bigger.pages.length) throw new Error('nothing came out of the bigger render');
-          input = bigger.pages[0].path;
-          asKind = 'image';
+          // ALL of the pages, bound back into a book.
+          //
+          // Handing over bigger.pages[0] read the first page and quietly threw
+          // the rest of the book away — and if that reading won on notes, so
+          // did the book: a two-page scan came back with one page of music in
+          // it, 37 bars where there should have been 73.
+          input = path.join(workDir, 'bigger.pdf');
+          await writeFile(input, imagesToPdf(await Promise.all(bigger.pages.map(async (page) => ({
+            buffer: await readFile(page.path),
+            name: path.basename(page.path),
+          })))));
+          asKind = 'pdf';
           // NOT the bigger dpi: the page has already been rendered bigger, and
           // this number is what the engine renders its OWN retries at. Passing
           // 450 here had it rescue the page a second time at 450 on top of a
@@ -308,12 +318,23 @@ export async function convert({
   report.stage('parsing MusicXML', 68);
   const pageErrors = [];
   const parsedDocuments = [];
+  // EACH DOCUMENT'S PAGES CARRY ON FROM THE LAST.
+  //
+  // A whole-book engine that writes one file per MOVEMENT numbers the pages
+  // inside each one from 1. Joined as they came, a two-page scan is two page
+  // ones — the join sees the page never change and writes no page break, so a
+  // book that was two sheets came out as a single unbroken page of music. Each
+  // document's pages are shifted past the last document's instead, which is
+  // what puts a page break back where the sheet had one.
+  let pagesSoFar = 0;
   for (const document of reading.documents) {
     try {
+      const parsed = shiftPages(parseMusicXml(document.musicXml, { title }), pagesSoFar);
+      pagesSoFar = highestPage(parsed) || pagesSoFar;
       parsedDocuments.push({
         page: document.page,
         musicXml: document.musicXml,
-        score: stampPage(parseMusicXml(document.musicXml, { title }), document.page),
+        score: stampPage(parsed, document.page),
       });
     } catch (err) {
       // One page of a scan that the engine mangled beyond parsing should cost
@@ -398,9 +419,12 @@ export async function convert({
   // one — see withTitle — and with whole-measure rests told what to draw, which
   // is the difference between a score that engraves and one that refuses.
   // Everything else in it is exactly as written. See musicxml/repair.js.
-  const musicXml = generatedMusicXml
+  // Repaired either way. A file this pipeline WROTE should not need it — but a
+  // ten-page book came back unengravable over two rests of no length, and a
+  // score nobody can draw is a score nobody can use, whoever wrote it.
+  const musicXml = repairForEngraving(generatedMusicXml
     ? scoreToMusicXml(score, { software: `score-pipeline (from ${engine.id})` })
-    : repairForEngraving(withTitle(documents[0].musicXml, score.title)).xml;
+    : withTitle(documents[0].musicXml, score.title)).xml;
 
   report.stage('done', 100);
   return {
@@ -725,6 +749,33 @@ async function firstAvailableEngine(candidates) {
  * An engine that read the whole book itself passes `page: null` here, because
  * its MusicXML already knows.
  */
+/**
+ * Move a document's pages past the ones already read.
+ *
+ * See the join in convert(): a recogniser that writes a file per movement
+ * numbers every one of them from page 1, and a book joined out of those has no
+ * page breaks in it at all.
+ */
+function shiftPages(score, by) {
+  if (!by) return score;
+  for (const part of score.parts) {
+    for (const measure of part.measures) {
+      measure.layout.page = (measure.layout.page ?? 1) + by;
+      for (const note of measure.notes) note.layout.page = (note.layout.page ?? 1) + by;
+    }
+  }
+  return score;
+}
+
+/** The last page this document reaches. */
+function highestPage(score) {
+  let top = 0;
+  for (const part of score.parts) {
+    for (const measure of part.measures) top = Math.max(top, measure.layout.page ?? 1);
+  }
+  return top;
+}
+
 function stampPage(score, page) {
   if (!page) return score;
   for (const part of score.parts) {

@@ -76,7 +76,16 @@ function noteXml(note, lines) {
   }
 
   // Grace notes carry no <duration> — that is what makes them grace notes.
-  if (!note.grace) lines.push(`        <duration>${ticks(note.durationQuarters)}</duration>`);
+  // NEVER ZERO TICKS.
+  //
+  // A bar the recogniser measured as a hundredth of a quarter rounds to nothing
+  // at all, and a note of no length with no type is what VexFlow refuses the
+  // WHOLE score over ("The provided duration is not valid"). One such bar in a
+  // ten-page book left the book blank. A note that takes time takes at least
+  // one tick of it.
+  if (!note.grace) {
+    lines.push(`        <duration>${Math.max(1, ticks(note.durationQuarters))}</duration>`);
+  }
 
   if (note.tieStop) lines.push('        <tie type="stop"/>');
   if (note.tieStart) lines.push('        <tie type="start"/>');
@@ -222,7 +231,7 @@ export function scoreToMusicXml(score, options = {}) {
           : (measure.durationQuarters > 0 ? measure.durationQuarters : 4);
         lines.push('      <note>');
         lines.push('        <rest measure="yes"/>');
-        lines.push(`        <duration>${ticks(rest)}</duration>`);
+        lines.push(`        <duration>${Math.max(1, ticks(rest))}</duration>`);
         lines.push('        <voice>1</voice>');
         lines.push('      </note>');
         lines.push('    </measure>');

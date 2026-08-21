@@ -489,19 +489,33 @@ async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeout
     throw new Error('Audiveris produced no MusicXML — the scan may have no staves it could find');
   }
 
-  // Audiveris writes ONE document for the whole book, pages included, so the
-  // page field is null: the page numbers live inside the MusicXML, as <print>
-  // elements, which is why this engine is the one that can put a bar on a page.
-  const musicXml = readMusicXmlBuffer(await readFile(exports[0].path));
+  // ALL OF THEM, NOT THE FIRST.
+  //
+  // Audiveris writes one file per MOVEMENT, not one per book: a two-page scan
+  // came back as twopage.mvt1.mxl and twopage.mvt2.mxl, and taking exports[0]
+  // read the first and threw the second away. It read both sheets — 23 raw
+  // measures then 37 — and half of that never left this function. Anything
+  // where the recogniser decides the music starts again (a new movement, a new
+  // piece on a later page, sometimes just a big gap) lost everything after it.
+  //
+  // Sorted by name, which is the order the movements are numbered in. The page
+  // field stays null because the page numbers live inside each file, as <print>
+  // elements — that is what lets this engine say which page a bar is on.
+  const inOrder = [...exports].sort((a, b) => a.path.localeCompare(b.path, 'en'));
+  const documents = [];
+  for (const one of inOrder) {
+    documents.push({ page: null, musicXml: readMusicXmlBuffer(await readFile(one.path)) });
+  }
+  if (documents.length > 1) onLog?.(`audiveris wrote ${documents.length} movements; keeping all of them`);
   return {
-    documents: [{ page: null, musicXml }],
+    documents,
     meta: {
       engine: 'audiveris',
       bin,
       javaHome: env.JAVA_HOME ?? null,
       mode: 'whole-book',
       ms: result.ms,
-      exportPath: exports[0].path,
+      exportPath: inOrder[0].path,
       exportsFound: exports.length,
     },
   };

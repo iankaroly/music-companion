@@ -48,3 +48,30 @@ test('a file with no measure rests comes back as it went in', () => {
   assert.equal(out.xml, xml);
   assert.equal(out.repaired, 0);
 });
+
+test('a note of no length never reaches the file', async () => {
+  const { scoreToMusicXml } = await import('../src/musicxml/serialise.js');
+  // A bar the recogniser measured as a hundredth of a quarter: it rounds to
+  // nothing, and a note of no length with no type is what an engraver refuses
+  // the whole score over. One of these left a ten-page book blank.
+  const score = {
+    title: 'a book with a broken bar',
+    parts: [{
+      id: 'P1',
+      name: 'Voice',
+      measures: [{
+        index: 0, number: '1', startQuarter: 0, durationQuarters: 0.01, nominalQuarters: 4,
+        time: { beats: 4, beatType: 4 }, key: { fifths: 0, mode: 'major' }, clefs: [], staves: 1,
+        notes: [{
+          measureQuarter: 0, durationQuarters: 0.01, midi: 60, rest: false, chord: false, grace: false,
+          pitch: { step: 'C', alter: 0, octave: 4 }, voice: '1', staff: 1, layout: { page: 1, system: 1 },
+        }],
+      }],
+      totalQuarters: 4,
+    }],
+  };
+  const xml = scoreToMusicXml(score, { software: 'test' });
+  const durations = [...xml.matchAll(/<duration>(\d+)<\/duration>/g)].map((m) => Number(m[1]));
+  assert.ok(durations.length > 0, 'the note should be in the file at all');
+  assert.ok(durations.every((d) => d >= 1), `a note of no length reached the file: ${durations}`);
+});
