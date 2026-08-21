@@ -31,7 +31,7 @@ import {
 } from './score-tab.js';
 import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
-  pairScoreNotation, loadScorePages, saveScoreLayout, markAsRead,
+  pairScoreNotation, loadScorePages, saveScoreLayout, markAsRead, wasReadFromPages,
 } from '../store/db.js';
 import {
   isPdf, isImage, sniffPdf, sniffImage, nameFromFile, pdfPageCount, readPages, pdfTrouble,
@@ -1518,7 +1518,7 @@ async function renderScoreTabOnce() {
       xml: current.xml,
       scoreNotes: current.notes,
       partIndex: current.partIndex ?? 0,
-      asPrinted: current.readFromPages === true,
+      asPrinted: await wasReadFromPages(current),
     });
   } catch (err) {
     view = null;

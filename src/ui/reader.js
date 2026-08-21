@@ -41,7 +41,7 @@ import { aidsElement, showAids, hideAids, aidsShowing, stopAids } from './score-
 import { tap, readyHaptics } from './haptics.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
-  saveBookmarks, saveLinks, saveScoreLayout,
+  saveBookmarks, saveLinks, saveScoreLayout, wasReadFromPages,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -329,6 +329,10 @@ let moveSet = null;   // ask the app to open the neighbouring piece
 let pendingLink = null; // a link being taped down: where it starts
 let pageEls = [];     // whichever kind, the elements one page each
 let score = null;     // { id, name, xml, partIndex }
+// Whether this notation came off a photographed page. It changes how it is
+// drawn — every staff, the page's own line breaks, a page per printed page —
+// see wasReadFromPages and engraveAsPrinted.
+let asPrinted = false;
 let take = null;      // the analysed take on screen, if there is one
 let unfollow = null;  // stop listening to the playhead
 let sounding = null;  // the notehead lit right now
@@ -5353,7 +5357,55 @@ function sayOnPage(canvas, text, across) {
   lines.forEach((one, i) => ctx.fillText(one, w / 2, h / 2 + (i - (lines.length - 1) / 2) * 26));
 }
 
+// How many pages the sheet itself has, as the recogniser wrote them down. The
+// breaks are repeated in every part, so one part's worth is the page count.
+function printedPages() {
+  const xml = score?.xml ?? '';
+  const parts = (xml.match(/<score-part\b/g) ?? []).length || 1;
+  const breaks = (xml.match(/new-page="yes"/g) ?? []).length;
+  return Math.max(1, Math.round(breaks / parts) + 1);
+}
+
+/**
+ * A score read off a page, drawn a page at a time like the page it came from.
+ *
+ * Keeping the lines where the sheet had them is only half of "the same as the
+ * scan": the systems still have to FIT. A page shaped like the screen holds
+ * three or four of them, so a photographed page came out as two engraved ones
+ * with the join in the middle of the music — measured on a real page, 2 pages
+ * for 1 — which is the complaint, unchanged, after the line breaks were fixed.
+ *
+ * So the page is allowed to grow. It keeps the screen's width, in staff spaces,
+ * and gets as tall as it needs to be for the systems on it; the reader's own
+ * zoom is what makes that readable, exactly as it is on the photograph itself.
+ * Bounded: three goes, then whatever it managed, because a page that will not
+ * settle is still a page somebody is waiting for.
+ */
+async function engraveAsPrinted() {
+  const want = printedPages();
+  const base = pageFormat();
+  let height = base.height;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    view = await showScore(sheet, {
+      xml: score.xml,
+      scoreNotes: score.notes ?? [],
+      partIndex: score.partIndex ?? 0,
+      pageFormat: { width: base.width, height },
+      zoom: base.zoom,
+      autoRelayout: false,
+      asPrinted: true,
+    });
+    const drawn = view.pages?.length ?? 1;
+    if (drawn <= want) break;
+    // Taller by as much as it overflowed, plus a little, so the last system
+    // does not land a staff space short of fitting.
+    height *= (drawn / want) * 1.04;
+  }
+  return view;
+}
+
 async function engrave() {
+  if (asPrinted) return engraveAsPrinted();
   const page = pageFormat();
   view = await showScore(sheet, {
     // The notes are always handed over, even with no take loaded: they are how
@@ -5839,6 +5891,7 @@ export async function openReader(row, {
   // layoutArrived.
   watchLayouts();
   score = row;
+  asPrinted = await wasReadFromPages(row).catch(() => false);
   take = analysed;
   setlist = programme;
   moveSet = onSetlistMove;

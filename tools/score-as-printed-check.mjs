@@ -35,7 +35,12 @@ const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 1200 });
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
 
-const measure = async (asPrinted) => page.evaluate(async ({ xml: text, asPrinted: flag }) => {
+// The reader engraves onto a page shaped like the screen — that is where one
+// scanned page turns into three. A check with no page format has one page by
+// construction and cannot see it.
+const PHONE = { width: 39, height: 83, zoom: 1 };
+
+const measure = async (asPrinted, pageFormat = null) => page.evaluate(async ({ xml: text, asPrinted: flag, pageFormat: shape }) => {
   const { showScore } = await import('/src/ui/score-view.js');
   const host = document.createElement('div');
   host.style.cssText = 'width:820px';
@@ -43,11 +48,11 @@ const measure = async (asPrinted) => page.evaluate(async ({ xml: text, asPrinted
   // A real page shape, the way the reader asks for one.
   let view = null;
   try {
-    view = await showScore(host, { xml: text, asPrinted: flag });
+    view = await showScore(host, { xml: text, asPrinted: flag, ...(shape ? { pageFormat: shape, zoom: shape.zoom } : {}) });
   } catch (err) {
     return { error: `${err?.name}: ${err?.message}`, where: String(err?.stack ?? '').slice(0, 400) };
   }
-  const pages = host.querySelectorAll('svg').length;
+  const pages = host.querySelectorAll('svg').length;   // OSMD draws one per page
   const staves = host.querySelectorAll('svg').length
     ? [...host.querySelectorAll('svg')].reduce((n, s) => n + s.querySelectorAll('g').length, 0)
     : 0;
@@ -57,14 +62,26 @@ const measure = async (asPrinted) => page.evaluate(async ({ xml: text, asPrinted
   const staves2 = host.querySelectorAll('.staffline').length;
   host.remove();
   return { pages, staves: staves2, notes, engraved: view?.map?.size ?? null };
-}, { xml, asPrinted });
+}, { xml, asPrinted, pageFormat });
 
+const parts0 = (xml.match(/<score-part\b/g) ?? []).length || 1;
 const before = await measure(false);
 const after = await measure(true);
+const onAPhoneBefore = await measure(false, PHONE);
+// What the reader does for a score read off a page: keep the screen's width and
+// let the page grow until the systems on it fit, the way engraveAsPrinted does.
+const printedPages = Math.max(1, Math.round(
+  (xml.match(/new-page="yes"/g) ?? []).length / parts0) + 1);
+let shape = { ...PHONE };
+let onAPhone = await measure(true, shape);
+for (let i = 0; i < 3 && (onAPhone.pages ?? 1) > printedPages; i += 1) {
+  shape = { ...shape, height: shape.height * ((onAPhone.pages / printedPages) * 1.04) };
+  onAPhone = await measure(true, shape);
+}
 await browser.close();
 
 if (before.error) console.log('the old way errored:', before.error, '\n', before.where);
-const parts = (xml.match(/<score-part\b/g) ?? []).length || 1;
+const parts = parts0;
 const breaks = (xml.match(/new-system="yes"/g) ?? []).length;
 // The breaks are written into every part, so the page has breaks/parts of them,
 // and one more system than breaks. One staff line per part per system.
@@ -80,5 +97,12 @@ console.log(moreNotes
 console.log(laidOut
   ? `the lines break where the page breaks them: ${after.staves} of ${wanted}`
   : `FAIL — ${after.staves} staff lines drawn, the page has ${wanted}`);
-console.log(moreNotes && laidOut ? '\nPASS' : '\nFAIL');
-process.exit(moreNotes && laidOut ? 0 : 1);
+const fits = (onAPhone.pages ?? 99) <= printedPages;
+console.log(`\nthe sheet has ${printedPages} page(s)`);
+console.log(`on a phone     ${onAPhoneBefore.pages} engraved page(s) the old way, ${onAPhone.pages} as printed`);
+console.log(fits
+  ? `a page of the sheet is a page on the screen`
+  : `FAIL — ${onAPhone.pages} engraved pages for ${printedPages} printed`);
+const ok = moreNotes && laidOut && fits;
+console.log(ok ? '\nPASS' : '\nFAIL');
+process.exit(ok ? 0 : 1);

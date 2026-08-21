@@ -96,7 +96,8 @@
     "reader:holds": "node tools/page-holds-check.mjs",
     "score:hosted": "node tools/omr-hosted-check.mjs",
     "scan:trim": "node tools/scan-trim-check.mjs",
-    "score:printed": "node tools/score-as-printed-check.mjs"
+    "score:printed": "node tools/score-as-printed-check.mjs",
+    "reader:printed": "node tools/reader-printed-check.mjs"
   },
   "keywords": [],
   "author": "",

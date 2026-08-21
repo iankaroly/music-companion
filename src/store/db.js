@@ -204,6 +204,30 @@ export async function saveBookmarks(scoreId, bookmarks) {
  *
  * @param {number} id
  */
+/**
+ * Was this notation read off a scan?
+ *
+ * The mark is the fast answer and the pairing is the true one: a notation score
+ * that some pages-score points at IS a score read off a page, whether or not it
+ * was created after the mark existed. Scores made before it — a scan somebody
+ * read last week — would otherwise be drawn as if they had come from MuseScore,
+ * which is the whole bug, still there, for every score already in the library.
+ *
+ * @param {object} row a notation score
+ * @returns {Promise<boolean>}
+ */
+export async function wasReadFromPages(row) {
+  if (!row || row.kind === 'pages') return false;
+  if (row.readFromPages === true) return true;
+  if (row.id == null) return false;
+  try {
+    const all = await listScores();
+    return all.some((other) => other.kind === 'pages' && other.notationId === row.id);
+  } catch {
+    return false;
+  }
+}
+
 export async function markAsRead(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

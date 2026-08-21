@@ -391,9 +391,19 @@ export function sayQuality({ quality, pages }) {
   if (failed) parts.push(`${failed} page${failed === 1 ? '' : 's'} could not be read`);
   else if (read > 1) parts.push(`${read} pages`);
 
-  if (score >= 0.9) parts.push('the bars add up');
-  else if (score >= 0.6) parts.push(`${Math.round((1 - score) * 100)}% of bars do not add up — check the rhythm`);
-  else parts.push(`only ${Math.round(score * 100)}% of bars add up, so treat the notes as a draft`);
+  // SAY WHAT THE NUMBER IS ABOUT.
+  //
+  // "only 21% of bars add up" was read as "it found 21% of the notes", which is
+  // a different and much worse claim — and an easy one to make, because the
+  // sentence leads with a small percentage next to a note count. It is not
+  // about how much of the page was found: it is about how many bars hold the
+  // beats their time signature asks for, which is what tells you whether a
+  // rhythm can be trusted. So it says so, in those words, and the number of
+  // bars it is talking about is given rather than a percentage on its own.
+  const off = Math.round((1 - score) * bars);
+  if (score >= 0.9) parts.push('every bar holds the right number of beats');
+  else if (score >= 0.6) parts.push(`${off} of ${bars} bars hold the wrong number of beats — check the rhythm`);
+  else parts.push(`${off} of ${bars} bars hold the wrong number of beats, so treat the rhythm as a draft`);
 
   return parts.join(' · ');
 }
