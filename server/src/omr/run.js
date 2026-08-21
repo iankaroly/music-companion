@@ -34,16 +34,25 @@ const NOISE = /^\s*at [\w.$]+\(|^\s*\.\.\. \d+ more|^WARNING: /;
 function why(text, limit = 10) {
   const seen = new Set();
   const lines = [];
+  const asides = [];
   for (const raw of String(text).split('\n')) {
     const line = raw.trim();
     if (!line || NOISE.test(raw) || !WHY.test(line)) continue;
+    // A tool that logs "interline(28,30,32)" at INFO is describing the page,
+    // not complaining about it — and that line was quoted back to a player as
+    // the reason their scan could not be read. Anything that is not a warning
+    // goes to the back of the queue.
+    if (/^INFO\b/.test(line)) {
+      if (asides.length < limit) asides.push(line.length > 300 ? `${line.slice(0, 300)}…` : line);
+      continue;
+    }
     const key = line.slice(0, 120);
     if (seen.has(key)) continue;
     seen.add(key);
     lines.push(line.length > 300 ? `${line.slice(0, 300)}…` : line);
     if (lines.length >= limit) break;
   }
-  return lines;
+  return [...lines, ...asides].slice(0, limit);
 }
 
 export class ProcessError extends Error {

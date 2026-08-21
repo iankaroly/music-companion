@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import { run } from './run.js';
 import { rasterisePdf } from './pdf.js';
 import { mapWithConcurrency } from '../util/pool.js';
-import { imagesToPdf } from '../scan/images-to-pdf.js';
+import { imagesToPdf, imageSize } from '../scan/images-to-pdf.js';
 import { readMusicXmlBuffer } from '../musicxml/mxl.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -133,21 +133,68 @@ async function locate() {
 
 
 /**
+ * How much bigger this page needs to be, and no bigger.
+ *
+ * Audiveris will not touch a sheet whose staff lines are closer than eleven
+ * pixels apart, and it works best around eighteen to twenty-four. Both ends
+ * matter. Rendering every rescued photograph onto an A4 page at 300 dpi ignored
+ * the picture entirely: a page off a phone came back at an interline of THIRTY-
+ * TWO — eight megapixels of blown-up JPEG for a JVM to chew through on two
+ * shared cores — and it failed anyway, after five minutes, having taken the
+ * machine down with it once.
+ *
+ * So the scale comes from what Audiveris measured on the way past: it names the
+ * interline it found in the same breath as refusing the page. Aiming at
+ * eighteen from ten is 1.8x, not 3.2x, which is a smaller image, a faster read
+ * and the size the recogniser actually asked for.
+ *
+ * Null when the log did not name one, in which case the caller keeps the old
+ * behaviour rather than guessing.
+ */
+const WANTED_INTERLINE = 18;
+
+export function scaleFor(err) {
+  const said = (err?.details?.why ?? []).join(' | ');
+  const found = said.match(/interline value of (\d+) pixels/i);
+  if (!found) return null;
+  const interline = Number(found[1]);
+  if (!interline || interline >= WANTED_INTERLINE) return null;
+  // Never more than three times: past that it is not a small page, it is a
+  // photograph of something that was never going to be read.
+  return Math.min(3, Math.max(1.2, WANTED_INTERLINE / interline));
+}
+
+/**
  * A photograph, wrapped in a page so it can be re-rendered bigger.
  *
  * Null when it is not an image this can embed — a caller with nothing to gain
  * should keep the error it already had rather than a different one.
  */
-async function asPage(imagePath, workDir) {
+async function asPage(imagePath, workDir, scale) {
   try {
     const buffer = await readFile(imagePath);
     const pdf = imagesToPdf([{ buffer, name: path.basename(imagePath) }]);
     const out = path.join(workDir, 'as-page.pdf');
     await writeFile(out, pdf);
-    return out;
+    // What dpi renders that page at the scale asked for. A PDF point is 1/72
+    // inch, so a page P points wide comes out P/72*dpi pixels; wanting the
+    // picture's own width times `scale` fixes the dpi.
+    let dpi = null;
+    const size = imageSize(buffer);
+    if (size && scale) {
+      const pagePoints = pageWidthOf(pdf) ?? size.width * (72 / 150);
+      dpi = Math.round((scale * size.width * 72) / pagePoints);
+    }
+    return { path: out, dpi };
   } catch {
     return null;
   }
+}
+
+/** The width of the first page, in points, as written into the PDF. */
+function pageWidthOf(pdf) {
+  const box = String(pdf).match(/\/MediaBox \[0 0 ([\d.]+) [\d.]+\]/);
+  return box ? Number(box[1]) : null;
 }
 
 /**
@@ -243,9 +290,10 @@ export const audiverisEngine = {
    * @returns {Promise<{documents:{page:number|null, musicXml:string}[], meta:object}>}
    */
   async convert({
-    inputPath, workDir, kind, dpi = 300, maxPages = 30, onLog, onProgress,
+    inputPath, workDir, kind, dpi: askedDpi = 300, maxPages = 30, onLog, onProgress,
     timeoutMs = 60 * 60 * 1000,
   }) {
+    let dpi = askedDpi;
     const bin = await locate();
     if (!bin) throw new Error('audiveris is not installed on this machine');
     const env = await environment();
@@ -290,10 +338,14 @@ export const audiverisEngine = {
         // why those read and this did not. Rendering an A4 page at 300 dpi is
         // about 1.7x for a page off a phone camera, which takes an interline of
         // ten to seventeen and well inside what Audiveris wants.
-        const wrapped = await asPage(book, workDir);
+        const scale = scaleFor(err);
+        const wrapped = await asPage(book, workDir, scale);
         if (!wrapped) throw err;
-        book = wrapped;
-        onLog?.(`audiveris could not read that image (${err.message}) — retrying it as a page`);
+        book = wrapped.path;
+        if (wrapped.dpi) dpi = Math.min(400, Math.max(72, wrapped.dpi));
+        onLog?.(`audiveris could not read that image (${err.message}) — `
+          + `retrying it as a page${scale ? ` at ${scale.toFixed(1)}x` : ''}`);
+        onProgress?.(0, 'reading it again, bigger');
       }
     }
 
@@ -320,15 +372,20 @@ export const audiverisEngine = {
       // but it is not a fix for a page that is simply too poor to read.
       const attempts = [
         { label: `${dpi}dpi`, path: page.path },
-        { label: `${Math.round(dpi * 1.5)}dpi`, path: null },
+        // Capped: a rescued photograph is already rendered at the size
+        // Audiveris asked for, and half again on top of that is a bigger,
+        // slower image for a recogniser that did not want one.
+        { label: `${Math.round(Math.min(400, dpi * 1.5))}dpi`, path: null },
       ];
       let lastError = null;
       for (const attempt of attempts) {
         try {
           let imagePath = attempt.path;
           if (!imagePath) {
-            const bigger = await rasterisePdf(book, path.join(workDir, `pages-${Math.round(dpi * 1.5)}`), {
-              dpi: Math.round(dpi * 1.5), maxPages, onLog: () => {},
+            const at = Math.round(Math.min(400, dpi * 1.5));
+            if (at <= dpi) throw lastError ?? new Error('there is nothing bigger to try');
+            const bigger = await rasterisePdf(book, path.join(workDir, `pages-${at}`), {
+              dpi: at, maxPages, onLog: () => {},
             });
             imagePath = bigger.pages.find((p) => p.page === page.page)?.path;
             if (!imagePath) throw lastError ?? new Error('could not re-render the page');

@@ -58,3 +58,16 @@ test('the cause survives a log long enough to bury it', async () => {
   assert.ok(!/too low interline/.test(err.details.stdout),
     'this test proves nothing if the tail happens to contain the cause');
 });
+
+test('the scale comes from the interline Audiveris measured, not from a fixed dpi', async () => {
+  const { scaleFor } = await import('../src/omr/engine-audiveris.js');
+  const at = (n) => scaleFor({ details: { why: [`With a too low interline value of ${n} pixels, try 300 DPI`] } });
+  // Ten is what the scan that failed reported; eighteen is where Audiveris is
+  // comfortable. Blowing it up to A4 at 300dpi gave 32 — eight megapixels for
+  // a JVM on two shared cores, and it failed anyway.
+  assert.equal(at(10).toFixed(1), '1.8');
+  assert.equal(at(9).toFixed(1), '2.0');
+  assert.equal(at(2), 3);                    // never more than three times
+  assert.equal(at(20), null);                // already big enough: no rescue
+  assert.equal(scaleFor(new Error('exited with code 1')), null);
+});

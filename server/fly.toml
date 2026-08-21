@@ -44,7 +44,15 @@ primary_region = "iad"
   # Audiveris is a JVM holding a page of pixels. Two cores because it uses them,
   # 4GB because a sheet at 300dpi plus the JVM is comfortably under it and
   # uncomfortably over 2.
-  size = "shared-cpu-2x"
+  # DEDICATED CORES, BECAUSE THIS IS A JVM.
+  #
+  # On two shared cores a rescued page took five minutes and the machine
+  # restarted under one of them, mid-job — "reading… 15%" for as long as
+  # somebody was willing to watch it. Recognition is a burst of real CPU for
+  # under a minute and then nothing, which is exactly the shape a machine that
+  # stops when idle is cheap for: the cores are only paid for while a page is
+  # being read.
+  size = "performance-2x"
   memory = "4gb"
 
 # The scores and their MusicXML, kept across restarts. Uploads are deleted as

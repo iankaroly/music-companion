@@ -158,6 +158,26 @@ function pageBox(image) {
  * @param {{buffer:Buffer, name?:string}[]} images in page order
  * @returns {Buffer} the PDF
  */
+/**
+ * How big the picture is, without decoding it.
+ *
+ * Exported so a caller re-rendering a photograph can work out what scale it is
+ * asking for: a page rendered at a fixed dpi blows a small photograph up by
+ * whatever factor happens to fall out, which is how a page came back at an
+ * interline of 32 when Audiveris wanted about 18.
+ *
+ * @param {Buffer} buffer
+ * @returns {{width:number, height:number}|null}
+ */
+export function imageSize(buffer) {
+  try {
+    if (buffer.length > 8 && buffer.readUInt32BE(0) === 0x89504e47) return readPng(buffer);
+    return readJpeg(buffer);
+  } catch {
+    return null;
+  }
+}
+
 export function imagesToPdf(images) {
   if (!images?.length) throw new Error('no images to put in a PDF');
 
