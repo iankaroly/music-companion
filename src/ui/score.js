@@ -784,6 +784,8 @@ function summarise(aligned, timing) {
   const inTune = played.filter((a) => a.verdict === 'match').length;
   const octaves = played.filter((a) => a.verdict === 'octave').length;
   const wrong = played.filter((a) => a.verdict === 'wrong').length;
+  // Semitones, on a score read off a page — see the 'near' mark in score-view.
+  const near = played.filter((a) => a.verdict === 'near').length;
   parts.push(`${inTune} of ${aligned.attempts.length - aligned.notTaken} notes landed on the written pitch`);
   if (wrong) parts.push(`${wrong} came out as a different note`);
   // Worth its own words rather than being folded into "a different note": a
@@ -794,6 +796,13 @@ function summarise(aligned, timing) {
     parts.push(octaves === played.length
       ? 'every note was an octave out — check the register'
       : `${octaves} ${octaves === 1 ? 'was' : 'were'} an octave out`);
+  }
+  // A semitone apart from a page a recogniser read is not an accusation: it is
+  // a disagreement between the take and the reading, and the player is the one
+  // who can settle it — by ear, or by tapping the note and correcting the page.
+  if (near) {
+    parts.push(`${near} ${near === 1 ? 'is' : 'are'} a semitone from what the page says`
+      + ' — the page was read off a photograph, so check those against the paper');
   }
   if (aligned.missed) parts.push(`${aligned.missed} never sounded`);
   if (aligned.notTaken) parts.push('the repeat was not taken');

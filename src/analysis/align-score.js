@@ -393,6 +393,11 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
     // play them. Counted so a caller can say "the rest of the page" rather than
     // "you missed 300 notes".
     notReached: count('not-reached'),
+    // A semitone from what the page says, on a page a recogniser read. Not
+    // counted as wrong — the reading may be the thing that is wrong — but not
+    // thrown away either: it is the commonest mistake a player makes, and
+    // somebody has to be told which notes to check.
+    near: count('near'),
     notTaken: count('not-taken'),
     extra: extras.length,
   };

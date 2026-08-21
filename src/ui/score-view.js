@@ -98,6 +98,7 @@ function describe(attempt, timing) {
   if (attempt.verdict === 'not-reached') return `${bar}: outside this take`;
   if (attempt.verdict === 'octave') return `${bar}: played an octave out`;
   if (attempt.verdict === 'wrong') return `${bar}: a different note was played`;
+  if (attempt.verdict === 'near') return `${bar}: a semitone from what the page says`;
 
   const cents = Math.round(attempt.played.cents);
   const { direction } = intonationTone(attempt.played.cents);
@@ -406,6 +407,26 @@ export function paint(view, {
         className: 'score-mark wrong',
         text: '✕',
         title: `written ${midiToName(attempt.score.midi)}, played ${midiToName(attempt.played.midi)}`,
+      });
+    } else if (attempt?.verdict === 'near') {
+      // A SEMITONE OUT, ON A SCORE THAT WAS READ OFF A PAGE.
+      //
+      // On those the aligner forgives a semitone, because an accidental the
+      // recogniser dropped is a semitone that was never played wrongly — and
+      // accusing somebody of a wrong note the reader invented is the worst
+      // thing this can do. But forgiving it silently threw away the one fact
+      // that matters when it WAS the player: a note a semitone out is the
+      // commonest mistake there is.
+      //
+      // So it is marked, and marked as the open question it is: this note and
+      // the page disagree by a semitone, and either of you could be right. The
+      // page can be corrected by tapping it (see reader.js), which settles it.
+      marks.push({
+        className: 'score-mark near',
+        text: '~',
+        title: `the page says ${midiToName(attempt.score.midi)}, you played `
+          + `${midiToName(attempt.played.midi)} — a semitone apart, and the page was read `
+          + 'off a photograph, so either could be the one that is wrong',
       });
     } else if (attempt?.verdict === 'octave') {
       marks.push({
