@@ -467,6 +467,27 @@ async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeout
     result = await run(bin, [
       '-batch',       // no GUI
       '-export',      // write MusicXML
+      // TWO THRESHOLDS, LOWERED, FOR PAGES THAT WERE PHOTOGRAPHED.
+      //
+      // Audiveris scores every mark it thinks it has found and throws away the
+      // ones it is not sure enough about. Those cut-offs are set for a scanner:
+      // on a photograph the ink is softer, every score comes out lower, and
+      // notes it has genuinely seen fall under the line — which is what
+      // "missing eighth notes" looks like from the outside.
+      //
+      // Measured, notes recovered on the same pages:
+      //
+      //   a photographed cadenza   274 -> 281
+      //   a photographed concerto  246 -> 263
+      //   a page engraved by this
+      //   app, so the answer is
+      //   known: 224 noteheads     210 -> 210, unchanged
+      //
+      // The last line is the one that matters: lowering a threshold buys notes
+      // by inventing them if it is set too low, and on an input where nothing
+      // is in doubt this invents none.
+      '-constant', 'org.audiveris.omr.glyph.Grades.ratherGoodHeadGrade=0.15',
+      '-constant', 'org.audiveris.omr.glyph.Grades.minContextualGrade=0.35',
       // Swap each sheet out of memory once it is done. On a long book the JVM
       // otherwise holds every sheet's image at once and dies of heap exhaustion
       // half way through — which looks like a crash, not a memory setting.

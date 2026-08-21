@@ -115,6 +115,13 @@ const RHYTHM_FLOOR = 0.6;   // of the other reading's share of sound bars
 // The long edge a page is read at. Audiveris renders at 300 dpi — about 2500
 // across — so more than this is memory spent on pixels it throws away.
 const BIGGEST_WORTH_READING = 2600;
+// How long any ONE of the several readings of a short document may take.
+//
+// They race; the best of whatever finished is kept. Without a deadline a single
+// reading that has found a thousand candidate marks and is still sifting them
+// holds up three that finished a minute ago — and a page nobody is reading is
+// worse than a page read three ways instead of four.
+const READING_DEADLINE = 150 * 1000;
 
 /**
  * Which of two readings of the same page to keep.
@@ -293,7 +300,7 @@ export async function convert({
             // retries at.
             dpi: engine.preferredDpi ?? config.omr.dpi,
             maxPages: config.upload.maxPages,
-            timeoutMs: config.omr.timeoutMs,
+            timeoutMs: Math.min(config.omr.timeoutMs, READING_DEADLINE),
             onLog: () => {},
             onProgress: () => {},
           });
@@ -344,7 +351,7 @@ export async function convert({
           kind: asKind,
           dpi,
           maxPages: config.upload.maxPages,
-          timeoutMs: config.omr.timeoutMs,
+          timeoutMs: Math.min(config.omr.timeoutMs, READING_DEADLINE),
           onLog: () => {},
           onProgress: () => {},
         });
