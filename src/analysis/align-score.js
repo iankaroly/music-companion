@@ -286,15 +286,26 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
 
   const attempts = new Array(S);
   const extras = [];
-  // Everything after the take is a score note that was not played, and it is
+  // Everything after the take is a score note the take NEVER REACHED, and it is
   // written in as such before the traceback so the array is complete.
+  //
+  // NOT 'missed'. A note is missed when somebody played through it and it did
+  // not sound; a note after the end of a take is one they had not got to yet.
+  // Both said 'missed', so a minute of a photographed part reported hundreds of
+  // notes "never sounded" — the rest of the page, held against the player. The
+  // same word covered the reader's invented noteheads, which nobody could play
+  // because they are not on the paper.
+  // A take with nothing in it is the exception: there is no span for a note to
+  // be outside OF, so silence against a score is still notes that did not
+  // sound, which is what it has always said.
+  const outside = played.length ? 'not-reached' : 'missed';
   for (let k = bestRow; k < S; k++) {
     attempts[k] = {
       scoreNoteId: score[k].id,
       pass: score[k].pass ?? 0,
       score: score[k],
       played: null,
-      verdict: 'missed',
+      verdict: outside,
     };
   }
   if (!Number.isFinite(bestCost)) {
@@ -339,7 +350,9 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
         pass: scoreNote.pass ?? 0,
         score: scoreNote,
         played: null,
-        verdict: 'missed',
+        // Before the take began, this is a note nobody had reached yet — the
+        // same thing as the notes after it, and not a note they played over.
+        verdict: j === 0 && played.length ? 'not-reached' : 'missed',
       };
       i--;
     } else {
@@ -376,6 +389,10 @@ export function alignScore(playedNotes, scoreNotes, { nearMiss = false } = {}) {
     matched: attempts.filter((a) => a.played !== null).length,
     wrong: count('wrong') + count('octave'),
     missed: count('missed'),
+    // Score notes on either side of the take: not played, and not a failure to
+    // play them. Counted so a caller can say "the rest of the page" rather than
+    // "you missed 300 notes".
+    notReached: count('not-reached'),
     notTaken: count('not-taken'),
     extra: extras.length,
   };

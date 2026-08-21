@@ -19,6 +19,8 @@
 
 export class AlignmentError extends Error {}
 
+export const SANE_BPM = { min: 5, max: 400 };
+
 const round6 = (n) => Math.round(n * 1e6) / 1e6;
 
 /** Quarters per second <-> quarter-note BPM. */
@@ -76,6 +78,24 @@ export function buildTimemap(anchors, options = {}) {
     const from = cleaned[i - 1];
     const to = cleaned[i];
     const rate = (to.quarter - from.quarter) / (to.time - from.time); // quarters per second
+
+    // A TEMPO HAS TO BE A TEMPO HERE TOO.
+    //
+    // The guard above asks only whether time moves FORWARD between anchors,
+    // never how far. Two taps a ten-millionth of a second apart pass it and
+    // give a segment running at forty million quarters a second; because that
+    // is the last segment, everything after the final anchor maps to the same
+    // instant and the cursor freezes on the last bar. The other extreme rounds
+    // the tempo to zero and every extrapolated answer becomes infinity. Both
+    // come from real producers — a double tap, a tap on a bar the reader
+    // measured as a quarter long.
+    const bpm = rate * 60;
+    if (!Number.isFinite(bpm) || bpm < SANE_BPM.min || bpm > SANE_BPM.max) {
+      throw new AlignmentError(
+        `anchors at quarter ${from.quarter} (${from.time}s) and ${to.quarter} (${to.time}s) `
+        + `imply ${Math.round(bpm)} quarters a minute, which is not a tempo anybody plays`,
+      );
+    }
     segments.push({
       fromQuarter: from.quarter,
       toQuarter: to.quarter,
@@ -108,8 +128,15 @@ export function buildTimemap(anchors, options = {}) {
     segments,
     // Head and tail tempi: constant extrapolation off the ends of the anchored
     // region, so asking for bar 1 when the first anchor is bar 5 still answers.
-    headBpm: segments.length ? segments[0].quarterBpm : edgeBpm,
-    tailBpm: segments.length ? segments[segments.length - 1].quarterBpm : edgeBpm,
+    //
+    // A TEMPO THE CALLER GAVE US WINS. It says so in this function's own
+    // documentation, and it was used only when there were no segments at all —
+    // so somebody who knew the piece's tempo and anchored an interior span got
+    // bar 1 extrapolated from whatever rubato happened between their first two
+    // taps, and everything after the last one from the final ritardando, which
+    // is the worst estimate available for the music that follows it.
+    headBpm: edgeBpm ?? (segments.length ? segments[0].quarterBpm : null),
+    tailBpm: edgeBpm ?? (segments.length ? segments[segments.length - 1].quarterBpm : null),
     startQuarter: cleaned[0].quarter,
     endQuarter: cleaned[cleaned.length - 1].quarter,
     totalQuarters: options.totalQuarters ?? null,

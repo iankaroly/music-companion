@@ -83,3 +83,34 @@ describe('what the player is accused of', () => {
       .toBeGreaterThanOrEqual(strict.attempts.filter((a) => a.played).length);
   });
 });
+
+describe('what a short take is told about the rest of the page', () => {
+  it('does not accuse the player of missing music they never reached', () => {
+    const score = parseScore(READ, { partIndex: 0, steadyBars: true }).notes;
+    // One line, played correctly, against a whole page — which is what
+    // practising a passage IS.
+    const take = score.slice(0, 12).map((n, i) => ({ midi: n.midi, at: i * 0.5, dur: 0.4 }));
+    const aligned = alignScore(take, score, { nearMiss: true });
+
+    expect(aligned.matched).toBe(12);
+    // The other 176 are the rest of the page, not 176 failures.
+    expect(aligned.missed).toBe(0);
+    expect(aligned.notReached).toBe(score.length - 12);
+  });
+
+  it('still calls a note missed when the take played through it', () => {
+    const score = parseScore(READ, { partIndex: 0, steadyBars: true }).notes;
+    const take = score.slice(0, 12)
+      .filter((_, i) => i !== 5)                    // one note simply not played
+      .map((n, i) => ({ midi: n.midi, at: i * 0.5, dur: 0.4 }));
+    const aligned = alignScore(take, score, { nearMiss: true });
+    expect(aligned.missed).toBe(1);
+  });
+
+  it('and silence against a score is still notes that did not sound', () => {
+    const score = parseScore(READ, { partIndex: 0 }).notes;
+    const aligned = alignScore([], score);
+    expect(aligned.missed).toBe(score.length);
+    expect(aligned.notReached ?? 0).toBe(0);
+  });
+});

@@ -58,11 +58,34 @@ export function unfoldRepeats(measures) {
     // A numbered ending we are not on this time round is skipped whole.
     const openEnding = m.barlines.endings.find((e) => e.type === 'start');
     if (openEnding && openEnding.numbers.length && !openEnding.numbers.includes(pass)) {
+      // SKIP TO THE END OF *THIS* ENDING, AND ONLY IF THERE IS ONE.
+      //
+      // The scan used to run to the first stop hook anywhere ahead, with no
+      // bound and no fallback — and a recogniser reading a photograph misses
+      // bracket ends routinely. Miss the first ending's stop and the scan ran
+      // on to the SECOND ending's, so the second-time bar was skipped and the
+      // performance came out a bar short in the middle. Miss both and j reached
+      // the end of the score, i went past it, and every remaining bar of the
+      // piece silently vanished.
+      //
+      // So: stop at the next ending START too — that is where this ending must
+      // have ended, whatever the file says — and if nothing terminates it at
+      // all, PLAY the bar rather than jump off the end of the music. A repeat
+      // played once too often is a small wrong answer; half a piece missing is
+      // not.
       let j = i;
-      while (j < measures.length
-        && !measures[j].barlines.endings.some((e) => e.type === 'stop' || e.type === 'discontinue')) j += 1;
-      i = j + 1;
-      continue;
+      let found = false;
+      while (j < measures.length) {
+        const marks = measures[j].barlines.endings;
+        if (marks.some((e) => e.type === 'stop' || e.type === 'discontinue')) { found = true; break; }
+        if (j > i && marks.some((e) => e.type === 'start')) { j -= 1; found = true; break; }
+        j += 1;
+      }
+      if (found) {
+        i = j + 1;
+        continue;
+      }
+      // Nothing closed it: fall through and play this bar.
     }
 
     out.push({ measureIndex: i, pass });
@@ -177,6 +200,21 @@ export function buildTimeline(score, options = {}) {
       pass: step.pass,
       startQuarter: q(clock),                    // performance clock
       durationQuarters: measure.durationQuarters,
+      // WHAT THIS BAR IS SHORT BY, and therefore how much of this clock is a
+      // measurement rather than a grid.
+      //
+      // The performance clock is a running sum of these bars' MEASURED lengths.
+      // On a typeset score that is exactly right — a pickup is short, a cadenza
+      // is any length at all. On a page read off a photograph a short bar is a
+      // note the recogniser missed, the deficit is never repaid, and every bar
+      // after it starts early by the running total: 27 of 37 bars on a real
+      // read page, twelve and a quarter quarters adrift by the end.
+      //
+      // The measurement is not corrected here — this bar really does hold what
+      // it holds, and stretching it would overlap the next one — but it is no
+      // longer silent. A caller aligning audio can see that its clock is a sum
+      // of guesses, and by how much.
+      shortByQuarters: q(Math.max(0, (measure.nominalQuarters ?? 0) - measure.durationQuarters)),
       scoreStartQuarter: measure.startQuarter,   // printed-score clock
       time: measure.time,
       key: measure.key,
@@ -235,8 +273,13 @@ export function buildTimeline(score, options = {}) {
     }
   }
 
+  const adrift = q(spans.reduce((sum, span) => sum + (span.shortByQuarters ?? 0), 0));
   return {
     partId: part.id,
+    // How much of totalQuarters is measurement error rather than music — see
+    // shortByQuarters on each span. Zero on anything typeset.
+    adriftQuarters: adrift,
+    barsShort: spans.filter((span) => (span.shortByQuarters ?? 0) > 0).length,
     totalQuarters: q(clock),
     measureCount: spans.length,
     repeated: spans.length !== part.measures.length,
@@ -255,24 +298,49 @@ export function buildTimeline(score, options = {}) {
  * without it the FIRST playing is meant, which is what a person tapping bar 17
  * for the first time means.
  */
-export function quarterAt(timeline, { measureNumber, measureIndex, ordinal, pass, beat = 1 }) {
-  let span;
-  if (ordinal !== undefined && ordinal !== null) {
-    span = timeline.measures[ordinal];
-  } else if (measureIndex !== undefined && measureIndex !== null) {
-    span = timeline.measures.find((m) => m.measureIndex === measureIndex && (pass === undefined || m.pass === pass));
-  } else if (measureNumber !== undefined && measureNumber !== null) {
-    const wanted = String(measureNumber);
-    span = timeline.measures.find((m) => String(m.measureNumber) === wanted && (pass === undefined || m.pass === pass));
+export function findMeasureSpan(timeline, { measureNumber, measureIndex, ordinal, pass } = {}) {
+  if (ordinal !== undefined && ordinal !== null) return timeline.measures[ordinal] ?? null;
+  if (measureIndex !== undefined && measureIndex !== null) {
+    return timeline.measures.find(
+      (m) => m.measureIndex === measureIndex && (pass === undefined || m.pass === pass),
+    ) ?? null;
   }
+  if (measureNumber !== undefined && measureNumber !== null) {
+    const wanted = String(measureNumber);
+    return timeline.measures.find(
+      (m) => String(m.measureNumber) === wanted && (pass === undefined || m.pass === pass),
+    ) ?? null;
+  }
+  return null;
+}
+
+export function quarterAt(timeline, { measureNumber, measureIndex, ordinal, pass, beat = 1 }) {
+  const span = findMeasureSpan(timeline, { measureNumber, measureIndex, ordinal, pass });
   if (!span) return null;
 
   // `beat` is 1-based and counted in the bar's own beat unit, the way a
   // musician counts: in 6/8, beat 2 is the second quaver.
   const beatQuarters = 4 / (span.time?.beatType ?? 4);
   const offset = Math.max(0, (Number(beat) || 1) - 1) * beatQuarters;
+
+  // A BEAT THE BAR DOES NOT HAVE IS NOT THE NEXT BAR'S DOWNBEAT.
+  //
+  // Clamping the offset to the bar's length put it exactly where the next bar
+  // starts — the spans are laid end to end — so on a bar a recogniser read
+  // short, a tap on "bar 4, beat 3" was quietly recorded as bar 5 beat 1. Worse
+  // when several: on a bar read as a quarter long, beats 2, 3 and 4 all
+  // resolved to the SAME quarter, and buildTimemap then refused the whole
+  // alignment over two anchors at one quarter with different times — naming a
+  // quarter the player never asked for.
+  //
+  // Null instead, so the caller can say which bar and how long it was read as.
+  // The bar's own length is what it is: on a page the recogniser mis-read, "the
+  // beat you tapped is not in that bar" is the truth, and it is actionable.
+  if (offset >= span.durationQuarters && span.durationQuarters > 0) {
+    return null;
+  }
   return {
-    quarter: q(span.startQuarter + Math.min(offset, span.durationQuarters)),
+    quarter: q(span.startQuarter + offset),
     span,
   };
 }

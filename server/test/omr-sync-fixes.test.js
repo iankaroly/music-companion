@@ -73,3 +73,84 @@ test('a tempo that is not a tempo is refused, not used', () => {
   // And a real one still works.
   assert.ok(buildTimemap(anchors, { quarterBpm: 60 }));
 });
+
+test('a beat the bar does not have is refused, not moved to the next bar', async () => {
+  const { quarterAt } = await import('../src/musicxml/timeline.js');
+  // A 4/4 bar the recogniser read as one quarter long. Beats 2, 3 and 4 are not
+  // in it; they used to resolve to the next bar's downbeat — all three to the
+  // SAME quarter, which then made buildTimemap refuse the whole alignment.
+  const timeline = {
+    measures: [
+      { ordinal: 0, measureIndex: 0, measureNumber: '1', pass: 1, startQuarter: 0, durationQuarters: 1, time: { beats: 4, beatType: 4 } },
+      { ordinal: 1, measureIndex: 1, measureNumber: '2', pass: 1, startQuarter: 1, durationQuarters: 4, time: { beats: 4, beatType: 4 } },
+    ],
+  };
+  assert.equal(quarterAt(timeline, { measureNumber: '1', beat: 1 }).quarter, 0);
+  for (const beat of [2, 3, 4]) {
+    assert.equal(quarterAt(timeline, { measureNumber: '1', beat }), null,
+      `beat ${beat} of a one-quarter bar was placed somewhere instead of refused`);
+  }
+  // The next bar is untouched: its own beats still resolve inside it.
+  assert.equal(quarterAt(timeline, { measureNumber: '2', beat: 3 }).quarter, 3);
+});
+
+test('an ending nobody closed does not swallow the rest of the piece', async () => {
+  const { unfoldRepeats } = await import('../src/musicxml/timeline.js');
+  const plain = { repeatForward: false, repeatBackward: false, repeatTimes: 2, endings: [] };
+  const bar = (over = {}) => ({ barlines: { ...plain, ...over } });
+  // A first ending whose stop hook the recogniser missed, then four more bars.
+  const measures = [
+    bar({ repeatForward: true }),
+    bar(),
+    bar({ endings: [{ type: 'start', numbers: [1] }], repeatBackward: true }),
+    bar({ endings: [{ type: 'start', numbers: [2] }] }),
+    bar(),
+    bar(),
+  ];
+  const plan = unfoldRepeats(measures);
+  const reached = new Set(plan.map((step) => step.measureIndex));
+  for (const index of [0, 1, 2, 3, 4, 5]) {
+    assert.ok(reached.has(index), `bar ${index} was never played — the piece was truncated`);
+  }
+});
+
+test('two taps a hair apart are not a tempo of forty million', async () => {
+  const { buildTimemap } = await import('../src/align/timemap.js');
+  assert.throws(
+    () => buildTimemap([{ quarter: 0, time: 0 }, { quarter: 4, time: 0.0000001 }]),
+    /not a tempo/i,
+  );
+  assert.throws(
+    () => buildTimemap([{ quarter: 0, time: 0 }, { quarter: 0.0001, time: 600 }]),
+    /not a tempo/i,
+  );
+  assert.ok(buildTimemap([{ quarter: 0, time: 0 }, { quarter: 4, time: 2 }]));
+});
+
+test('a tempo the caller gave is what the ends are extrapolated at', async () => {
+  const { buildTimemap, secondsAt } = await import('../src/align/timemap.js');
+  // Anchors covering an interior span, taken at a rubato 240; the caller knows
+  // the piece is 60. Before, bar 1 was extrapolated from the rubato.
+  const anchors = [{ quarter: 8, time: 10 }, { quarter: 12, time: 11 }];
+  const guessed = buildTimemap(anchors);
+  const told = buildTimemap(anchors, { quarterBpm: 60 });
+  assert.equal(told.headBpm, 60);
+  assert.equal(told.tailBpm, 60);
+  assert.notEqual(guessed.headBpm, told.headBpm);
+  // Four quarters before the first anchor at 60 is four seconds earlier.
+  assert.ok(Math.abs(secondsAt(told, 4) - 6) < 1e-6, `got ${secondsAt(told, 4)}`);
+});
+
+test('the timeline says how much of its clock is measurement rather than music', async () => {
+  const { buildTimeline } = await import('../src/musicxml/timeline.js');
+  const { parseMusicXml } = await import('../src/musicxml/parse.js');
+  const { readFileSync } = await import('node:fs');
+  const xml = readFileSync(
+    new URL('../../test/fixtures/recognised-page.musicxml', import.meta.url), 'utf8',
+  );
+  const timeline = buildTimeline(parseMusicXml(xml));
+  // A real page read off a photograph: bars that came up short, and by how much.
+  assert.ok(timeline.barsShort > 0, 'a read page has short bars and should say so');
+  assert.ok(timeline.adriftQuarters > 1, `only ${timeline.adriftQuarters} quarters adrift`);
+  assert.ok(timeline.measures.every((m) => typeof m.shortByQuarters === 'number'));
+});

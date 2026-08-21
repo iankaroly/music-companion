@@ -76,6 +76,9 @@ function verdictColour(attempt, colours) {
   if (!attempt) return null;
   if (attempt.verdict === 'missed') return colours.muted;
   if (attempt.verdict === 'not-taken') return null; // never played, nothing to say
+  // A note the take never reached — before it started, or after it stopped. It
+  // is not a note somebody failed to play, so it is not marked as one.
+  if (attempt.verdict === 'not-reached') return null;
 
   // A wrong note is coloured too. The two facts are independent and both worth
   // having: the colour says how close to a pitch centre you were, the ✕ says it
@@ -91,6 +94,7 @@ function describe(attempt, timing) {
   const bar = `bar ${attempt.score?.measure ?? '?'}`;
   if (attempt.verdict === 'missed') return `${bar}: not played`;
   if (attempt.verdict === 'not-taken') return `${bar}: repeat not taken`;
+  if (attempt.verdict === 'not-reached') return `${bar}: outside this take`;
   if (attempt.verdict === 'octave') return `${bar}: played an octave out`;
   if (attempt.verdict === 'wrong') return `${bar}: a different note was played`;
 

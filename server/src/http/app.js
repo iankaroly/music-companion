@@ -32,7 +32,7 @@ import {
   AlignmentError, buildTimemap, constantTimemap, fitConstantTempo, quarterAtSeconds, secondsAt,
 } from '../align/timemap.js';
 import { cursorAt, measureSchedule, schedule } from '../align/lookup.js';
-import { quarterAt } from '../musicxml/timeline.js';
+import { quarterAt, findMeasureSpan } from '../musicxml/timeline.js';
 import {
   deleteAlignment, deleteScore, listAlignments, listJobs, listScores,
   loadAlignment, loadMusicXml, loadScore, newId, publicSource, saveAlignment,
@@ -111,6 +111,15 @@ function resolveAnchors(timeline, anchors) {
       beat: anchor.beat ?? 1,
     });
     if (!resolved) {
+      // Two different wrongs, and a player can act on the second one.
+      const bar = findMeasureSpan(timeline, anchor);
+      if (bar) {
+        throw badRequest(
+          `anchor ${i} asks for beat ${anchor.beat ?? 1} of bar ${bar.measureNumber}, `
+          + `which was read as ${bar.durationQuarters} quarter(s) long — that beat is not in it`,
+          { anchor, barDurationQuarters: bar.durationQuarters },
+        );
+      }
       throw badRequest(`anchor ${i} points at a bar that is not in this score`, { anchor });
     }
     return {
