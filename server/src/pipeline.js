@@ -21,6 +21,7 @@ import { parseMusicXml } from './musicxml/parse.js';
 import { joinScores } from './musicxml/assemble.js';
 import { buildTimeline } from './musicxml/timeline.js';
 import { scoreToMusicXml, withTitle } from './musicxml/serialise.js';
+import { repairForEngraving } from './musicxml/repair.js';
 import { clearWork, workDirFor } from './storage/store.js';
 import { mapWithConcurrency } from './util/pool.js';
 import { thinPages } from './util/thin-pages.js';
@@ -192,11 +193,13 @@ export async function convert({
   // file no longer describes what was parsed, and serving it would hand back a
   // document that disagrees with every other endpoint.
   const generatedMusicXml = documents.length > 1;
+  // The engine's file, with only its title corrected when the engine invented
+  // one — see withTitle — and with whole-measure rests told what to draw, which
+  // is the difference between a score that engraves and one that refuses.
+  // Everything else in it is exactly as written. See musicxml/repair.js.
   const musicXml = generatedMusicXml
     ? scoreToMusicXml(score, { software: `score-pipeline (from ${engine.id})` })
-    // The engine's file, with only its title corrected when the engine invented
-    // one — see withTitle. Everything else in it is exactly as written.
-    : withTitle(documents[0].musicXml, score.title);
+    : repairForEngraving(withTitle(documents[0].musicXml, score.title)).xml;
 
   report.stage('done', 100);
   return {

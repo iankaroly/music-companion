@@ -95,7 +95,8 @@
     "reader:top": "node tools/reader-top-check.mjs",
     "reader:holds": "node tools/page-holds-check.mjs",
     "score:hosted": "node tools/omr-hosted-check.mjs",
-    "scan:trim": "node tools/scan-trim-check.mjs"
+    "scan:trim": "node tools/scan-trim-check.mjs",
+    "score:printed": "node tools/score-as-printed-check.mjs"
   },
   "keywords": [],
   "author": "",

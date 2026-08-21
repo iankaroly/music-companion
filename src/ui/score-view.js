@@ -110,6 +110,7 @@ export async function showScore(container, {
   zoom = 1,
   pageFormat = null,
   autoRelayout = true,
+  asPrinted = false,
 } = {}) {
   const { OpenSheetMusicDisplay } = await loadEngraver();
 
@@ -158,6 +159,22 @@ export async function showScore(container, {
   osmd.EngravingRules.PageBottomMargin = 0.5;
   osmd.EngravingRules.PageLeftMargin = 0.5;
   osmd.EngravingRules.PageRightMargin = 0.5;
+  // BREAK THE LINES WHERE THE PAGE BROKE THEM.
+  //
+  // Engraving is a re-flow by default: the music is poured into whatever shape
+  // the screen is, so one photographed page came out as three, with the systems
+  // nowhere near where the sheet had them. For a score read off a page somebody
+  // is looking at, that is the wrong answer — it should be the same music, in
+  // the same order, on the same lines. The recogniser writes <print new-system>
+  // and <print new-page> where the page had them; these are what make the
+  // engraver honour that instead of deciding for itself.
+  //
+  // BEFORE load(), not after: the breaks are read while the file is being
+  // parsed, so rules set afterwards are rules set too late — measured, 20
+  // stafflines either way on a page that declares eighteen system breaks.
+  osmd.EngravingRules.NewSystemAtXMLNewSystemAttribute = asPrinted;
+  osmd.EngravingRules.NewPageAtXMLNewPageAttribute = asPrinted;
+
   await osmd.load(xml);
 
   // AFTER the load, both of them, and that is not a style choice: load() resets
@@ -169,11 +186,18 @@ export async function showScore(container, {
   else osmd.setPageFormat('Endless');
   osmd.zoom = zoom;
 
+
   // Show only the line that was played. A cellist reading their own part
   // should not be handed the whole quartet.
+  //
+  // EXCEPT WHEN THE SCORE WAS READ OFF A PAGE. Then the "parts" are not other
+  // players — they are the staves the recogniser found on the sheet that was
+  // photographed, one part per staff. Showing the first of those hides half of
+  // what is on the page and reads as "it did not find all the notes", which is
+  // exactly what it was called.
   const instruments = osmd.sheet?.Instruments ?? [];
   const instrument = instruments[partIndex] ?? null;
-  if (instruments.length > 1 && instrument) {
+  if (!asPrinted && instruments.length > 1 && instrument) {
     for (const other of instruments) other.Visible = other === instrument;
   }
   osmd.render();

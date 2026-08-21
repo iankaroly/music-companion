@@ -192,6 +192,36 @@ export async function saveBookmarks(scoreId, bookmarks) {
   });
 }
 
+/**
+ * Mark a score as one the recogniser read off a scan.
+ *
+ * It changes how it is drawn. A score somebody exported from MuseScore has
+ * PARTS — a cellist reading their own line should not be handed the whole
+ * quartet, so the app shows one. A score read off a photograph has parts
+ * because the recogniser makes one per staff of the page, so hiding all but
+ * the first hides half the music that was photographed. And the page it came
+ * off is a page somebody is looking at, so its line breaks are worth keeping.
+ *
+ * @param {number} id
+ */
+export async function markAsRead(id) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      row.readFromPages = true;
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function pairScoreNotation(paperId, notationId) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

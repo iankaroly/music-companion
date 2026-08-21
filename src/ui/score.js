@@ -31,7 +31,7 @@ import {
 } from './score-tab.js';
 import {
   saveScore, savePagesScore, listScores, loadScore, deleteScore, setRecordingScore,
-  pairScoreNotation, loadScorePages, saveScoreLayout,
+  pairScoreNotation, loadScorePages, saveScoreLayout, markAsRead,
 } from '../store/db.js';
 import {
   isPdf, isImage, sniffPdf, sniffImage, nameFromFile, pdfPageCount, readPages, pdfTrouble,
@@ -451,6 +451,9 @@ async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
   });
   const notationId = await importNotationFor(paperId, file);
   if (notationId == null) return null;
+  // Remembered, because it changes how it is drawn: every staff shown rather
+  // than the first, and the page's own line breaks kept. See markAsRead.
+  await markAsRead(notationId).catch(() => { /* it is still a score */ });
 
   // Show it: the score is reopened so the notes are there now, not next time.
   if (el('score-pair')) el('score-pair').hidden = true;
@@ -1515,6 +1518,7 @@ async function renderScoreTabOnce() {
       xml: current.xml,
       scoreNotes: current.notes,
       partIndex: current.partIndex ?? 0,
+      asPrinted: current.readFromPages === true,
     });
   } catch (err) {
     view = null;

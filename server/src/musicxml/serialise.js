@@ -205,9 +205,24 @@ export function scoreToMusicXml(score, options = {}) {
       // A bar with nothing left in it still has to occupy its time, or every
       // bar after it moves. That is what a whole-measure rest is for.
       if (playable.length === 0) {
+        // A WHOLE-MEASURE REST LASTS A WHOLE MEASURE.
+        //
+        // Writing the bar's MEASURED length here wrote what the recogniser
+        // managed to find in a bar it found nothing in — 3.875 quarters, 5.25,
+        // once zero — and no engraver can draw a rest of three and seven eighths
+        // quarters. VexFlow refuses the whole score ("The provided duration is
+        // not valid"), so one unreadable bar cost every other bar on the page.
+        //
+        // The time signature is what a bar of rest means, and it is the only
+        // length here that is always a legal one. A bar the recogniser could
+        // not read is still counted against it — see emptyMeasures in the
+        // quality report, which is computed before any of this.
+        const rest = measure.nominalQuarters > 0
+          ? measure.nominalQuarters
+          : (measure.durationQuarters > 0 ? measure.durationQuarters : 4);
         lines.push('      <note>');
         lines.push('        <rest measure="yes"/>');
-        lines.push(`        <duration>${ticks(measure.durationQuarters || measure.nominalQuarters || 4)}</duration>`);
+        lines.push(`        <duration>${ticks(rest)}</duration>`);
         lines.push('        <voice>1</voice>');
         lines.push('      </note>');
         lines.push('    </measure>');
