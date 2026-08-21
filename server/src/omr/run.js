@@ -65,11 +65,12 @@ export class ProcessError extends Error {
 /**
  * @param {string} command
  * @param {string[]} args
- * @param {{timeoutMs?:number, cwd?:string, env?:object, onLog?:(line:string)=>void}} [options]
+ * @param {{timeoutMs?:number, cwd?:string, env?:object, onLog?:(line:string)=>void,
+ *          signal?:AbortSignal}} [options]
  * @returns {Promise<{stdout:string, stderr:string, code:number, ms:number}>}
  */
 export function run(command, args, options = {}) {
-  const { timeoutMs = 10 * 60 * 1000, cwd, env, onLog } = options;
+  const { timeoutMs = 10 * 60 * 1000, cwd, env, onLog, signal } = options;
 
   return new Promise((resolve, reject) => {
     const startedAt = Date.now();
@@ -104,12 +105,37 @@ export function run(command, args, options = {}) {
 
     const timer = setTimeout(() => {
       killedByTimeout = true;
+      stop();
+    }, timeoutMs);
+
+    // STOPPING ONE THAT IS NO LONGER WANTED.
+    //
+    // A page is read two ways at once and the slower one is often not needed:
+    // the moment the first comes back good, the other is a JVM holding two
+    // cores and a gigabyte for an answer nobody will read — on a machine that
+    // takes one job at a time, that is the NEXT person's scan waiting. Killed
+    // the same way the timeout kills one, politely and then not.
+    let dropped = false;
+    function stop() {
       child.kill('SIGTERM');
       // Give it a moment to die politely; OMR engines hold big buffers.
       setTimeout(() => child.kill('SIGKILL'), 5000).unref();
-    }, timeoutMs);
+    }
+    const giveUp = () => {
+      dropped = true;
+      clearTimeout(timer);
+      stop();
+      reject(new ProcessError(`${command} was stopped: it was no longer needed`, {
+        command, args, dropped: true, ms: Date.now() - startedAt,
+      }));
+    };
+    if (signal) {
+      if (signal.aborted) { giveUp(); return; }
+      signal.addEventListener('abort', giveUp, { once: true });
+    }
 
     child.on('error', (err) => {
+      if (dropped) return;
       clearTimeout(timer);
       reject(new ProcessError(
         // ENOENT here means the command OR its working directory is missing;
@@ -122,7 +148,9 @@ export function run(command, args, options = {}) {
     });
 
     child.on('close', (code) => {
+      if (dropped) return;
       clearTimeout(timer);
+      signal?.removeEventListener?.('abort', giveUp);
       const ms = Date.now() - startedAt;
       if (killedByTimeout) {
         reject(new ProcessError(`${command} did not finish within ${Math.round(timeoutMs / 1000)}s`, {

@@ -52,8 +52,16 @@ primary_region = "iad"
   # under a minute and then nothing, which is exactly the shape a machine that
   # stops when idle is cheap for: the cores are only paid for while a page is
   # being read.
-  size = "performance-2x"
-  memory = "4gb"
+  # FOUR CORES, BECAUSE A PAGE IS NOW READ TWO WAYS AT ONCE.
+  #
+  # The two readings are independent and both are wanted, so they run together
+  # — but on two cores they were two JVMs sharing two cores, which is most of
+  # a second reading's cost paid in wall clock anyway. Four cores lets each
+  # have its own, and the machine still stops the moment nobody is scanning, so
+  # the extra pair is paid for by the minute of use rather than by the month.
+  size = "performance-4x"
+  # Two JVMs at once, each taking a quarter of it for its heap.
+  memory = "8gb"
 
 # The scores and their MusicXML, kept across restarts. Uploads are deleted as
 # soon as they are read; this holds theresult, not the source material.

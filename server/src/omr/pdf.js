@@ -15,7 +15,7 @@
 // Audiveris's own documentation asks for it. Below ~200 dpi recognition falls
 // off a cliff; above 400 the memory cost doubles for nothing.
 
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { canRun, run } from './run.js';
 
@@ -44,6 +44,36 @@ export async function findRasteriser() {
  * @returns {Promise<{pages:{path:string, page:number}[], truncated:boolean}>}
  *   `truncated` means the document has more pages than the cap allowed.
  */
+
+/**
+ * Roughly how many pages a PDF has, without rendering any of them.
+ *
+ * Used only to decide whether a document is short enough to be worth reading
+ * twice — a book of twenty pages read two ways is twenty pages of somebody's
+ * time and twice the machine. It counts page objects in the file, which is
+ * exact for anything written plainly (including the PDFs this service makes
+ * out of photographs) and can be fooled by a compressed object stream.
+ *
+ * WHEN IT CANNOT TELL, IT SAYS "LONG". Guessing short on a long book spends
+ * minutes nobody asked for; guessing long on a short one costs a second
+ * reading that was optional anyway.
+ *
+ * @param {string} pdfPath
+ * @returns {Promise<number>}
+ */
+export async function countPdfPages(pdfPath) {
+  try {
+    const bytes = await readFile(pdfPath);
+    const text = bytes.toString('latin1');
+    const declared = [...text.matchAll(/\/Count\s+(\d+)/g)].map((m) => Number(m[1]));
+    const objects = (text.match(/\/Type\s*\/Page[^s]/g) ?? []).length;
+    const best = Math.max(objects, declared.length ? Math.max(...declared) : 0);
+    return best > 0 ? best : Number.MAX_SAFE_INTEGER;
+  } catch {
+    return Number.MAX_SAFE_INTEGER;
+  }
+}
+
 export async function rasterisePdf(pdfPath, outDir, options = {}) {
   const { dpi = 300, maxPages = 40, onLog } = options;
   await mkdir(outDir, { recursive: true });

@@ -15,7 +15,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { cpus } from 'node:os';
 import path from 'node:path';
 import { chooseEngine, ENGINES } from './omr/registry.js';
-import { isPdf, rasterisePdf } from './omr/pdf.js';
+import { isPdf, rasterisePdf, countPdfPages } from './omr/pdf.js';
 import { looksLikeZip } from './musicxml/mxl.js';
 import { parseMusicXml } from './musicxml/parse.js';
 import { joinScores } from './musicxml/assemble.js';
@@ -166,87 +166,144 @@ export async function convert({
   const workDir = workDirOverride ?? workDirFor(scoreId);
   await mkdir(workDir, { recursive: true });
 
-  const omr = await engine.convert({
-    inputPath: filePath,
-    workDir,
-    kind,
-    // The engine's own preference wins over the global default: see
-    // engine-oemer.js for why one number cannot serve both engines.
-    dpi: engine.preferredDpi ?? config.omr.dpi,
-    maxPages: config.upload.maxPages,
-    timeoutMs: config.omr.timeoutMs,
-    onLog: (line) => report.log(line),
-    // Recognition is nearly all of the wall clock, so it owns most of the bar:
-    // 15% when it starts, 65% when it finishes.
-    onProgress: (fraction, label) => report.stage(
-      label ? `${engine.id}: ${label}` : `recognising with ${engine.id}`,
-      15 + Math.max(0, Math.min(1, fraction)) * 50,
-    ),
-  });
-
-  // A SCAN THAT READ BADLY IS READ A SECOND WAY.
+  // BOTH WAYS AT ONCE.
   //
-  // There is more than one way to hand the same page to a recogniser, and none
+  // There is more than one way to hand the same page to a recogniser and none
   // of them is best — see chooseReading for the measurements. A photograph can
-  // go as a picture or wrapped in a page it renders itself; a PDF can be
-  // rendered by the recogniser at its own resolution or by us at half again,
-  // which on a real page found 215 notes against 152. So a reading that came
-  // back poor is done the other way too and the better one kept, and a reading
-  // that came back well is left alone and costs nothing.
-  let reading = omr;
-  const first = barsThatAddUp(omr.documents, title);
-  const secondWay = kind === 'image' ? 'as a page' : (kind === 'pdf' ? 'at a bigger render' : null);
-  // A book of twenty pages read twice is twenty pages of somebody's time. The
-  // second opinion is for the scan somebody is waiting on, not for a book.
-  const shortEnough = omr.documents.length <= 4;
-  if (secondWay && shortEnough && first.bars > 0 && first.good / first.bars < GOOD_ENOUGH) {
-    report.log(`${first.good} of ${first.bars} bars hold their beats — reading it ${secondWay}`);
-    try {
-      // The engine spawns with this as its cwd, and spawn() reports a missing
-      // directory as a missing BINARY — which sent this one looking for
-      // Audiveris on the PATH instead of for a folder nobody had made.
-      const secondDir = path.join(workDir, 'second-opinion');
-      await mkdir(secondDir, { recursive: true });
-      let input = filePath;
-      let asKind = kind;
-      let dpi = engine.preferredDpi ?? config.omr.dpi;
-      if (kind === 'image') {
-        input = path.join(workDir, 'as-page.pdf');
-        await writeFile(input, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
-        asKind = 'pdf';
-      } else {
-        // The recogniser renders a PDF at 300; the pages it missed are often
-        // there at 450, which it will only see if we do the rendering.
-        const bigger = await rasterisePdf(filePath, path.join(workDir, 'bigger'), {
-          dpi: Math.round(dpi * 1.5), maxPages: config.upload.maxPages, onLog: () => {},
+  // go as a picture or wrapped in a page the recogniser renders itself; a PDF
+  // can be rendered by the recogniser at 300 or by us at 450, which on a real
+  // page found 215 notes against 152.
+  //
+  // They used to be done one after the other, and only when the first came back
+  // poor — which is most photographs, so most scans paid for two readings END
+  // TO END: three Audiveris runs and twenty-three seconds for one page. They
+  // are independent, the machine has two cores, and nobody is waiting on the
+  // first to decide whether to start the second. Run together, a scan costs
+  // about what the slower one costs, and the better of the two is still kept.
+  const attempts = [{
+    label: 'as it is',
+    run: (signal) => engine.convert({
+      signal,
+      inputPath: filePath,
+      workDir,
+      kind,
+      // The engine's own preference wins over the global default: see
+      // engine-oemer.js for why one number cannot serve both engines.
+      dpi: engine.preferredDpi ?? config.omr.dpi,
+      maxPages: config.upload.maxPages,
+      timeoutMs: config.omr.timeoutMs,
+      onLog: (line) => report.log(line),
+      // Recognition is nearly all of the wall clock, so it owns most of the
+      // bar: 15% when it starts, 65% when it finishes.
+      onProgress: (fraction, label) => report.stage(
+        label ? `${engine.id}: ${label}` : `recognising with ${engine.id}`,
+        15 + Math.max(0, Math.min(1, fraction)) * 50,
+      ),
+    }),
+  }];
+
+  // A book of twenty pages read twice is twenty pages of somebody's time and
+  // twice the machine. The second way is for the scan somebody is waiting on.
+  const pagesIn = kind === 'pdf' ? await countPdfPages(filePath) : 1;
+  if (pagesIn <= 4) {
+    attempts.push({
+      label: kind === 'image' ? 'as a page' : 'at a bigger render',
+      run: async (signal) => {
+        // The engine spawns with this as its cwd, and spawn() reports a missing
+        // directory as a missing BINARY — which sent this one looking for
+        // Audiveris on the PATH instead of for a folder nobody had made.
+        const otherDir = path.join(workDir, 'other-way');
+        await mkdir(otherDir, { recursive: true });
+        const dpi = engine.preferredDpi ?? config.omr.dpi;
+        let input = filePath;
+        let asKind = kind;
+        if (kind === 'image') {
+          input = path.join(workDir, 'as-page.pdf');
+          await writeFile(input, imagesToPdf([{ buffer: await readFile(filePath), name: filename }]));
+          asKind = 'pdf';
+        } else {
+          const bigger = await rasterisePdf(filePath, path.join(workDir, 'bigger'), {
+            dpi: Math.round(dpi * 1.5), maxPages: config.upload.maxPages, onLog: () => {},
+          });
+          if (!bigger.pages.length) throw new Error('nothing came out of the bigger render');
+          input = bigger.pages[0].path;
+          asKind = 'image';
+          // NOT the bigger dpi: the page has already been rendered bigger, and
+          // this number is what the engine renders its OWN retries at. Passing
+          // 450 here had it rescue the page a second time at 450 on top of a
+          // 4800-pixel render: 109 notes, against 236 when left alone.
+        }
+        return engine.convert({
+          signal,
+          inputPath: input,
+          workDir: otherDir,
+          kind: asKind,
+          dpi,
+          maxPages: config.upload.maxPages,
+          timeoutMs: config.omr.timeoutMs,
+          onLog: () => {},
+          onProgress: () => {},
         });
-        if (!bigger.pages.length) throw new Error('nothing came out of the bigger render');
-        input = bigger.pages[0].path;
-        asKind = 'image';
-        // NOT the bigger dpi: the page has already been rendered bigger, and
-        // this number is what the engine renders its OWN retries at. Passing
-        // 450 here had it rescue the page a second time at 450 on top of a
-        // 4800-pixel render — 109 notes, against 236 when it is left alone.
-      }
-      const second = await engine.convert({
-        inputPath: input,
-        workDir: secondDir,
-        kind: asKind,
-        dpi,
-        maxPages: config.upload.maxPages,
-        timeoutMs: config.omr.timeoutMs,
-        onLog: (line) => report.log(line),
-        onProgress: () => {},
-      });
-      const other = barsThatAddUp(second.documents, title);
-      const keep = chooseReading(first, other);
-      report.log(`${secondWay}: ${other.notes} notes, ${other.good} of ${other.bars} bars `
-        + `— against ${first.notes} notes, ${first.good} of ${first.bars}; keeping the ${keep}`);
-      if (keep === 'second') reading = second;
-    } catch (err) {
-      report.log(`reading it ${secondWay} did not work (${err.message}) — keeping the first reading`);
+      },
+    });
+  }
+
+  // AND THE SECOND ONE IS DROPPED WHEN IT IS NOT NEEDED.
+  //
+  // Both start together, so a page that needs the other way does not wait for
+  // the first to finish failing. But a page that reads WELL first time needs
+  // nothing else — and waiting for the other one anyway made a six-second page
+  // take thirteen. So the first reading is looked at as soon as it lands: if it
+  // is good, the other is stopped where it stands, which on a machine that
+  // takes one job at a time is the next person's scan getting started sooner.
+  const stopTheOther = new AbortController();
+  const running = attempts.map((attempt, i) => attempt
+    .run(i === 0 ? undefined : stopTheOther.signal)
+    .then((documents) => ({ label: attempt.label, documents }))
+    .catch((err) => ({ label: attempt.label, error: err })));
+
+  const firstAttempt = await running[0];
+  const firstScore = firstAttempt.documents
+    ? barsThatAddUp(firstAttempt.documents.documents, title)
+    : null;
+  const goodFirstTime = firstScore && firstScore.bars > 0
+    && firstScore.good / firstScore.bars >= GOOD_ENOUGH;
+
+  let settled = [firstAttempt];
+  if (goodFirstTime && running.length > 1) {
+    stopTheOther.abort();
+    report.log(`read it ${firstAttempt.label}: `
+      + `${firstScore.notes} notes, ${firstScore.good} of ${firstScore.bars} bars hold their beats`);
+  } else {
+    settled = await Promise.all(running);
+  }
+
+  const read = settled.filter((r) => r.documents);
+  if (!read.length) throw settled[0].error;
+  let reading = read[0].documents;
+  let chose = read[0].label;
+  if (read.length > 1) {
+    const scored = read.map((r) => ({
+      ...r,
+      score: r === firstAttempt && firstScore ? firstScore : barsThatAddUp(r.documents.documents, title),
+    }));
+    const best = scored.reduce((winner, other) => (
+      chooseReading(winner.score, other.score) === 'second' ? other : winner
+    ));
+    for (const one of scored) {
+      report.log(`${one.label}: ${one.score.notes} notes, ${one.score.good} of ${one.score.bars} bars hold their beats`);
+    }
+    reading = best.documents;
+    chose = best.label;
+    report.log(`keeping the reading ${chose}`);
+  }
+  for (const r of settled) {
+    // A reading stopped on purpose is not a reading that failed.
+    if (r.error && !r.error.details?.dropped) {
+      report.log(`reading it ${r.label} did not work (${r.error.message})`);
     }
   }
+  const omr = reading;
 
   report.stage('parsing MusicXML', 68);
   const pageErrors = [];

@@ -291,7 +291,7 @@ export const audiverisEngine = {
    */
   async convert({
     inputPath, workDir, kind, dpi: askedDpi = 300, maxPages = 30, onLog, onProgress,
-    timeoutMs = 60 * 60 * 1000,
+    timeoutMs = 60 * 60 * 1000, signal = null,
   }) {
     let dpi = askedDpi;
     const bin = await locate();
@@ -319,7 +319,7 @@ export const audiverisEngine = {
     let book = inputPath;
     try {
       onProgress?.(0, 'reading the whole book');
-      return await runBook({ bin, env, inputPath: book, outDir: path.join(workDir, 'audiveris'), onLog, onProgress, timeoutMs });
+      return await runBook({ bin, env, inputPath: book, outDir: path.join(workDir, 'audiveris'), onLog, onProgress, timeoutMs, signal });
     } catch (err) {
       if (kind === 'pdf') {
         onLog?.(`audiveris could not read the book in one pass (${err.message}) — retrying page by page`);
@@ -393,6 +393,7 @@ export const audiverisEngine = {
           const result = await runBook({
             bin,
             env,
+            signal,
             inputPath: imagePath,
             outDir: path.join(workDir, `audiveris-p${page.page}-${attempt.label}`),
             onLog,
@@ -445,7 +446,7 @@ function concurrency() {
 }
 
 /** One Audiveris run over one input (a whole PDF, or a single page image). */
-async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeoutMs }) {
+async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeoutMs, signal }) {
   // Audiveris announces each sheet as it starts it. That is the only progress
   // signal a whole-book engine gives, and on a forty-page score it is the
   // difference between a bar that moves and a spinner.
@@ -473,7 +474,7 @@ async function runBook({ bin, env, inputPath, outDir, onLog, onProgress, timeout
       '-output', outDir,
       '--',           // everything after this is an input file
       inputPath,
-    ], { timeoutMs, onLog: watch, cwd: path.dirname(outDir), env });
+    ], { timeoutMs, onLog: watch, cwd: path.dirname(outDir), env, signal });
   } catch (err) {
     // The exit code told a player "failed (100%)". This tells them what to do
     // about it, and keeps everything the process said for whoever looks later.
