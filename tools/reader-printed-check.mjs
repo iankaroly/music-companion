@@ -62,8 +62,19 @@ const open = async (paired) => page.evaluate(async ({ xml: text, paired: pair })
   }
   await new Promise((r) => setTimeout(r, 1500));
 
+  // A page that cannot be turned is not a page. The bar index and the page list
+  // are what page turning, pencil anchoring, bookmarks and the playback light
+  // are all hung off, and drawing a scanned score its own way skipped both.
+  const { pagesKnown, barsKnown, notesIndexed, unmatched } = await import('/src/ui/reader.js')
+    .then((m) => m.readerState?.() ?? {})
+    .catch(() => ({}));
+
   const sheet = document.querySelector('#reader-sheet');
   const out = {
+    pagesKnown,
+    barsKnown,
+    notesIndexed,
+    unmatched,
     opened,
     hasSheet: !!sheet,
     pages: sheet ? sheet.querySelectorAll('svg').length : -1,
@@ -88,12 +99,28 @@ console.log(`notation alone     ${alone.pages} page(s)   ${alone.noteheads} note
 console.log(`read off a scan    ${paired.pages} page(s)   ${paired.noteheads} noteheads   ${paired.stafflines} staff lines`);
 
 const fits = paired.pages > 0 && paired.pages <= sheetPages;
+// Not "every notehead has a note": our reading of a score drops chord members
+// and second voices on purpose, so it never has one note per notehead. The
+// claim is the other way round — every note we hold finds the notehead it
+// belongs to, or it cannot be lit, marked or tapped.
+const handed = paired.notesIndexed + paired.unmatched;
+const indexedAll = handed > 0 && paired.unmatched <= handed * 0.05;
 // A score the recogniser read as ONE part has no hidden staves to reveal, so
 // "more noteheads" is not the claim to make about it — "none missing" is.
 const whole = parts > 1 ? paired.noteheads > alone.noteheads : paired.noteheads >= alone.noteheads;
 console.log(fits ? '\na page of the sheet is a page on the screen' : `\nFAIL — ${paired.pages} pages for ${sheetPages}`);
+const usable = paired.pagesKnown > 0 && paired.barsKnown > 0;
+// Every staff that is drawn has to be tappable too, or half the page cannot be
+// lit, marked or corrected.
+console.log(`notes indexed  one part: ${alone.notesIndexed} of ${alone.noteheads} | scan: ${paired.notesIndexed} of ${paired.noteheads}`);
+console.log(`   of ${handed} notes held, ${paired.unmatched} found no notehead`);
+console.log(usable
+  ? `and it can be turned and written on: ${paired.pagesKnown} page(s), ${paired.barsKnown} bars indexed`
+  : `FAIL — pages known ${paired.pagesKnown}, bars indexed ${paired.barsKnown}: it cannot be turned`);
 console.log(whole
   ? (parts > 1 ? 'every staff is drawn' : 'one part, and all of it is drawn')
   : `FAIL — fewer noteheads than the one-part view (${paired.noteheads} against ${alone.noteheads})`);
-console.log(fits && whole ? '\nPASS' : '\nFAIL');
-process.exit(fits && whole ? 0 : 1);
+if (!indexedAll) console.log(`FAIL — ${paired.unmatched} of ${handed} notes found no notehead: they cannot be lit, marked or tapped`);
+const ok = fits && whole && usable && indexedAll;
+console.log(ok ? '\nPASS' : '\nFAIL');
+process.exit(ok ? 0 : 1);

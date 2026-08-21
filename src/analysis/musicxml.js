@@ -253,6 +253,13 @@ export function parseScore(xml, { partIndex = 0 } = {}) {
         onsetBeats: measureStart + cursor / divisions,
         durBeats,
         measure: Number(measure.attrs.number ?? index + 1),
+        // WHERE THE BAR IS, as against what it is called. A recogniser reading
+        // a photograph writes the numbers it thinks it can see, and it gets
+        // them wrong: one real page came back with two bars numbered 5, so
+        // every bar after that was called one less than the engraver calls it
+        // and the two readings of the same file stopped agreeing about which
+        // notehead was which. Order is the thing both sides can be sure of.
+        measureIndex: index,
         beatInMeasure: cursor / divisions,
         tied: ties.includes('start'),
         grace: isGrace,

@@ -40,6 +40,13 @@ function engravedNotes(osmd, instrument) {
       if (!measure) continue;
       if (instrument && measure.ParentStaff?.ParentInstrument !== instrument) continue;
       const number = measure.MeasureNumber;
+      // WHERE THE BAR IS IN THE FILE, which is the only thing both readings of
+      // it can agree on. Bar NUMBERS cannot be trusted: a recogniser reading a
+      // photograph writes what it thinks it sees (one page came back with two
+      // bars numbered 5), and the engraver numbers a pickup 0 on one score and
+      // 1 on another. Either one puts every notehead in the wrong bar for
+      // anything matching them up.
+      const order = measure.parentSourceMeasure?.measureListIndex;
       for (const entry of measure.staffEntries ?? []) {
         const beatInMeasure = (entry.relInMeasureTimestamp?.RealValue ?? 0) * BEATS_PER_WHOLE;
         for (const voiceEntry of entry.graphicalVoiceEntries ?? []) {
@@ -48,6 +55,7 @@ function engravedNotes(osmd, instrument) {
             if (!source || source.isRest?.()) continue;
             out.push({
               measure: number,
+              order,
               beatInMeasure,
               midi: source.halfTone + HALFTONE_TO_MIDI,
               gnote,
@@ -202,7 +210,13 @@ export async function showScore(container, {
   }
   osmd.render();
 
-  const engraved = engravedNotes(osmd, instruments.length > 1 ? instrument : null);
+  // EVERY STAFF THAT IS DRAWN IS ALSO INDEXED.
+  //
+  // Filtering to one part is right when one part is shown. A score read off a
+  // page shows all of them — they are the staves of the sheet, not other
+  // players — so filtering there left half the noteheads in no index at all:
+  // drawn, but impossible to tap, light or correct.
+  const engraved = engravedNotes(osmd, !asPrinted && instruments.length > 1 ? instrument : null);
   const { map, unmatched, ok } = reconcile(scoreNotes ?? [], engraved);
 
   // OSMD draws each page into a container of its own. Tagging them is what lets

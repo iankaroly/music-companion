@@ -32,6 +32,7 @@ import { followPlayback } from './report.js';
 import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
 import { headsOf, pairNotes } from './scan-view.js';
+import { parseScore } from '../analysis/musicxml.js';
 import { syncTake } from '../analysis/scan-sync.js';
 import { shapeFrom } from '../analysis/shape-snap.js';
 import { pageTurn } from './pedal.js';
@@ -5460,7 +5461,6 @@ async function applyCorrection(xml, what) {
   // Parsed again so what is drawn, what is played and what a take is marked
   // against are all the corrected score rather than the read one.
   try {
-    const { parseScore } = await import('../analysis/musicxml.js');
     score.notes = parseScore(xml, { partIndex: score.partIndex ?? 0 }).notes;
   } catch { /* the engraver will complain louder than this could */ }
   await saveCorrection(score.id, xml).catch(() => say('that correction could not be saved'));
@@ -5542,6 +5542,30 @@ function printedPages() {
  * Bounded: three goes, then whatever it managed, because a page that will not
  * settle is still a page somebody is waiting for.
  */
+/**
+ * The notes of EVERY part, for a score whose parts are the staves of one page.
+ *
+ * `score.notes` is one part's worth, which is what a cellist reading their own
+ * line wants. On a scan it is half the page — and the half that is left out is
+ * invisible to everything that works off the note list: the playback light, a
+ * take's marks, and tapping a note to correct it.
+ */
+function notesOfEveryPart() {
+  const mine = score?.notes ?? [];
+  if (!score?.xml) return mine;
+  try {
+    const parsed = parseScore(score.xml, { partIndex: 0 });
+    if ((parsed.parts?.length ?? 1) < 2) return mine;
+    const all = [];
+    for (let i = 0; i < parsed.parts.length; i += 1) {
+      all.push(...parseScore(score.xml, { partIndex: i }).notes);
+    }
+    return all;
+  } catch {
+    return mine;
+  }
+}
+
 async function engraveAsPrinted() {
   const want = printedPages();
   const base = pageFormat();
@@ -5549,7 +5573,7 @@ async function engraveAsPrinted() {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     view = await showScore(sheet, {
       xml: score.xml,
-      scoreNotes: score.notes ?? [],
+      scoreNotes: notesOfEveryPart(),
       partIndex: score.partIndex ?? 0,
       pageFormat: { width: base.width, height },
       zoom: base.zoom,
@@ -5566,21 +5590,15 @@ async function engraveAsPrinted() {
 }
 
 async function engrave() {
-  if (asPrinted) return engraveAsPrinted();
-  const page = pageFormat();
-  view = await showScore(sheet, {
-    // The notes are always handed over, even with no take loaded: they are how
-    // a notehead is found again when something needs to be lit, and finding it
-    // is not the same as colouring it.
-    xml: score.xml,
-    scoreNotes: score.notes ?? [],
-    partIndex: score.partIndex ?? 0,
-    pageFormat: page,
-    zoom: page.zoom,
-    // The reader re-engraves on rotation itself, at the new page shape; the
-    // view's own resize handler would re-render at the old one underneath it.
-    autoRelayout: false,
-  });
+  // ONLY THE DRAWING DIFFERS.
+  //
+  // A score read off a page is drawn a page at a time (engraveAsPrinted); what
+  // happens next is the same either way, and it very nearly was not. Returning
+  // early from here skipped the bar index and the page list — so a scanned
+  // score engraved beautifully and then could not be turned, followed or
+  // written on, because everything downstream is hung off those two lines.
+  if (asPrinted) await engraveAsPrinted();
+  else await engravePlainly();
   bars = indexBars();
   pageEls = view.pages;
   // NOT painted. You open a score to play from it, and a page of red and green
@@ -5597,6 +5615,26 @@ async function engrave() {
       paint(view, { aligned: take.aligned, timing: take.timing, landings: take.landings });
     }
   }
+  // The notes can be tapped again: the old noteheads went with the old pages.
+  if (correcting) indexNotesForCorrection();
+  return view;
+}
+
+async function engravePlainly() {
+  const page = pageFormat();
+  view = await showScore(sheet, {
+    // The notes are always handed over, even with no take loaded: they are how
+    // a notehead is found again when something needs to be lit, and finding it
+    // is not the same as colouring it.
+    xml: score.xml,
+    scoreNotes: score.notes ?? [],
+    partIndex: score.partIndex ?? 0,
+    pageFormat: page,
+    zoom: page.zoom,
+    // The reader re-engraves on rotation itself, at the new page shape; the
+    // view's own resize handler would re-render at the old one underneath it.
+    autoRelayout: false,
+  });
   return view;
 }
 
@@ -6120,6 +6158,27 @@ export async function openReader(row, {
   refreshPlayButton();
   refreshLandButton();
   return view;
+}
+
+/**
+ * What the reader has in hand, for a check to look at.
+ *
+ * The bar index and the page list are what page turning, pencil anchoring,
+ * bookmarks and the playback light are all hung off. A score can engrave
+ * perfectly with both of them empty — which is exactly what happened when a
+ * scanned score got a drawing path of its own — and nothing on the screen says
+ * so until somebody tries to turn a page.
+ */
+export function readerState() {
+  // `bars` is a Map keyed by bar number, `pageEls` a list of page elements.
+  // `bars` is a Map keyed by bar number, `pageEls` a list of page elements, and
+  // `map` is every note that found the notehead it belongs to.
+  return {
+    pagesKnown: pageEls?.length ?? 0,
+    barsKnown: bars?.size ?? 0,
+    notesIndexed: view?.map?.size ?? 0,
+    unmatched: view?.unmatched?.length ?? 0,
+  };
 }
 
 export function close() {

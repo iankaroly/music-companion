@@ -19,10 +19,27 @@ function keyOf(measure, beatInMeasure, midi) {
   return `${measure}|${Math.round(beatInMeasure * 960)}|${midi}`;
 }
 
+// WHICH BAR, BY ORDER RATHER THAN BY NAME.
+//
+// The engraver numbers bars as it meets them; our reading takes the number
+// printed in the file. On anything typeset those agree. On a page read by a
+// recogniser they do not: one real scan came back with two bars both numbered
+// 5, and from there every bar was called one less on our side than on theirs —
+// 19 noteheads of 188 could be matched, so a take marked almost nothing, the
+// playback light followed almost nothing, and a note could not be tapped to
+// correct it. A pickup bar numbered 0 does the same thing to a typeset score.
+//
+// Order is the one thing both readings of the same file can be sure of.
+// Our side counts bars from zero as it reads the file; the engraver hands back
+// the same count as `order`. Where either is missing — an older caller, a
+// engraver that does not say — both fall back to the printed number, which is
+// what this always used and is right on anything typeset.
+const orderOf = (note) => note.order ?? note.measureIndex ?? note.measure;
+
 export function reconcile(scoreNotes, engravedNotes) {
   const available = new Map();
   for (const note of engravedNotes ?? []) {
-    const key = keyOf(note.measure, note.beatInMeasure, note.midi);
+    const key = keyOf(orderOf(note), note.beatInMeasure, note.midi);
     if (!available.has(key)) available.set(key, []);
     available.get(key).push(note);
   }
@@ -35,7 +52,7 @@ export function reconcile(scoreNotes, engravedNotes) {
     // the notehead the first pass already found — not a second one.
     if (map.has(note.id)) continue;
 
-    const candidates = available.get(keyOf(note.measure, note.beatInMeasure, note.midi));
+    const candidates = available.get(keyOf(orderOf(note), note.beatInMeasure, note.midi));
     const found = candidates?.shift();
     if (found) map.set(note.id, found);
     else unmatched.push(note.id);
