@@ -16,6 +16,7 @@ import { palette } from './theme.js';
 import { intonationHue, intonationTone } from './chart-utils.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { reconcile } from '../analysis/score-map.js';
+import { repairForEngraving } from '../analysis/musicxml-repair.js';
 
 let osmdModulePromise = null;
 
@@ -187,7 +188,12 @@ export async function showScore(container, {
   osmd.EngravingRules.NewSystemAtXMLNewSystemAttribute = asPrinted;
   osmd.EngravingRules.NewPageAtXMLNewPageAttribute = asPrinted;
 
-  await osmd.load(xml);
+  // Repaired on the way in, whatever wrote it: one note an engraver cannot draw
+  // makes it refuse the WHOLE score, and a score that was read before the
+  // pipeline stopped writing those is already in the library. See
+  // analysis/musicxml-repair.js.
+  const safe = repairForEngraving(xml);
+  await osmd.load(safe.xml);
 
   // AFTER the load, both of them, and that is not a style choice: load() resets
   // the zoom to 1, so setting it first is setting it for nothing. This cost an

@@ -70,7 +70,14 @@ const open = async (paired) => page.evaluate(async ({ xml: text, paired: pair })
     .catch(() => ({}));
 
   const sheet = document.querySelector('#reader-sheet');
+  // A PAGE HAS TO FIT THE SCREEN. The reader turns pages; it does not scroll,
+  // and #reader-sheet does not either — so an engraving taller than the screen
+  // is music nobody can reach. Fitting a sheet's systems onto one page has to
+  // mean smaller music, not a taller page.
+  const drawn = sheet?.querySelector('svg')?.getBoundingClientRect();
   const out = {
+    pageHeight: drawn ? Math.round(drawn.height) : null,
+    screenHeight: window.innerHeight,
     pagesKnown,
     barsKnown,
     notesIndexed,
@@ -99,6 +106,7 @@ console.log(`notation alone     ${alone.pages} page(s)   ${alone.noteheads} note
 console.log(`read off a scan    ${paired.pages} page(s)   ${paired.noteheads} noteheads   ${paired.stafflines} staff lines`);
 
 const fits = paired.pages > 0 && paired.pages <= sheetPages;
+const onScreen = paired.pageHeight != null && paired.pageHeight <= paired.screenHeight + 2;
 // Not "every notehead has a note": our reading of a score drops chord members
 // and second voices on purpose, so it never has one note per notehead. The
 // claim is the other way round — every note we hold finds the notehead it
@@ -109,6 +117,9 @@ const indexedAll = handed > 0 && paired.unmatched <= handed * 0.05;
 // "more noteheads" is not the claim to make about it — "none missing" is.
 const whole = parts > 1 ? paired.noteheads > alone.noteheads : paired.noteheads >= alone.noteheads;
 console.log(fits ? '\na page of the sheet is a page on the screen' : `\nFAIL — ${paired.pages} pages for ${sheetPages}`);
+console.log(onScreen
+  ? `and all of it is on the screen: ${paired.pageHeight}px drawn into ${paired.screenHeight}px`
+  : `FAIL — ${paired.pageHeight}px of music in a ${paired.screenHeight}px screen, and the reader does not scroll`);
 const usable = paired.pagesKnown > 0 && paired.barsKnown > 0;
 // Every staff that is drawn has to be tappable too, or half the page cannot be
 // lit, marked or corrected.
@@ -121,6 +132,6 @@ console.log(whole
   ? (parts > 1 ? 'every staff is drawn' : 'one part, and all of it is drawn')
   : `FAIL — fewer noteheads than the one-part view (${paired.noteheads} against ${alone.noteheads})`);
 if (!indexedAll) console.log(`FAIL — ${paired.unmatched} of ${handed} notes found no notehead: they cannot be lit, marked or tapped`);
-const ok = fits && whole && usable && indexedAll;
+const ok = fits && whole && usable && indexedAll && onScreen;
 console.log(ok ? '\nPASS' : '\nFAIL');
 process.exit(ok ? 0 : 1);

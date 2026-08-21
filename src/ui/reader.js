@@ -5569,22 +5569,36 @@ function notesOfEveryPart() {
 async function engraveAsPrinted() {
   const want = printedPages();
   const base = pageFormat();
-  let height = base.height;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  // A PAGE THE SHAPE OF THE SCREEN, WITH SMALLER MUSIC ON IT.
+  //
+  // Fitting a sheet's systems onto one page means one of two things: a taller
+  // page, or smaller music. The first is what this did — it grew the page in
+  // staff spaces and left the staff size alone — and the result was an
+  // engraving three thousand pixels tall inside a screen eight hundred tall,
+  // with the rest of the music below the fold and no way to reach it: the
+  // reader turns pages, it does not scroll.
+  //
+  // So the page keeps the screen's shape and the music shrinks to suit. Asking
+  // for k times as many staff spaces in each direction while drawing each one
+  // k times smaller leaves the page exactly the size of the screen, with k
+  // times more music on it. Pinching still works, and what a pinch does is
+  // exactly this.
+  let bigger = 1;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
     view = await showScore(sheet, {
       xml: score.xml,
       scoreNotes: notesOfEveryPart(),
       partIndex: score.partIndex ?? 0,
-      pageFormat: { width: base.width, height },
-      zoom: base.zoom,
+      pageFormat: { width: base.width * bigger, height: base.height * bigger },
+      zoom: base.zoom / bigger,
       autoRelayout: false,
       asPrinted: true,
     });
     const drawn = view.pages?.length ?? 1;
     if (drawn <= want) break;
-    // Taller by as much as it overflowed, plus a little, so the last system
-    // does not land a staff space short of fitting.
-    height *= (drawn / want) * 1.04;
+    // Room for as much as it overflowed by, and a little over, so the last
+    // system does not land a staff space short of fitting.
+    bigger *= Math.sqrt(drawn / want) * 1.04;
   }
   return view;
 }
