@@ -41,7 +41,7 @@ import { aidsElement, showAids, hideAids, aidsShowing, stopAids } from './score-
 import { tap, readyHaptics } from './haptics.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
-  saveBookmarks, saveLinks, saveScoreLayout, wasReadFromPages,
+  saveBookmarks, saveLinks, saveScoreLayout, wasReadFromPages, saveCorrection,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -333,6 +333,12 @@ let score = null;     // { id, name, xml, partIndex }
 // drawn — every staff, the page's own line breaks, a page per printed page —
 // see wasReadFromPages and engraveAsPrinted.
 let asPrinted = false;
+// Correcting the notes: which note is chosen, where every notehead is, and the
+// scores as they were before each change so a wrong tap can be taken back.
+let correcting = false;
+let chosen = null;      // a note id
+let noteHits = [];      // { id, el }
+let undoStack = [];
 let take = null;      // the analysed take on screen, if there is one
 let unfollow = null;  // stop listening to the playhead
 let sounding = null;  // the notehead lit right now
@@ -3663,6 +3669,16 @@ function buildMenu(sheet) {
     label: 'Annotate', glyph: '✎', detail: 'write on the page',
     onPick: () => setTool(lastInk),
   });
+  // Only for a score read off a page: a part somebody exported from MuseScore
+  // is already what its composer wrote.
+  if (asPrinted) {
+    menuRow(sheet, {
+      label: correcting ? 'Stop correcting' : 'Correct the notes',
+      glyph: '♪',
+      detail: correcting ? 'leave the notes alone' : 'fix what the recogniser misread',
+      onPick: () => setCorrecting(!correcting),
+    });
+  }
   menuRow(sheet, {
     label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
     onPick: clearPage,
@@ -4639,6 +4655,18 @@ function build() {
   const TAP_TIME = 600;     // ms held still counts as a tap
   let tapFrom = null;
   root.addEventListener('pointerdown', (e) => {
+    // CHOOSING A NOTE COMES FIRST.
+    //
+    // While the notes are being corrected, a tap on the music is a tap on a
+    // note — not a page turn. The turn zones are the outer thirds of the page
+    // and that is exactly where the music is, so without this the first note
+    // somebody tried to fix turned the page instead.
+    if (correcting && !onChrome(e) && !e.target?.closest?.('#reader-correct')) {
+      const hit = noteAt(e.clientX, e.clientY);
+      chosen = hit ? hit.id : null;
+      showChosen();
+      if (hit) { tapFrom = null; e.preventDefault(); return; }
+    }
     // The turn happens on the way DOWN. Always.
     //
     // A tap used to be read on the way up, because until the finger leaves you
@@ -5357,6 +5385,139 @@ function sayOnPage(canvas, text, across) {
   lines.forEach((one, i) => ctx.fillText(one, w / 2, h / 2 + (i - (lines.length - 1) / 2) * 26));
 }
 
+// --- correcting what the recogniser got wrong -------------------------------
+//
+// Reading a photograph is not going to be perfect: it finds most of the notes
+// and some of them are wrong, and no amount of work on the recogniser ends in
+// "all of them". What ends there is a minute of somebody's time — tap the note
+// that is wrong, move it, and it stays fixed, because the correction is written
+// into the score the app keeps rather than into a view of it.
+//
+// Only for a score read off a page. A part exported from MuseScore is already
+// what its composer wrote, and tapping a note in it would be an edit nobody
+// asked for.
+
+/** Every notehead on screen, with the note it stands for. */
+function indexNotesForCorrection() {
+  noteHits = [];
+  if (!view?.map) return;
+  for (const [id, engraved] of view.map) {
+    const element = engraved?.gnote?.getSVGGElement?.();
+    if (element) noteHits.push({ id, el: element });
+  }
+}
+
+/** The notehead nearest a tap, if the tap was near one at all. */
+function noteAt(x, y) {
+  let best = null;
+  let bestGap = Infinity;
+  for (const hit of noteHits) {
+    const box = hit.el.getBoundingClientRect?.();
+    if (!box || !box.width) continue;
+    const dx = Math.max(box.left - x, 0, x - box.right);
+    const dy = Math.max(box.top - y, 0, y - box.bottom);
+    const gap = Math.hypot(dx, dy);
+    if (gap < bestGap) { bestGap = gap; best = hit; }
+  }
+  // A finger is wide and a notehead is small: anything within about a finger of
+  // one is a tap on it. Further away is a tap on the page, and does nothing.
+  return bestGap <= 28 ? best : null;
+}
+
+function showChosen() {
+  for (const hit of noteHits) {
+    const on = hit.id === chosen;
+    hit.el.classList?.toggle('chosen-note', on);
+    if (on) hit.el.setAttribute('data-chosen', 'yes');
+    else hit.el.removeAttribute('data-chosen');
+  }
+  const bar = el('reader-correct');
+  if (bar) bar.classList.toggle('has-note', !!chosen);
+}
+
+/** Apply one correction, write it down, and draw it. */
+async function correct(change) {
+  if (!chosen || !score?.xml) return;
+  const { editNote } = await import('../analysis/musicxml-edit.js');
+  const result = editNote(score.xml, chosen, change);
+  if (!result.changed) {
+    say(result.what);
+    return;
+  }
+  undoStack.push({ xml: score.xml, note: chosen });
+  await applyCorrection(result.xml, result.what);
+}
+
+async function undoCorrection() {
+  const back = undoStack.pop();
+  if (!back) { say('nothing to undo'); return; }
+  chosen = back.note;
+  await applyCorrection(back.xml, 'put back');
+}
+
+async function applyCorrection(xml, what) {
+  score = { ...score, xml };
+  // Parsed again so what is drawn, what is played and what a take is marked
+  // against are all the corrected score rather than the read one.
+  try {
+    const { parseScore } = await import('../analysis/musicxml.js');
+    score.notes = parseScore(xml, { partIndex: score.partIndex ?? 0 }).notes;
+  } catch { /* the engraver will complain louder than this could */ }
+  await saveCorrection(score.id, xml).catch(() => say('that correction could not be saved'));
+  const keep = chosen;
+  await engrave();
+  indexNotesForCorrection();
+  chosen = noteHits.some((h) => h.id === keep) ? keep : null;
+  showChosen();
+  say(what);
+}
+
+function correctionBar() {
+  let bar = el('reader-correct');
+  if (bar) return bar;
+  bar = document.createElement('div');
+  bar.id = 'reader-correct';
+  const button = (label, title, run) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'reader-correct-key';
+    b.textContent = label;
+    b.title = title;
+    b.setAttribute('aria-label', title);
+    b.addEventListener('click', run);
+    bar.append(b);
+    return b;
+  };
+  button('↑', 'a step higher', () => correct({ steps: 1 }));
+  button('↓', 'a step lower', () => correct({ steps: -1 }));
+  button('♯', 'sharper', () => correct({ alter: 1 }));
+  button('♭', 'flatter', () => correct({ alter: -1 }));
+  button('◗', 'half as long', () => correct({ shorter: true }));
+  button('◖', 'twice as long', () => correct({ longer: true }));
+  button('𝄽', 'not a note — make it a rest', () => correct({ remove: true }));
+  button('↺', 'undo', () => undoCorrection());
+  const done = button('Done', 'stop correcting', () => setCorrecting(false));
+  done.classList.add('reader-correct-done');
+  root.append(bar);
+  return bar;
+}
+
+function setCorrecting(on) {
+  correcting = on && asPrinted;
+  chosen = null;
+  undoStack = [];
+  root?.classList.toggle('correcting', correcting);
+  const bar = correcting ? correctionBar() : el('reader-correct');
+  if (bar) bar.classList.toggle('on', correcting);
+  if (correcting) {
+    indexNotesForCorrection();
+    say(noteHits.length
+      ? 'tap a note that is wrong, then move it'
+      : 'there are no notes on this page to correct');
+  }
+  showChosen();
+}
+
 // How many pages the sheet itself has, as the recogniser wrote them down. The
 // breaks are repeated in every part, so one part's worth is the page count.
 function printedPages() {
@@ -5963,6 +6124,9 @@ export async function openReader(row, {
 
 export function close() {
   if (!root || root.hidden) return;
+  // A mode left on is a mode somebody meets again without asking for it: the
+  // next score opened would take a tap on the music as a tap on a note.
+  if (correcting) setCorrecting(false);
   clearTimeout(saveTimer);
   if (score) saveAnnotations(score.id, strokes).catch(() => {});
   root.hidden = true;

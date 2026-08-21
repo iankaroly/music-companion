@@ -228,6 +228,39 @@ export async function wasReadFromPages(row) {
   }
 }
 
+/**
+ * A corrected score, over the top of the one that was read.
+ *
+ * Recognition gets most of a photographed page and some of it wrong, and the
+ * way past that is not a better recogniser — it is a minute of somebody's time.
+ * A correction is written back into the score itself so it is permanent: the
+ * page is not read again, and nothing recalculates it away.
+ *
+ * @param {number} id
+ * @param {string} xml
+ */
+export async function saveCorrection(id, xml) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('scores', 'readwrite');
+    const store = tx.objectStore('scores');
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const row = req.result;
+      if (!row) return;
+      row.xml = xml;
+      // Kept so the card can say a score has been gone over by hand, and so
+      // "read it again" can warn before it throws the corrections away.
+      row.corrections = (row.corrections ?? 0) + 1;
+      row.correctedAt = Date.now();
+      store.put(row);
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function markAsRead(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

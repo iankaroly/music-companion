@@ -2616,6 +2616,37 @@
     .reader-menu-text b { font-family: var(--display); font-weight: 500; font-size: 0.92rem; }
     .reader-menu-text small { font-size: 0.74rem; color: var(--muted); }
 
+    /* Correcting the notes: a row of keys along the bottom, and the notehead
+       being worked on lit so it is obvious which one the keys will move. It
+       sits above the pencil's own controls and is only ever up in this mode. */
+    #reader-correct {
+      position: fixed; left: 50%; transform: translateX(-50%);
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 0.8rem);
+      display: none; gap: 0.3rem; padding: 0.4rem;
+      background: var(--panel); border: 1px solid var(--line);
+      border-radius: 1rem; box-shadow: 0 0.4rem 1.4rem rgb(0 0 0 / 0.22);
+      z-index: 40; max-width: calc(100vw - 1.2rem); flex-wrap: wrap;
+      justify-content: center;
+    }
+    #reader-correct.on { display: flex; }
+    .reader-correct-key {
+      min-width: 2.4rem; min-height: 2.4rem;
+      border: none; border-radius: 0.7rem; background: var(--fill);
+      color: var(--ink); font-size: 1.05rem; cursor: pointer;
+    }
+    .reader-correct-key:hover { background: var(--line); }
+    /* Until a note is chosen the keys have nothing to act on, and a key that
+       does nothing should not look ready. */
+    #reader-correct:not(.has-note) .reader-correct-key:not(.reader-correct-done) {
+      opacity: 0.4; pointer-events: none;
+    }
+    .reader-correct-done {
+      min-width: 3.6rem; font-size: 0.85rem;
+      background: var(--primary); color: var(--on-primary, #fff);
+    }
+    #reader [data-chosen="yes"] { filter: drop-shadow(0 0 0.18rem var(--primary)); }
+    #reader [data-chosen="yes"] * { fill: var(--primary); stroke: var(--primary); }
+
     :root { --reader-pencil: #3b3550; }
     :root[data-theme="dark"] { --reader-pencil: #e8e4f6; }
 
