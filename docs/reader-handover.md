@@ -183,11 +183,39 @@ The invariant has its own test and is the point of the whole model: **a bar is
 never offered a go that did not play it.** Offering nothing is honest; offering
 a moment from somewhere else on the page is not.
 
+**AND THE REPEATED-FIGURE PROBLEM IS FIXED, by reading the take in the page's
+own units.** Five buckets — up or down, step or leap — is what makes the match
+survive not knowing the clef, and on the Prélude it was too coarse: bar 1 goes a
+fifth then a third, bar 2 a fifth then a fourth, and in five buckets those are
+the same seven symbols. But the take says what scale it is in — count the pitch
+classes and one seven-note scale holds far more of them than the other eleven —
+and with that a played note becomes a DEGREE, which is a staff position, the
+same number the reader measures. The clef is still not needed: it shifts every
+position equally and the comparison is of differences. A fifth is 4 and a fourth
+is 3.
+
+TWO PASSES, because the sharp test and the coarse one fail on different pages.
+Degrees are unforgiving — one wrong note turns a fifth into a sixth and an exact
+test throws the interval away. So the exact comparison decides where it can and
+the buckets answer where it refuses.
+
+```
+                     placed   covered   press a bar, out by      worst anchor
+  Bach   before        4/10     5        median 0.90s  worst 4.60s   1.13s
+         after         6/10     9        median 0.72s  worst 1.22s   1.13s
+  Mozart before        7/10     8        median 0.42s  worst 9.25s   1.09s
+         after         7/10     8        median 0.42s  worst 9.25s   0.76s
+```
+
+A GRADED VERSION WAS TRIED AND IS WORSE — partial credit where two intervals
+agree in direction and are within one degree took the Bach back to 4 placed and
+5 covered and left the Mozart where it was. Partial credit is exactly what lets
+a repeat at a different interval score nearly as well as the real one.
+
 **What is still not done.** At about a fifth of the notes gone the shape match
-places almost nothing; that is the refusal working, and the unit tests hold it
-to "right or refused" rather than to how many. A go is placed from its shape
-alone, so on a page that repeats a figure some goes still land a system or two
-out — the Bach's run-in go claims systems 0 to 1.4 where it played 2 to 4. 
+places almost nothing; that is the refusal working — its worst anchor there is
+0.62s, so it is refusing rather than guessing — and the unit tests hold it to
+"right or refused" rather than to how many. 
 **AND THE GOES THAT ARE THE SAME PASSAGE ARE NOW NOTICED AND COMPARED.** Placing
 them says where each was; it does not say the second and the fourth were the
 same four bars, which is the fact a practice recording is about. `samePassage`
