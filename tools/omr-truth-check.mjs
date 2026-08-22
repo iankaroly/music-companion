@@ -48,7 +48,7 @@ const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`);
   return at >= 0 ? args[at + 1] : fallback;
 };
-const WORK = flag('keep', path.join(tmpdir(), 'music-companion-omr-truth'));
+const WORK = flag('keep', path.join(tmpdir(), 'practice-partner-omr-truth'));
 const APP = flag('app', 'http://localhost:5199');
 const CLEAN_ONLY = args.includes('--clean-only');
 const SHELL = process.env.CHROME_SHELL

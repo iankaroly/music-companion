@@ -48,7 +48,7 @@ const SHELL = process.env.CHROME_SHELL
 const PORT = process.env.PORT ?? '5199';
 // Outside the tree: a PNG written into the project while this is driving the
 // app makes vite full-reload the page underneath it.
-const OUT = process.env.OUT ?? join(tmpdir(), 'music-companion-agree');
+const OUT = process.env.OUT ?? join(tmpdir(), 'practice-partner-agree');
 
 const font = (await readFile(new URL('./fonts/Bravura.otf', import.meta.url))).toString('base64');
 await mkdir(OUT, { recursive: true });

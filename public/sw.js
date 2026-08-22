@@ -10,7 +10,7 @@
 // in the box forever, and a home-screen app had no way to notice a release at
 // all.
 const BUILD = new URL(self.location.href).searchParams.get('v') || 'v4';
-const CACHE = `music-companion-${BUILD}`;
+const CACHE = `practice-partner-${BUILD}`;
 
 self.addEventListener('install', () => self.skipWaiting());
 

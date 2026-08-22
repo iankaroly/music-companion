@@ -45,7 +45,7 @@ const PORT = process.env.PORT ?? '5199';
 // context is destroyed, window.__view goes with it, and every step after the
 // first screenshot fails with "Execution context was destroyed". A check that
 // writes into the tree it is measuring is a check that reloads its own subject.
-const OUT = process.env.OUT ?? join(tmpdir(), 'music-companion-follow');
+const OUT = process.env.OUT ?? join(tmpdir(), 'practice-partner-follow');
 
 const font = (await readFile(new URL('./fonts/Bravura.otf', import.meta.url))).toString('base64');
 await mkdir(OUT, { recursive: true });

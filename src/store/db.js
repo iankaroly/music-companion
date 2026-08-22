@@ -15,6 +15,13 @@ import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/code
 // points the app at an empty one and every take anybody has ever recorded is
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
+//
+// THE REST OF THE REPO HAS SINCE BEEN RENAMED and these two were deliberately
+// left behind, so nobody has to work out again why they look inconsistent: the
+// npm package, the Vercel project and the service worker's cache prefix are all
+// `practice-partner` now. The cache could move because it is swept on every
+// activate and rebuilt from the network; these two cannot, because nothing
+// rebuilds somebody's practice history.
 const DB_NAME = 'music-companion';
 const VERSION = 9;
 const STORES = ['sessions', 'recordings', 'recording-data', 'passages', 'folders', 'scores',

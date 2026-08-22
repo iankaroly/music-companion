@@ -181,7 +181,7 @@ npm run score:follow     the whole scanned review, end to end, in a headless
                          prove: on a page whose bars are refused it must take
                          the `groups` route and must not say "steady".
                          --shots leaves the crops it looked at in
-                         $TMPDIR/music-companion-follow.
+                         $TMPDIR/practice-partner-follow.
                          NO MICROPHONE ANYWHERE IN IT and none may ever be added.
 npm run score:agree      the REVIEW and the full-screen READER, driven through
                          their own doors on ONE take, compared notehead for
