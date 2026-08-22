@@ -133,10 +133,15 @@ npm run scan:guess       CAN THE APP FIND THE BARS IN THE TAKE BY ITSELF —
                          0.42s median on the Mozart) and past the last one (it
                          extrapolates and drifts, and wants a tap not a
                          cleverer match). `--drop`/`--wrong` spoil the take.
-npm run scan:frame       WHAT THE FINDER DOES WITH ONE REAL FRAME, and the only
+npm run scan:frame       WHAT THE SCANNER DOES WITH ONE REAL FRAME, and the only
                          instrument here that takes a photograph rather than a
                          drawing: `npm run scan:frame -- <image> [--crop t,b]
-                         [--profile]`. It says which route ran — two bright
+                         [--profile]`. It leaves the page the SHUTTER WOULD KEEP
+                         beside the same corners taken as given, which is the
+                         comparison that found the second half of the gutter
+                         bug: the outline was right and the kept page was still
+                         840 wide against 967, because `trimBackground` cut the
+                         recovered margin off again. It says which route ran — two bright
                          regions found apart, or one wide quad cut at a fold —
                          where each boundary landed in the frame's own pixels,
                          how far the guard moved the gutter side, and with

@@ -491,7 +491,7 @@ const TRIM_MOST = 1 / 5;     // never more than this off a side, whatever it loo
 const TRIM_DARKER = 0.78;   // a pixel this much darker than the paper is not paper
 const TRIM_ENOUGH = 0.3;    // and a line this much not-paper is a line to drop
 
-function trimBackground(page) {
+function trimBackground(page, { sideways = true } = {}) {
   const w = page.width;
   const h = page.height;
   if (w < 40 || h < 40) return page;
@@ -541,8 +541,23 @@ function trimBackground(page) {
   const mostX = Math.floor(w * TRIM_MOST);
   while (top < mostY && !lineIsPaper('row', top)) top += 1;
   while (bottom > h - 1 - mostY && !lineIsPaper('row', bottom)) bottom -= 1;
-  while (left < mostX && !lineIsPaper('col', left)) left += 1;
-  while (right > w - 1 - mostX && !lineIsPaper('col', right)) right -= 1;
+  // NOT SIDEWAYS ON A PAGE OF A BOOK, and the reason is `widen`: this exists to
+  // take back the tenth that `widen` let out, and on a book `widen` is called
+  // with `downOnly`, so it lets out NOTHING sideways. There is no margin of
+  // ours down either side to take back, and anything dark there is the page's
+  // own — a bound leaf rises towards the spine and falls away from the lamp, so
+  // its inner margin really is thirty or forty levels below the middle of the
+  // page, and this cut it off as background.
+  //
+  // MEASURED on his frame (`npm run scan:frame`): the outline was right and the
+  // page still came back 840 pixels wide against 967 taken as given — 13% of
+  // it, the end of every system, recovered by the guard and then thrown away
+  // here at the last step. Two mechanisms, one symptom, and fixing only the
+  // first would have looked like fixing nothing.
+  if (sideways) {
+    while (left < mostX && !lineIsPaper('col', left)) left += 1;
+    while (right > w - 1 - mostX && !lineIsPaper('col', right)) right -= 1;
+  }
 
   const cutW = right - left + 1;
   const cutH = bottom - top + 1;
@@ -805,7 +820,7 @@ export function straightenCanvas(source, width, height, known = null, { asGiven 
     // Only when there was an outline, and never on a hand crop: a page found by
     // brightness alone has no margin of ours around it to take back off, and a
     // page somebody cut by hand has no margin of ours around it either.
-    page = trimBackground(page);
+    page = trimBackground(page, { sideways: !oneOfSeveral });
   }
   try {
     const ctx = page.getContext('2d', { willReadFrequently: true });

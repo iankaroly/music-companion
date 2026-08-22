@@ -88,6 +88,38 @@ const report = await page.evaluate(async (b64, top, bottom) => {
     g.stroke();
   });
 
+  // AND THE PAGE THE SHUTTER WOULD KEEP, straightened exactly as the scanner
+  // does it. The outline is half the question — "the scanner quality is
+  // terrible" is about what comes back, and the only way to answer that is to
+  // look at it.
+  const { straightenCanvas, besideOf } = await import('/src/ui/straighten.js');
+  const { aimedPage } = await import('/src/analysis/page-edges.js');
+  const aimAt = aimedPage(found, [0.4, 0.55]);
+  let keptData = null;
+  if (aimAt >= 0) {
+    const kept = straightenCanvas(shot, W, H, found[aimAt], { beside: besideOf(found, aimAt) });
+    // The same corners taken AS GIVEN, so the second pass of the guard — which
+    // runs again inside straightenCanvas on a quad papersIn has already guarded
+    // — has something to be compared against.
+    const asGiven = straightenCanvas(shot, W, H, found[aimAt], { asGiven: true });
+    const blob2 = await new Promise((r) => (asGiven.convertToBlob
+      ? asGiven.convertToBlob({ type: 'image/jpeg', quality: 0.88 }).then(r)
+      : asGiven.toBlob(r, 'image/jpeg', 0.88)));
+    const b2 = new Uint8Array(await blob2.arrayBuffer());
+    let s2 = '';
+    for (let i = 0; i < b2.length; i += 1) s2 += String.fromCharCode(b2[i]);
+    const asJpeg = await new Promise((r) => kept.convertToBlob
+      ? kept.convertToBlob({ type: 'image/jpeg', quality: 0.88 }).then(r)
+      : kept.toBlob(r, 'image/jpeg', 0.88));
+    const kb = new Uint8Array(await asJpeg.arrayBuffer());
+    let ks = '';
+    for (let i = 0; i < kb.length; i += 1) ks += String.fromCharCode(kb[i]);
+    keptData = {
+      at: aimAt, w: kept.width, h: kept.height, jpeg: btoa(ks),
+      givenW: asGiven.width, givenH: asGiven.height, givenJpeg: btoa(s2),
+    };
+  }
+
   const shown = await new Promise((r) => shot.toBlob(r, 'image/jpeg', 0.86));
   const buf = new Uint8Array(await shown.arrayBuffer());
   let s = '';
@@ -117,6 +149,7 @@ const report = await page.evaluate(async (b64, top, bottom) => {
     // wide quad cut at a fold; two that stand apart were found as separate
     // bright regions and never went near the fold code.
     drawn: btoa(s),
+    kept: keptData,
   };
 }, base64, cropTop, cropBottom);
 
@@ -146,6 +179,16 @@ if (report.raw.length === 2) {
 if (process.argv.includes('--profile')) {
   console.log('\nbrightness across the frame (x: level), middle half averaged:');
   console.log(report.profile.map(([x, v]) => `${x}:${v}`).join('  '));
+}
+if (report.kept) {
+  const keptFile = join(OUT, `${basename(file).replace(/\.\w+$/, '')}-kept.jpg`);
+  await writeFile(keptFile, Buffer.from(report.kept.jpeg, 'base64'));
+  const givenFile = join(OUT, `${basename(file).replace(/\.\w+$/, '')}-kept-as-given.jpg`);
+  await writeFile(givenFile, Buffer.from(report.kept.givenJpeg, 'base64'));
+  console.log(`\nthe page the shutter keeps: page ${report.kept.at}, `
+    + `${report.kept.w}x${report.kept.h}  ->  ${keptFile}`);
+  console.log(`the same corners taken as given: ${report.kept.givenW}x${report.kept.givenH}`
+    + `  ->  ${givenFile}`);
 }
 const shot = join(OUT, `${basename(file).replace(/\.\w+$/, '')}-found.jpg`);
 await writeFile(shot, Buffer.from(report.drawn, 'base64'));
