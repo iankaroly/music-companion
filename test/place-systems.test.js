@@ -6,7 +6,7 @@
 // beside the one that reads pitches.
 
 import { describe, it, expect } from 'vitest';
-import { placeSystems } from '../src/analysis/scan-align.js';
+import { placeSystems, scaleOf, diatonicOf } from '../src/analysis/scan-align.js';
 import { guessedAnchors, mergeAnchors } from '../src/analysis/bar-map.js';
 
 // A line of music as the page reader gives it: steps, which are staff
@@ -168,5 +168,63 @@ describe('the anchors those placements become', () => {
   it('uses the guesses alone when nobody has tapped', () => {
     const guessed = [{ at: 0, time: 4 }, { at: 2, time: 22 }];
     expect(mergeAnchors([], guessed)).toEqual(guessed);
+  });
+});
+
+// READING THE TAKE IN THE PAGE'S OWN UNITS.
+//
+// Five buckets — up or down, step or leap — is what makes the match survive not
+// knowing the clef, and on a page that repeats a figure it is too coarse: the
+// Bach Prélude's bar 1 goes a fifth then a third and bar 2 a fifth then a
+// fourth, and in five buckets those are the same seven symbols. The take says
+// what scale it is in, and with that a played note becomes a degree — which is
+// a staff position, the same kind of number the page reader measures.
+describe('reading a take in degrees', () => {
+  const inScale = (tonic, degrees) => degrees.map((d, i) => ({
+    midi: 48 + tonic + Math.floor(d / 7) * 12 + SCALE[((d % 7) + 7) % 7],
+    start: i * 0.4,
+    end: i * 0.4 + 0.3,
+  }));
+
+  it('finds the scale most of the playing is in', () => {
+    // Two octaves of G major, which is 7 as a pitch class.
+    const notes = inScale(7, Array.from({ length: 30 }, (_, i) => i % 15));
+    expect(scaleOf(notes)).toBe(7);
+  });
+
+  it('refuses when the playing is spread over everything', () => {
+    const notes = Array.from({ length: 48 }, (_, i) => ({
+      midi: 48 + i, start: i * 0.3, end: i * 0.3 + 0.2,
+    }));
+    expect(scaleOf(notes)).toBe(null);
+  });
+
+  it('says nothing about a take too short to have a scale', () => {
+    expect(scaleOf([{ midi: 60, start: 0, end: 1 }])).toBe(null);
+    expect(scaleOf([])).toBe(null);
+  });
+
+  it('turns a note into the staff position a reader would write it on', () => {
+    // In C, middle C is the tonic; the notes above it climb one position each.
+    expect(diatonicOf(60, 0) + 1).toBe(diatonicOf(62, 0));      // C to D
+    expect(diatonicOf(62, 0) + 1).toBe(diatonicOf(64, 0));      // D to E
+    expect(diatonicOf(64, 0) + 1).toBe(diatonicOf(65, 0));      // E to F, a semitone
+    expect(diatonicOf(72, 0) - diatonicOf(60, 0)).toBe(7);      // an octave is seven
+    // …and a note under the tonic belongs to the octave below.
+    expect(diatonicOf(59, 0)).toBe(diatonicOf(60, 0) - 1);
+  });
+
+  // The whole reason for doing it this way: a clef shifts every position by the
+  // same amount, and the comparison is of differences, so it cannot notice.
+  it('is still unmoved by a take played in the wrong octave', () => {
+    const systems = [heads(RISING), heads(FALLING), heads(ZIGZAG)];
+    const take = [
+      ...played(RISING, 4),
+      ...played(FALLING, 4 + RISING.length * 0.5),
+      ...played(ZIGZAG, 4 + (RISING.length + FALLING.length) * 0.5),
+    ];
+    const down = take.map((n) => ({ ...n, midi: n.midi - 12 }));
+    const out = placeSystems(systems, down);
+    expect(out.map((one) => one.sure)).toEqual([true, true, true]);
   });
 });
