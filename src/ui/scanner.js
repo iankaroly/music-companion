@@ -45,7 +45,7 @@
 // same page while you reach for the corner.
 
 import {
-  findPages, coverageOf, quadsMoved, aimedPage,
+  coverageOf, quadsMoved, aimedPage,
 } from '../analysis/page-edges.js';
 import { saying } from './why.js';
 import {
@@ -88,30 +88,30 @@ const sample = document.createElement('canvas');
 sample.width = SAMPLE_W;
 sample.height = SAMPLE_H;
 
-// A second, larger look at the picture: enough to find the corners of a sheet
-// of paper, still small enough to do it several times a second. It is the same
-// search that runs when the shutter goes, AT THE SAME WIDTH — the outline used
-// to be looked for at 200 pixels across and the kept page at 220, so the two
-// could disagree about whether there was a page at all, and the promise this
-// file makes at the top of it (what gets kept is exactly what was outlined) was
-// not quite true.
-const EDGE_W = 220;
-const edges = document.createElement('canvas');
-
+// A second, larger look at the picture is what finds the corners of a sheet of
+// paper, and it is now THE SAME CALL the shutter makes — `papersIn`, straight
+// out of straighten.js, rather than a copy of half of it here. The two used to
+// be looked for at different widths, then at the same width by the same finder,
+// and now by the same function end to end. Each step of that was made after the
+// outline and the kept page disagreed about something.
 function findPaper() {
   if (!video?.videoWidth) return [];
-  const w = EDGE_W;
-  const h = Math.max(1, Math.round((video.videoHeight / video.videoWidth) * w));
-  if (edges.width !== w || edges.height !== h) { edges.width = w; edges.height = h; }
-  const ctx = edges.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(video, 0, 0, w, h);
-  const { data } = ctx.getImageData(0, 0, w, h);
-  const luma = new Float32Array(w * h);
-  for (let i = 0; i < w * h; i++) {
-    luma[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
-  }
+  // THE GUARDED OUTLINE, which is the one the shutter cuts to.
+  //
+  // This used to call `findPages` itself, on its own luma of the frame. That is
+  // the FINDER, and the scanner keeps what `papersIn` returns — the finder plus
+  // the guard that decides whether a boundary it found is really the edge of the
+  // paper. Eighteen frames out of nineteen the two agree, so nothing showed;
+  // the one where they do not is a page of a book whose gutter side falls into
+  // shadow, and there the guard is worth a tenth of the page. So the blue
+  // outline was drawn short of the page that was about to be kept, and the
+  // promise at the top of this file — that what gets kept is exactly what was
+  // outlined — was quietly false on the one frame it mattered on.
+  //
+  // "it's still trying to show, not show, that 12.5% of the page." The stored
+  // page had been fixed; the outline he was looking at had not.
   try {
-    return findPages(luma, w, h);
+    return papersIn(video, video.videoWidth, video.videoHeight);
   } catch {
     return [];
   }
@@ -321,7 +321,20 @@ function watch() {
     // Where the sheet of paper is, every tick, whether or not the shutter is
     // automatic: the outline is what tells you the scan is going to come out.
     const before = held;
-    paper = findPaper();
+    // FINDING THE PAGE AGAIN IN A PICTURE THAT HAS NOT CHANGED IS WORK FOR
+    // NOTHING, and this runs six or seven times a second on a tablet while
+    // somebody holds a phone over a music stand — which is to say, almost
+    // always, on a picture that has not changed. A page found in a frame is
+    // still in the same place in an identical frame, so the last answer stands.
+    //
+    // The gate is the PIXELS, not the corners: reusing the corners and then
+    // asking whether the corners moved would be asking a question whose answer
+    // this line has just decided. `motion` is measured independently, on a
+    // 64x48 sample of the frame, and the bar is half of what the fallback
+    // stillness test uses, so a picture that qualifies here would have counted
+    // as still either way.
+    const unchanged = before?.length && motion <= STILL_ENOUGH / 2;
+    paper = unchanged ? before : findPaper();
     held = paper.length ? paper : null;
     // How much of the frame the page BEING KEPT fills — not how much all the
     // paper in the picture fills. One press keeps one sheet, so the size of the
@@ -329,7 +342,11 @@ function watch() {
     // pressing.
     const keeping = aimed(paper);
     const fills = keeping < 0 ? 0 : coverageOf([paper[keeping]]);
-    const steady = paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH;
+    // A frame that was skipped above is steady by the measurement that let it
+    // be skipped; asking `quadsMoved` about corners that were copied from
+    // `before` would always answer zero and would be no witness at all.
+    const steady = unchanged ? true
+      : (paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH);
     const close = fills >= FILL_FRAME * (paper.length > 1 ? FILL_SPREAD : 1);
     // IS THE WHOLE SHEET IN THE PICTURE?
     //
@@ -817,9 +834,20 @@ export async function openScanner() {
   stills = null;
   try {
     const track = stream.getVideoTracks?.()[0];
-    if (track && typeof window.ImageCapture === 'function') {
-      // Ask the track for everything it has while we are at it: a track that
-      // can give 4032 and was opened at 1280 gives 1280 until it is asked.
+    // ASK THE TRACK FOR EVERYTHING IT HAS, ON EVERY BROWSER.
+    //
+    // "a track that can give 4032 and was opened at 1280 gives 1280 until it is
+    // asked" — that sentence was already here, and the asking was nested INSIDE
+    // the ImageCapture branch. So it ran on Chrome, which has a second route to
+    // a full-size picture and needs it least, and never ran on Safari, which
+    // has none and needs it most. On an iPad the frame IS the photograph, and
+    // it was being taken at whatever `getUserMedia` happened to open with.
+    //
+    // The size of the page is the lever on everything downstream: `scan:import`
+    // reads 51.4% of the noteheads on a page whose staff space is 6 pixels and
+    // 85.8% on the same page at 10. "the quality of this scan is still really
+    // bad… I don't know if it's because it's on Safari."
+    if (track) {
       const can = track.getCapabilities?.();
       if (can?.width?.max || can?.height?.max) {
         await track.applyConstraints({
@@ -827,6 +855,8 @@ export async function openScanner() {
           height: { ideal: can.height?.max ?? undefined },
         }).catch(() => {});
       }
+    }
+    if (track && typeof window.ImageCapture === 'function') {
       stills = new window.ImageCapture(track);
     }
   } catch { /* the frame will do */ }

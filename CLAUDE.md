@@ -108,6 +108,14 @@ npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          corpus spent its whole life measuring only the first,
                          and the one case where they differ is the frame he
                          photographed. SHOWN mean 91.8%.
+                         SHOWN IS ALSO THE OUTLINE ON THE GLASS NOW. The
+                         scanner's preview used to call `findPages` itself, so
+                         the blue box a player watched was the unguarded answer
+                         while the page kept was the guarded one — the promise
+                         at the top of scanner.js, that what is kept is exactly
+                         what was outlined, was false on the one frame it
+                         mattered on. `findPaper` calls `papersIn` now, so this
+                         column measures both.
                          AND THE SHOWN COLUMN IMMEDIATELY FOUND TWO FAULTS
                          NOTHING COULD SEE, both older than it and neither
                          touched yet: `book, ONE page, a SLIVER of the next one`
