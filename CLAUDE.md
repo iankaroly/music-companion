@@ -332,10 +332,14 @@ BEHAVIOUR and what it cost, with the numbers.
   place a take on a page it cannot price. Fixtures drawn as bare ellipses (which
   is what three of those four used) leave twenty-nine assertions about the
   review failing for one reason that is not the app.
-- **THERE IS NO SCORE RECOGNISER ANY MORE, and no `server/`.** A scan used to be
-  sent to an optical music recognition service which handed back MusicXML. It is
-  removed — see "Playing a scan from a bar" in the handover for what replaced it
-  and for the measurements that decided it. `omr:truth`, `omr:look`,
+- **THERE IS NO SCORE RECOGNISER ANY MORE, no `server/`, and nothing to install
+  for one.** The fly.io app it ran on is destroyed, the Audiveris build and the
+  oemer virtualenv under `server/` are deleted, and the JDK that was installed
+  to build Audiveris is uninstalled. `tesseract` STAYS — ghostscript and
+  lilypond depend on it, and ghostscript is what renders a PDF page for
+  `scan:book`. A scan used to be sent to that service, which handed back
+  MusicXML — see "Playing a scan from a bar" in the handover for what replaced
+  it and for the measurements that decided it. `omr:truth`, `omr:look`,
   `omr:payload`, `score:scan`, `score:omr` and `score:hosted` went with it, as
   did `src/analysis/omr-client.js` and the whole `server/` directory. Importing
   a MusicXML file you already have is a DIFFERENT feature and is untouched: that
