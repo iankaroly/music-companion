@@ -1589,6 +1589,43 @@
       box-shadow: 0 6px 20px rgb(var(--sh) / 0.12);
       transition: opacity 180ms, transform 220ms var(--spring);
     }
+    /* Recording, ON the music — see buildRecordButton. It is not in the bar that
+       hides itself, because a take with no visible way to stop it is worse than
+       no button. Quiet while it is only an offer; red while it is running. */
+    .reader-rec-dot {
+      position: fixed;
+      right: calc(env(safe-area-inset-right, 0px) + 0.7rem);
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 0.7rem);
+      z-index: 6;
+      width: 2.9rem;
+      height: 2.9rem;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 50%;
+      color: rgb(var(--sh) / 0.42);
+      background: rgb(var(--sf) / 0.72);
+      box-shadow: 0 1px 4px rgb(var(--sh) / 0.16);
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      cursor: pointer;
+      transition: color 140ms ease, background 140ms ease, transform 140ms ease;
+    }
+    .reader-rec-dot svg { width: 1.4rem; height: 1.4rem; }
+    .reader-rec-dot:active { transform: scale(0.94); }
+    .reader-rec-dot:disabled { opacity: 0.5; }
+    .reader-rec-dot.recording {
+      color: #fff;
+      background: #e5484d;
+      box-shadow: 0 2px 10px rgb(229 72 77 / 0.45);
+    }
+    .reader-rec-dot.recording svg { animation: reader-rec 1.6s ease-in-out infinite; }
+    @keyframes reader-rec { 50% { opacity: 0.4; } }
+    @media (prefers-reduced-motion: reduce) {
+      .reader-rec-dot.recording svg { animation: none; }
+    }
+    #reader-count.recording::after { content: ' · rec'; color: #e5484d; }
     #reader-top .reader-bar-left,
     #reader-top .reader-bar-right { display: flex; align-items: center; gap: 0.15rem; flex: none; }
     #reader-top .reader-bar-middle {

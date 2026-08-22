@@ -396,7 +396,7 @@ const TOP_REACH = 0.25;
 // every control added afterwards was a bug waiting in whichever list somebody
 // forgot. There is one list.
 const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-aids, .pick-pop, dialog';
+  + ' #reader-selection, #reader-land, #reader-aids, #reader-record, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -4122,6 +4122,10 @@ const ICONS = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   forward: '<path d="M9 5l7 7-7 7"/>',
   play: '<path d="M8 5.5l11 6.5-11 6.5z" fill="currentColor" stroke="none"/>',
+  // A filled dot and a square: what record and stop have looked like for sixty
+  // years, and the two shapes somebody finds without reading a label.
+  record: '<circle cx="12" cy="12" r="6" fill="currentColor" stroke="none"/>',
+  stopRec: '<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor" stroke="none"/>',
   pause: '<path d="M9 5.5v13M15 5.5v13"/>',
   pen: '<path d="M4 20l4-1 9.5-9.5a2 2 0 0 0-2.8-2.8L5 16.2z"/><path d="M13.5 6.5l4 4"/>',
   more: '<circle cx="5.5" cy="12" r="1.4" fill="currentColor" stroke="none"/>'
@@ -4338,6 +4342,78 @@ function buildMixer() {
 
   wrap.append(field, hue, alpha, row);
   return wrap;
+}
+
+// --- recording from the music ------------------------------------------------
+//
+// The button is one tap and the whole of the recording lives elsewhere: this
+// asks take-control to start or stop, and then draws whatever it is told. It
+// deliberately holds no state of its own — a second idea of whether a take is
+// running is a second thing to be wrong.
+
+let takeWatch = null;
+
+function showTake(state) {
+  const button = el('reader-record');
+  if (!button) return;
+  // A RUNNING TAKE IS ALWAYS SHOWN. `canRecord` decides whether to OFFER the
+  // button; it does not get to take away the only way to stop something that
+  // is already recording. This is belt and braces over the bug that made the
+  // dot vanish mid-take — the invariant is worth stating in the view too.
+  button.hidden = !state.recording && !state.canRecord;
+  button.classList.toggle('recording', !!state.recording);
+  button.disabled = !!state.busy;
+  button.replaceChildren(icon(state.recording ? 'stopRec' : 'record'));
+  const label = state.recording
+    ? `Stop — recording, ${Math.floor(state.seconds / 60)}:${String(Math.floor(state.seconds % 60)).padStart(2, '0')}`
+    : 'Record while you read';
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  // The clock goes beside the page number rather than on the button: a number
+  // that changes four times a second inside a target you are meant to press is
+  // a target that moves under your finger.
+  const count = el('reader-count');
+  if (count) count.classList.toggle('recording', !!state.recording);
+}
+
+async function toggleTakeHere() {
+  const { toggleTake } = await import('./take-control.js');
+  await toggleTake();
+}
+
+function watchTake() {
+  import('./take-control.js').then(({ onTakeChange, takeState }) => {
+    takeWatch?.();
+    takeWatch = onTakeChange(showTake);
+    showTake(takeState());
+  }).catch(() => { /* no recorder registered: the button stays hidden */ });
+}
+
+/**
+ * RECORD, ON THE MUSIC — and NOT in the bar that hides itself.
+ *
+ * Recording used to mean leaving the page: you chose the score on the Record
+ * tab and then had a tab of charts in front of you instead of the notes you
+ * were about to play. "when you select a score to record from, you can't
+ * actually read the music."
+ *
+ * It cannot live in the top bar, which is the obvious place, because the reader
+ * takes its chrome away the moment somebody starts reading — that is what the
+ * reader is FOR — and a take with no visible way to stop it, and no sign that
+ * it is running, is worse than no button. So it is a small mark on the page
+ * itself: quiet while it is only an offer, red while it is recording, and
+ * always there.
+ *
+ * It is listed in CHROME so that pressing it is not also a page turn — the
+ * right-hand side of the page is the "next page" tap, and this sits in it.
+ */
+function buildRecordButton() {
+  const button = iconButton(
+    'reader-record', 'record', 'Record while you read', toggleTakeHere,
+    { className: 'reader-rec-dot' },
+  );
+  button.hidden = true;          // until something says it can record
+  return button;
 }
 
 function buildTopBar() {
@@ -4560,7 +4636,7 @@ function build() {
   }, { className: 'reader-chip' });
   land.hidden = true;
 
-  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
+  root.append(sheet, ink, buildRecordButton(), buildTopBar(), buildInkBar(), buildBrushPanel(),
     buildSelectionBar(), menu, line, land, upNext, aidsElement());
   document.body.append(root);
 
@@ -6103,6 +6179,9 @@ export async function openReader(row, {
   // A scan opened before it has been read refreshes itself when it is — see
   // layoutArrived.
   watchLayouts();
+  // …and the record button starts saying whatever the recorder is doing, which
+  // may be "already recording" if the take was started from the other door.
+  watchTake();
   score = row;
   asPrinted = await wasReadFromPages(row).catch(() => false);
   take = analysed;
@@ -6209,6 +6288,13 @@ export function close() {
   // buttons that are about to be hidden; left open they hang over the library.
   closeAnyPop();
   stopAids();     // no click and no microphone left running behind a shut score
+  // The button stops listening, and DELIBERATELY does not stop the take: a page
+  // turn between movements closes nothing, but somebody who shuts the score to
+  // look something up has not finished playing, and a recording that ends
+  // because a screen was closed is a recording nobody asked to end. The Record
+  // tab still has it.
+  takeWatch?.();
+  takeWatch = null;
   for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
   delete document.documentElement.dataset.reading;
   unfollow?.();

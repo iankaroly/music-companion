@@ -37,6 +37,7 @@ import { readyHaptics } from './ui/haptics.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
+import { registerTakeControl, takeStateChanged } from './ui/take-control.js';
 import { instrument, segmentation } from './analysis/instruments.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
@@ -562,6 +563,9 @@ function startClock(recorder) {
       recClock.textContent += ` · ${Math.ceil(left)}s left`;
       recClock.classList.add('warn');
     }
+    // …and whoever else is showing this take — the button on the music has its
+    // own clock to keep.
+    takeStateChanged({ seconds: recorder.duration, recording: true });
   }, 250);
 }
 
@@ -643,52 +647,58 @@ async function within(work, ms) {
   }
 }
 
-startBtn.addEventListener('click', async () => {
-  if (capture && !capture.listen) {
-    // Said before, not after: this branch and the one below both begin with a
-    // tap on the same button, and "nothing happened" has to be able to tell
-    // which of them ran.
-    say('finishing that take…');
-    try {
-      finishRecording();
-    } catch (err) {
-      // A capture left in pieces — an interruption iOS never told us about, a
-      // session reclaimed while the app was away — must not turn this into a
-      // button that can only ever try to finish something that is not there.
-      // Whatever state it is in, the next press records.
-      capture = null;
-      startBtn.textContent = 'Record';
-      say(`${saying('that take could not be finished', err)} — press record to start again`, 'bad');
-    }
-    return;
+/**
+ * STOP THE TAKE — the one path, whichever door it was asked from.
+ *
+ * The Record tab has a button and so does the reader, and they must be the same
+ * take: two doors each holding their own recorder would be two recorders, and
+ * on iOS the second one takes the microphone away from the first. So both call
+ * this. See ui/take-control.js for the wire between them.
+ */
+async function stopTakeNow() {
+  if (!(capture && !capture.listen)) return false;
+  // Said before, not after: this and `startTakeNow` both begin with a tap on
+  // the same button, and "nothing happened" has to be able to tell which ran.
+  say('finishing that take…');
+  try {
+    finishRecording();
+  } catch (err) {
+    // A capture left in pieces — an interruption iOS never told us about, a
+    // session reclaimed while the app was away — must not turn this into a
+    // button that can only ever try to finish something that is not there.
+    // Whatever state it is in, the next press records.
+    capture = null;
+    startBtn.textContent = 'Record';
+    say(`${saying('that take could not be finished', err)} — press record to start again`, 'bad');
   }
+  takeStateChanged({ recording: false, busy: false, seconds: 0 });
+  return true;
+}
+
+/** …and START one, from either door. */
+async function startTakeNow({ from = 'analyze' } = {}) {
+  if (capture && !capture.listen) return false;
   // in the tap, before the count-in — see prepareCapture in capture.js
   prepareCapture();
   stopEverything();
   clearTake();
   startBtn.disabled = true;
-  // Said BEFORE the microphone is asked for, not after.
-  //
-  // Everything between the tap and the count-in used to happen in silence, and
-  // the button is disabled for the whole of it — so a microphone that never
-  // answered (which is what a dismissed permission prompt looks like inside an
-  // installed app: getUserMedia neither resolves nor rejects) left a dead
-  // button and no explanation at all. Whatever else goes wrong, the tap now
-  // always puts something on screen.
+  takeStateChanged({ busy: true });
   say('asking for the microphone…');
   try {
-    // Settle the microphone BEFORE the count-in rather than behind a button of
-    // its own. Pressing record is the moment you have said you want it, and the
-    // prompt only ever appears once — after that iOS answers it silently and
-    // this costs nothing. It must not happen mid-count-in, though: the take
-    // would start late, and a permission sheet is exactly the kind of pause
-    // that used to leave capture running on a context iOS had stopped allowing.
     await within(ensureMic(), 12000);
     rememberGrant(true);
     await countIn(Number(countInSel.value) || 0);
     // A count-in is seconds long and the app is still usable during it; walking
-    // away must not leave a recording running on a tab you can't see.
-    if (tabs.current !== 'analyze') { statusEl.textContent = ''; return; }
+    // away must not leave a recording running on a screen you can't see. The
+    // READER counts as being here — it is the music, and recording while
+    // reading it is the whole point of the button there — so the check is
+    // against the door this came in by rather than against the tab.
+    if (from === 'analyze' && tabs.current !== 'analyze') {
+      statusEl.textContent = '';
+      takeStateChanged({ recording: false, busy: false });
+      return false;
+    }
     capture = await beginCapture({ collected: [] });
     keepScreenAwake(); // ten minutes of playing is ten minutes of nobody tapping
     capture.recorder.onFull = () => {
@@ -700,12 +710,32 @@ startBtn.addEventListener('click', async () => {
     pauseBtn.classList.remove('active');
     statusEl.textContent = 'recording';
     startClock(capture.recorder);
+    takeStateChanged({ recording: true, busy: false, seconds: 0 });
+    return true;
   } catch (err) {
     rememberGrant(false);
     say(saying('mic unavailable', err), 'bad');
+    takeStateChanged({ recording: false, busy: false });
+    return false;
   } finally {
     startBtn.disabled = false;
   }
+}
+
+registerTakeControl({
+  start: () => startTakeNow({ from: 'reader' }),
+  stop: () => stopTakeNow(),
+});
+
+// THE RECORD TAB'S OWN BUTTON, which is now one of two doors into the same
+// take: see `stopTakeNow` and `startTakeNow` above, and ui/take-control.js for
+// the other door, on the music itself.
+startBtn.addEventListener('click', async () => {
+  if (capture && !capture.listen) {
+    await stopTakeNow();
+    return;
+  }
+  await startTakeNow({ from: 'analyze' });
 });
 
 // One save, two doors into it. toScore attaches the take to the piece it was

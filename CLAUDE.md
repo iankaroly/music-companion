@@ -117,6 +117,18 @@ npm run scan:guess       CAN THE APP FIND THE BARS IN THE TAKE BY ITSELF —
                          0.42s median on the Mozart) and past the last one (it
                          extrapolates and drifts, and wants a tap not a
                          cleverer match). `--drop`/`--wrong` spoil the take.
+npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the dot on the
+                         open score, pressed the way a finger presses it. One
+                         recorder behind two doors (the Record tab's button must
+                         read "Stop & review" while the reader's dot is red),
+                         the music still on screen throughout, and — the
+                         assertion that matters — the dot MEASURED IN PIXELS
+                         while the take runs and a second into it. It shipped
+                         invisible once: the state event carried no `canRecord`,
+                         so the first tick of the clock hid the only way to stop
+                         a running take, and a check that read `hidden` only at
+                         the start passed ten out of ten over it.
+                         NO MICROPHONE: getUserMedia is replaced before load.
 npm run scan:practice    THE SAME, ON A TAKE THAT PRACTISES — one system four
                          times, a run-in, the whole page, once more at the end.
                          Checks the invariant the model exists for: a bar is

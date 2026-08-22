@@ -104,7 +104,8 @@
     "scan:barsync": "node tools/bar-sync-check.mjs",
     "scan:anchors": "node tools/bar-anchors-check.mjs",
     "scan:guess": "node tools/bar-guess-check.mjs",
-    "scan:practice": "node tools/practice-runs-check.mjs"
+    "scan:practice": "node tools/practice-runs-check.mjs",
+    "reader:record": "node tools/reader-record-check.mjs"
   },
   "keywords": [],
   "author": "",
