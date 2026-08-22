@@ -4019,7 +4019,13 @@ async function changeEdges(pageNumber) {
   const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob?.size) { say('that did not come out — try the edges again'); return; }
   const name = original.name ?? `page-${pageNumber + 1}.jpg`;
-  await replaceOnePage(score.id, pageNumber, new File([blob], name, { type: 'image/jpeg' }));
+  // …and the corners go with it, so the RECOGNISER is cut to the edges just
+  // set rather than to the ones the shutter guessed. Only when the crop was
+  // taken off the photograph: `fresh` false means these corners are in the
+  // squared page's own terms and describe nothing in the photograph, so the
+  // stored quadrilateral is cleared rather than replaced with a lie.
+  await replaceOnePage(score.id, pageNumber, new File([blob], name, { type: 'image/jpeg' }),
+    fresh ? chosen.quad : null);
   say(fresh ? 'page changed' : 'page changed — cropped from the page, not the photograph');
   // Everything measured about that page is gone with it, so the reader is
   // rebuilt from the score as it now stands.
