@@ -50,6 +50,7 @@ import {
 import { saying } from './why.js';
 import {
   straightenCanvas, readableImage, sizeOfImage, papersIn, paperRunsOffTheFrame,
+  besideOf as besidesOf,
 } from './straighten.js';
 
 let root = null;
@@ -502,7 +503,7 @@ async function capture() {
         // it has already been found, and nothing downstream may move it back
         // over the neighbour. See guardQuad in straighten.js.
         page = straightenCanvas(canvas, canvas.width, canvas.height, corners,
-          { oneOfSeveral: all.length > 1 });
+          { beside: besidesOf(all, keeping) });
       } catch {
         page = canvas;    // the photograph as taken is still a page
       }

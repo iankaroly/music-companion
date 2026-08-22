@@ -109,17 +109,41 @@ function printBeyond(luma, w, h, side, at) {
   }
   if (beyond.length < 200 || inside.length < 200) return false;   // nothing out there to judge
 
-  const sorted = [...inside].sort((a, b) => a - b);
-  const paper = sorted[Math.floor(sorted.length * 0.6)];
+  // THE LEVEL IS TAKEN OUT THERE, NOT IN HERE, and that is the difference
+  // between recovering a shadowed edge and losing it.
+  //
+  // This used to measure the band beyond the boundary against the paper level
+  // INSIDE it, and ask whether most of it was still that bright. On a page
+  // lying flat that is the same question. On a page of a BOOK it is not: the
+  // outer edge of a bound page lifts off the table and falls away from the
+  // lamp, so the paper out there is thirty or forty levels darker than the
+  // paper in here — which is the very reason the bright mask stopped where it
+  // did and the outline needs rescuing at all. Measured against the inside, a
+  // shadowed margin full of music reads as "not paper", the side is left where
+  // it was, and the far quarter of the page is outside the outline:
+  // "now its only highlighting blue for about 3/4s of the page".
+  //
+  // MEASURED, `npm run scan:edges`, a drawn book page whose outer edge falls
+  // into shadow: the page kept came back 20.8% narrower than the sheet with the
+  // guard off, 12.9% narrower with the guard on and reading the inside level,
+  // and within 6% of the sheet reading the level out there.
+  const level = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.floor(sorted.length * 0.6)];
+  };
+  const paper = level(beyond.map(([, , value]) => value));
   const dark = paper - 45;
   const light = paper - 20;
 
   // IS IT STILL A PAGE OUT THERE? Beyond a boundary that has music past it,
   // most of what you see is paper — printing is thin, and a page is mostly
-  // white even where it is busy. Beyond the real edge of the sheet, hardly any
-  // of it is. This is the half of the test that tells a table from a margin,
-  // and it does the work the brightness comparisons could not.
-  const paperShare = beyond.filter(([, , level]) => level > light).length / beyond.length;
+  // white even where it is busy. Read against its own level this no longer
+  // tells a table from a margin (both are mostly themselves); what it still
+  // catches is a band that is mostly INK, which is not a margin either. The
+  // work of telling a table from a page is done entirely by the marks test
+  // below, and it is the right test for it: a table has no marks with paper
+  // around them, however bright or dark the table is.
+  const paperShare = beyond.filter(([, , value]) => value > light).length / beyond.length;
   if (paperShare < 0.5) return false;
 
   let marks = 0;
@@ -180,8 +204,14 @@ export function paperRunsOffTheFrame(quad) {
  * frame. The cost is a strip of margin, or a sliver of whatever the page is
  * lying on; the cost the other way is music that no undo brings back.
  */
-function trustEdges(luma, w, h, quad) {
-  if (paperRunsOffTheFrame(quad)) return [[0, 0], [1, 0], [1, 1], [0, 1]];
+function trustEdges(luma, w, h, quad, beside = null) {
+  // A page with another page beside it cannot be given the whole frame, and
+  // cannot have the side that FACES its neighbour moved at all — beyond that
+  // side there is print, and it is the next sheet's. Every other side is
+  // guarded exactly as before, which is the half of this that went missing:
+  // see `besideOf`.
+  const shares = beside && (beside.left || beside.right || beside.top || beside.bottom);
+  if (!shares && paperRunsOffTheFrame(quad)) return [[0, 0], [1, 0], [1, 1], [0, 1]];
 
   // The page sits inside the frame, so its edges CAN be seen — but a boundary
   // with music printed just beyond it is not one of them. This is the case the
@@ -194,11 +224,55 @@ function trustEdges(luma, w, h, quad) {
   const right = Math.max(tr[0], br[0]);
 
   const out = quad.map(([x, y]) => [x, y]);
-  if (top > 0.02 && printBeyond(luma, w, h, 'top', Math.round(top * h))) { out[0][1] = 0; out[1][1] = 0; }
-  if (bottom < 0.98 && printBeyond(luma, w, h, 'bottom', Math.round(bottom * h))) { out[2][1] = 1; out[3][1] = 1; }
-  if (left > 0.02 && printBeyond(luma, w, h, 'left', Math.round(left * w))) { out[0][0] = 0; out[3][0] = 0; }
-  if (right < 0.98 && printBeyond(luma, w, h, 'right', Math.round(right * w))) { out[1][0] = 1; out[2][0] = 1; }
+  const free = (side) => !beside?.[side];
+  if (free('top') && top > 0.02 && printBeyond(luma, w, h, 'top', Math.round(top * h))) { out[0][1] = 0; out[1][1] = 0; }
+  if (free('bottom') && bottom < 0.98 && printBeyond(luma, w, h, 'bottom', Math.round(bottom * h))) { out[2][1] = 1; out[3][1] = 1; }
+  if (free('left') && left > 0.02 && printBeyond(luma, w, h, 'left', Math.round(left * w))) { out[0][0] = 0; out[3][0] = 0; }
+  if (free('right') && right < 0.98 && printBeyond(luma, w, h, 'right', Math.round(right * w))) { out[1][0] = 1; out[2][0] = 1; }
   return out;
+}
+
+/**
+ * Which sides of one page have ANOTHER PAGE on them.
+ *
+ * THE BUG THIS FIXES, and it is one this round put in. The guard that pushes a
+ * short outline out to the edge of the paper was switched off entirely for a
+ * frame holding more than one page, because on a book it would push one page's
+ * outline over its neighbour. That is true of ONE side — the side facing the
+ * gutter — and false of the other three, and switching the whole thing off
+ * means a book page whose outer edge is in shadow keeps the short outline the
+ * mask found: "now its only highlighting blue for about 3/4s of the page, the
+ * far right isnt in the blue."
+ *
+ * So the side that faces the neighbour is left alone and the rest are guarded.
+ */
+export function besideOf(quads, at) {
+  const mine = quads?.[at];
+  if (!mine || quads.length < 2) return null;
+  const box = (q) => ({
+    left: Math.min(...q.map((p) => p[0])),
+    right: Math.max(...q.map((p) => p[0])),
+    top: Math.min(...q.map((p) => p[1])),
+    bottom: Math.max(...q.map((p) => p[1])),
+  });
+  const me = box(mine);
+  const found = { left: false, right: false, top: false, bottom: false };
+  quads.forEach((other, i) => {
+    if (i === at) return;
+    const it = box(other);
+    const overlapY = Math.min(me.bottom, it.bottom) - Math.max(me.top, it.top);
+    const overlapX = Math.min(me.right, it.right) - Math.max(me.left, it.left);
+    // Side by side: they share most of their height and sit next to each other.
+    if (overlapY > (me.bottom - me.top) * 0.4) {
+      if (it.right <= me.right && (it.left + it.right) / 2 < (me.left + me.right) / 2) found.left = true;
+      if (it.left >= me.left && (it.left + it.right) / 2 > (me.left + me.right) / 2) found.right = true;
+    }
+    if (overlapX > (me.right - me.left) * 0.4) {
+      if ((it.top + it.bottom) / 2 < (me.top + me.bottom) / 2) found.top = true;
+      if ((it.top + it.bottom) / 2 > (me.top + me.bottom) / 2) found.bottom = true;
+    }
+  });
+  return found;
 }
 
 /**
@@ -236,15 +310,19 @@ function trustEdges(luma, w, h, quad) {
  * between them is the one thing in the picture that IS known, and nothing here
  * may move it.
  */
-function guardQuad(source, width, height, quad) {
+function guardQuad(source, width, height, quad, beside = null) {
   if (!quad) return null;
   const xs = quad.map(([x]) => x);
   const share = Math.max(...xs) - Math.min(...xs);
-  if (share < 0.45) return quad;   // one of a spread, or a page with room round it
+  // A narrow outline with room round it has edges of its own to be found and
+  // needs no help. A page of a BOOK is narrow too and is not that case — it is
+  // told apart by `beside` rather than by its width, which is what the 0.45
+  // was standing in for and getting wrong in both directions.
+  if (!beside && share < 0.45) return quad;
   const w = Math.min(LOOK_AT, width);
   const h = Math.max(1, Math.round(height * (w / width)));
   try {
-    return trustEdges(lumaOf(source, w, h), w, h, quad);
+    return trustEdges(lumaOf(source, w, h), w, h, quad, beside);
   } catch {
     return quad;
   }
@@ -393,10 +471,9 @@ export function papersIn(source, width, height) {
     const found = findPages(lumaOf(source, w, h), w, h);
     // The scanner draws these on the screen and shoots with them, so they are
     // guarded here too — otherwise the outline a player is shown is not the one
-    // the page is cut to. And never when there is more than one page in the
-    // frame: see guardQuad.
-    if (found.length > 1) return found;
-    return found.map((quad) => guardQuad(source, width, height, quad));
+    // the page is cut to. On a book each page is guarded on the three sides
+    // that have no neighbour on them: see besideOf.
+    return found.map((quad, i) => guardQuad(source, width, height, quad, besideOf(found, i)));
   } catch {
     return [];
   }
@@ -640,7 +717,7 @@ function cropToBright(source, width, height) {
  *
  * So a hand crop is taken as given: cut where it says, and nowhere else.
  */
-export function straightenCanvas(source, width, height, known = null, { asGiven = false, oneOfSeveral = false } = {}) {
+export function straightenCanvas(source, width, height, known = null, { asGiven = false, beside = null } = {}) {
   // Down to a size the device can hold before a single pixel is read. The
   // quadrilateral is measured in the picture's own 0–1 terms, so nothing about
   // the search changes; only the amount of memory it takes.
@@ -658,12 +735,13 @@ export function straightenCanvas(source, width, height, known = null, { asGiven 
   // hands in the corners the player saw, and those went straight through.
   // A hand crop skips all of it — see `asGiven` above.
   const start = known ?? paperIn(src, w, h);
-  // `oneOfSeveral`: this is one page of a book and the finder has already said
-  // where the other one is, so the guard — which would push this outline back
-  // over it — is not run. See guardQuad.
-  const found = asGiven || oneOfSeveral ? start : guardQuad(src, w, h, start);
+  // `beside`: which sides of this page have another page on them. The guard
+  // runs on the others — a book page's outer edge needs it exactly as much as
+  // a loose sheet's does. See besideOf.
+  const found = asGiven ? start : guardQuad(src, w, h, start, beside);
   // Let out before it is cut: see widen. The margin is the difference between
   // an outline that is a little wrong and a page that has lost a line of music.
+  const oneOfSeveral = !!(beside && (beside.left || beside.right || beside.top || beside.bottom));
   const quad = found && !asGiven ? widen(found, 0.1, oneOfSeveral) : found;
   let page = null;
   try {

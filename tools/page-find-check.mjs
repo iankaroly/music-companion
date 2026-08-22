@@ -326,6 +326,38 @@ const report = await page.evaluate(async (want, keep) => {
       },
     },
     {
+      // THE OUTER EDGE OF A BOOK PAGE CURLS, and where it curls it goes into
+      // shadow — a dark band down the page, a few per cent wide, in the same
+      // place at the top, the middle and the bottom. That is every test a
+      // CREASE has to pass. It is not a crease: there is nothing but margin
+      // beyond it, where beyond a real gutter there is another page of music.
+      // Drawn here because the round that widened the fold search to look for
+      // gutters away from the middle made a curl on the right of a page into a
+      // fold, cut the page at it, and outlined three quarters of the sheet:
+      // "now its only highlighting blue for about 3/4s of the page, the far
+      // right isnt in the blue."
+      name: 'book page whose OUTER EDGE curls into shadow',
+      draw() {
+        const { c, g } = frame(1500, 1100, '#2b2823');
+        const beside = [[-140, 100], [300, 82], [306, 1030], [-134, 1012]];
+        const aimed = [[356, 78], [1420, 88], [1414, 1038], [350, 1028]];
+        musicOn(g, beside, '#eae5dd');
+        musicOn(g, aimed, '#efeae2');
+        g.fillStyle = 'rgb(204 197 186)';              // the gutter, faint
+        g.fillRect(306, 82, 50, 950);
+        // …and the far edge of the sheet curling away from the lamp: a soft
+        // dark band inside the paper, with the page's own margin beyond it.
+        const curl = g.createLinearGradient(1240, 0, 1420, 0);
+        curl.addColorStop(0, 'rgb(0 0 0 / 0)');
+        curl.addColorStop(0.55, 'rgb(0 0 0 / 0.34)');
+        curl.addColorStop(1, 'rgb(0 0 0 / 0.16)');
+        g.fillStyle = curl;
+        g.fillRect(1240, 80, 180, 960);
+        weather(c);
+        return { c, pages: [norm(beside, c), norm(aimed, c)], spread: true, partial: [0] };
+      },
+    },
+    {
       // A BUSY PAGE, and the one nothing here has ever drawn. Every other sheet
       // in this corpus reads 20-39% ink; a photographed cadenza of semiquaver
       // runs reads 56%, and a page engraved by LilyPond at that density reads

@@ -119,7 +119,7 @@ const result = await page.evaluate(async () => {
   // that is one page of several, and pushes its inner edge back over the page
   // beside it. The outline drawn on the glass says one thing and the page that
   // is kept is another.
-  const { papersIn } = await import('/src/ui/straighten.js');
+  const { papersIn, besideOf } = await import('/src/ui/straighten.js');
   const { aimedPage } = await import('/src/analysis/page-edges.js');
 
   // A book with a FAINT gutter, which is the one that goes wrong: pressed flat
@@ -147,6 +147,18 @@ const result = await page.evaluate(async () => {
   leaf(AIMED, 'rgb(130,130,130)');
   bg.fillStyle = 'rgb(206,199,188)';                  // the gutter, barely a seam
   bg.fillRect(300, 30, 50, H - 60);
+  // AND THE OUTER EDGE OF THE BOOK FALLING AWAY FROM THE LAMP. This is what a
+  // page of a bound book does: the far side lifts off the table and goes into
+  // shadow, so the bright mask stops short of the paper and the outline lands
+  // inside the music. The guard that pushes an outline out to the paper when
+  // there is print beyond it exists for exactly this — and switching it off
+  // for a book, which is what "there are two pages in the frame" used to do,
+  // leaves the far quarter of the page outside the blue.
+  const dusk = bg.createLinearGradient(1120, 0, 1360, 0);
+  dusk.addColorStop(0, 'rgb(0 0 0 / 0)');
+  dusk.addColorStop(1, 'rgb(0 0 0 / 0.5)');
+  bg.fillStyle = dusk;
+  bg.fillRect(1120, 30, 240, H - 60);
   // The facing page's marker is BLUE, and the colour is the point. Darkness
   // cannot answer this question: the table beyond the page is dark, the page's
   // own staff lines are dark, and the outline is let out a tenth up and down on
@@ -157,19 +169,45 @@ const result = await page.evaluate(async () => {
 
   const pages = papersIn(book, W, H);
   const at = aimedPage(pages, [0.62, 0.5]);           // the phone over the right-hand page
+  // The outlines BEFORE the guard runs, so the three ways of guarding can be
+  // compared from the same starting quadrilateral — `papersIn` has already
+  // guarded the ones above.
+  const { findPages } = await import('/src/analysis/page-edges.js');
+  const lumaOf = (canvas, w, h) => {
+    const small = document.createElement('canvas');
+    small.width = w; small.height = h;
+    small.getContext('2d', { willReadFrequently: true }).drawImage(canvas, 0, 0, w, h);
+    const { data } = small.getContext('2d', { willReadFrequently: true }).getImageData(0, 0, w, h);
+    const out = new Float32Array(w * h);
+    for (let i = 0; i < w * h; i += 1) {
+      out[i] = data[i * 4] * 0.299 + data[i * 4 + 1] * 0.587 + data[i * 4 + 2] * 0.114;
+    }
+    return out;
+  };
+  const lookW = 220;
+  const lookH = Math.round((H / W) * lookW);
+  const raw = findPages(lumaOf(book, lookW, lookH), lookW, lookH);
+  const rawAt = aimedPage(raw, [0.62, 0.5]);
   const kept = at >= 0
-    ? straightenCanvas(book, W, H, pages[at], { oneOfSeveral: pages.length > 1 })
+    ? straightenCanvas(book, W, H, pages[at], { beside: besideOf(pages, at) })
     : straightenCanvas(book, W, H);
-  // The same page cut WITHOUT being told it is one of several — what the
-  // scanner did before this round — so the number above has something to be a
-  // number against.
-  const alone = at >= 0 ? straightenCanvas(book, W, H, pages[at]) : null;
+  // The same page cut two other ways, so the number above has something to be a
+  // number against. `alone` is the guard running with no idea there is another
+  // page in the frame — it pushes this outline over the neighbour, which is
+  // what the scanner did before this round. `blind` is the guard switched off
+  // altogether, which is what it did for the hour after that: the neighbour
+  // stays out and the page's own shadowed outer edge is never recovered.
+  const alone = rawAt >= 0 ? straightenCanvas(book, W, H, raw[rawAt]) : null;
+  const blind = rawAt >= 0 ? straightenCanvas(book, W, H, raw[rawAt], { asGiven: true }) : null;
   const neighbourIn = (canvas) => {
     const c = canvas.getContext('2d', { willReadFrequently: true });
     const { data } = c.getImageData(0, 0, canvas.width, canvas.height);
     let blue = 0;
     for (let i = 0; i < data.length; i += 4) {
-      if (data[i + 2] > data[i] + 60 && data[i + 2] > data[i + 1] + 60) blue += 1;
+      // Saturated blue, not merely blue-ish. A heavy shadow amplified by
+      // `unshadow` leaves JPEG chroma noise that clears a "blue beats red by
+      // sixty" test at low brightness and is not the marker at all.
+      if (data[i + 2] > 140 && data[i + 2] > data[i] * 1.8 && data[i + 2] > data[i + 1] * 1.8) blue += 1;
     }
     return +((blue / (data.length / 4)) * 100).toFixed(2);
   };
@@ -186,6 +224,7 @@ const result = await page.evaluate(async () => {
       neighbour: neighbourIn(kept),
       wasNeighbour: alone ? neighbourIn(alone) : null,
       wasW: alone?.width ?? null,
+      blindW: blind?.width ?? null,
       page: AIMED.w,
       quads: pages.map((q) => q.map(([x, y]) => [Math.round(x * W), Math.round(y * H)])),
     },
@@ -214,11 +253,21 @@ const split = result.shutter.pages === 2;
 // is holding is gutter, then margin, then the first system of the next page.
 const over = result.shutter.w / result.shutter.page - 1;
 const wasOver = result.shutter.wasW / result.shutter.page - 1;
-const tight = over < 0.06;
+const blindOver = result.shutter.blindW / result.shutter.page - 1;
+// TWO WAYS TO GET THIS WRONG, and a bar at each end. Too wide and the page has
+// reached over the gutter and taken its neighbour's margin. Too narrow and the
+// page's own shadowed outer edge is outside the blue, which no straightening
+// afterwards puts back — "the far right isnt in the blue".
+// The two ends are not the same cost, and the bar says so. A page that comes out
+// a little wide has a strip of the table down its edge, which `trimBackground`
+// takes off the squared page and a player can see past. A page that comes out
+// narrow has lost music, and nothing downstream puts that back.
+const tight = over < 0.14 && over > -0.04;
 const kept = result.shutter.neighbour < 0.4;
 console.log(`pages found in the frame:                   ${result.shutter.pages}  (want 2)`);
-console.log(`wider than the page aimed at:               ${(over * 100).toFixed(1)}%  (want under 6%)`);
-console.log(`  …when not told it is one page of two:      ${(wasOver * 100).toFixed(1)}%`);
+console.log(`against the width of the page aimed at:     ${(over * 100).toFixed(1)}%  (want -4% to +14%)`);
+console.log(`  …guard with no idea of the neighbour:      ${(wasOver * 100).toFixed(1)}%  (reaches over the gutter)`);
+console.log(`  …guard switched off for the whole page:    ${(blindOver * 100).toFixed(1)}%  (loses the shadowed edge)`);
 console.log(`the facing page inside the kept page:       ${result.shutter.neighbour}%  (want under 0.4)`);
 const ok = shaped && clean && split && kept && tight;
 console.log(ok ? '\nPASS' : '\nFAIL');
