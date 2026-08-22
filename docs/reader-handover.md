@@ -187,10 +187,33 @@ a moment from somewhere else on the page is not.
 places almost nothing; that is the refusal working, and the unit tests hold it
 to "right or refused" rather than to how many. A go is placed from its shape
 alone, so on a page that repeats a figure some goes still land a system or two
-out — the Bach's run-in go claims systems 0 to 1.4 where it played 2 to 4. And
-nothing yet notices that two goes are the SAME passage: they are placed
-independently, which is why the count is right, but "your third go was the
-steadiest" needs them compared with each other.
+out — the Bach's run-in go claims systems 0 to 1.4 where it played 2 to 4. 
+**AND THE GOES THAT ARE THE SAME PASSAGE ARE NOW NOTICED AND COMPARED.** Placing
+them says where each was; it does not say the second and the fourth were the
+same four bars, which is the fact a practice recording is about. `samePassage`
+groups goes whose page spans overlap BOTH WAYS — a share of the shorter one
+alone makes a run-through of the whole page "the same passage" as every four-bar
+go inside it, and then "the third was the steadiest" compares four bars against
+a page. `compareGoes` measures each with `passageStats`, unchanged, so no new
+opinion about tuning or timing is invented here; only the grouping that makes
+two measurements comparable.
+
+```
+  npm run scan:practice
+    Mozart  systems 4.0-5.0  grouped 4 goes (really 4)
+            "4 goes at this — the third was the steadiest — and steadier by the
+             end"     evenness 0.71 0.87 0.96 0.81
+    Bach    systems 4.0-4.8  grouped 4 goes (really 4)
+```
+
+Neither pulls in the run-in go or the whole-page run, and the check fails if a
+group gathers more goes than really played that passage.
+
+**It will say that nothing moved.** Under three cents, or four points of
+evenness, it reports neither better nor worse. Tuning wanders that much between
+any two goes; calling it an improvement would make every session look like
+progress, and a practice tool that cannot say "not measurably" is one that
+flatters.
 
 ## THE LATEST ROUND — THE SCAN, not the reader, and the three complaints it came from
 
