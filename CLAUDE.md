@@ -125,6 +125,19 @@ npm run omr:payload      and the other half of that: it drives the app's own
                          send, catches the upload before it leaves (no service
                          is contacted) and checks that what is in it is the
                          photograph cut to ONE sheet.
+npm run omr:look         ENGRAVE WHAT THE RECOGNISER READ AND LOOK AT IT next to
+                         the page it read. Every other instrument here reduces a
+                         reading to a number, and a number can be right about
+                         the wrong thing — 34 bars and 326 notes is a healthy
+                         pair of numbers about music nobody played. It found the
+                         wrong-clef bug in one run. Needs lilypond + musicxml2ly.
+npm run scan:book        the scanner on a book built out of REAL engraved pages
+                         rather than drawn staves: a gutter, a lamp, an outer
+                         edge curling. Says how much of the aimed page came back
+                         and how much of its neighbour came with it, and leaves
+                         frame.png / kept.jpg / sent.jpg to be looked at. Needs
+                         a PDF from pages/index.json, and says so if there is
+                         none rather than pretending.
 npm run scan:import      THE SCAN, not the render: the three marked pages
                          photographed (SHRINK), straightened and de-shadowed
                          the way an import does it, read at READ_ACROSS and
@@ -321,6 +334,17 @@ BEHAVIOUR and what it cost, with the numbers.
   place a take on a page it cannot price. Fixtures drawn as bare ellipses (which
   is what three of those four used) leave twenty-nine assertions about the
   review failing for one reason that is not the app.
+- **MEASURE ON THE MACHINE, NOT ON THE LAPTOP.** The pipeline races four
+  readings of a short document with a deadline on each and keeps the best that
+  finished. The fly machine has two cores; this one has more. A photographed
+  page that reads as 297 notes here read as 14 there, and the rule that picks
+  between readings then kept an 18-note reading over a 168-note one — a bug
+  nothing local could see, and the reason a fix could be "verified" three times
+  and still not work for the person using it. Every percentage in the handover
+  taken locally is an upper bound. `scratchpad/hosted-check.mjs`-shaped scripts
+  (POST /v1/scores, poll /v1/jobs/:id — note the response is `{job:{...}}`, and
+  the four readings are in `job.log`) are how to see what the service actually
+  did.
 - **A BROWSER CHECK RUN STRAIGHT AFTER AN EDIT MEASURES A DIFFERENT MODULE FROM
   THE ONE THE APP IS USING.** `score:agree` now DETECTS this and stops with the
   instruction rather than emitting eleven phantom failures — one round baselined

@@ -240,6 +240,68 @@ finished, so a loaded machine reads a page differently from an idle one. The
 Differences under about eight points are not evidence; the ones quoted above are
 two and three times that.
 
+**AND THE ROUND AFTER THAT LOOKED AT THE PAGE INSTEAD OF AT A NUMBER, which is
+what every previous round should have done.** "everytime i aks you to fix it you
+say that you did but it never actually works."
+
+Every instrument here reduced a reading to a count, and 34 bars and 326 notes is
+a perfectly healthy pair of numbers about music nobody played. So
+`npm run omr:look` engraves the reading back to paper with LilyPond and leaves
+it beside the photograph, and `npm run scan:book` builds a camera frame out of
+REAL engraved pages — a book on a stand, a gutter, a lamp, an outer edge curling
+— rather than the drawn staves the rest of the corpus uses. Three faults came
+out of that in one evening, and the third had never been visible at all.
+
+**1. THE FIRST SYSTEM WAS READ IN THE WRONG CLEF and nothing corrected it.** On
+the Bärenreiter page of BWV 1007 the reading opened `E4 B4 G5 F5` where the
+paper says `G2 D3 B3 A3` — the same music, every note a thirteenth out, which is
+a bass clef read as a treble one. `musicxml/steady.js` exists for exactly that
+and did nothing: Audiveris found 4 barlines on a page of 20 bars, so the first
+"measure" held 192 of the 297 notes, declared TREBLE at the top and corrected
+itself to BASS half way down INSIDE the same measure. One clef read per measure
+sees only the first. A measure holding more notes than a bar could (48) is now
+cut at each clef declaration inside it; a measure the length of a bar is left
+whole, which keeps a real mid-bar clef change out of it. After: `G2 D3 B3 A3 B3
+D3 B3 D3`, twice, note for note, 150 notes moved.
+
+**2. AND THE SERVICE KEPT A READING OF TWO BARS OVER ONE THAT READ THE PAGE.**
+This is the one that made it "never actually work", and it was only ever visible
+on the DEPLOYED service — every number in this document was taken on a laptop,
+where the same page reads as 297 notes. The machine reads it like this:
+
+```
+  as it is         14 notes,  0 of 2 bars hold their beats
+  smaller (0.7x)    9 notes,  0 of 2 bars
+  bigger (1.4x)    18 notes,  1 of 2 bars    <- kept
+  as a page       168 notes,  0 of 14 bars   <- thrown away
+```
+
+One bar of two is a share of 0.5, none of fourteen is 0.0, and the reading with
+NINE TIMES the music lost to one that had failed to read the page. It is the
+same mistake the early exit made a round earlier, in the same file: a ratio
+cannot tell a good reading from an empty one. A reading with fewer than four
+bars now scores nothing on rhythm, because it has none to judge. Verified on the
+live service afterwards: `keeping the reading as a page`, 168 notes.
+
+**3. MEASURE ON THE MACHINE, NOT ON THE LAPTOP.** That is the lesson worth more
+than either fix. The four readings race with a deadline and the fly machine has
+two cores; a page that reads as 297 notes here reads as 14 there. No local
+measurement in this file describes what a player gets, and the ones that quote a
+percentage should be read as an upper bound.
+
+**WHAT IS STILL WRONG ON THAT PAGE, so it is not discovered later.** The live
+reading declares a C clef on line 2 for measures 3-6 and F4 for 7-14 — 8 bars of
+12, a share of 0.667 against a `DOMINATES` of 0.7 with one change of mind
+against a `CHANGES_OF_MIND` of 3. It falls in the gap between the two rules and
+is left alone, so those four bars are still a sixth out. Lowering either
+threshold would flatten a REAL clef change in a cello part, which is the one
+thing steady.js has always refused to risk, and the honest answer is that the
+evidence to separate them is not in the XML — it is in the photograph, which the
+app's own reader can see and the service cannot. That is where the next round
+goes. The first span's KEY is unfixed for the same reason: by measures the right
+key holds 3 of 5 spans and by NOTES the wrong one holds two thirds, so
+note-weighting would make it worse.
+
 **What this round did NOT do, said plainly.** It did not make the recognition
 right. 78.4% of the notes in order, on a clean engraving photographed under a
 lamp, is what this pipeline is worth today, and the ceiling with no camera at
