@@ -110,21 +110,6 @@ npm run scan:edges       WHAT IS CUT IS WHAT WAS ASKED FOR, on both doors: the
                          corrections `straightenCanvas` applies to a guess) and
                          the page the SHUTTER keeps off a book (no wider than
                          the page aimed at, none of the facing page in it).
-npm run omr:truth        THE ONLY THING HERE THAT KNOWS WHETHER THE NOTES ARE
-                         THE RIGHT NOTES. A page generated as MIDI numbers,
-                         engraved by LilyPond, photographed, brought in through
-                         the app's own path and sent to the pipeline; scored as
-                         the longest run of the page's own notes that comes back
-                         IN THE ORDER PRINTED. Needs `lilypond` and an OMR
-                         engine installed. Today: the engraving itself 86.6%,
-                         the photograph 85.5%, the photograph cut to the paper
-                         78.4% (what is sent), the squared-up page 57.1% (what
-                         used to be). Run it whenever anything between the
-                         shutter and the upload moves.
-npm run omr:payload      and the other half of that: it drives the app's own
-                         send, catches the upload before it leaves (no service
-                         is contacted) and checks that what is in it is the
-                         photograph cut to ONE sheet.
 npm run scan:guess       CAN THE APP FIND THE BARS IN THE TAKE BY ITSELF —
                          every system slid along a synthesised take by SHAPE,
                          no clef and no note named. Reports the two failures
@@ -144,12 +129,6 @@ npm run scan:barsync     tap a bar, hear that moment — the real layer over rea
                          page elements, pressed the way a finger presses it.
 npm run scan:anchors     and that the marks survive the app being shut, to the
                          take that made them and to no other.
-npm run omr:look         ENGRAVE WHAT THE RECOGNISER READ AND LOOK AT IT next to
-                         the page it read. Every other instrument here reduces a
-                         reading to a number, and a number can be right about
-                         the wrong thing — 34 bars and 326 notes is a healthy
-                         pair of numbers about music nobody played. It found the
-                         wrong-clef bug in one run. Needs lilypond + musicxml2ly.
 npm run scan:book        the scanner on a book built out of REAL engraved pages
                          rather than drawn staves: a gutter, a lamp, an outer
                          edge curling. Says how much of the aimed page came back
@@ -347,12 +326,21 @@ BEHAVIOUR and what it cost, with the numbers.
   `src/audio/written-pitch.js` and `src/fixtures/take-fixture.js` are all
   untracked as this is written. A stash takes the review's whole scanned half.
 - **THE SCAN FIXTURES ARE ENGRAVED, and must stay that way.** `score:review`,
-  `score:playback`, `score:scan` and `score:agree` build their pages with
+  `score:playback` and `score:agree` build their pages with
   `src/fixtures/engraved-page.js` — Bravura noteheads, a bass clef, one sharp —
   because a page with no clef prices no notehead, and the review REFUSES to
   place a take on a page it cannot price. Fixtures drawn as bare ellipses (which
   is what three of those four used) leave twenty-nine assertions about the
   review failing for one reason that is not the app.
+- **THERE IS NO SCORE RECOGNISER ANY MORE, and no `server/`.** A scan used to be
+  sent to an optical music recognition service which handed back MusicXML. It is
+  removed — see "Playing a scan from a bar" in the handover for what replaced it
+  and for the measurements that decided it. `omr:truth`, `omr:look`,
+  `omr:payload`, `score:scan`, `score:omr` and `score:hosted` went with it, as
+  did `src/analysis/omr-client.js` and the whole `server/` directory. Importing
+  a MusicXML file you already have is a DIFFERENT feature and is untouched: that
+  route is exact, and it is the one to point somebody at who wants wrong notes
+  caught.
 - **MEASURE ON THE MACHINE, NOT ON THE LAPTOP.** The pipeline races four
   readings of a short document with a deadline on each and keeps the best that
   finished. The fly machine has two cores; this one has more. A photographed

@@ -20,3 +20,6 @@ public/pdfjs/
 
 # Workflow worktrees: checkouts of this repo, not content of it.
 .claude/worktrees/
+
+# The score pipeline was removed with the recogniser it served.
+server/

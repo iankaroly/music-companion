@@ -161,58 +161,6 @@ function wireInstrument(doc) {
 }
 
 
-/**
- * Where the score recogniser is, and the password for it.
- *
- * Typed here rather than in a console, because the app that most needs this is
- * the one installed on a home screen, where there is no console and no address
- * bar. Empty means "the machine that served this app", which is right when the
- * two are the same computer and quietly finds nothing when they are not.
- *
- * Saved as you leave the field. Typing an address is also the consent for
- * sending pages to it — see maySendFreely in analysis/omr-client.js — so the
- * words under it say what it does with them.
- */
-function wireRecogniser(doc) {
-  const url = doc.querySelector('#set-omr-url');
-  const token = doc.querySelector('#set-omr-token');
-  const report = doc.querySelector('#set-omr-report');
-  if (!url || !token) return;
-
-  const client = () => import('../analysis/omr-client.js');
-
-  client().then(({ omrUrl, omrToken, omrChosen }) => {
-    url.value = omrChosen() ? omrUrl() : '';
-    token.value = omrToken();
-  }).catch(() => { /* the fields simply start empty */ });
-
-  const say = (message, tone = '') => {
-    if (!report) return;
-    report.textContent = message;
-    report.dataset.tone = tone;
-  };
-
-  const save = async () => {
-    const { setOmrUrl, setOmrToken, omrAvailable } = await client();
-    setOmrUrl(url.value.trim());
-    setOmrToken(token.value.trim());
-    if (!url.value.trim() && !token.value.trim()) {
-      say('Turns a scanned page into notes. Your pages are sent to this address when a scan comes'
-        + ' in — leave it empty and nothing is ever sent anywhere.');
-      return;
-    }
-    say('asking…');
-    const service = await omrAvailable({ timeoutMs: 6000 });
-    if (service.real) say(`ready — ${service.engines.filter((e) => e !== 'fixture' && e !== 'musicxml').join(', ')}`, 'good');
-    else if (service.ok) say('that answered, but it has no recogniser installed', 'bad');
-    else say('nothing answered there — is it running, and is the password right?', 'bad');
-  };
-
-  for (const field of [url, token]) {
-    field.addEventListener('change', () => { save().catch(() => {}); });
-    field.addEventListener('blur', () => { save().catch(() => {}); });
-  }
-}
 
 export function initSettings(doc = document) {
   const pref = initTheme(doc);
@@ -242,7 +190,6 @@ export function initSettings(doc = document) {
   });
 
   wireInstrument(doc);
-  wireRecogniser(doc);
 
   wireSegment(doc.querySelector('#tolerance-seg'), 'data-tolerance', readTolerance(), (value) => {
     write(TOLERANCE_KEY, value);

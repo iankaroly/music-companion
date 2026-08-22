@@ -13,8 +13,8 @@
 // warped into a photograph the way a phone sees a book open on a stand, and
 // runs the whole shutter path over it: find the pages, pick the one being aimed
 // at, cut it out. Then it says how much of the aimed page came back and how
-// much of its neighbour came with it — and writes `frame.png`, `kept.jpg` and
-// `sent.jpg` so the answer can be looked at rather than only counted.
+// much of its neighbour came with it — and writes `frame.png` and `kept.jpg`
+// so the answer can be looked at rather than only counted.
 //
 //   npm run dev              (on 5199)
 //   npm run scan:book -- [--pdf <file.pdf>] [--out <dir>]
@@ -85,7 +85,7 @@ await page.goto(APP, { waitUntil: 'domcontentloaded' });
 
 const report = await page.evaluate(async (sheets) => {
   const {
-    papersIn, besideOf, straightenCanvas, pageForReading, readableImage, sizeOfImage,
+    papersIn, besideOf, straightenCanvas, readableImage, sizeOfImage,
   } = await import('/src/ui/straighten.js');
   const { aimedPage } = await import('/src/analysis/page-edges.js');
 
@@ -196,10 +196,6 @@ const report = await page.evaluate(async (sheets) => {
   const kept = at >= 0
     ? straightenCanvas(shot, W, H, found[at], { beside: besideOf(found, at) })
     : straightenCanvas(shot, W, H);
-  const shotFile = new File([Uint8Array.from(atob(await asData(shot, 0.92)), (c) => c.charCodeAt(0))],
-    'shot.jpg', { type: 'image/jpeg' });
-  const sending = at >= 0 ? await pageForReading(shotFile, found[at]) : null;
-  const sentImage = sending ? await readableImage(sending) : null;
 
   // How much of the page being aimed at came back, and how much of the other
   // one came with it — measured in the FRAME's own coordinates, against the
@@ -223,14 +219,8 @@ const report = await page.evaluate(async (sheets) => {
     covered: outline ? overlap(outline, truth) / seen : 0,
     neighbour: outline ? overlap(outline, other) / area(outline) : 1,
     kept: { w: kept.width, h: kept.height },
-    sent: sentImage ? sizeOfImage(sentImage) : null,
     frame: await asData(shot, 0.86),
     keptImage: await asData(kept, 0.9),
-    sentImage: sending ? await asData(await (async () => {
-      const c = scratch(sentImage.width, sentImage.height);
-      c.getContext('2d').drawImage(sentImage, 0, 0);
-      return c;
-    })(), 0.9) : null,
   };
 }, rendered.map((f) => readFileSync(f).toString('base64')));
 
@@ -238,7 +228,6 @@ await browser.close();
 
 writeFileSync(path.join(OUT, 'frame.png'), Buffer.from(report.frame, 'base64'));
 writeFileSync(path.join(OUT, 'kept.jpg'), Buffer.from(report.keptImage, 'base64'));
-if (report.sentImage) writeFileSync(path.join(OUT, 'sent.jpg'), Buffer.from(report.sentImage, 'base64'));
 
 console.log(`pages found in the frame        ${report.pages}  (want 2)`);
 console.log(`the page aimed at               #${report.aimed}`);
@@ -246,10 +235,9 @@ console.log(`how much of it is in the blue   ${(report.covered * 100).toFixed(1)
 console.log(`how much of the outline is the`);
 console.log(`  facing page                   ${(report.neighbour * 100).toFixed(1)}%  (want under 2)`);
 console.log(`the page kept                   ${report.kept.w}x${report.kept.h}`);
-console.log(`what goes to the recogniser     ${report.sent ? `${report.sent.w}x${report.sent.h}` : 'nothing'}`);
 console.log(`\npictures in ${OUT}`);
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
 
-const ok = report.pages === 2 && report.covered > 0.92 && report.neighbour < 0.02 && !!report.sent;
+const ok = report.pages === 2 && report.covered > 0.92 && report.neighbour < 0.02;
 console.log(ok ? '\nPASS' : '\nFAIL');
 process.exit(ok ? 0 : 1);

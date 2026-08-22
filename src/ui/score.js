@@ -200,12 +200,8 @@ async function chooseScore(id) {
         el('score-pair').hidden = false;
         el('score-remove').hidden = false;
         scoreChanged?.();
-        status(`${row.name} — record and your playing is marked onto the scan, note by note.`
+        status(`${row.name} — record, then tap a bar to hear that moment of it.`
           + ' Add its MusicXML too if you want wrong notes caught.');
-        // …or have the pipeline read it, if one is running. Offered rather
-        // than assumed: the import already tried once and quietly gave up, so
-        // this is the retry, and the one place it can be asked for on purpose.
-        offerPipeline(row);
         return;
       }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
@@ -239,7 +235,7 @@ async function chooseScore(id) {
 // Exported so the import can be measured from outside — see
 // tools/scan-once-check.mjs, which is what keeps a scanned page from being
 // straightened a second time.
-export async function addPaper(files, { name: given = null, raws = null, quads = null, straightened = false } = {}) {
+export async function addPaper(files, { name: given = null, raws = null, straightened = false } = {}) {
   const list = [...files];
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
@@ -296,7 +292,6 @@ export async function addPaper(files, { name: given = null, raws = null, quads =
     // the edges later"; not latent now that they decide WHICH PICTURE the
     // recogniser is sent for which page.
     const keptRaws = [];
-    const keptQuads = [];
     // A page that cannot be decoded is refused HERE, before anything is
     // written, and named while the player still knows which one it was. It used
     // to be stored anyway and the score simply would not open afterwards.
@@ -326,14 +321,6 @@ export async function addPaper(files, { name: given = null, raws = null, quads =
           flattened.push(await straightenFile(file));
         }
         keptRaws.push((raws ?? pages)[at] ?? null);
-        // Null when the scanner had no corners for it — which is what the
-        // Straighten chip being OFF means: the shot is kept as photographed and
-        // nothing was found in it. The recogniser then looks for the paper
-        // itself, and over an open book it will find two sheets, decline to
-        // guess which one this page was, and send the whole photograph. "As
-        // taken" is what was asked for; it is written down here so it is read
-        // rather than discovered.
-        keptQuads.push(quads?.[at] ?? null);
       } catch (err) {
         refused.push(`page ${at + 1}: ${why(err, 'it could not be read')}`);
       }
@@ -347,11 +334,6 @@ export async function addPaper(files, { name: given = null, raws = null, quads =
       // files themselves, which is the same thing. One per page KEPT, in step
       // with `pages` — see keptRaws above.
       raws: keptRaws,
-      // …and where the paper was in each of them, when the scanner knew. A page
-      // out of the picker has none and the finder looks again when one is
-      // needed; a page of a BOOK cannot be found again after the fact, because
-      // the photograph has two sheets in it and nothing says which was kept.
-      quads: keptQuads,
     });
     // Some pages in, some refused: the part is still worth having, and the ones
     // that did not make it have to be said out loud rather than quietly missing.
@@ -378,151 +360,39 @@ export async function addPaper(files, { name: given = null, raws = null, quads =
   // the reading, so the reading waits on the page turns.
   measurePages(id, { note: trouble, standAside: readerStandAside })
     .catch(() => { /* an unreadable scan is still a readable score */ });
-  // And, if the score pipeline is running beside the app, READ THE NOTES —
-  // what the noteheads SAY, which is the one thing the on-device reader cannot
-  // tell you and the reason a scan has had to be paired with MusicXML by hand.
-  //
-  // Exactly the same shape as the measuring above: nothing waits for it, the
-  // part is already open and playable, and the notation appears on the card
-  // when it arrives. See analysis/omr-client.js for what leaves the device.
-  readNotesFromPipeline(id, row.name)
-    .catch(() => { /* no service, or it could not read it: the scan is unchanged */ });
+  // NOTHING IS SENT ANYWHERE. A scan used to go to a recogniser the moment it
+  // was imported, to be told what its noteheads SAY. That route is gone — see
+  // the note on `offerPipeline` below — and what replaces it needs no service
+  // and no notation: the bars on the page, and the moment each was played.
   return id;
 }
 
 
 /**
- * Show "Read the notes" when there is something behind it.
+ * THE RECOGNISER IS GONE, and this is what stood in its place.
  *
- * Hidden when no pipeline answers, because a button that always fails is worse
- * than no button — and hidden when the pipeline has no OMR engine, because that
- * one succeeds and returns a canned score.
+ * A scan used to be sent to an optical music recognition service, which handed
+ * back MusicXML, which was paired to the pages so the app could say what each
+ * notehead was called. It is removed rather than left switched off, because
+ * what it produced on a photographed page was not usable and leaving it there
+ * would offer it again.
+ *
+ * MEASURED, `npm run omr:truth` before it went: on a clean engraving handed
+ * straight to the engine, 86.6% of the notes came back in the order printed; on
+ * a photograph of ordinary music, 85.6%; on a photographed page of semiquaver
+ * runs — which is what a cadenza is — 78.4%, with a fifth of the bars holding
+ * the wrong number of beats. On a real Bärenreiter page of BWV 1007 the opening
+ * came back `E4 B4 G5 F5` where the paper says `G2 D3 B3 A3`: the same music, a
+ * thirteenth out, because one symbol at the top of the system was read as a
+ * treble clef.
+ *
+ * What replaces it asks a smaller question and answers it: a bar is a rectangle
+ * on the page, a moment is a second of the recording, and the two are joined by
+ * shape — see analysis/bar-map.js, analysis/scan-align.js and
+ * analysis/practice-runs.js. No note is ever named, so no clef can be misread,
+ * and nothing leaves the device.
  */
-function offerPipeline(row) {
-  const button = el('score-omr');
-  if (!button) return;
-  button.hidden = true;
-  import('../analysis/omr-client.js')
-    .then(({ omrAvailable }) => omrAvailable())
-    .then((service) => {
-      if (unpaired?.id !== row.id) return;   // they moved on while we asked
-      button.hidden = !service.real;
-    })
-    .catch(() => { /* no pipeline: the card is what it always was */ });
-}
 
-/**
- * Ask the score pipeline what the notes are, and pair the answer to the scan.
- *
- * Runs by itself after an import, so a player who scans a part gets its
- * notation without going anywhere or uploading anything twice. It is quiet
- * about failure on purpose: no service, a service with no engine, a page it
- * cannot read — in every one of those the app is exactly what it was before
- * this existed, a scan you can play from and mark up.
- *
- * WHAT LEAVES THE DEVICE: the pages, to the service at `omrUrl()`. That
- * defaults to 127.0.0.1, which is this machine, and this only starts by itself
- * while it stays that way. A service somewhere else is a deliberate act and
- * waits for the button.
- */
-async function readNotesFromPipeline(paperId, name, { asked = false } = {}) {
-  const {
-    omrAvailable, readWithOmr, sayQuality, omrUrl, maySendFreely,
-  } = await import('../analysis/omr-client.js');
-
-  const service = await omrAvailable();
-  if (!service.real) {
-    // A pipeline with no engine hands back a canned score that has nothing to
-    // do with the scan; better to look absent than to be wrong.
-    if (asked) {
-      status(service.ok
-        ? 'the score pipeline is running but has no OMR engine installed — see server/README.md'
-        : `no score pipeline answered at ${omrUrl()} — start it with "npm start" in server/`, 'bad');
-    }
-    return null;
-  }
-  // The machine that served the app counts as this machine — see isOwnMachine.
-  // Opening the app off the Mac on a phone and then being told the Mac is
-  // "somewhere else" was pedantry that stopped the feature working at all where
-  // it is most wanted.
-  if (!maySendFreely(service.url) && !asked) return null;
-
-  const payload = await loadScorePages(paperId);
-  if (!payload) return null;
-
-  // HOW BIG THE PAGE ACTUALLY IS, said before the reading rather than after.
-  //
-  // A recogniser needs the staff lines far enough apart to see what is between
-  // them: measured, a page engraved at the size it wants comes back at 94% of
-  // its notes, and the same music photographed small comes back at about 60%
-  // with the beams unresolved — which reads as "it missed all my quavers".
-  //
-  // The size is knowable here, before anything is sent, so it is said here. A
-  // page under about two thousand across is one to take again with the camera
-  // app, which gives four times the picture the scanner's video frame does.
-  try {
-    const first = payload.pages?.[0];
-    if (first) {
-      const shot = await createImageBitmap(first);
-      const across = Math.max(shot.width, shot.height);
-      shot.close?.();
-      if (across < SHARP_ENOUGH) {
-        status(`this page is ${across} across — small for reading notes off. `
-          + 'Photograph it (full size) from the + menu gives a sharper one.', 'bad');
-      }
-    }
-  } catch { /* a page that will not decode is the reader's problem, not this */ }
-
-  let result;
-  try {
-    result = await readWithOmr(payload, {
-      name,
-      onProgress: ({ stage, percent }) => {
-        // The player is looking at their scan while this happens; the line
-        // underneath it says what is going on rather than spinning.
-        status(`reading the notes — ${stage}${percent ? ` (${percent}%)` : ''}…`);
-      },
-    });
-  } catch (err) {
-    // SAY WHY IT FAILED.
-    //
-    // "reading the notes — failed (100%)" is the progress line stopping where
-    // it stopped: the reason was thrown, and the caller swallowed it because a
-    // scan that could not be read is still a usable scan. That is true of the
-    // SCORE and false of the sentence — the reader was left with a dead end and
-    // no idea whether to hold the camera closer or give up. The service now
-    // says which of those it is; this is the only place it can be shown.
-    // WITH THE ADDRESS IT TRIED.
-    //
-    // "could not read the notes — Load failed" is Safari saying the request
-    // never completed, and it is the same sentence whether the recogniser is
-    // down, the wifi dropped, or the app is still pointed at a tunnel that
-    // stopped existing in August. The address is the difference between those,
-    // and it costs one line to say it.
-    const said = /load failed|failed to fetch|network/i.test(err.message)
-      ? `could not reach ${omrUrl()}`
-      : err.message;
-    status(`could not read the notes — ${said}`, 'bad');
-    if (el('score-omr')) el('score-omr').hidden = false;   // so it can be tried again
-    throw err;
-  }
-
-  const file = new File([result.xml], `${String(name).replace(/[^\w. -]/g, '_')}.musicxml`, {
-    type: 'application/vnd.recordare.musicxml+xml',
-  });
-  const notationId = await importNotationFor(paperId, file);
-  if (notationId == null) return null;
-  // Remembered, because it changes how it is drawn: every staff shown rather
-  // than the first, and the page's own line breaks kept. See markAsRead.
-  await markAsRead(notationId).catch(() => { /* it is still a score */ });
-
-  // Show it: the score is reopened so the notes are there now, not next time.
-  if (el('score-pair')) el('score-pair').hidden = true;
-  if (el('score-omr')) el('score-omr').hidden = true;
-  await selectScore(paperId);
-  status(`${name} — read by ${result.omr?.engine ?? 'the pipeline'}: ${sayQuality(result)}`);
-  return notationId;
-}
 
 // Reading the geometry of a scan, in the background, and remembering it.
 //
@@ -725,7 +595,7 @@ export async function scanPages() {
     // the player saw and could move. Doing it again is the bug this flag exists
     // to prevent — see addPaper.
     return await addPaper(taken.pages, {
-      name: name || 'Scanned score', raws: taken.raws, quads: taken.quads, straightened: true,
+      name: name || 'Scanned score', raws: taken.raws, straightened: true,
     });
   } catch (err) {
     status(err.message, 'bad');
@@ -1851,21 +1721,6 @@ export function initScoreCard({
       }
     });
   }
-
-  // The other way out of the dead end: let the pipeline read it.
-  el('score-omr')?.addEventListener('click', async () => {
-    const paper = unpaired;
-    if (!paper) return;
-    const button = el('score-omr');
-    button.disabled = true;
-    try {
-      await readNotesFromPipeline(paper.id, paper.name, { asked: true });
-    } catch (err) {
-      status(saying('the pipeline could not read that scan', err), 'bad');
-    } finally {
-      button.disabled = false;
-    }
-  });
 
   // The way out of the dead end, one tap from the words that describe it.
   el('score-pair')?.addEventListener('click', () => {

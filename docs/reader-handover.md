@@ -90,6 +90,34 @@ mid-system", which was false once a C-clef and then a treble were read
 mid-system. Where the two ever disagree again, this file is the one that was
 measured.
 
+## THE RECOGNISER IS GONE — read this before looking for it
+
+Everything below that talks about MusicXML, Audiveris, `server/`, the score
+pipeline or "reading the notes" describes a feature that has been REMOVED. It is
+kept here because it is the evidence for what replaced it, and because every
+number in it was expensive to get.
+
+What it did: a scan was sent to an optical music recognition service, which
+handed back MusicXML, which was paired to the pages so the app could say what
+each notehead was called. What it was worth, measured on a page whose notes were
+known by construction: 86.6% of the notes in order on a clean engraving handed
+straight to the engine, 85.6% on a photograph of ordinary music, 78.4% on a
+photographed page of semiquaver runs — and on a real Bärenreiter page of BWV
+1007 the opening came back `E4 B4 G5 F5` where the paper says `G2 D3 B3 A3`, a
+thirteenth out, because one symbol at the top of the system was read as a treble
+clef. Two thirds of that gap was ours and was fixed; the rest is the engine's
+ceiling and is not ours to move.
+
+It is removed rather than left switched off, because leaving it there offers it
+again. Gone with it: `src/analysis/omr-client.js`, the whole `server/`
+directory, `omr:truth`, `omr:look`, `omr:payload`, `score:scan`, `score:omr`,
+`score:hosted`, the "Read the notes" button and the Score recogniser settings.
+
+IMPORTING A MUSICXML FILE YOU ALREADY HAVE IS A DIFFERENT FEATURE AND IS
+UNTOUCHED. That route is exact by construction — it is somebody's own file, not
+a reading of a photograph — and it is still the answer for a player who wants
+wrong notes caught rather than bars found.
+
 ## PLAYING A SCAN FROM A BAR — the route that reads no notes at all
 
 This is not the reader and it does not use it except for two things: where the
