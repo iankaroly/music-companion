@@ -147,9 +147,45 @@ const READING_DEADLINE = 150 * 1000;
  *
  * @returns {'first'|'second'}
  */
+// A RATIO CANNOT TELL A GOOD READING FROM AN EMPTY ONE, and this is the second
+// place in this file that had to learn it.
+//
+// The early exit learned it once: it judged a reading by the SHARE of its bars
+// that hold their beats, so a reading that found four bars and got three of them
+// tidy scored 75% and stopped three readings that were still working. The floor
+// below is the same mistake wearing the same clothes. MEASURED, on the
+// DEPLOYED service, a photographed page of BWV 1007:
+//
+//   as it is         14 notes,  0 of 2 bars hold their beats
+//   smaller (0.7x)    9 notes,  0 of 2 bars
+//   bigger (1.4x)    18 notes,  1 of 2 bars   <- kept
+//   as a page       168 notes,  0 of 14 bars  <- thrown away
+//
+// One bar of two is a share of 0.5; none of fourteen is 0.0; and 0.0 is under
+// the floor, so the reading with NINE TIMES the music lost to one that had
+// found almost nothing and got half of its two bars tidy. A reading with two
+// bars in it has not read the page — it has failed to, and it has no evidence
+// about rhythm to offer.
+//
+// So: a reading with fewer than `ENOUGH_BARS` bars in it has no evidence about
+// rhythm to offer and scores nothing. That is the whole change, and it is
+// deliberately the smaller of the two changes considered — "half again as much
+// music wins outright, whatever its rhythm" also rescues this page, and it
+// undoes the guard directly above it, which refuses a reading of 400 notes
+// whose bars collapse in favour of one of 152 whose bars hold. That guard is
+// right: noteheads that make no rhythmic sense are not more of the page. The
+// difference between that case and this one is not the CHALLENGER, it is the
+// INCUMBENT — 152 notes over 62 bars is a reading of the page, and 18 notes
+// over 2 bars is not.
+//
+// Every reading this rule was written against keeps its answer: 202/182 and
+// 246/120 are decided before the floor is reached, 151/227 and 152/215 are
+// still taken by the floor, and the 400-note noise is still refused.
+const ENOUGH_BARS = 4;      // fewer bars than this is a failure, not a reading
+
 export function chooseReading(first, second) {
   if (second.notes <= first.notes) return 'first';
-  const share = (r) => (r.bars > 0 ? r.good / r.bars : 0);
+  const share = (r) => (r.bars >= ENOUGH_BARS ? r.good / r.bars : 0);
   return share(second) >= share(first) * RHYTHM_FLOOR ? 'second' : 'first';
 }
 

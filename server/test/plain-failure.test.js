@@ -95,6 +95,25 @@ test('the reading with more of the music wins, unless its rhythm collapses', asy
   assert.equal(chooseReading(pdf300, noise), 'first', 'a reading whose bars collapse is refused');
 });
 
+// AND THE SAME THING ONE STEP FURTHER DOWN, measured on the DEPLOYED service
+// rather than a laptop: a photographed page of BWV 1007 read four ways came
+// back 14 notes / 0 of 2 bars, 9 / 0 of 2, 18 / 1 of 2, and 168 / 0 of 14 — and
+// the pipeline kept the eighteen. One bar of two is a share of 0.5, none of
+// fourteen is 0.0, and the reading with nine times the music lost to one that
+// had failed to read the page at all and got half of its two bars tidy.
+test('a reading of two bars has no rhythm to judge, however tidy those two are', async () => {
+  const { chooseReading } = await import('../src/pipeline.js');
+  const barelyRead = { notes: 18, good: 1, bars: 2 };
+  const theMusic = { notes: 168, good: 0, bars: 14 };
+  assert.equal(chooseReading(barelyRead, theMusic), 'second',
+    'nine times the music beats a tidy pair of bars');
+  // …and the guard above it still holds: a reading whose bars collapse does not
+  // beat a real one just by carrying more noteheads.
+  const real = { notes: 152, good: 19, bars: 62 };
+  const noise = { notes: 400, good: 1, bars: 40 };
+  assert.equal(chooseReading(real, noise), 'first');
+});
+
 test('a reading that found almost nothing does not win on tidiness', async () => {
   const { chooseReading } = await import('../src/pipeline.js');
   // The reading that cost a whole page: 22 notes in 4 bars, 3 of them tidy — a
