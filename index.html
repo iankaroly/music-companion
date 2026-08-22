@@ -1205,11 +1205,19 @@
     /* The marks sit in the same box as the picture and are placed in
        fractions of it, so they cannot drift from the music at any width. */
     .scan-marks { position: absolute; inset: 0; }
-    /* THE BARS, for tapping. They sit UNDER the marks — a ring is a note you
-       played and has something particular to say about it, so where a finger
-       covers both, the ring answers. Invisible until there is a reason to see
-       one: a page covered in boxes is a page you cannot read the music off. */
-    .scan-bars { position: absolute; inset: 0; z-index: 0; }
+    /* THE BARS, for tapping, and they take EVERY tap on the page now.
+       They used to sit under the marks so that a ring — a note you played,
+       with something particular to say about it — answered where a finger
+       covered both. The rings have stopped answering: on a photograph the
+       reader finds roughly one notehead where the paper has one but not
+       reliably THE one, so a note-level control on a scan is about the wrong
+       note some of the time (`score:hear`: pressing head 116 lit 121, 122 and
+       123). "I don't want to be able to press the note head. If you press the
+       note head, I just want to start at the beginning of that bar."
+       So the marks are marks, and the bar under them is the control.
+       Invisible until there is a reason to see one: a page covered in boxes is
+       a page you cannot read the music off. */
+    .scan-bars { position: absolute; inset: 0; z-index: 3; }
     .scan-bar {
       position: absolute;
       margin: 0;
@@ -1261,8 +1269,10 @@
     .scan-note[data-tone="good"] { color: var(--good); }
     .scan-note[data-tone="sharp"] { color: var(--sharp); }
     .scan-note[data-tone="flat"] { color: var(--flat); }
-    .scan-note:hover, .scan-note:focus-visible { background: rgb(var(--on-surface) / 0.08); }
-    .scan-note:active { transform: translate(-50%, -50%) scale(0.92); }
+    /* Neither a ring nor a silent marker takes a press: they are marks on the
+       music, and the bar box over them is what a finger is for. No hover, no
+       press state — an affordance for something that does not happen. */
+    .scan-note, .scan-quiet { pointer-events: none; }
     /* Lit by WEIGHT and a halo rather than by colour: the ring is already
        saying how the note landed, and a light that recoloured it would be two
        facts fighting over one mark. */
@@ -1276,8 +1286,8 @@
        faintly as a control can be and still be found: dashed, thin, and a
        fraction of the ring's opacity. The rings are the take; these are the
        page around it, and if they read as loudly as the rings the review stops
-       being about what was played. The layer sits UNDER .scan-marks so a ring
-       always wins a press where the two overlap. */
+       being about what was played. Neither layer takes a press any more; both
+       sit under the bars. */
     .scan-marks.quiet { z-index: 0; }
     .scan-quiet {
       position: absolute;
@@ -1285,26 +1295,18 @@
       width: var(--ring);
       aspect-ratio: 1.3;
       transform: translate(-50%, -50%);
-      /* The same finger-sized target as a ring: a control that cannot be hit
-         is not a control, and this one has something to say. */
-      min-width: 22px;
-      min-height: 22px;
+      /* No longer a finger-sized target: it is not a control any more, and a
+         22-pixel circle drawn round a two-millimetre notehead was a target's
+         size and not a mark's. */
       padding: 0;
       border-radius: 50%;
       border: 1px dashed currentColor;
       background: none;
-      cursor: pointer;
       color: var(--muted);
       opacity: 0.42;
       transition: opacity 120ms, background 120ms;
     }
-    .scan-quiet:hover, .scan-quiet:focus-visible { opacity: 0.9; background: rgb(var(--on-surface) / 0.06); }
-    .scan-quiet:active { transform: translate(-50%, -50%) scale(0.92); }
-    .scan-quiet.picked {
-      opacity: 1;
-      border-style: solid;
-      box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 30%, transparent);
-    }
+
     .scan-pairing { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 0.25rem; }
     /* What the note you just pressed did. Said by the ring itself rather than
        by the playhead's readout, which answers for wherever the cursor is. */

@@ -1091,9 +1091,6 @@ async function renderScanTab() {
       payload,
       layout: payload.layout,
       notes: ready.played,
-      // The same one path the engraved page uses — see the note there about
-      // running the whole selection twice.
-      onPickNote: (note) => onPick?.(note),
     });
   } catch (err) {
     view = null;

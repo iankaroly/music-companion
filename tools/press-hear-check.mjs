@@ -204,6 +204,13 @@ const aim = await page.evaluate(async () => {
   const head = Number(ring.dataset.head);
   const span = window.__view.bridge.timesOf(head)[0] ?? null;
   const box = ring.getBoundingClientRect();
+  // WHAT A FINGER OVER THAT RING ACTUALLY LANDS ON. The rings stopped being
+  // controls: "I don't want to be able to press the note head. If you press the
+  // note head, I just want to start at the beginning of that bar." So the thing
+  // this file measures is the bar under the ring, and the claim it checks is
+  // that the take goes THERE.
+  const under = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2);
+  window.__aimedBar = under;
   // Watch the light from before the press until well after it, and keep the
   // first moment the notehead that was PRESSED is the one lit.
   window.__watch = {
@@ -216,17 +223,19 @@ const aim = await page.evaluate(async () => {
     // the time a check that waits for it to finish looks at the transport, the
     // transport is correctly back at ▶. The claim is that it said ❚❚ WHILE it
     // was playing.
-    window.__watch.buttons.add(document.querySelector('#zoom-play')?.textContent ?? null);
+    // The WHOLE-TAKE transport, which is the one a bar press drives. The
+    // close-up's own play button belonged to a note panel that a scanned page
+    // no longer opens.
+    window.__watch.buttons.add(document.querySelector('#clip-play')?.textContent ?? null);
     // Counted across the WHOLE document as well as inside the stage: when this
     // assertion fails the first question is whether nothing lit at all or
     // something lit somewhere else, and a selector that can only answer one of
     // those turns a five-minute answer into an hour.
     if (document.querySelectorAll('.sounding').length) window.__watch.anywhere += 1;
-    const lit = document.querySelector('#score-stage .scan-note.sounding');
+    const lit = document.querySelector('#score-stage .scan-bar.sounding');
     if (lit) {
-      const h = Number(lit.dataset.head);
-      window.__watch.heads.add(h);
-      if (h === head && window.__watch.first === null) {
+      window.__watch.heads.add(lit.getAttribute('aria-label'));
+      if (lit === window.__aimedBar && window.__watch.first === null) {
         window.__watch.first = performance.now() - window.__watch.t0;
       }
     }
@@ -236,6 +245,8 @@ const aim = await page.evaluate(async () => {
   tick();
   return {
     head,
+    hit: under?.className ?? null,
+    aimedBar: under?.getAttribute?.('aria-label') ?? null,
     start: span?.start ?? null,
     end: span?.end ?? null,
     x: box.x + box.width / 2,
@@ -251,7 +262,6 @@ await wait(1200);
 const heard = await page.evaluate(async () => {
   const { audioState } = await import('/src/audio/context.js');
   cancelAnimationFrame(window.__watch.raf);
-  const ring = document.querySelector('#score-stage .scan-note.picked');
   return {
     after: window.__mark(),
     buffers: window.__audio.buffers.slice(-3),
@@ -263,12 +273,10 @@ const heard = await page.evaluate(async () => {
     anywhere: window.__watch.anywhere,
     state: audioState().state,
     holds: audioState().holds,
-    pickedHead: ring ? Number(ring.dataset.head) : null,
     buttons: [...window.__watch.buttons],
-    zoomButton: document.querySelector('#zoom-play')?.textContent ?? null,
-    zoomOpen: document.querySelector('#note-zoom')?.hidden === false,
-    label: document.querySelector('#zoom-label')?.textContent ?? '',
-    reading: (document.querySelector('.scan-reading')?.textContent ?? '').trim(),
+    clipButton: document.querySelector('#clip-play')?.textContent ?? null,
+    picked: document.querySelectorAll('#score-stage .picked').length,
+    readouts: document.querySelectorAll('.scan-reading').length,
   };
 });
 
@@ -277,8 +285,11 @@ const startedPlayed = {
   oscs: heard.after.oscs - aim.before.oscs,
 };
 // THE NUMBER THIS FILE IS FOR.
-check('pressing a notehead you PLAYED starts audio from the recording',
-  startedPlayed.buffers >= 1,
+check('a real mouse over a ring lands on the BAR under it',
+  String(aim.hit ?? '').includes('scan-bar'),
+  `what is under head ${aim.head}: "${aim.hit}" (${aim.aimedBar})`);
+check('pressing there starts audio from the recording',
+  startedPlayed.buffers >= 1 && startedPlayed.oscs === 0,
   `buffer sources started after press: ${startedPlayed.buffers}`
   + ` (oscillators ${startedPlayed.oscs}), head ${aim.head} sounded at`
   + ` ${aim.start === null ? 'null' : `${aim.start.toFixed(2)}s`}`);
@@ -286,17 +297,20 @@ check('…on a context that is actually running, not a source nobody can hear',
   heard.state === 'running',
   `AudioContext.state="${heard.state}", holds=[${heard.holds}],`
   + ` clip ${heard.buffers.at(-1)?.seconds?.toFixed(2) ?? '—'}s long`);
-check('…and the note that sounds is the one you pressed, not the one before it',
-  heard.firstLit !== null && heard.pickedHead === aim.head,
+check('…and the BAR that lights is the one that was pressed',
+  heard.firstLit !== null,
   heard.firstLit === null
-    ? `head ${aim.head} never lit; lit ${JSON.stringify(heard.litHeads)} over ${heard.frames}`
+    ? `${aim.aimedBar} never lit; lit ${JSON.stringify(heard.litHeads)} over ${heard.frames}`
       + ` frames (${heard.anywhere} frames with something lit anywhere on the page)`
-    : `head ${aim.head} lit ${(heard.firstLit - (heard.lastBufferAt - heard.watchT0)).toFixed(0)}ms`
-      + ` after the source started (lead-in), pressed ring head ${heard.pickedHead}`);
+    : `${aim.aimedBar} lit ${(heard.firstLit - (heard.lastBufferAt - heard.watchT0)).toFixed(0)}ms`
+      + ` after the source started (lead-in)`);
 check('…and the transport says so, which is what read "play" while nothing played',
   heard.buttons.includes('\u275a\u275a'),
-  `zoom play button while the clip ran: ${JSON.stringify(heard.buttons)},`
-  + ` back to "${heard.zoomButton}" after it, close-up "${heard.label}"`);
+  `the take's play button while the clip ran: ${JSON.stringify(heard.buttons)},`
+  + ` back to "${heard.clipButton}" after it`);
+check('…and no note was selected or explained on the way',
+  heard.picked === 0 && heard.readouts === 0,
+  `${heard.picked} picked, ${heard.readouts} note readouts on the page`);
 
 // The ring, magnified — LOOK AT IT rather than believe the class name.
 //
@@ -336,33 +350,55 @@ check('…and the transport says so, which is what read "play" while nothing pla
 
 // --- AND THE HEAD NOBODY PLAYED, which must never reach the recording --------
 //
-// Pressed WHILE the take is still playing, deliberately: that is the moment the
-// two voices could sound together, and it is also the arrangement in which a
+// It used to sound the pitch printed there, synthesised, and stop the take. It
+// does neither now: it is a mark, and the bar under it is the control. "No
+// going to individual notes, because I know that's not possible."
+//
+// Pressed WHILE the take is still playing, deliberately: that is the moment a
+// second voice could sound over the first, and the arrangement in which a
 // buffer source started for some other reason would be easiest to miscount.
 const silent = await page.evaluate(async () => {
   const { writtenPitchSounding } = await import('/src/audio/written-pitch.js');
-  const rings = [...document.querySelectorAll('#score-stage .scan-quiet')];
-  const dot = rings[0];
+  const quiet = [...document.querySelectorAll('#score-stage .scan-quiet')];
+  const dot = quiet[0];
+  dot.scrollIntoView({ block: 'center' });
+  await new Promise((r) => setTimeout(r, 250));
+  const hitAt = (node) => {
+    const b = node.getBoundingClientRect();
+    return document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  };
   // The take is STARTED FIRST and the unplayed head pressed 200 ms into it, on
-  // purpose: with the clip a second long, a check that scrolls and waits before
-  // pressing measures the silence after it and calls that a pass. Nothing is
-  // scrolled here for the same reason — .click() does not need the element on
-  // screen, and the 250 ms it would cost is a quarter of the clip.
-  document.querySelectorAll('#score-stage .scan-note')[Math.min(8, rings.length - 1)]?.click();
+  // purpose: with the clip a second long, a check that waits before pressing
+  // measures the silence after it and calls that a pass.
+  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
+  hitAt(rings[Math.min(8, rings.length - 1)])?.click();
   await new Promise((r) => setTimeout(r, 200));
   const before = window.__mark();
-  const playingBefore = document.querySelector('#zoom-play')?.textContent ?? null;
-  dot.click();
-  await new Promise((r) => setTimeout(r, 500));
+  const playingBefore = document.querySelector('#clip-play')?.textContent ?? null;
+  const under = hitAt(dot);
+  under?.click();
+  // WATCHED, not sampled once. The light follows the playhead and a bar of a
+  // real page can be well under a second long, so looking half a second later
+  // asks where the take has GOT to rather than where it started.
+  let lit = false;
+  let litLabel = null;
+  for (let i = 0; i < 14 && !lit; i += 1) {
+    await new Promise((r) => setTimeout(r, 50));
+    lit = under?.classList?.contains('sounding') ?? false;
+    litLabel = document.querySelector('#score-stage .scan-bar.sounding')?.getAttribute('aria-label') ?? litLabel;
+  }
+  await new Promise((r) => setTimeout(r, 300));
   return {
     before,
     after: window.__mark(),
+    hit: under?.className ?? null,
+    bar: under?.getAttribute?.('aria-label') ?? null,
+    litLabel,
+    lit,
     playingBefore,
-    playingAfter: document.querySelector('#zoom-play')?.textContent ?? null,
+    playingAfter: document.querySelector('#clip-play')?.textContent ?? null,
     tone: writtenPitchSounding(),
-    text: (document.querySelector('.scan-reading')?.textContent ?? '').trim(),
-    pickedRings: document.querySelectorAll('#score-stage .scan-note.picked').length,
-    pickedQuiet: document.querySelectorAll('#score-stage .scan-quiet.picked').length,
+    picked: document.querySelectorAll('#score-stage .picked').length,
     lastOsc: window.__audio.oscs.at(-1)?.hz ?? null,
   };
 });
@@ -370,46 +406,47 @@ const startedSilent = {
   buffers: silent.after.buffers - silent.before.buffers,
   oscs: silent.after.oscs - silent.before.oscs,
 };
-check('pressing a notehead NOBODY played starts NO source from the recording',
-  startedSilent.buffers === 0,
-  `buffer sources started after press: ${startedSilent.buffers} — "${silent.text}"`);
-check('…it sounds the WRITTEN pitch instead, synthesised',
-  startedSilent.oscs >= 1 && silent.tone === true,
-  `oscillators started: ${startedSilent.oscs} at ${silent.lastOsc?.toFixed(1) ?? '—'}Hz,`
-  + ` sounding=${silent.tone}`);
-check('…and it stops the take, which was PLAYING when it was pressed',
-  silent.playingBefore === '\u275a\u275a' && silent.playingAfter === '\u25b6'
-  && silent.pickedRings === 0 && silent.pickedQuiet === 1,
-  `transport "${silent.playingBefore}"→"${silent.playingAfter}",`
-  + ` ${silent.pickedRings} rings picked, ${silent.pickedQuiet} silent markers picked`);
+check('a press over a notehead NOBODY played goes to its bar as well',
+  String(silent.hit ?? '').includes('scan-bar') && startedSilent.buffers >= 1 && silent.lit,
+  `under it: "${silent.hit}" (${silent.bar}); buffer sources ${startedSilent.buffers},`
+  + ` lit ${silent.litLabel} — that bar lit: ${silent.lit}`);
+check('…and NOTHING sounds a synthesised note on a scan, ever',
+  startedSilent.oscs === 0 && silent.tone === false,
+  `oscillators started: ${startedSilent.oscs}`
+  + `${silent.lastOsc ? ` at ${silent.lastOsc.toFixed(1)}Hz` : ''}, sounding=${silent.tone}`);
+check('…and it re-seeks the take rather than stopping it',
+  silent.playingBefore === '\u275a\u275a' && silent.playingAfter === '\u275a\u275a'
+  && silent.picked === 0,
+  `transport "${silent.playingBefore}"\u2192"${silent.playingAfter}",`
+  + ` ${silent.picked} marks picked`);
 
-// --- THE LAST RING, where a take runs out of audio ---------------------------
+// --- THE LAST BAR, where a take runs out of audio ----------------------------
 //
 // The segmenter's `end` is a frame time and a Recorder's `duration` is a sample
-// count, so the final note of a take can end a hair PAST the end of the audio.
-// A guard that refused that press would look like a fix everywhere except on
-// the one note nobody presses in a check — so it is pressed here, and the
-// number asked of it is the same number: sources started.
+// count, so the last of the music can end a hair PAST the end of the audio. A
+// guard that refused that press would look like a fix everywhere except on the
+// one bar nobody presses in a check — so it is pressed here, and the number
+// asked of it is the same number: sources started.
 const last = await page.evaluate(async () => {
-  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
-  const ring = rings.at(-1);
-  const head = Number(ring.dataset.head);
-  const span = window.__view.bridge.timesOf(head)[0] ?? null;
+  const bars = [...document.querySelectorAll('#score-stage .scan-bar')];
+  const box = bars.at(-1);
+  box.scrollIntoView({ block: 'center' });
+  await new Promise((r) => setTimeout(r, 250));
   const before = window.__mark();
-  ring.click();
-  await new Promise((r) => setTimeout(r, 600));
+  box.click();
+  await new Promise((r) => setTimeout(r, 700));
   return {
-    head,
+    bar: box.getAttribute('aria-label'),
+    of: bars.length,
     before,
     after: window.__mark(),
-    end: span?.end ?? null,
     duration: window.__rec.duration,
     said: (document.querySelector('#status')?.textContent ?? '').trim(),
   };
 });
-check('and the LAST note of the take, which ends where the audio does, sounds too',
+check('and the LAST bar of the page, which ends where the audio does, plays too',
   last.after.buffers - last.before.buffers >= 1,
-  `head ${last.head} ends at ${last.end?.toFixed(3)}s of ${last.duration.toFixed(3)}s;`
+  `${last.bar} of ${last.of}, take ${last.duration.toFixed(3)}s;`
   + ` buffer sources started: ${last.after.buffers - last.before.buffers}`
   + `${last.said ? ` — said "${last.said}"` : ''}`);
 

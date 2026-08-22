@@ -267,17 +267,32 @@ npm run score:agree      the REVIEW and the full-screen READER, driven through
                          nothing compared what the two said about the same take
                          until this existed: they disagreed on every note.
                          13 checks. Run it whenever either view's pairing moves.
-npm run score:hear       the one sentence the review is for — "if you click on
-                         a note on the score you hear that note in the audio" —
-                         counted in AUDIO SOURCES STARTED, by patching
-                         AudioBufferSourceNode.prototype.start and
-                         OscillatorNode.prototype.start in the page. A notehead
-                         you played must start >= 1 buffer source; a notehead
-                         NOBODY played must start ZERO and one oscillator (the
-                         written pitch). It exists because `score:follow`
-                         asserted that a PANEL OPENED, and 35 checks passed
-                         over a press that started nothing at all.
-                         PHOTO=0/1/2 chooses the page. NO MICROPHONE.
+npm run score:hear       the one sentence the review is for, and IT CHANGED on
+                         2026-08-22. It used to be "if you click on a note on
+                         the score you hear that note in the audio". A scanned
+                         page no longer has note-level presses at all: "I don't
+                         want to be able to press the note head. If you press
+                         the note head, I just want to start at the beginning of
+                         that bar… No going to individual notes, because I know
+                         that's not possible." He is right that it is not — the
+                         reader finds roughly one notehead where the paper has
+                         one but not reliably THE one, and this check had been
+                         reporting the consequence for two rounds (pressing head
+                         116 lit heads 121, 122 and 123).
+                         So it now measures: a real mouse over a RING lands on
+                         the BAR under it; that press starts >= 1 buffer source
+                         and ZERO oscillators; the bar that lights is the one
+                         pressed (8ms after the source starts, on the Bach
+                         photograph); a notehead nobody played does the same;
+                         nothing on a scan ever sounds a synthesised note; and a
+                         second press re-seeks rather than stopping.
+                         It exists because `score:follow` asserted that a PANEL
+                         OPENED, and 35 checks passed over a press that started
+                         nothing at all. PHOTO=0/1/2 chooses the page.
+                         THE NOTATION REVIEW IS UNTOUCHED: a part imported as
+                         MusicXML knows which note is which by construction, and
+                         a note-level control there is honest.
+                         NO MICROPHONE.
 npm run scan:rhythm      which branch scan-rhythm.js takes on the three real
                          photographs — bars believed against bars refused, and
                          therefore how many notes could get a verdict against a

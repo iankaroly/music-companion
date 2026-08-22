@@ -311,6 +311,43 @@ Object.assign(out, await page.evaluate(async () => {
     });
   }
   r.ofBars = boxes.length;
+
+  // PRESSING A NOTEHEAD GOES TO ITS BAR, not to the note. "I don't want to be
+  // able to press the note head. If you press the note head, I just want to
+  // start at the beginning of that bar."
+  // A ring that is actually ON SCREEN: elementFromPoint answers about the
+  // viewport, and a long part scrolls most of its rings out of it.
+  const ring = [...document.querySelectorAll('#score-stage .scan-note')].find((one) => {
+    const b = one.getBoundingClientRect();
+    return b.width > 0 && b.top > 4 && b.bottom < window.innerHeight - 4
+      && b.left > 4 && b.right < window.innerWidth - 4;
+  });
+  if (ring) {
+    const at = ring.getBoundingClientRect();
+    const x = at.left + at.width / 2;
+    const y = at.top + at.height / 2;
+    // What is actually under a finger there — a mark, or the bar box.
+    const hit = document.elementFromPoint(x, y);
+    r.overARingYouHit = hit?.className ?? null;
+    const inBar = hit?.classList?.contains('scan-bar') ? hit : null;
+    if (inBar) {
+      window.__clips = [];
+      inBar.click();
+      await settle(700);
+      const clip = window.__clips.at(-1);
+      stop();
+      await settle(250);
+      const first = Number(boxes[0].dataset.at);
+      const end = Number(boxes.at(-1).dataset.to);
+      r.ringPress = {
+        // Where the START of that bar sits on the page…
+        barStarts: +((Number(inBar.dataset.at) - first) / (end - first)).toFixed(3),
+        inTheTake: clip === undefined ? null : +(1 - clip / whole).toFixed(3),
+      };
+    }
+  }
+  // …and no note close-up anywhere: that readout is gone from the scan.
+  r.noteReadout = document.querySelectorAll('#score-stage .scan-reading, .scan-reading').length;
   // …and it must NOT have thrown the page full screen over what it just started.
   r.readerOpenedOnTap = !document.querySelector('#reader')?.hidden;
   return r;
@@ -343,6 +380,11 @@ for (const one of out.presses ?? []) {
     + `  ${(one.onThePage * 100).toFixed(0)}% down the page`
     + `  ->  ${one.inTheTake === null ? 'nothing played' : `${(one.inTheTake * 100).toFixed(0)}% into the take`}`);
 }
+say('a finger over a ring hits', out.overARingYouHit, 'scan-bar');
+say('  …and that press goes to the bar start',
+  out.ringPress ? `${(out.ringPress.inTheTake * 100).toFixed(0)}% into the take` : '(not reached)',
+  out.ringPress ? `about ${(out.ringPress.barStarts * 100).toFixed(0)}%` : '');
+say('no note close-up on the scan', out.noteReadout, '0');
 say('and it did NOT open full screen', !out.readerOpenedOnTap, 'true');
 console.log('record status:', JSON.stringify(out.recordStatus), ' hint:', JSON.stringify(out.hintOnTheMusic));
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
@@ -362,6 +404,10 @@ const ok = out.openedFromTheShelf && out.dotThere && out.recording
   && out.presses[0].inTheTake < out.presses[1].inTheTake
   && out.presses[1].inTheTake < out.presses[2].inTheTake
   && out.presses.every((one) => Math.abs(one.inTheTake - one.onThePage) < 0.2)
+  && String(out.overARingYouHit ?? '').includes('scan-bar')
+  && out.ringPress && out.ringPress.inTheTake !== null
+  && Math.abs(out.ringPress.inTheTake - out.ringPress.barStarts) < 0.2
+  && out.noteReadout === 0
   && !out.readerOpenedOnTap;
 console.log(ok ? '\nPASS — stop playing, and the take is in front of you on the page' : '\nFAIL');
 process.exit(ok ? 0 : 1);

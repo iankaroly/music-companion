@@ -101,18 +101,27 @@ export function attachBarSync(container, {
   // point of pressing a bar is to hear it, and being told to first find the
   // moment by ear and tap it is being asked to do the job by hand.
   //
-  // ONLY WHERE NOTHING BETTER EXISTS, and that gate is the important half. A
-  // take with several goes in it is not one pass down the page — he played bar
-  // 3 six times — and spreading it evenly would answer every press with a
-  // confident wrong second. Those takes are answered from the goes instead
-  // (see `practising` below), and a page the matcher placed keeps its own
-  // anchors. See evenAnchors for why it is two anchors rather than a division
-  // by the number of boxes.
+  // AND IT PINS THE ENDS EVEN WHERE THE MATCHER DID PLACE THE PAGE, which it
+  // did not at first and which was wrong. The shape matcher places the systems
+  // it is SURE of and says nothing about the rest, so a page whose first sure
+  // system is the seventh has no anchor before it — and everything above it is
+  // extrapolated backwards off two anchors in the middle of the page. MEASURED
+  // on the Bärenreiter Bach photograph: pressing BAR 1 played from the start of
+  // the take (the map's answer was negative and got clamped to zero) while the
+  // light said BAR 16, because the two halves of the map agreed with each other
+  // and both disagreed with the page. The first note heard is the start of the
+  // music and the last is the end of it; those two facts are free, they are
+  // always true of one pass down a page, and a guess in between still
+  // overrules them.
+  //
+  // NOT ON A TAKE WITH SEVERAL GOES, and that gate stays. A practice take is
+  // not one pass down the page — he played bar 3 six times — and spreading it
+  // would answer every press with a confident wrong second. Those are answered
+  // from the goes instead (see `practising` below). See evenAnchors for why it
+  // is two anchors rather than a division by the number of boxes.
   let even = [];
   try {
-    if (notes?.length && runs.length <= 1 && mergeAnchors(given, guessed).length < 2) {
-      even = evenAnchors(bars, notes);
-    }
+    if (notes?.length && runs.length <= 1) even = evenAnchors(bars, notes);
   } catch { even = []; }
   // Everything the map runs on: the taps win, and see mergeAnchors for why they
   // win over the guesses BETWEEN them as well as the ones on top of them. The

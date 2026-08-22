@@ -30,7 +30,7 @@ import { findStart } from '../analysis/scan-align.js';
 import { alignScore } from '../analysis/align-score.js';
 import { syncTake } from '../analysis/scan-sync.js';
 import { midiToName } from '../analysis/note-utils.js';
-import { playWrittenPitch, stopWrittenPitch } from '../audio/written-pitch.js';
+import { stopWrittenPitch } from '../audio/written-pitch.js';
 
 // Every notehead the page reader found, in reading order, carrying the page it
 // is on and the staff space it was measured against.
@@ -812,15 +812,33 @@ export function writtenPitchSay(head) {
 // this whole task is about is impossible here rather than merely avoided. Any
 // future edit that wants to play "something" for one of these has to widen
 // this signature first, which is a thing a reviewer can see in a diff.
-function silentMarkers(layer, heads, indices, onSilent) {
+// A MARK, NOT A CONTROL — and that is the change, not an oversight.
+//
+// These used to be buttons: press a notehead nobody played and hear the pitch
+// printed there, synthesised. It is gone from the scanned page at his asking:
+// "I don't want to be able to press the note head. If you press the note head,
+// I just want to start at the beginning of that bar… No going to individual
+// notes, because I know that's not possible."
+//
+// He is right that it is not possible, and the two failures `score:hear` had
+// been reporting say so with numbers: pressing head 116 lit heads 121, 122 and
+// 123. A photograph gives the reader roughly one notehead where the paper has
+// one, but not reliably THE one, so a note-level control on a scan is a control
+// that is confidently about the wrong note some of the time. A bar is a
+// rectangle and is not wrong.
+//
+// The rings STAY, because as a mark they are exactly right — green where you
+// were in tune, hollow where you never played it — and none of that depends on
+// being able to press them. What went is the press.
+//
+// (The notation review is untouched: a part imported as MusicXML knows which
+// note is which by construction, and there a note-level control is honest.)
+function silentMarkers(layer, heads, indices) {
   const nodes = [];
   for (const at of indices) {
     const head = heads[at];
     if (!head) continue;
-    // A real <button>, for the same reason the played rings are: a div with a
-    // click handler cannot be reached by keyboard and is announced as nothing.
-    const dot = document.createElement('button');
-    dot.type = 'button';
+    const dot = document.createElement('span');
     dot.className = 'scan-quiet';
     dot.dataset.head = String(at);
     dot.style.left = `${(head.x * 100).toFixed(3)}%`;
@@ -829,20 +847,13 @@ function silentMarkers(layer, heads, indices, onSilent) {
     const said = writtenPitchSay(head);
     dot.title = said.midi === null ? 'not played, pitch unread' : `not played — written ${midiToName(said.midi)}`;
     dot.setAttribute('aria-label', said.label);
-    // Stopped for the same reason the rings stop it: a tap on the page opens
-    // the full-screen reader (score-tab.js), and pressing a notehead is not
-    // asking for that.
-    dot.addEventListener('click', (e) => {
-      e.stopPropagation();
-      onSilent(head, at, dot);
-    });
     layer.append(dot);
     nodes.push(dot);
   }
   return nodes;
 }
 
-export async function showScanScore(container, { payload, layout, notes, onPickNote } = {}) {
+export async function showScanScore(container, { payload, layout, notes } = {}) {
   const played = notes ?? [];
   const heads = headsOf(layout);
   const pairing = pairNotes(heads, played);
@@ -911,57 +922,13 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
   const touched = bridge.spans.map((s) => s.headIndex);
   const quietWanted = new Set(touched.length ? bridge.silent : []);
 
-  // Where a pressed note says how it went. Above the pages, so it does not
-  // move when a long part scrolls.
-  const reading = document.createElement('p');
-  reading.className = 'scan-reading';
-  // Spoken when it changes. It is the only place the answer to "what is this
-  // notehead" appears, and for a notehead nobody played it is the whole answer
-  // — a screen reader that never hears it gets a button that does nothing.
-  reading.setAttribute('aria-live', 'polite');
-  reading.hidden = true;
-  container.insertBefore(reading, wrap);
-
-  // Only one notehead on the page is the one you are looking at, and it may be
-  // a ring or it may be a silent marker — so the two sets are cleared
-  // together. Left to itself, pressing a silent notehead used to leave the
-  // previously pressed ring lit while the line above it described something
-  // else entirely.
-  const pick = (node) => {
-    for (const other of nodes) other.classList.toggle('picked', other === node);
-    for (const other of quietNodes) other.classList.toggle('picked', other === node);
-  };
-
-  const say = (mark) => {
-    const cents = Math.round(mark.note?.cents ?? 0);
-    const how = Math.abs(cents) <= 5 ? 'in tune'
-      : `${Math.abs(cents)}¢ ${cents > 0 ? 'sharp' : 'flat'}`;
-    reading.hidden = false;
-    reading.dataset.tone = intonationHue(cents);
-    reading.textContent = `Note ${mark.index + 1} — ${how}`;
-    pick(byNote.get(mark.note));
-  };
-
-  // A notehead nobody played, pressed.
-  //
-  // It takes a HEAD, never a note, and everything it can reach is either the
-  // page's own reading of that head or the writing on screen — see
-  // silentMarkers, which is starved of the recording on purpose. The tone it
-  // sounds comes out of src/audio/written-pitch.js, a module whose only import
-  // is the audio context: there is no recording in scope anywhere along this
-  // path, so "play the nearest note that was played" cannot be written here by
-  // accident.
-  const pickSilent = (head, at, dot) => {
-    const said = writtenPitchSay(head);
-    reading.hidden = false;
-    // No tone colour: those three colours mean sharp, flat and in tune, and
-    // this notehead has no reading at all. Colouring it would be the same
-    // defaulting the sound refuses.
-    reading.dataset.tone = 'none';
-    reading.textContent = said.text;
-    pick(dot);
-    if (said.midi !== null) playWrittenPitch(said.midi);
-  };
+  // WHAT WENT WITH THE PRESS. A line above the pages used to say "Note 12 — 8¢
+  // sharp" for whichever ring you had just pressed, with the ring lit, and a
+  // silent notehead sounded its written pitch into it. All of it hung off a
+  // press this page no longer takes — see silentMarkers. The intonation is
+  // still on the page, in the colour of every ring, and it is still in the
+  // sentence over the review; what is gone is a control whose subject was the
+  // wrong notehead some of the time.
 
   const across = Math.min(MAX_ACROSS, Math.max(320, container.clientWidth || 360));
   for (const page of wanted) {
@@ -997,13 +964,13 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
       quiet,
       heads,
       [...quietWanted].filter((at) => heads[at]?.page === page),
-      pickSilent,
     ));
 
     for (const mark of pairing.marks) {
       if (mark.page !== page) continue;
-      const dot = document.createElement('button');
-      dot.type = 'button';
+      // A mark and not a control — see the note on silentMarkers. Every tap on
+      // a scanned page goes to the bar under it.
+      const dot = document.createElement('span');
       dot.className = 'scan-note';
       dot.style.left = `${(mark.x * 100).toFixed(3)}%`;
       dot.style.top = `${(mark.y * 100).toFixed(3)}%`;
@@ -1014,24 +981,6 @@ export async function showScanScore(container, { payload, layout, notes, onPickN
       const cents = Math.round(mark.note?.cents ?? 0);
       dot.title = `${cents > 0 ? '+' : ''}${cents}¢`;
       dot.setAttribute('aria-label', `note ${mark.index + 1}, ${cents > 0 ? '+' : ''}${cents} cents`);
-      // Stopped here on purpose, exactly as the engraved noteheads do it: a tap
-      // on the page itself opens the full-screen reader (score-tab.js wires the
-      // whole stage), and picking a note is not asking for that. Without this,
-      // pressing a note both opened its close-up AND threw the reader over the
-      // top of it — so the one thing you could not do by tapping a note was
-      // look at the note.
-      dot.addEventListener('click', (e) => {
-        e.stopPropagation();
-        // Said plainly, right here, by the mark that was pressed.
-        //
-        // The report has a readout of its own, but it belongs to the playhead:
-        // it follows the cursor across the take and answers for wherever that
-        // is, which is the right behaviour for a graph you are dragging and the
-        // wrong answer to "what was THIS note". Pressing a ring should say what
-        // that ring is, and the only thing that certainly knows is the ring.
-        say(mark);
-        onPickNote?.(mark.note);
-      });
       box.append(dot);
       byNote.set(mark.note, dot);
       nodes.push(dot);

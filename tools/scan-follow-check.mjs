@@ -600,49 +600,76 @@ await new Promise((r) => setTimeout(r, 400));
 // pitch that sounded is the pitch the PAGE reads at that notehead, that the
 // screen says so, and that no played note was selected on the way.
 const silent = await page.evaluate(async () => {
-  const { lastWrittenPitch, writtenPitchSounding } = await import('/src/audio/written-pitch.js');
   const view = window.__view;
-  const before = {
-    zoom: document.querySelector('#zoom-label')?.textContent ?? '',
-    picked: document.querySelectorAll('#score-stage .scan-note.picked').length,
-  };
   const dot = document.querySelector('#score-stage .scan-quiet');
+  dot.scrollIntoView({ block: 'center' });
+  await new Promise((r) => setTimeout(r, 250));
   const headIndex = Number(dot.dataset.head);
-  dot.click();
-  await new Promise((r) => setTimeout(r, 300));
-  const said = document.querySelector('.scan-reading');
+  const at = dot.getBoundingClientRect();
+  // WHAT A FINGER ACTUALLY LANDS ON. `dot.click()` fires the element's own
+  // handler whether or not a finger could ever reach it, which is how this
+  // check would go on passing over a mark that has stopped taking presses.
+  const under = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+  let buffers = 0;
+  let oscs = 0;
+  const startedBuffer = AudioBufferSourceNode.prototype.start;
+  const startedOsc = OscillatorNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (...args) {
+    buffers += 1; return startedBuffer.apply(this, args);
+  };
+  OscillatorNode.prototype.start = function (...args) {
+    oscs += 1; return startedOsc.apply(this, args);
+  };
+  under?.click();
+  // SAMPLED WHILE IT IS STILL IN THAT BAR. The light follows the playhead, and
+  // a bar of a real page can be under a second long — waiting a second and then
+  // asking which bar is lit is asking where the take has got to, not where it
+  // started.
+  let litSoon = false;
+  let litLabel = null;
+  for (let i = 0; i < 16 && !litSoon; i += 1) {
+    await new Promise((r) => setTimeout(r, 60));
+    litSoon = under?.classList?.contains('sounding') ?? false;
+    litLabel = document.querySelector('#score-stage .scan-bar.sounding')?.getAttribute('aria-label') ?? litLabel;
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  AudioBufferSourceNode.prototype.start = startedBuffer;
+  OscillatorNode.prototype.start = startedOsc;
   return {
     headIndex,
-    // The page's own reading of that notehead, straight out of the layout the
-    // view was built from — not out of anything this check made up.
-    written: window.__built.written[headIndex]?.midi ?? null,
-    sounded: lastWrittenPitch()?.midi ?? null,
-    sounding: writtenPitchSounding(),
-    text: (said?.textContent ?? '').trim(),
-    tone: said?.dataset.tone ?? '',
-    pickedQuiet: document.querySelectorAll('#score-stage .scan-quiet.picked').length,
-    pickedRings: document.querySelectorAll('#score-stage .scan-note.picked').length,
-    zoomBefore: before.zoom,
-    zoomAfter: document.querySelector('#zoom-label')?.textContent ?? '',
-    ringsPickedBefore: before.picked,
-    // Nothing must be playing out of the recording.
-    clipPlaying: document.querySelector('#clip-play')?.textContent ?? '',
+    hit: under?.className ?? null,
+    buffers,
+    oscs,
+    pressedLabel: under?.getAttribute?.('aria-label') ?? null,
+    litLabel,
+    // The bar that was pressed, and whether the playhead was in it.
+    litIsTheOnePressed: litSoon,
+    picked: document.querySelectorAll('#score-stage .picked').length,
+    readouts: document.querySelectorAll('.scan-reading').length,
     silentTimes: view.bridge.timesOf(headIndex).length,
   };
 });
 check('an unplayed notehead has no time in the recording at all',
   silent.silentTimes === 0, `timesOf(head ${silent.headIndex}) → ${silent.silentTimes} spans`);
-check('pressing it sounds the WRITTEN pitch, synthesised',
-  silent.sounded !== null && silent.sounded === silent.written && silent.sounding,
-  `page reads midi ${silent.written} there, tone sounded midi ${silent.sounded}`);
-check('and says so, in words, without a sharp/flat verdict it cannot have',
-  /Not played/.test(silent.text) && /synthesised/.test(silent.text) && silent.tone === 'none',
-  `"${silent.text}" tone="${silent.tone}"`);
-check('it does NOT select a played note or open one\'s close-up',
-  silent.pickedRings === 0 && silent.zoomAfter === silent.zoomBefore,
-  `rings picked ${silent.ringsPickedBefore}→${silent.pickedRings}, zoom "${silent.zoomBefore}"→"${silent.zoomAfter}"`);
-check('and the notehead you pressed is the one that looks pressed',
-  silent.pickedQuiet === 1, `${silent.pickedQuiet} silent markers picked`);
+// THE PROMISE CHANGED HERE, and these four assertions changed with it. A
+// notehead nobody played used to be a button that sounded the pitch printed
+// there. "I don't want to be able to press the note head. If you press the
+// note head, I just want to start at the beginning of that bar… No going to
+// individual notes, because I know that's not possible." He is right about the
+// possible: on a photograph the reader finds roughly one head where the paper
+// has one but not reliably THE one, and this file's own sister check had been
+// reporting the consequence for two rounds (pressing head 116 lit 121-123).
+check('a finger over an unplayed notehead lands on its BAR',
+  String(silent.hit ?? '').includes('scan-bar'), `what is under it: "${silent.hit}"`);
+check('and that press plays the take from there',
+  silent.buffers >= 1 && silent.litIsTheOnePressed,
+  `buffer sources ${silent.buffers}; pressed ${silent.pressedLabel},`
+  + ` lit ${silent.litLabel} — the pressed bar is the lit one: ${silent.litIsTheOnePressed}`);
+check('and NOTHING sounds a single written note on a scan',
+  silent.oscs === 0, `oscillators started: ${silent.oscs}`);
+check('and no note close-up is opened or picked',
+  silent.picked === 0 && silent.readouts === 0,
+  `${silent.picked} picked, ${silent.readouts} note readouts on the page`);
 
 if (process.argv.includes('--shots')) {
   // The one that was pressed, at the same magnification as the cursor shots —
@@ -674,14 +701,15 @@ const heard = await page.evaluate(async () => {
   const ring = [...document.querySelectorAll('#score-stage .scan-note')][8];
   const head = Number(ring.dataset.head);
   const times = window.__view.bridge.timesOf(head);
-  // WHAT STARTED, not what opened. Everything below this counted the PANEL —
-  // the close-up, its label, the ring that looks pressed — and a panel is not a
-  // sound: MEASURED before this round, a press on this very ring started 0
-  // audio sources while all of those assertions passed. The prototypes are
-  // patched around the press and put back straight after, so nothing later in
-  // this file is measuring through them. `npm run score:hear` is the full
-  // instrument (both heads, the context state, the light, a real mouse); this
-  // is the one number, kept where the lie was.
+  ring.scrollIntoView({ block: 'center' });
+  await new Promise((r) => setTimeout(r, 250));
+  const at = ring.getBoundingClientRect();
+  const under = document.elementFromPoint(at.left + at.width / 2, at.top + at.height / 2);
+  // WHAT STARTED, not what opened. Everything here once counted the PANEL — the
+  // close-up, its label, the ring that looks pressed — and a panel is not a
+  // sound: MEASURED, a press on this very ring once started 0 audio sources
+  // while all of those assertions passed. The panel is gone now and the sound
+  // is the whole of what is left to measure, which is the right way round.
   let buffers = 0;
   let oscs = 0;
   const startedBuffer = AudioBufferSourceNode.prototype.start;
@@ -692,35 +720,27 @@ const heard = await page.evaluate(async () => {
   OscillatorNode.prototype.start = function (...args) {
     oscs += 1; return startedOsc.apply(this, args);
   };
-  ring.click();
-  await new Promise((r) => setTimeout(r, 600));
+  under?.click();
+  await new Promise((r) => setTimeout(r, 900));
   AudioBufferSourceNode.prototype.start = startedBuffer;
   OscillatorNode.prototype.start = startedOsc;
   return {
     head,
     buffers,
     oscs,
+    hit: under?.className ?? null,
+    litIsTheOnePressed: under?.classList?.contains('sounding') ?? false,
     times: times.length,
     start: times[0]?.start ?? null,
-    zoom: document.querySelector('#note-zoom')?.hidden === false,
-    label: document.querySelector('#zoom-label')?.textContent ?? '',
-    reading: (document.querySelector('.scan-reading')?.textContent ?? '').trim(),
-    picked: document.querySelectorAll('#score-stage .scan-note.picked').length,
-    quietPicked: document.querySelectorAll('#score-stage .scan-quiet.picked').length,
   };
 });
-// The label is asserted as well as the panel, and that is not decoration: the
-// fixture's notes carry `name: null` on purpose (the segmenter fills that field
-// in, a fixture does not), and until report.js fell back to the MIDI number's
-// own name this panel read "null up close" over a graph that was drawing B3
-// perfectly well.
-check('a notehead that WAS played still opens its own close-up, named',
-  heard.zoom && heard.picked === 1 && heard.quietPicked === 0 && /^[A-G][#b]?-?\d/.test(heard.label),
-  `head ${heard.head} sounded at ${heard.start}s, zoom "${heard.label}"`);
+check('a finger over a ring lands on its BAR too',
+  String(heard.hit ?? '').includes('scan-bar'), `what is under it: "${heard.hit}"`);
 check('and pressing it STARTS AUDIO from the recording, which is the whole point',
-  heard.buffers >= 1,
-  `buffer sources started after the press: ${heard.buffers}`
-  + ` (oscillators ${heard.oscs}) — see npm run score:hear`);
+  heard.buffers >= 1 && heard.oscs === 0 && heard.litIsTheOnePressed,
+  `head ${heard.head} sounded at ${heard.start}s; buffer sources ${heard.buffers}`
+  + ` (oscillators ${heard.oscs}), the pressed bar is the lit one:`
+  + ` ${heard.litIsTheOnePressed} — see npm run score:hear`);
 
 // The picture for that one, because "the close-up opened" is a claim about two
 // things in two different places — the ring that looks pressed, and the panel
@@ -728,7 +748,8 @@ check('and pressing it STARTS AUDIO from the recording, which is the whole point
 // is scrolled to first so both are in one viewport.
 {
   const where = await page.evaluate(async () => {
-    const ring = document.querySelector('#score-stage .scan-note.picked');
+    const ring = document.querySelector('#score-stage .scan-bar.sounding')
+      ?? document.querySelector('#score-stage .scan-note');
     ring?.scrollIntoView({ block: 'center' });
     await new Promise((r) => setTimeout(r, 400));
     const b = ring?.getBoundingClientRect();
@@ -744,57 +765,69 @@ check('and pressing it STARTS AUDIO from the recording, which is the whole point
         width: pad * 2 + where.w, height: pad * 2 + where.h,
       },
     });
-    // The close-up itself, which is a panel further down the review — a
-    // viewport shot centred on the ring shows the ring and not the thing the
-    // press opened, which is half the claim.
+    // …and the graph under it, which is the other half of where a press goes.
     await page.evaluate(async () => {
-      document.querySelector('#note-zoom')?.scrollIntoView({ block: 'center' });
+      document.querySelector('#chart-scroll')?.scrollIntoView({ block: 'center' });
       await new Promise((r) => setTimeout(r, 400));
     });
-    await page.screenshot({ path: join(OUT, 'walk-3-closeup.png'), fullPage: false });
-    console.log(`      shot: the notehead you played, pressed \u2192 ${join(OUT, 'walk-3-pressed.png')}`);
-    console.log(`      shot: and the close-up it opened \u2192 ${join(OUT, 'walk-3-closeup.png')}`);
+    await page.screenshot({ path: join(OUT, 'walk-3-graph.png'), fullPage: false });
+    console.log(`      shot: the bar a press went to \u2192 ${join(OUT, 'walk-3-pressed.png')}`);
+    console.log(`      shot: and the graph under it \u2192 ${join(OUT, 'walk-3-graph.png')}`);
   }
 }
 
-// --- the two voices, which must never sound together -------------------------
+// --- ONE VOICE ON A SCAN, because there is no longer a second one ------------
 //
-// The take's own playback is a recording of an instrument; the written-pitch
-// tone is a synthesised reference for a notehead nobody played. The whole point
-// of the tone is that it cannot be mistaken for the recording, and the one
-// arrangement in which it can is both of them at once. Checked in BOTH
-// directions because they are wired from opposite ends: playClip stops the tone
-// directly, and the tone announces itself so playClip's owner can stop the
-// take (written-pitch.js must not be able to reach a Recorder).
+// This used to check the two voices against each other: the take's own playback
+// and the synthesised tone a notehead nobody played would sound, which must
+// never be heard together. The tone has no way to start from a scanned page any
+// more — the marks are marks and the bar is the control — so what is checked is
+// that it really has none, from either direction, and that a press while the
+// take is running re-seeks it rather than leaving two clips running.
 const voices = await page.evaluate(async () => {
   const { writtenPitchSounding, stopWrittenPitch } = await import('/src/audio/written-pitch.js');
   const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   const dots = [...document.querySelectorAll('#score-stage .scan-quiet')];
   const play = document.querySelector('#clip-play');
   stopWrittenPitch();
-  // Tone first, then press play.
-  dots[0].click();
-  await wait(120);
-  const toneAlone = writtenPitchSounding();
+  const hitAt = (node) => {
+    const b = node.getBoundingClientRect();
+    return document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  };
+  dots[0].scrollIntoView({ block: 'center' });
+  await wait(250);
+  hitAt(dots[0])?.click();
+  await wait(300);
+  const afterFirst = { tone: writtenPitchSounding(), transport: play.textContent };
+  // Press another bar while that one is running: one take, one clip.
+  let starts = 0;
+  const started = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function (...args) {
+    starts += 1; return started.apply(this, args);
+  };
+  dots[1].scrollIntoView({ block: 'center' });
+  await wait(250);
+  hitAt(dots[1])?.click();
+  await wait(500);
+  AudioBufferSourceNode.prototype.start = started;
+  const out = {
+    ...afterFirst,
+    toneAfterSecond: writtenPitchSounding(),
+    startsOnSecondPress: starts,
+    transportAfter: play.textContent,
+  };
   play.click();
-  await wait(350);
-  const out = { toneAlone, toneUnderPlayback: writtenPitchSounding(), playing: play.textContent };
-  // …and the other way about: press an unplayed notehead while the take runs.
-  dots[1].click();
-  await wait(350);
-  out.toneAfter = writtenPitchSounding();
-  out.playingAfter = play.textContent;
-  play.click();
-  await wait(150);
-  stopWrittenPitch();
+  await wait(200);
   return out;
 });
-check('pressing play silences a written-pitch tone rather than playing over it',
-  voices.toneAlone === true && voices.toneUnderPlayback === false,
-  `tone ${voices.toneAlone} → ${voices.toneUnderPlayback}, transport "${voices.playing}"`);
-check('and pressing an unplayed notehead while the take runs stops the take',
-  voices.toneAfter === true && voices.playingAfter === '\u25b6',
-  `tone ${voices.toneAfter}, transport "${voices.playingAfter}"`);
+check('a press on a scanned page never sounds a synthesised tone',
+  voices.tone === false && voices.toneAfterSecond === false,
+  `written-pitch sounding after the first press: ${voices.tone},`
+  + ` after the second: ${voices.toneAfterSecond}`);
+check('and pressing a second bar re-seeks the take rather than stacking on it',
+  voices.startsOnSecondPress === 1 && voices.transportAfter === '\u275a\u275a',
+  `sources started on the second press: ${voices.startsOnSecondPress},`
+  + ` transport "${voices.transportAfter}"`);
 
 // --- the failures it has to survive ------------------------------------------
 //
@@ -895,9 +928,8 @@ check('a page whose clef could not be read marks NOTHING and says why',
 //
 // The report can be closed under the page — every other scanned check has one
 // open, so the state where the recording is simply not there has never been
-// pressed. A ring then has nothing to select and must do nothing; a notehead
-// nobody played still has its written pitch, because that answer never came out
-// of the recording in the first place.
+// pressed. With no take, a press has no moment to go to and must do nothing at
+// all rather than throw: the bars are still drawn, and they are still bars.
 const noTake = await page.evaluate(async () => {
   const { scoreId, notes } = window.__built;
   const { selectScore, annotateTake, renderScoreTab, clearSheet } = await import('/src/ui/score.js');
@@ -909,23 +941,25 @@ const noTake = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 500));
   hideReport(document);
   const before = document.querySelectorAll('#score-stage .scan-note').length;
-  document.querySelector('#score-stage .scan-note')?.click();
-  await new Promise((r) => setTimeout(r, 200));
-  const quiet = document.querySelector('#score-stage .scan-quiet');
-  quiet?.click();
-  await new Promise((r) => setTimeout(r, 200));
-  const { lastWrittenPitch } = await import('/src/audio/written-pitch.js');
+  let threw = null;
+  try {
+    const box = document.querySelector('#score-stage .scan-bar');
+    box?.scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 250));
+    box?.click();
+    await new Promise((r) => setTimeout(r, 300));
+  } catch (err) { threw = String(err); }
   return {
     rings: before,
+    bars: document.querySelectorAll('#score-stage .scan-bar').length,
     quiet: document.querySelectorAll('#score-stage .scan-quiet').length,
-    reading: (document.querySelector('.scan-reading')?.textContent ?? '').trim(),
-    sounded: lastWrittenPitch()?.midi ?? null,
-    written: window.__built.written[Number(quiet?.dataset.head)]?.midi ?? null,
+    threw,
   };
 });
 check('with the report closed under it, the page still answers and does not throw',
-  noTake.rings > 0 && /Not played/.test(noTake.reading) && noTake.sounded === noTake.written,
-  `${noTake.rings} rings, "${noTake.reading}", sounded ${noTake.sounded} where the page reads ${noTake.written}`);
+  noTake.rings > 0 && noTake.bars > 0 && noTake.threw === null,
+  `${noTake.rings} rings, ${noTake.bars} bars, ${noTake.quiet} silent markers,`
+  + ` threw: ${noTake.threw ?? 'nothing'}`);
 
 // --- and with NO TAKE AT ALL --------------------------------------------------
 //
