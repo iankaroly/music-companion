@@ -321,20 +321,7 @@ function watch() {
     // Where the sheet of paper is, every tick, whether or not the shutter is
     // automatic: the outline is what tells you the scan is going to come out.
     const before = held;
-    // FINDING THE PAGE AGAIN IN A PICTURE THAT HAS NOT CHANGED IS WORK FOR
-    // NOTHING, and this runs six or seven times a second on a tablet while
-    // somebody holds a phone over a music stand — which is to say, almost
-    // always, on a picture that has not changed. A page found in a frame is
-    // still in the same place in an identical frame, so the last answer stands.
-    //
-    // The gate is the PIXELS, not the corners: reusing the corners and then
-    // asking whether the corners moved would be asking a question whose answer
-    // this line has just decided. `motion` is measured independently, on a
-    // 64x48 sample of the frame, and the bar is half of what the fallback
-    // stillness test uses, so a picture that qualifies here would have counted
-    // as still either way.
-    const unchanged = before?.length && motion <= STILL_ENOUGH / 2;
-    paper = unchanged ? before : findPaper();
+    paper = findPaper();
     held = paper.length ? paper : null;
     // How much of the frame the page BEING KEPT fills — not how much all the
     // paper in the picture fills. One press keeps one sheet, so the size of the
@@ -342,11 +329,19 @@ function watch() {
     // pressing.
     const keeping = aimed(paper);
     const fills = keeping < 0 ? 0 : coverageOf([paper[keeping]]);
-    // A frame that was skipped above is steady by the measurement that let it
-    // be skipped; asking `quadsMoved` about corners that were copied from
-    // `before` would always answer zero and would be no witness at all.
-    const steady = unchanged ? true
-      : (paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH);
+    // THE CORNERS ARE THE WITNESS, and they are re-measured every tick.
+    //
+    // TRIED AND TAKEN OUT: skipping the page-find when a 64x48 sample of the
+    // frame said the picture had not changed, to save work on a tablet. It
+    // saves the work and it breaks this line. `steady` is what feeds `stillFor`
+    // and therefore the automatic shutter, and with the find skipped there are
+    // no fresh corners to ask — so the shutter could arm on a picture nobody
+    // had looked at this tick. A mean-luma difference over 3072 pixels of a
+    // 1920-wide frame is not obviously a tighter test than 0.03 of a frame
+    // width of corner drift, and the version that shipped for ten minutes
+    // asserted it was without measuring it. A photograph of a thumb costs more
+    // than the find does.
+    const steady = paper.length ? quadsMoved(paper, before) <= HELD_STILL : motion <= STILL_ENOUGH;
     const close = fills >= FILL_FRAME * (paper.length > 1 ? FILL_SPREAD : 1);
     // IS THE WHOLE SHEET IN THE PICTURE?
     //
@@ -529,7 +524,9 @@ async function capture() {
     // up is worth having and is never worth losing the shot over.
     const file = (await pageFrom(page, name))
       ?? (page === canvas ? null : await pageFrom(canvas, name));
-    if (file) taken.push({ file, corners });
+    // The size of the page as it will be STORED, taken from the canvas it came
+    // off rather than re-decoded: it is what the reader will get.
+    if (file) taken.push({ file, corners, w: page.width, h: page.height });
   }
   if (!taken.length) {
     say('that shot did not come out — take it again');
@@ -549,10 +546,24 @@ async function capture() {
   }
   refreshCount();
   waiting = 0;
+  // HOW BIG THE PAGE CAME OUT, said out loud.
+  //
+  // The size of the page is the lever on everything the reader does with it —
+  // `scan:import` reads 51.4% of the noteheads on a page whose staff space is 6
+  // pixels and 85.8% on the same page at 10 — and until now it was the one
+  // thing about a scan nobody could see. "the quality of this scan is still
+  // really bad" is a sentence about a number that was never shown, and a scan
+  // that came out small is a scan worth taking again from closer, which is
+  // advice nobody can act on if the app keeps the number to itself.
+  //
+  // It doubles as the plainest possible answer to "which version am I running":
+  // a build without this line does not print it.
+  const kept = taken[0];
+  const size = kept?.w ? ` · ${kept.w}×${kept.h}` : '';
   // A book still has its facing page in the frame, so the next thing to do is
   // point at it rather than to turn over.
-  if (all.length > 1) say('got it — now point at the other page');
-  else say(auto ? 'got it — turn the page' : 'got it');
+  if (all.length > 1) say(`got it${size} — now point at the other page`);
+  else say(`got it${size}${auto ? ' — turn the page' : ''}`);
   root.classList.add('flash');
   setTimeout(() => root.classList.remove('flash'), 180);
 }
