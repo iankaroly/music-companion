@@ -487,7 +487,8 @@ export async function setPageCrop(scoreId, index, crop) {
       if (Array.isArray(row.layout) && row.layout[index]) {
         row.layout = row.layout.map((page, i) => (i === index ? null : page));
       }
-      store.put(row);
+      // …and the marks that were made against that layout: see withoutAnchors.
+      store.put(withoutAnchors(row));
     };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
@@ -523,7 +524,7 @@ export async function replaceOnePage(scoreId, index, file, quad = undefined) {
   const db = await openDB();
   const row = await loadScorePages(scoreId);
   if (!row?.pages?.[index]) return null;
-  const next = { ...row };
+  const next = withoutAnchors({ ...row });
   next.pages = row.pages.map((page, i) => (i === index ? file : page));
   if (row.layout) next.layout = row.layout.map((page, i) => (i === index ? null : page));
   if (row.crops) next.crops = row.crops.map((crop, i) => (i === index ? null : crop));
@@ -550,12 +551,55 @@ export async function replaceOnePage(scoreId, index, file, quad = undefined) {
   return index;
 }
 
+/**
+ * The bars somebody marked while listening, kept with the score.
+ *
+ * KEYED BY THE RECORDING, and that is the whole of why this is not one list.
+ * An anchor says "this place on the page was heard at this second", and the
+ * second belongs to ONE take: play yesterday's run of the same page and every
+ * number is wrong. So each take gets its own marks, and a take reopened from
+ * the history finds the ones that were made against it.
+ *
+ * A take that has not been saved has no recording to key on. Those marks stay
+ * in memory for as long as the review is open and are not written here — there
+ * is nothing to write them under, and inventing a key would hand them to
+ * whichever take came next.
+ */
+export async function saveBarAnchors(scoreId, recordingId, anchors) {
+  if (recordingId == null) return null;
+  const db = await openDB();
+  const row = await loadScorePages(scoreId);
+  if (!row) return null;
+  const kept = { ...(row.barAnchors ?? {}) };
+  if (anchors?.length) kept[recordingId] = anchors.map(({ at, time }) => ({ at, time }));
+  else delete kept[recordingId];
+  await new Promise((resolve, reject) => {
+    const tx = db.transaction(['score-pages'], 'readwrite');
+    tx.objectStore('score-pages').put({ ...row, barAnchors: kept });
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+  return kept[recordingId] ?? null;
+}
+
+// An anchor is a position in a LAYOUT — a system and how far across it — so a
+// layout that is thrown away takes its anchors with it. Cropping a page or
+// replacing it moves every system after it, and marks left behind would point
+// at music that is no longer there. Better to ask for two taps again than to
+// play the wrong bar with confidence.
+const withoutAnchors = (row) => {
+  if (!row?.barAnchors) return row;
+  const { barAnchors, ...rest } = row;
+  return rest;
+};
+
 export async function savePageOrder(scoreId, order) {
   const db = await openDB();
   const row = await loadScorePages(scoreId);
   if (!row) return null;
   const kept = order.map((i) => i);
-  const next = { ...row };
+  const next = withoutAnchors({ ...row });
   if (row.pages) next.pages = kept.map((i) => row.pages[i]).filter(Boolean);
   if (row.layout) next.layout = kept.map((i) => row.layout[i] ?? null);
   // The photograph behind each page and the corners in it move WITH the page.

@@ -1237,11 +1237,24 @@ async function renderScanTab() {
   try {
     const { attachBarSync } = await import('./bar-sync.js');
     const { playTakeFrom, followPlayback } = await import('./report.js');
+    const { saveBarAnchors } = await import('../store/db.js');
+    // The marks belong to THIS take: an anchor is a second of one recording,
+    // and yesterday's run of the same page was a different set of seconds. A
+    // take that has not been saved yet has no id to keep them under, so its
+    // marks live for as long as the review does — see saveBarAnchors.
+    const takeId = pending?.recordingId ?? null;
+    const scoreId = current.id;
     barSync?.destroy();
     barSync = attachBarSync(page, {
       layout: payload.layout,
       play: playTakeFrom,
       follow: followPlayback,
+      anchors: takeId != null ? (payload.barAnchors?.[takeId] ?? []) : [],
+      onAnchors: (marks) => {
+        saveBarAnchors(scoreId, takeId, marks).catch(() => {
+          /* the marks still work for this sitting */
+        });
+      },
     });
   } catch {
     barSync = null;   // a page without bars is still a page to look at
