@@ -105,7 +105,8 @@
     "omr:truth": "node tools/omr-truth-check.mjs",
     "omr:payload": "node tools/omr-payload-check.mjs",
     "omr:look": "node tools/omr-look-check.mjs",
-    "scan:book": "node tools/scan-book-check.mjs"
+    "scan:book": "node tools/scan-book-check.mjs",
+    "scan:barmap": "node tools/bar-map-check.mjs"
   },
   "keywords": [],
   "author": "",
