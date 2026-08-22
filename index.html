@@ -1205,6 +1205,36 @@
     /* The marks sit in the same box as the picture and are placed in
        fractions of it, so they cannot drift from the music at any width. */
     .scan-marks { position: absolute; inset: 0; }
+    /* THE BARS, for tapping. They sit UNDER the marks — a ring is a note you
+       played and has something particular to say about it, so where a finger
+       covers both, the ring answers. Invisible until there is a reason to see
+       one: a page covered in boxes is a page you cannot read the music off. */
+    .scan-bars { position: absolute; inset: 0; z-index: 0; }
+    .scan-bar {
+      position: absolute;
+      margin: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 4px;
+      background: transparent;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 120ms ease, box-shadow 120ms ease;
+    }
+    .scan-bar:hover { background: rgb(var(--primary-rgb) / 0.08); }
+    /* While you are marking, every bar shows itself: the whole gesture is
+       choosing one, and a target you cannot see is not one. */
+    .scan-bar.marking { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.4); }
+    .scan-bar.marked { box-shadow: inset 0 0 0 2px rgb(var(--primary-rgb) / 0.85); }
+    .scan-bar.sounding { background: rgb(var(--primary-rgb) / 0.18); }
+    .bar-sync-say { margin: 0; flex: 1 1 14ch; font-size: 0.85rem; opacity: 0.75; }
+    .bar-sync-bar {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin: 0 0 10px;
+    }
     .scan-note {
       position: absolute;
       --ring: 3%;

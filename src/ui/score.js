@@ -45,6 +45,10 @@ const SHARP_ENOUGH = 2000;
 let current = null;   // { id, name, xml, partIndex, notes }
 let view = null;      // the rendered page, if one is up
 let onPick = null;    // hand a chosen note back to the report
+// The bar layer over the scanned pages: tap one, hear that moment. Kept so it
+// can be taken down when the pages under it are replaced.
+let barSync = null;
+
 // The take on screen, so choosing a score AFTER recording still marks it up.
 // Recording first and picking the piece second is the order this actually gets
 // used in.
@@ -1222,6 +1226,27 @@ async function renderScanTab() {
     status(saying('could not lay the pages out', err), 'bad');
     return null;
   }
+  // THE BARS GO ON WHATEVER THE PAIRING DID.
+  //
+  // Tapping a bar to hear that moment does not go through a single notehead —
+  // see bar-sync.js — so it is attached before the refusal below is even
+  // considered. It is most useful precisely where the review has nothing to
+  // show: a page whose clef was misread places no marks at all, and a
+  // photograph with a sentence under it is the whole of what a player used to
+  // get from one.
+  try {
+    const { attachBarSync } = await import('./bar-sync.js');
+    const { playTakeFrom, followPlayback } = await import('./report.js');
+    barSync?.destroy();
+    barSync = attachBarSync(page, {
+      layout: payload.layout,
+      play: playTakeFrom,
+      follow: followPlayback,
+    });
+  } catch {
+    barSync = null;   // a page without bars is still a page to look at
+  }
+
   if (!view || !view.pairing?.marks?.length) {
     // Two different silences, and they want two different sentences: no
     // noteheads at all means the pages have not been read, and noteheads but

@@ -52,6 +52,31 @@ function tellFollowers(note, time) {
   }
 }
 
+/**
+ * Play the take from a moment of it, from outside this file.
+ *
+ * The whole-take player, its playhead, its latency correction and its followers
+ * already exist here and are wound round module state; a second player for the
+ * scanned page would be a second one of all of that, drifting from this one.
+ * So the page asks, and this answers — the one direction that keeps the
+ * arrangement the way `followPlayback` set it up: the score knows about
+ * playback, playback knows nothing about the score.
+ *
+ * @param {number} seconds into the recording
+ * @returns {boolean} false when there is no take loaded to play
+ */
+export function playTakeFrom(seconds) {
+  if (!full?.root || !full.recording) return false;
+  const at = Math.max(0, Math.min(Number(seconds) || 0, full.recording.duration));
+  playFullFrom(full.root, at);
+  return true;
+}
+
+/** How long the take on screen is, or null when there is not one. */
+export function takeLength() {
+  return full?.recording?.duration ?? null;
+}
+
 // Set by whichever note is open, read by the playback tick: what to write in
 // the note box for a given moment of the recording.
 let cursorReadout = null;
@@ -624,6 +649,10 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   // whole-take play/pause above the overview chart
   full = recording ? {
     recording,
+    // The element the player was rendered into, so something outside this file
+    // can ask for a moment of the take without having to know where the report
+    // lives. See playTakeFrom.
+    root,
     spans: allNotes.map((n) => ({
       tile: tileByNote.get(n)?.tile, start: n.start, end: n.end, note: n,
     })),
