@@ -251,3 +251,144 @@ export function sayRuns(runs) {
   return `${goes} at this music`
     + (lost ? `, and ${lost} stretch${lost === 1 ? '' : 'es'} that could not be placed` : '');
 }
+
+// --- THE SAME PASSAGE, PLAYED AGAIN --------------------------------------------
+//
+// Placing the goes says WHERE each one was. It does not say that the second go
+// and the fourth were the same four bars, which is the fact a practice
+// recording is actually about: you did not play seven unrelated things, you had
+// four goes at one passage and two at another.
+//
+// Nothing here compares the AUDIO of two goes. They are the same passage
+// because they cover the same music on the page, which the placing already
+// knows, and that is a far cheaper and far more reliable answer than matching
+// two recordings to each other. What is compared is what the app already
+// measures about any stretch of playing — see passageStats — so this adds no
+// new opinion about tuning or timing, only the grouping that makes two
+// measurements comparable.
+
+import { passageStats } from './passages.js';
+
+// How much two goes have to overlap, BOTH WAYS, to be the same passage.
+//
+// Both ways is the whole rule. A share of the shorter one alone would make a
+// run-through of the whole page "the same passage" as every four-bar go inside
+// it, and then "you played this five times, and the third was the steadiest"
+// would be comparing four bars against a whole page. Requiring it of both spans
+// means one containing the other is not the same thing as one repeating it.
+const SAME_PASSAGE = 0.6;
+
+/** Goes that cover the same music, grouped, in the order they were first played. */
+export function samePassage(runs, { overlap = SAME_PASSAGE } = {}) {
+  const goes = (runs ?? []).filter((one) => one.sure && one.until > one.at)
+    .sort((a, b) => a.from - b.from);
+  const groups = [];
+  for (const go of goes) {
+    const mine = groups.find((group) => {
+      const over = Math.min(group.until, go.until) - Math.max(group.at, go.at);
+      if (over <= 0) return false;
+      return over >= (group.until - group.at) * overlap
+        && over >= (go.until - go.at) * overlap;
+    });
+    if (mine) {
+      mine.goes.push(go);
+      // The group's span is the music they agree on, not the union: a group
+      // that grew by a system every time would end up matching the page.
+      mine.at = Math.max(mine.at, go.at);
+      mine.until = Math.min(mine.until, go.until);
+    } else {
+      groups.push({ at: go.at, until: go.until, goes: [go] });
+    }
+  }
+  return groups.filter((group) => group.goes.length > 1);
+}
+
+/**
+ * How the goes at one passage compared with each other.
+ *
+ * Each go is measured over its own stretch of the recording with the app's own
+ * measures, and then they are put beside each other. A go too short to have a
+ * pulse says so rather than being given one — `passageStats` already refuses,
+ * and the refusal is carried rather than papered over.
+ */
+export function compareGoes(group, played) {
+  const goes = (group?.goes ?? []).map((run, i) => ({
+    run,
+    number: i + 1,
+    stats: passageStats(played, run.from, run.to),
+  })).filter((one) => one.stats);
+  if (goes.length < 2) return null;
+
+  const bestBy = (key, better) => {
+    const have = goes.filter((one) => Number.isFinite(one.stats[key]));
+    if (have.length < 2) return null;
+    return have.reduce((best, one) => (better(one.stats[key], best.stats[key]) ? one : best));
+  };
+  const steadiest = bestBy('evenness', (a, b) => a > b);
+  const cleanest = bestBy('absMeanCents', (a, b) => a < b);
+
+  // Better than when you started, or not — asked of the first and last go
+  // rather than fitted through all of them, because four goes is not a trend
+  // and pretending otherwise is how a bad session gets called an improving one.
+  const first = goes[0].stats;
+  const last = goes.at(-1).stats;
+  const moved = (key) => (Number.isFinite(first[key]) && Number.isFinite(last[key])
+    ? last[key] - first[key] : null);
+
+  return {
+    goes,
+    steadiest,
+    cleanest,
+    centsMoved: moved('absMeanCents'),
+    evennessMoved: moved('evenness'),
+    bpmMoved: moved('bpm'),
+  };
+}
+
+const ordinal = (n) => {
+  const names = ['first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth'];
+  return names[n - 1] ?? `${n}th`;
+};
+
+/**
+ * The comparison in a sentence, and a short one.
+ *
+ * What it will NOT say is that you improved because the last go was a little
+ * better than the first. Tuning wanders by a couple of cents between any two
+ * goes and a pulse by a percent or two, so a difference under what the
+ * measurement can resolve is reported as neither better nor worse — the honest
+ * answer to "did that help" is often "not measurably", and a practice tool that
+ * cannot say that is one that flatters.
+ */
+const CENTS_WORTH_SAYING = 3;      // how much closer to the middle counts as closer
+const EVEN_WORTH_SAYING = 0.04;    // …and how much steadier counts as steadier
+
+export function sayComparison(comparison) {
+  if (!comparison) return '';
+  const { goes, steadiest, cleanest, centsMoved, evennessMoved } = comparison;
+  const parts = [`${goes.length} goes at this`];
+  if (steadiest && goes.length > 1) {
+    const spread = Math.max(...goes.map((one) => one.stats.evenness ?? 0))
+      - Math.min(...goes.map((one) => one.stats.evenness ?? 0));
+    if (spread >= EVEN_WORTH_SAYING) parts.push(`the ${ordinal(steadiest.number)} was the steadiest`);
+  }
+  if (cleanest && Number.isFinite(cleanest.stats.absMeanCents)) {
+    const spread = Math.max(...goes.map((one) => one.stats.absMeanCents ?? 0))
+      - Math.min(...goes.map((one) => one.stats.absMeanCents ?? 0));
+    if (spread >= CENTS_WORTH_SAYING) {
+      parts.push(`the ${ordinal(cleanest.number)} was the nearest in tune`);
+    }
+  }
+  const better = [];
+  if (Number.isFinite(centsMoved) && Math.abs(centsMoved) >= CENTS_WORTH_SAYING) {
+    better.push(centsMoved < 0
+      ? `${Math.round(-centsMoved)}¢ nearer the middle by the end`
+      : `${Math.round(centsMoved)}¢ further from the middle by the end`);
+  }
+  if (Number.isFinite(evennessMoved) && Math.abs(evennessMoved) >= EVEN_WORTH_SAYING) {
+    better.push(evennessMoved > 0 ? 'and steadier by the end' : 'and less steady by the end');
+  }
+  if (better.length) parts.push(better.join(', '));
+  else if (parts.length === 1) parts.push('and nothing measurably between them');
+  return parts.join(' — ');
+}

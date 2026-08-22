@@ -7,7 +7,10 @@
 // offered a go that never played it.
 
 import { describe, it, expect } from 'vitest';
-import { runsIn, placeRuns, goesAt, barAtTimeInRuns, sayRuns } from '../src/analysis/practice-runs.js';
+import {
+  runsIn, placeRuns, goesAt, barAtTimeInRuns, sayRuns,
+  samePassage, compareGoes, sayComparison,
+} from '../src/analysis/practice-runs.js';
 import { barsInReadingOrder } from '../src/analysis/bar-map.js';
 
 const SCALE = [0, 2, 4, 5, 7, 9, 11];
@@ -150,5 +153,84 @@ describe('placing each go on the page', () => {
 
   it('counts the goes out loud', () => {
     expect(sayRuns(runs)).toMatch(/goes at this music/);
+  });
+});
+
+describe('the same passage, played again', () => {
+  const spanOf = (at, until, from, to) => ({
+    sure: true, at, until, from, to, anchors: [{ at, time: from }], notes: [],
+  });
+
+  it('groups the goes that cover the same music', () => {
+    const groups = samePassage([
+      spanOf(1, 2, 10, 20),
+      spanOf(1.05, 2.1, 30, 41),
+      spanOf(5, 6, 60, 70),
+      spanOf(0.98, 2, 80, 90),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].goes).toHaveLength(3);
+  });
+
+  // ONE CONTAINING ANOTHER IS NOT ONE REPEATING IT. A run-through of the whole
+  // page overlaps every four-bar go inside it completely, and calling those the
+  // same passage would compare four bars against a whole page and then say
+  // which was steadier.
+  it('does not call a whole run-through the same passage as a bar of it', () => {
+    const groups = samePassage([
+      spanOf(0, 10, 10, 120),        // the whole page
+      spanOf(4, 5, 130, 142),        // one system of it
+      spanOf(4, 5, 150, 162),        // …and again
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].goes).toHaveLength(2);
+    expect(groups[0].at).toBeCloseTo(4, 5);
+  });
+
+  it('has nothing to say about music played once', () => {
+    expect(samePassage([spanOf(1, 2, 10, 20), spanOf(5, 6, 30, 40)])).toEqual([]);
+  });
+
+  it('compares the goes with the app’s own measures, and refuses what it cannot measure', () => {
+    // Two goes at the same music: the second steadier and nearer the middle.
+    const wobbly = [];
+    const steady = [];
+    for (let i = 0; i < 24; i += 1) {
+      wobbly.push({ midi: 60, cents: i % 2 ? 22 : -20, start: 10 + i * (0.4 + (i % 3) * 0.13), end: 10 + i * 0.4 + 0.3 });
+      steady.push({ midi: 60, cents: i % 2 ? 4 : -3, start: 40 + i * 0.4, end: 40 + i * 0.4 + 0.3 });
+    }
+    const played = [...wobbly, ...steady];
+    const group = {
+      at: 1,
+      until: 2,
+      goes: [spanOf(1, 2, 10, 30), spanOf(1, 2, 40, 60)],
+    };
+    const out = compareGoes(group, played);
+    expect(out.goes).toHaveLength(2);
+    expect(out.steadiest.number).toBe(2);
+    expect(out.cleanest.number).toBe(2);
+    expect(out.centsMoved).toBeLessThan(0);            // nearer the middle
+    expect(sayComparison(out)).toMatch(/2 goes at this/);
+    expect(sayComparison(out)).toMatch(/nearer the middle/);
+  });
+
+  // A PRACTICE TOOL THAT CANNOT SAY "not measurably" IS ONE THAT FLATTERS.
+  // Tuning wanders by a couple of cents between any two goes and a pulse by a
+  // percent or two; calling that an improvement would make every session look
+  // like progress.
+  it('says nothing moved when nothing moved by enough to mean anything', () => {
+    const notes = [];
+    for (const at of [10, 40]) {
+      for (let i = 0; i < 24; i += 1) {
+        notes.push({ midi: 60, cents: i % 2 ? 5 : -5, start: at + i * 0.4, end: at + i * 0.4 + 0.3 });
+      }
+    }
+    const out = compareGoes({ at: 1, until: 2, goes: [spanOf(1, 2, 10, 30), spanOf(1, 2, 40, 60)] }, notes);
+    expect(sayComparison(out)).toMatch(/nothing measurably between them/);
+  });
+
+  it('says nothing at all about a group of one', () => {
+    expect(compareGoes({ goes: [spanOf(1, 2, 10, 20)] }, [])).toBe(null);
+    expect(sayComparison(null)).toBe('');
   });
 });

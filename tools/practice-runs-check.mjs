@@ -52,7 +52,7 @@ await page.goto(APP, { waitUntil: 'domcontentloaded' });
 const report = await page.evaluate(async (data, seed) => {
   const { readPage } = await import('/src/analysis/scan-read.js');
   const { systemsOf, barsInReadingOrder } = await import('/src/analysis/bar-map.js');
-  const { placeRuns, goesAt, runsIn } = await import('/src/analysis/practice-runs.js');
+  const { placeRuns, goesAt, runsIn, samePassage, compareGoes, sayComparison } = await import('/src/analysis/practice-runs.js');
   const { readableImage, sizeOfImage } = await import('/src/ui/straighten.js');
 
   const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -160,8 +160,32 @@ const report = await page.evaluate(async (data, seed) => {
     return { bar: bar.index, goes: goes.length, inside, off };
   });
 
+  // THE GOES THAT ARE THE SAME PASSAGE, and how they compared.
+  const groups = samePassage(runs.filter((one) => one.sure));
+  const passages = groups.map((group) => {
+    const comparison = compareGoes(group, played);
+    // Which planned goes really covered this group's music, so the count can be
+    // checked against what was actually played rather than against itself.
+    const truly = truth.filter((one) => {
+      const over = Math.min(one.to + 1, group.until) - Math.max(one.from, group.at);
+      return over >= (group.until - group.at) * 0.6
+        && over >= (one.to + 1 - one.from) * 0.6;
+    });
+    return {
+      at: group.at,
+      until: group.until,
+      found: group.goes.length,
+      truly: truly.length,
+      say: sayComparison(comparison),
+      evenness: (comparison?.goes ?? []).map((one) => one.stats.evenness),
+      cents: (comparison?.goes ?? []).map((one) => one.stats.absMeanCents),
+      steadiest: comparison?.steadiest?.number ?? null,
+    };
+  });
+
   return {
     read: true,
+    passages,
     systems: systems.length,
     hard,
     notes: played.length,
@@ -205,11 +229,26 @@ console.log(`    played that system        ${rightGo.length} of ${withGoes.lengt
 const offs = rightGo.map((one) => one.off).filter((n) => n !== null).sort((a, b) => a - b);
 console.log(`  how far into it             median ${s(offs[Math.floor(offs.length / 2)])}`
   + `  worst ${s(offs.at(-1))}`);
+console.log('');
+console.log('THE SAME PASSAGE, PLAYED AGAIN');
+for (const one of report.passages) {
+  console.log(`  systems ${one.at.toFixed(1)}-${one.until.toFixed(1)}`
+    + `   grouped ${one.found} goes  (really ${one.truly})`);
+  console.log(`    ${one.say}`);
+  console.log(`    evenness ${one.evenness.map((n) => (n === null ? '—' : n.toFixed(2))).join(' ')}`);
+}
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
 
+// …and the grouping has to find the passage that was practised, with the right
+// number of goes at it: a group that misses goes makes a comparison about less
+// than happened, and one that gathers too many compares things that are not
+// the same music.
+const grouped = report.passages.some((one) => one.found === one.truly && one.found > 1);
+const overGrouped = report.passages.some((one) => one.found > one.truly);
 const ok = report.cut === report.plannedGoes
   && report.placed >= report.plannedGoes * 0.6
   && withGoes.length === report.presses.length
-  && rightGo.length === withGoes.length;
+  && rightGo.length === withGoes.length
+  && grouped && !overGrouped;
 console.log(ok ? '\nPASS — every press lands in a go that really played that bar' : '\nFAIL');
 process.exit(ok ? 0 : 1);

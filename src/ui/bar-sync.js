@@ -30,7 +30,9 @@ import {
   systemsOf, guessedAnchors, mergeAnchors,
 } from '../analysis/bar-map.js';
 import { placeSystems } from '../analysis/scan-align.js';
-import { placeRuns, goesAt, sayRuns } from '../analysis/practice-runs.js';
+import {
+  placeRuns, goesAt, sayRuns, samePassage, compareGoes, sayComparison,
+} from '../analysis/practice-runs.js';
 
 /** The anchors the shape-matcher found, if it found any. */
 function guessFrom(layout, notes) {
@@ -78,6 +80,14 @@ export function attachBarSync(container, {
     }
   } catch { guessed = []; runs = []; }
   const practising = runs.length > 1;
+  // The goes that are the same music, compared with each other — worked out
+  // once, because it is the same answer however many times a bar is pressed.
+  let passages = [];
+  try {
+    passages = practising
+      ? samePassage(runs).map((group) => ({ ...group, said: sayComparison(compareGoes(group, notes)) }))
+      : [];
+  } catch { passages = []; }
   // Which go was offered last for each bar, so pressing the same bar again
   // walks back through the earlier ones instead of replaying the same second.
   const offered = new Map();
@@ -110,7 +120,10 @@ export function attachBarSync(container, {
     // a player whose page could not be placed is not left wondering why it
     // asked them to tap.
     if (practising) {
-      line.textContent = `${sayRuns(runs)} — tap a bar to hear the last go at it`;
+      const again = passages.length
+        ? `, ${passages.length} of them played more than once`
+        : '';
+      line.textContent = `${sayRuns(runs)}${again} — tap a bar to hear the last go at it`;
       onSay?.(line.textContent);
       return;
     }
@@ -220,11 +233,16 @@ export function attachBarSync(container, {
       const next = was === undefined ? goes.length - 1 : (was - 1 + goes.length) % goes.length;
       offered.set(bar.index, next);
       const which = goes.length - next;
-      line.textContent = goes.length === 1
+      const playing = goes.length === 1
         ? 'one go at this bar'
         : `${goes.length} goes at this bar — playing the `
           + `${which === 1 ? 'last' : `${which}${which === 2 ? 'nd' : which === 3 ? 'rd' : 'th'} from last`}`
           + '; press again for the one before';
+      // …and how those goes compared, where this bar is in a passage that was
+      // played more than once. It is the same sentence every time, so it is
+      // worked out once and only chosen here.
+      const mine = passages.find((group) => bar.at >= group.at - 1e-9 && bar.at <= group.until + 1e-9);
+      line.textContent = mine?.said ? `${playing}. ${mine.said}` : playing;
       play?.(goes[next].time);
       return;
     }
