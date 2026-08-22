@@ -151,12 +151,46 @@ extrapolates and drifts, and the answer to THAT is one more tap, not a cleverer
 match. Averaging them into one number hides which is which and points the next
 round at the wrong problem.
 
-**What it does not do.** It does not survive a take that repeats bars — practice
-is not a performance, and every anchor here assumes time moves forward through
-the page once. Segmenting a practice session into attempts and placing each
-separately is the next piece, and it is bigger than this one was. At about a
-fifth of the notes gone it places almost nothing; that is the refusal working,
-and the unit tests hold it to "right or refused" rather than to how many.
+**AND THEN THE MODEL CHANGED, because practice is not a performance.** The
+paragraph that used to be here said a take which repeats bars was the next piece
+of work and a bigger one. It is done. Everything above assumes time moves
+forward through the music once; what the microphone records is one system four
+times, two before it to run in, the whole page, and one more go at the awkward
+one. `practice-runs.js` cuts the take into GOES at the silences and places each
+against the page on its own. A bar played six times has six answers, the last
+plays first — it is the go after you fixed whatever was wrong — and pressing
+again walks back through the earlier ones.
+
+```
+  npm run scan:practice — a session built from a real photographed page
+
+                    goes found   placed   press a bar of the practised system
+    Mozart page 1      7 of 7     7/7     3 of 3 land in a go that really
+                                          played it, 0.14s median into it
+    Bach (repeats)     7 of 7     7/7     5 of 5 land in a go that really
+                                          played it, 1.08s median into it
+```
+
+Two guards, both from watching it go wrong. A GO MUST NOT CLAIM MUSIC IT NEVER
+PLAYED: reaching out from its anchors at a *pace* let a go that played two
+systems claim 0.0 to 10.1 of a ten-system page, and another claim 0.0 to 49.7 —
+so the reach is a note COUNT over the page's own notes per system, and sixty
+notes cannot cover ten systems however the anchors fall. AND THE ANCHORS OF ONE
+GO MUST AGREE: on the Bach a go anchored one system at 0.8 and another at 6,
+thirty notes apart, on a page whose systems hold thirty-two.
+
+The invariant has its own test and is the point of the whole model: **a bar is
+never offered a go that did not play it.** Offering nothing is honest; offering
+a moment from somewhere else on the page is not.
+
+**What is still not done.** At about a fifth of the notes gone the shape match
+places almost nothing; that is the refusal working, and the unit tests hold it
+to "right or refused" rather than to how many. A go is placed from its shape
+alone, so on a page that repeats a figure some goes still land a system or two
+out — the Bach's run-in go claims systems 0 to 1.4 where it played 2 to 4. And
+nothing yet notices that two goes are the SAME passage: they are placed
+independently, which is why the count is right, but "your third go was the
+steadiest" needs them compared with each other.
 
 ## THE LATEST ROUND — THE SCAN, not the reader, and the three complaints it came from
 

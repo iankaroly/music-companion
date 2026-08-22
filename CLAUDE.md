@@ -125,6 +125,25 @@ npm run omr:payload      and the other half of that: it drives the app's own
                          send, catches the upload before it leaves (no service
                          is contacted) and checks that what is in it is the
                          photograph cut to ONE sheet.
+npm run scan:guess       CAN THE APP FIND THE BARS IN THE TAKE BY ITSELF —
+                         every system slid along a synthesised take by SHAPE,
+                         no clef and no note named. Reports the two failures
+                         apart: between the anchors (the map doing its job,
+                         0.42s median on the Mozart) and past the last one (it
+                         extrapolates and drifts, and wants a tap not a
+                         cleverer match). `--drop`/`--wrong` spoil the take.
+npm run scan:practice    THE SAME, ON A TAKE THAT PRACTISES — one system four
+                         times, a run-in, the whole page, once more at the end.
+                         Checks the invariant the model exists for: a bar is
+                         never offered a go that did not play it.
+npm run scan:barmap      the bars drawn on the page they came off, for looking
+                         at. It is how the map came to run on POSITION rather
+                         than bar number: 31 boxes for 20 printed bars, because
+                         a stem read as a barline cuts one bar into three.
+npm run scan:barsync     tap a bar, hear that moment — the real layer over real
+                         page elements, pressed the way a finger presses it.
+npm run scan:anchors     and that the marks survive the app being shut, to the
+                         take that made them and to no other.
 npm run omr:look         ENGRAVE WHAT THE RECOGNISER READ AND LOOK AT IT next to
                          the page it read. Every other instrument here reduces a
                          reading to a number, and a number can be right about
