@@ -229,6 +229,10 @@ const SYSTEM_SPAN = 16;     // moves of the system compared, from its start
 const SYSTEM_SLACK = 6;     // extra notes of the take they may be found across
 const MISMATCH = -0.35;     // the two moved differently
 const SKIP = -0.6;          // one of them has a move the other has not
+// What one heard interval is worth when it explains TWO written ones — a note
+// left out. A shade under two, so that where both readings fit, the one that
+// needs no missing note wins.
+const MERGED = 1.7;
 
 /**
  * Place each system of a scan in a take, by shape alone.
@@ -391,7 +395,7 @@ function atAConsistentPlace(placements, systems) {
     : one));
 }
 
-export function placeSystems(systems, played) {
+export function placeSystems(systems, played, { ends = true } = {}) {
   const notes = (played ?? []).map((n) => n?.midi);
   // The take in the page's own units where its scale is clear, and in five
   // buckets where it is not: see scaleOf. `exact` says which, because it
@@ -432,7 +436,7 @@ export function placeSystems(systems, played) {
       const want = line.slice(0, span);
       const scores = [];
       for (let at = 0; at + span <= against.length; at += 1) {
-        scores.push(inOrderShare(want, against, at, span + SYSTEM_SLACK));
+        scores.push(inOrderShare(want, against, at, span + SYSTEM_SLACK, sharp));
       }
       if (!scores.length) continue;
       let best = { at: 0, score: -1 };
@@ -462,7 +466,91 @@ export function placeSystems(systems, played) {
         : 'this system looks the same as somewhere else in the take'),
     });
   });
-  return keepInOrder(atAConsistentPlace(out, systems));
+  const settled = keepInOrder(atAConsistentPlace(out, systems));
+  // Reaching the ends is a claim about a take that runs from the top of the
+  // page to the bottom, and one GO of a practice session is explicitly not
+  // that — a go at the fourth system says nothing about where the page ends.
+  // MEASURED, with it on for goes: two goes of the Bach session stretched to
+  // the page's last system and were grouped as a passage that was never played.
+  return ends ? reachTheEnds(settled, systems, played) : settled;
+}
+
+/**
+ * THE ENDS OF THE PAGE, where there is nothing to interpolate between.
+ *
+ * Past the outermost anchor the map extrapolates — it carries the pace of the
+ * end pair on into music nothing has been said about — and that is where all
+ * its worst answers are. MEASURED, `npm run scan:guess` on the Mozart: between
+ * the anchors the error is 0.42s, and on the two systems past the last one it
+ * is 9.25s. The systems in the middle are fine and the ones at the edges are
+ * guesses dressed as answers.
+ *
+ * There are two facts nothing else uses: the take STARTS somewhere and it STOPS
+ * somewhere. If the line through the placed systems says that the first system
+ * of the page sits at the take's first note — which is what playing a page from
+ * the top means — then the take's first note IS that system, and the same at
+ * the other end. That is not a guess about the music; it is reading off the
+ * line the placements already agreed on, and it is only taken where the line
+ * lands close enough to the edge to mean it.
+ */
+const ENDS_OUT = 0.35;      // of a system's noteheads, before the edge is not the edge
+
+function reachTheEnds(placements, systems, played) {
+  const sure = placements.filter((one) => one.sure && one.at >= 0);
+  if (sure.length < 2 || !played?.length) return placements;
+  const before = [];
+  let running = 0;
+  (systems ?? []).forEach((heads, i) => { before[i] = running; running += heads.length; });
+  const points = sure.map((one) => ({ x: before[one.system] ?? 0, y: one.at }));
+  const middle = (list) => [...list].sort((a, b) => a - b)[Math.floor(list.length / 2)];
+  const slopes = [];
+  for (let i = 0; i < points.length; i += 1) {
+    for (let j = i + 1; j < points.length; j += 1) {
+      const run = points[j].x - points[i].x;
+      if (run > 0) slopes.push((points[j].y - points[i].y) / run);
+    }
+  }
+  if (!slopes.length) return placements;
+  const slope = middle(slopes);
+  const intercept = middle(points.map((one) => one.y - slope * one.x));
+  const typical = middle((systems ?? []).map((heads) => heads.length)) || 20;
+  const room = Math.max(6, typical * ENDS_OUT);
+
+  const out = [...placements];
+  const first = sure[0].system;
+  const last = sure.at(-1).system;
+  // The top of the page: does the line say system 0 begins at the first note?
+  if (first > 0 && Math.abs(intercept) <= room) {
+    for (let s = 0; s < first; s += 1) {
+      if (before[s] !== 0) continue;              // only a system with nothing before it
+      out[s] = {
+        ...out[s], at: 0, time: played[0].start, sure: true, why: '', fromEnd: true,
+      };
+    }
+  }
+  // …and the bottom, asked of the END of the page rather than of the last
+  // system's start: if the line says the whole page's music runs out just as
+  // the take does, then the take's last note is the end of the page, and that
+  // one fact bounds every system after the final anchor. It is a position one
+  // PAST the last system — the page's own end — so it anchors the map without
+  // claiming to have found any particular system.
+  const lastSystem = (systems?.length ?? 0) - 1;
+  if (last < lastSystem && lastSystem >= 0) {
+    const predicted = intercept + slope * running;          // running = every notehead
+    if (Math.abs(predicted - played.length) <= room) {
+      out.push({
+        system: lastSystem + 1,
+        at: played.length - 1,
+        time: played.at(-1).start,
+        score: 1,
+        margin: 1,
+        sure: true,
+        why: '',
+        fromEnd: true,
+      });
+    }
+  }
+  return out;
 }
 
 /**
@@ -485,9 +573,11 @@ function steps(values) {
   return out;
 }
 
-function inOrderShare(want, heard, at, window) {
+function inOrderShare(want, heard, at, window, exact = false) {
   const across = Math.min(window, heard.length - at);
   if (across < want.length) return -1;
+  const n = want.length;
+
   // GETTING TO THE START COSTS, and leaving the end does not.
   //
   // The offset IS the answer here — it is where the system begins — so notes of
@@ -498,14 +588,15 @@ function inOrderShare(want, heard, at, window) {
   // somewhere else", on a page where the first system placed with a margin of
   // 0.47 the moment they were charged for.
   //
-  // What the take does AFTER the sixteen moves being matched is none of this
+  // What the take does AFTER the moves being matched is none of this
   // comparison's business, so the best END is taken and nothing beyond it
   // counts either way.
-  let prev = new Float64Array(across + 1);
-  for (let j = 1; j <= across; j += 1) prev[j] = j * SKIP;
-  let row = new Float64Array(across + 1);
-  for (let i = 1; i <= want.length; i += 1) {
-    row[0] = prev[0] + SKIP;
+  const table = [];
+  for (let i = 0; i <= n; i += 1) table.push(new Float64Array(across + 1));
+  for (let j = 1; j <= across; j += 1) table[0][j] = j * SKIP;
+  for (let i = 1; i <= n; i += 1) table[i][0] = table[i - 1][0] + SKIP;
+
+  for (let i = 1; i <= n; i += 1) {
     for (let j = 1; j <= across; j += 1) {
       // Exactly the same interval, or — where the scale was not clear enough
       // to count in degrees — the same one of five buckets.
@@ -517,20 +608,49 @@ function inOrderShare(want, heard, at, window) {
       // took the Bach from 5 systems placed and 9 covered back to 4 and 5, and
       // left the Mozart where it was — the worst of both. Partial credit is
       // exactly what lets a repeat of the same figure at a different interval
-      // score nearly as well as the real one, which is the thing the exact
-      // comparison exists to stop.
+      // score nearly as well as the real one.
       const a = want[i - 1];
       const b = heard[at + j - 1];
       const same = a !== null && b !== null && a === b;
-      const step = prev[j - 1] + (same ? 1 : MISMATCH);
-      row[j] = Math.max(step, prev[j] + SKIP, row[j - 1] + SKIP);
+      let best = table[i - 1][j - 1] + (same ? 1 : MISMATCH);
+
+      // A NOTE LEFT OUT DOES NOT REMOVE AN INTERVAL, IT MERGES TWO INTO ONE.
+      //
+      // This is the difference between forgiving a dropped note and explaining
+      // it. If the page goes a to b to c and the player skips b, what was
+      // played is a to c — which is not "the interval a-b, damaged", it is
+      // exactly the sum of the two. Charged as a skip, a fifth of the notes
+      // gone left the match scoring like noise; recognised as a sum, the same
+      // take reads straight through.
+      //
+      // Only where the scale was clear enough to count in degrees, because it
+      // is arithmetic: five buckets do not add up to anything.
+      if (exact && i >= 2 && a !== null && b !== null && want[i - 2] !== null
+        && want[i - 2] + a === b) {
+        best = Math.max(best, table[i - 2][j - 1] + MERGED);
+      }
+      // AND NOT THE SAME THE OTHER WAY, which was tried and is worse. Two
+      // PLAYED moves explained by one written one is the mirror case — a note
+      // the player added, or one the reader never found — and it is just as
+      // real. It is also what lets a match swallow the notes before a system
+      // and start early: absorbing two heard moves is worth 1.7 where skipping
+      // them costs 1.2, so the alignment would rather explain the tail of the
+      // previous system than leave it alone. MEASURED, with it in: the Mozart
+      // at a fifth of its notes dropped placed 5 systems with a median error of
+      // 2.60s and one anchor 3.07s out; with it gone, 4 systems at 1.01s and
+      // the worst anchor 2.84s — and at a tenth dropped it went from 7 systems
+      // placed to 8, with the worst error between anchors falling from 3.25s to
+      // 0.84s. A note the reader missed is already handled: it is a note the
+      // page does not have, which is a SKIP on the written side, and skips are
+      // what the window's slack is for.
+
+      best = Math.max(best, table[i - 1][j] + SKIP, table[i][j - 1] + SKIP);
+      table[i][j] = best;
     }
-    const swap = prev; prev = row; row = swap;
-    row = swap.fill(0);
   }
-  let best = -Infinity;
-  for (let j = want.length; j <= across; j += 1) best = Math.max(best, prev[j]);
-  return best / want.length;
+  let out = -Infinity;
+  for (let j = n; j <= across; j += 1) out = Math.max(out, table[n][j]);
+  return out / n;
 }
 
 /**

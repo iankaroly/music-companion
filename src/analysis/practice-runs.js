@@ -100,7 +100,9 @@ export function placeRuns(systems, played, { gap = NEW_GO } = {}) {
       return { ...run, at: null, until: null, anchors: [], sure: false, why: 'too short to place' };
     }
     const anchors = agreeWithin(
-      guessedAnchors(placeSystems(systems, run.notes)), run.notes, perSystem,
+      // `ends: false` — see placeSystems. A go is a stretch of playing, not a
+      // pass down the page, so nothing here may reason from where the page ends.
+      guessedAnchors(placeSystems(systems, run.notes, { ends: false })), run.notes, perSystem,
     );
     if (!anchors.length) {
       return { ...run, at: null, until: null, anchors: [], sure: false, why: 'not found on these pages' };

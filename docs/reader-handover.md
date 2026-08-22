@@ -212,10 +212,54 @@ agree in direction and are within one degree took the Bach back to 4 placed and
 5 covered and left the Mozart where it was. Partial credit is exactly what lets
 a repeat at a different interval score nearly as well as the real one.
 
-**What is still not done.** At about a fifth of the notes gone the shape match
-places almost nothing; that is the refusal working — its worst anchor there is
-0.62s, so it is refusing rather than guessing — and the unit tests hold it to
-"right or refused" rather than to how many. 
+**AND A NOTE LEFT OUT IS NOW EXPLAINED RATHER THAN PENALISED, which is what the
+hard takes needed.** A dropped note does not remove an interval, it MERGES two
+into one: the page goes a to b to c, the player skips b, and what was heard is
+a to c — exactly the sum of the two. Charged as a skip, a fifth of the notes
+gone left the match scoring like noise. Recognised as a sum — arithmetic only
+possible because the take is being read in degrees — the same take reads
+straight through.
+
+NOT THE MIRROR CASE. Two PLAYED moves explained by one written one is just as
+real, and it is what lets a match swallow the notes before a system and start
+early: absorbing two heard moves is worth 1.7 where skipping them costs 1.2, so
+the alignment would rather explain the tail of the previous system than leave it
+alone. With it in, the Mozart at a fifth dropped placed 5 with a median of 2.60s
+and an anchor 3.07s out; with it gone, the median is 1.01s. A note the READER
+missed is already handled — it is a note the page does not have, which is a skip
+on the written side, and the window's slack is what pays for it.
+
+**AND THE ENDS OF THE PAGE ARE ANCHORED, so nothing extrapolates.** Past the
+outermost anchor the map carried the end pair's pace on into music nothing had
+been said about, and every one of its worst answers lived there: 0.42s between
+the anchors against 9.25s past the last one. Two facts nothing else used are
+that the take starts somewhere and stops somewhere. Where the line through the
+placed systems says the first system sits at the take's first note — which is
+what playing a page from the top means — the take's first note IS that system;
+and where it says the page's music runs out just as the take does, the last note
+is the end of the page. Neither is a guess about the music: both read off the
+line the placements already agreed on, and both are taken only where the line
+lands close enough to the edge to mean it. It is off for a single GO of a
+practice session, which is a stretch of playing and not a pass down the page —
+with it on, two goes of the Bach session stretched to the last system and were
+grouped as a passage that was never played.
+
+```
+                        placed   covered   press a bar, out by     worst anchor
+  Mozart  before          7/10      8      median 0.42s worst 9.25s   1.09s
+          after           9/10     10      median 0.58s worst 0.84s   0.84s (2 notes)
+  Bach    before          4/10      5      median 0.90s worst 4.60s   1.13s
+          after           7/10     10      median 0.59s worst 1.50s   1.13s (2 notes)
+  Mozart at a FIFTH of the notes dropped, a tenth played wrong:
+          before          3/10      —      median 2.82s worst 7.78s
+          after           6/10     10      median 0.70s worst 3.53s   2.84s (4 notes)
+                                           two taps: median 2.94s worst 7.79s
+```
+
+**What is still not done.** The worst anchor is measured in NOTES as well as in
+seconds now, because seconds are the wrong unit for "is this in the wrong
+place": four notes early on a slow passage is nearly three seconds while being
+nowhere near another system. 
 **AND THE GOES THAT ARE THE SAME PASSAGE ARE NOW NOTICED AND COMPARED.** Placing
 them says where each was; it does not say the second and the fourth were the
 same four bars, which is the fact a practice recording is about. `samePassage`
