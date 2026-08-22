@@ -105,7 +105,9 @@
     "scan:anchors": "node tools/bar-anchors-check.mjs",
     "scan:guess": "node tools/bar-guess-check.mjs",
     "scan:practice": "node tools/practice-runs-check.mjs",
-    "reader:record": "node tools/reader-record-check.mjs"
+    "reader:record": "node tools/reader-record-check.mjs",
+    "reader:review": "node tools/reader-review-check.mjs",
+    "scan:frame": "node tools/scan-frame-probe.mjs"
   },
   "keywords": [],
   "author": "",

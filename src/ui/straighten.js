@@ -166,6 +166,81 @@ function printBeyond(luma, w, h, side, at) {
 }
 
 /**
+ * HOW FAR THE PAGE'S OWN PRINTING REACHES, on the side that faces its
+ * neighbour — the one side `printBeyond` is not allowed to rescue.
+ *
+ * THE FAULT THIS FIXES, on a real frame he sent (`npm run scan:frame`, the
+ * Bärenreiter Suites open on a stand): the aimed page was found at
+ * x 143..1064, the facing page at x 1166.., and the fold sat at about 1135 —
+ * so 70-odd pixels of his page, carrying the last bar and a half of EVERY
+ * system, were outside the outline. The two pages were found as SEPARATE
+ * BRIGHT REGIONS, so nothing in the fold code ran; the bright mask simply
+ * stopped where the paper darkens going into the gutter, and `trustEdges`
+ * refuses to move a side that has a neighbour on it.
+ *
+ * That refusal is right in one direction and wrong in the other. Pushing the
+ * gutter side out to the FRAME would swallow the facing page, which is what it
+ * was put there to prevent. Pushing it out to where this page's own printing
+ * stops cannot: the neighbour's near edge is a hard ceiling, and the answer is
+ * normally well inside it.
+ *
+ * WHY NOT `printBeyond` HERE. That asks a yes/no question about a fixed band
+ * and then moves the side to the edge of the picture, which is exactly the
+ * move that is unsafe next to another page. This asks WHERE instead, walking
+ * outward a column at a time and keeping the last one that carries marks with
+ * paper around them, which stops on its own in the blank margin before the
+ * fold rather than needing a threshold to say when to stop.
+ *
+ * Each column is judged against ITS OWN paper level, because the whole
+ * difficulty here is that the paper gets darker the closer it gets to the
+ * spine. A level taken from the middle of the page calls the last inch of it
+ * background.
+ *
+ * @returns the position, in 0-1 of the frame, or null for "nothing out there"
+ */
+function printReachesTo(luma, w, h, quad, side, limit) {
+  const vertical = side === 'left' || side === 'right';
+  const [tl, tr, br, bl] = quad;
+  const from = vertical
+    ? (side === 'right' ? Math.max(tr[0], br[0]) : Math.min(tl[0], bl[0]))
+    : (side === 'bottom' ? Math.max(bl[1], br[1]) : Math.min(tl[1], tr[1]));
+  // The span to read down (or across): the page's own, so a column is judged
+  // against this page rather than against the whole picture.
+  const lowSpan = vertical ? Math.min(tl[1], tr[1]) : Math.min(tl[0], bl[0]);
+  const highSpan = vertical ? Math.max(bl[1], br[1]) : Math.max(tr[0], br[0]);
+  const spanPx = Math.round((highSpan - lowSpan) * (vertical ? h : w));
+  if (spanPx < 40) return null;
+  const a = Math.round(lowSpan * (vertical ? h : w));
+  const outward = side === 'right' || side === 'bottom' ? 1 : -1;
+  const start = Math.round(from * (vertical ? w : h));
+  const stop = Math.round(limit * (vertical ? w : h));
+  const steps = Math.abs(stop - start);
+  if (steps < 4) return null;
+
+  const at = (i, j) => (vertical ? luma[j * w + i] : luma[i * w + j]);
+  let last = null;
+  for (let k = 1; k <= steps; k += 1) {
+    const i = start + outward * k;
+    if (i < 0 || i >= (vertical ? w : h)) break;
+    const values = [];
+    for (let j = a; j < a + spanPx; j += 1) {
+      const v = at(i, j);
+      if (v !== undefined) values.push(v);
+    }
+    if (values.length < 40) break;
+    const sorted = [...values].sort((x, y) => x - y);
+    const paper = sorted[Math.floor(sorted.length * 0.6)];
+    const dark = values.filter((v) => v < paper - 45).length / values.length;
+    // Printing is a small share of a column and a shadow is most of one. Both
+    // bounds matter: without the ceiling the crease itself reads as print, and
+    // the outline walks straight over the gutter.
+    if (dark > 0.004 && dark < 0.3) last = i;
+  }
+  if (last === null) return null;
+  return last / (vertical ? w : h);
+}
+
+/**
  * Does the sheet reach both sides of the picture in either direction?
  *
  * If it does, it is bigger than the frame and part of it was never in the
@@ -229,6 +304,36 @@ function trustEdges(luma, w, h, quad, beside = null) {
   if (free('bottom') && bottom < 0.98 && printBeyond(luma, w, h, 'bottom', Math.round(bottom * h))) { out[2][1] = 1; out[3][1] = 1; }
   if (free('left') && left > 0.02 && printBeyond(luma, w, h, 'left', Math.round(left * w))) { out[0][0] = 0; out[3][0] = 0; }
   if (free('right') && right < 0.98 && printBeyond(luma, w, h, 'right', Math.round(right * w))) { out[1][0] = 1; out[2][0] = 1; }
+
+  // AND THE SIDE THAT FACES THE NEIGHBOUR, as far as its own printing goes and
+  // no further. Everything above moves a side to the EDGE OF THE PICTURE, which
+  // is why it has to be refused next to another page; this moves it to where
+  // this page stops having music on it, which is a different and much smaller
+  // claim. On the frame that started this it is worth 70 pixels of a 920-pixel
+  // page, and those pixels are the end of every system. See `printReachesTo`.
+  const reach = (side) => {
+    if (!beside?.[side]) return null;
+    const limit = beside.edge?.[side];
+    if (limit === null || limit === undefined) return null;
+    const to = printReachesTo(luma, w, h, quad, side, limit);
+    if (to === null) return null;
+    // A little past the last mark, for the sliver of margin printing never
+    // reaches — but never as far as the neighbour, whatever the arithmetic
+    // says. The page next door is the one thing this is not allowed to take.
+    const pad = Math.min(
+      (side === 'left' || side === 'right' ? 0.02 : 0.015),
+      Math.abs(limit - to) / 2,
+    );
+    const moved = side === 'right' || side === 'bottom' ? to + pad : to - pad;
+    return side === 'right' || side === 'bottom'
+      ? Math.min(moved, limit)
+      : Math.max(moved, limit);
+  };
+  const outward = { left: reach('left'), right: reach('right'), top: reach('top'), bottom: reach('bottom') };
+  if (outward.right !== null && outward.right > right) { out[1][0] = outward.right; out[2][0] = outward.right; }
+  if (outward.left !== null && outward.left < left) { out[0][0] = outward.left; out[3][0] = outward.left; }
+  if (outward.bottom !== null && outward.bottom > bottom) { out[2][1] = outward.bottom; out[3][1] = outward.bottom; }
+  if (outward.top !== null && outward.top < top) { out[0][1] = outward.top; out[1][1] = outward.top; }
   return out;
 }
 
@@ -257,6 +362,30 @@ export function besideOf(quads, at) {
   });
   const me = box(mine);
   const found = { left: false, right: false, top: false, bottom: false };
+  // …and HOW FAR TOWARDS IT this page may be pushed: HALFWAY, and not one pixel
+  // more. A side with a neighbour on it cannot be given the frame, but it can be
+  // given back the margin the gutter's shadow ate, and the difference between
+  // those two is the last bar and a half of every system on a page of a book.
+  //
+  // THE MIDPOINT, and not the neighbour's own edge, and the reason is that the
+  // two edges are eaten SYMMETRICALLY. Where two leaves meet with no crease
+  // between them, the cut runs through the middle of the trough and the shave
+  // that parts two touching regions takes the same bite out of each — so the
+  // point halfway between the two outlines is the fold. MEASURED, the drawn
+  // case `book page whose GUTTER side falls into shadow`: the pages are found
+  // at ..969 and 1130.., their midpoint is 1049, and the paper really parts at
+  // 1049. Aiming at the neighbour's edge instead overshot by 75 pixels and put
+  // one page's outline over the other's margin.
+  //
+  // It is also a promise that holds without measuring anything: neither leaf
+  // can reach past the middle, so neither can take the other's music.
+  // Nearest neighbour wins, so three pages in a row do not let the middle one
+  // reach past the one beside it.
+  const edge = { left: null, right: null, top: null, bottom: null };
+  const nearer = (was, now, side) => {
+    if (was === null) return now;
+    return side === 'right' || side === 'bottom' ? Math.min(was, now) : Math.max(was, now);
+  };
   quads.forEach((other, i) => {
     if (i === at) return;
     const it = box(other);
@@ -264,15 +393,27 @@ export function besideOf(quads, at) {
     const overlapX = Math.min(me.right, it.right) - Math.max(me.left, it.left);
     // Side by side: they share most of their height and sit next to each other.
     if (overlapY > (me.bottom - me.top) * 0.4) {
-      if (it.right <= me.right && (it.left + it.right) / 2 < (me.left + me.right) / 2) found.left = true;
-      if (it.left >= me.left && (it.left + it.right) / 2 > (me.left + me.right) / 2) found.right = true;
+      if (it.right <= me.right && (it.left + it.right) / 2 < (me.left + me.right) / 2) {
+        found.left = true;
+        edge.left = nearer(edge.left, (me.left + it.right) / 2, 'left');
+      }
+      if (it.left >= me.left && (it.left + it.right) / 2 > (me.left + me.right) / 2) {
+        found.right = true;
+        edge.right = nearer(edge.right, (me.right + it.left) / 2, 'right');
+      }
     }
     if (overlapX > (me.right - me.left) * 0.4) {
-      if ((it.top + it.bottom) / 2 < (me.top + me.bottom) / 2) found.top = true;
-      if ((it.top + it.bottom) / 2 > (me.top + me.bottom) / 2) found.bottom = true;
+      if ((it.top + it.bottom) / 2 < (me.top + me.bottom) / 2) {
+        found.top = true;
+        edge.top = nearer(edge.top, (me.top + it.bottom) / 2, 'top');
+      }
+      if ((it.top + it.bottom) / 2 > (me.top + me.bottom) / 2) {
+        found.bottom = true;
+        edge.bottom = nearer(edge.bottom, (me.bottom + it.top) / 2, 'bottom');
+      }
     }
   });
-  return found;
+  return { ...found, edge };
 }
 
 /**

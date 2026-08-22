@@ -38,6 +38,7 @@ import { renderCoach } from './ui/coach.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
 import { registerTakeControl, takeStateChanged } from './ui/take-control.js';
+import { close as closeReader, readerIsOpen, sayOnTheMusic } from './ui/reader.js';
 import { instrument, segmentation } from './analysis/instruments.js';
 
 initSettings(document); // theme first: the canvases read their colours from it
@@ -672,6 +673,28 @@ async function stopTakeNow() {
     say(`${saying('that take could not be finished', err)} — press record to start again`, 'bad');
   }
   takeStateChanged({ recording: false, busy: false, seconds: 0 });
+  // AND THEN GO AND LOOK AT IT. Stopping used to leave you exactly where you
+  // were, which is right on the Record tab — the review is already on the
+  // screen you are looking at — and wrong on the music, where the page you are
+  // reading covers the whole review and the take appears to vanish. "when i
+  // record on an opened score, and stop recording, it should take me to a new
+  // window to analyze the recording."
+  //
+  // The reader being OPEN is the condition, not the door the take started at:
+  // record from the tab, put the phone on the stand, open the score, play, stop
+  // — and you are still somebody looking at music who has just finished a take.
+  //
+  // A take with nothing in it does NOT take the page away. Being thrown out of
+  // your music to be told the app heard nothing is a worse trade than the same
+  // sentence over the page you are still reading from.
+  if (readerIsOpen()) {
+    if (lastTake) {
+      closeReader();
+      showTab('score');
+    } else {
+      sayOnTheMusic('nothing detected in that take');
+    }
+  }
   return true;
 }
 

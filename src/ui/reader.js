@@ -6378,6 +6378,25 @@ function showFirstRunHint() {
   setTimeout(() => hint.remove(), 4600);
 }
 
+/**
+ * One line over the page, for something the player needs to know while they are
+ * still reading. It reuses the first-run hint's own element and styling rather
+ * than growing a second kind of message: the reader has exactly one place it
+ * ever says anything, and it is the bottom of the page.
+ *
+ * It exists for the take that heard nothing. Everything else about a take is
+ * said on the review, and the review is somewhere else.
+ */
+export function sayOnTheMusic(text) {
+  if (!root || root.hidden) return;
+  for (const old of root.querySelectorAll('#reader-hint')) old.remove();
+  const note = document.createElement('div');
+  note.id = 'reader-hint';
+  note.textContent = text;
+  root.append(note);
+  setTimeout(() => note.remove(), 3600);
+}
+
 export function readerIsOpen() {
   return !!root && !root.hidden;
 }

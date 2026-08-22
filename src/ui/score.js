@@ -349,6 +349,11 @@ export async function addPaper(files, { name: given = null, raws = null, straigh
   const row = await loadScore(id);
   if (trouble) status(trouble, 'bad');
   else status(`${row.name} — ${row.pageCount} ${row.pageCount === 1 ? 'page' : 'pages'}. Open it to read.`);
+  // …and it is the piece you are about to play. Somebody who has just
+  // photographed a page did it to play from that page, and without this the
+  // take they record against it is marked onto whatever was chosen before —
+  // which is nothing, most of the time. Same reason as the library door above.
+  await selectScore(id);
   await readPaperScore(row);
   // And then, quietly, read the SHAPE of the pages — where the staves, bars and
   // noteheads are. It is what lets a take be marked onto a photograph, it takes
@@ -1630,8 +1635,18 @@ export async function openScoreFromLibrary(id, { setlist = null } = {}) {
   if (!row) return;
   programme = setlist;
   // Paper is not notation and must not go through the parser: it has no XML to
-  // parse, no part to choose and no review to open. Straight to the reader.
+  // parse and no part to choose. It IS still the chosen piece, though, and that
+  // sentence was false here for as long as this function has existed.
+  //
+  // WHAT IT COST. `annotateTake` opens with `if (!current) return null`, so a
+  // scan opened off the shelf and recorded from — which is now one tap, on the
+  // dot on the music — produced a take that was analysed, stamped, and marked
+  // onto nothing at all. "when i record on an opened score, and stop recording,
+  // it should take me to a new window to analyze the recording. right now
+  // nothing happens." Nothing happened because the app did not think any score
+  // was open; the reader knew, and it was the only thing that did.
   if (row.kind === 'pages') {
+    await selectScore(id);
     await readPaperScore(row);
     return;
   }

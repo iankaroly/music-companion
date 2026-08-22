@@ -93,13 +93,29 @@ npm run scan:key-gate    the GATE on the one failure this reader is not allowed
                          to have: a note named from a key the page could not
                          agree. `scan:studies --phone` with a non-zero exit.
                          MUST print `notes NAMED on one of them   0`.
-npm run scan:pages       the SCANNER, not the reader: seventeen drawn camera
+npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          frames whose page corners are known, scored as IoU, as
                          SPILL (how much of the blue outline is not paper) and
                          as SPANS (one outline over two pages of a book).
-                         94.4% mean IoU, worst spill 9%, 0 spans, 0 page counts
-                         wrong. Run it whenever page-edges.js or the scanner UI
-                         moves. Three of the seventeen are the cases a phone
+                         91.6% mean IoU, worst spill 9%, 0 spans, 0 page counts
+                         wrong. Run it whenever page-edges.js, straighten.js or
+                         the scanner UI moves.
+                         TWO COLUMNS, and the second one is new: IoU is
+                         `findPages`, the finder; SHOWN is `papersIn` — the
+                         finder PLUS the guard, which is the outline the player
+                         is actually drawn and the one the shutter cuts to.
+                         Eighteen of nineteen cases give the same number, this
+                         corpus spent its whole life measuring only the first,
+                         and the one case where they differ is the frame he
+                         photographed. SHOWN mean 91.8%.
+                         AND THE SHOWN COLUMN IMMEDIATELY FOUND TWO FAULTS
+                         NOTHING COULD SEE, both older than it and neither
+                         touched yet: `book, ONE page, a SLIVER of the next one`
+                         95.5% found and 83.1% shown, and `sheet touching a
+                         bright ledge` 92.8% found and 75.9% shown — the guard
+                         makes both WORSE — with a worst shown spill of 24.0%
+                         against 9.0% found. There is no gate on the shown
+                         numbers yet because it would fail on those two. Three of the seventeen are the cases a phone
                          over a music stand actually makes and nothing drew
                          until now: one page of a book with a BAND of the next
                          in shot, the same with a SLIVER, and a page of DENSE
@@ -117,6 +133,31 @@ npm run scan:guess       CAN THE APP FIND THE BARS IN THE TAKE BY ITSELF —
                          0.42s median on the Mozart) and past the last one (it
                          extrapolates and drifts, and wants a tap not a
                          cleverer match). `--drop`/`--wrong` spoil the take.
+npm run scan:frame       WHAT THE FINDER DOES WITH ONE REAL FRAME, and the only
+                         instrument here that takes a photograph rather than a
+                         drawing: `npm run scan:frame -- <image> [--crop t,b]
+                         [--profile]`. It says which route ran — two bright
+                         regions found apart, or one wide quad cut at a fold —
+                         where each boundary landed in the frame's own pixels,
+                         how far the guard moved the gutter side, and with
+                         `--profile` the brightness across the frame, which is
+                         what a drawn fixture has to be built to match. A
+                         screenshot of the scanner works: `--crop 300,220`
+                         drops the buttons. It is what turned "the outline is
+                         short on the gutter side" from two possible bugs into
+                         one with an address.
+npm run reader:review    STOP A TAKE ON THE MUSIC AND LAND ON THE REVIEW —
+                         through the door he uses: the shelf on the Score tab,
+                         a press on the row, the dot on the page, a take, and
+                         then the score with marks to press and a sentence
+                         about it. `reader:record` opens the reader by calling
+                         `openReader` directly and therefore CANNOT see the
+                         fault this was written for: opening a scan off the
+                         shelf never made it the chosen score, so the review was
+                         never built and stopping did nothing. Its fake
+                         microphone plays real notes — a suspended AudioContext
+                         is silence, and a take with nothing in it is discarded
+                         before it can reach a review. NO MICROPHONE.
 npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the dot on the
                          open score, pressed the way a finger presses it. One
                          recorder behind two doors (the Record tab's button must

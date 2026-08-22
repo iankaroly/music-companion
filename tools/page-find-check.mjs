@@ -54,6 +54,13 @@ await new Promise((r) => setTimeout(r, 1200));
 
 const report = await page.evaluate(async (want, keep) => {
   const { findPages, probePages } = await import('/src/analysis/page-edges.js');
+  // AND THE OUTLINE THE PLAYER IS ACTUALLY SHOWN. `findPages` is the finder;
+  // `papersIn` is the finder plus the guard that decides whether a boundary it
+  // found is really the edge of the paper, and the scanner draws the second
+  // one. For eighteen cases they are the same answer, which is why this corpus
+  // went its whole life measuring only the first — and then the one case where
+  // they differ is the one he photographed. See `printReachesTo`.
+  const { papersIn } = await import('/src/ui/straighten.js');
 
   // --- drawing a photograph -------------------------------------------------
 
@@ -66,7 +73,12 @@ const report = await page.evaluate(async (want, keep) => {
   // 20-39% ink, a real photographed cadenza reads 56%, and the finder refuses
   // anything over 62% as "not paper but ink" — so the case that fails was the
   // one case never drawn. 1 is the old page; 3 is a page of semiquaver runs.
-  const musicOn = (g, quad, tone, density = 1) => {
+  // `inset`: how far in from the paper's edge the printing starts, as a share
+  // of the page's width. The default is a generous margin; a real part crammed
+  // to the gutter is drawn with a small one, and the difference matters — an
+  // outline that loses blank margin loses nothing, and one that loses the same
+  // number of pixels of a tightly set page loses the end of every system.
+  const musicOn = (g, quad, tone, density = 1, inset = 0.08) => {
     g.save();
     g.beginPath();
     quad.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
@@ -84,11 +96,14 @@ const report = await page.evaluate(async (want, keep) => {
     for (let system = 0; system < systems; system++) {
       const y = top + h * (0.12 + system * step);
       for (let line = 0; line < 5; line++) {
-        g.fillRect(left + w * 0.08, y + line * (h * 0.009 / density), w * 0.84, Math.max(1, h * 0.0016));
+        g.fillRect(left + w * inset, y + line * (h * 0.009 / density),
+          w * (1 - inset * 2), Math.max(1, h * 0.0016));
       }
       const groups = Math.round(6 * density);
+      const from = inset + 0.04;
+      const across = (1 - inset * 2) - 0.06;
       for (let n = 0; n < groups; n++) {
-        g.fillRect(left + w * (0.12 + n * (0.78 / groups)), y - h * 0.014,
+        g.fillRect(left + w * (from + n * (across / groups)), y - h * 0.014,
           w * (0.08 / density) * 1.6, h * 0.006 * density);
       }
     }
@@ -326,6 +341,70 @@ const report = await page.evaluate(async (want, keep) => {
       },
     },
     {
+      // THE GUTTER SIDE FALLS INTO SHADOW, which is the mirror of the curl
+      // below and is the frame he actually sent (`npm run scan:frame`, the
+      // Bärenreiter Suites on a stand). A bound page does not lie flat: it
+      // rises towards the spine, so the paper gets steadily darker over the
+      // last tenth of its width, and the bright mask stops where the darkening
+      // crosses the threshold — well short of the fold, and short of the ENDS
+      // OF EVERY SYSTEM.
+      //
+      // Nothing pushed it back out. The guard that rescues a short outline is
+      // refused on the side facing a neighbour, because on that side it used to
+      // push the outline over the next page. MEASURED on his own frame: the
+      // page was found at x..1064 with the fold at about 1135, so 70 pixels
+      // carrying the last bar and a half of every line were outside the blue.
+      //
+      // This is what `printReachesTo` exists for. It is the ONLY case in this
+      // corpus that can see it: with that code removed the corpus does not move
+      // by a tenth of a point.
+      name: 'book page whose GUTTER side falls into shadow',
+      draw() {
+        // DRAWN TO HIS FRAME'S OWN NUMBERS, read off it with
+        // `npm run scan:frame -- <photo> --profile`. Averaged down the middle
+        // half, the picture goes: table 26, his page 195-200 flat until about
+        // four fifths across, then falling — 179, 171, 165, 144 — to a floor of
+        // 135 that runs for a hundred pixels, then back up through 161, 186 to
+        // 201 on the facing page.
+        //
+        // THE THING THAT FLOOR IS: not a crease. There is no dark seam in that
+        // photograph at all. It is the two leaves' inner margins, both rising
+        // towards the spine and both falling away from the lamp, meeting. The
+        // Otsu cut lands INSIDE it, so the paper is parted there — which is
+        // right, and gives two pages — and then the shave that separates two
+        // touching regions eats fifty pixels off each of them, which is not.
+        // Fifty pixels is the last bar and a half of every system.
+        //
+        // A drawn crease is what the earlier version of this case had, and it
+        // does not reproduce the fault: with a real dark seam the split lands
+        // on the seam and both edges are right. The absence of the crease is
+        // the case.
+        const { c, g } = frame(1500, 1100, '#1c1a17');
+        const aimed = [[150, 86], [1046, 78], [1052, 1040], [156, 1032]];
+        const facing = [[1052, 78], [1640, 86], [1646, 1042], [1046, 1040]];
+        const seen = [[1052, 78], [1500, 82], [1500, 1040], [1046, 1040]];
+        // A part set close to the paper's edge, the way an urtext cello part
+        // is: on his photograph the systems run to within 4% of the fold, which
+        // is exactly why fifty pixels of margin is not fifty pixels of nothing.
+        musicOn(g, aimed, '#c9c5bd', 1, 0.035);
+        musicOn(g, facing, '#c9c5bd', 1, 0.035);
+        // Down into the gutter on this page…
+        const into = g.createLinearGradient(880, 0, 1049, 0);
+        into.addColorStop(0, 'rgb(0 0 0 / 0)');
+        into.addColorStop(1, 'rgb(0 0 0 / 0.31)');
+        g.fillStyle = into;
+        g.fillRect(880, 78, 170, 962);
+        // …and back out of it on the next one. No seam between them.
+        const outOf = g.createLinearGradient(1049, 0, 1180, 0);
+        outOf.addColorStop(0, 'rgb(0 0 0 / 0.31)');
+        outOf.addColorStop(1, 'rgb(0 0 0 / 0)');
+        g.fillStyle = outOf;
+        g.fillRect(1049, 78, 132, 962);
+        weather(c);
+        return { c, pages: [norm(aimed, c), norm(seen, c)], spread: true, partial: [1] };
+      },
+    },
+    {
       // THE OUTER EDGE OF A BOOK PAGE CURLS, and where it curls it goes into
       // shadow — a dark band down the page, a few per cent wide, in the same
       // place at the top, the middle and the bottom. That is every test a
@@ -500,6 +579,8 @@ const report = await page.evaluate(async (want, keep) => {
     let threw = null;
     let probe = null;
     try { found = findPages(luma, w, h); } catch (e) { threw = String(e); }
+    let shown = [];
+    try { shown = papersIn(c, c.width, c.height) ?? []; } catch { shown = []; }
     try { probe = probePages(luma, w, h); } catch (e) { probe = [{ verdict: String(e) }]; }
 
     // Each found outline against the page it best fits, and how much of it is
@@ -521,6 +602,15 @@ const report = await page.evaluate(async (want, keep) => {
         spans,
       };
     });
+    const scoredShown = shown.map((quad) => {
+      let best = 0;
+      let onto = -1;
+      truth.forEach((real, i) => {
+        const score = iou(quad, real);
+        if (score > best) { best = score; onto = i; }
+      });
+      return { iou: best, onto, spill: areaOf(quad) ? 1 - truth.reduce((sum, real) => sum + overlap(quad, real), 0) / areaOf(quad) : 1 };
+    });
     // A page nobody outlined is a miss; it is not the same failure as a loose
     // outline and is counted apart.
     const missed = truth.filter((_, i) => !scored.some((s) => s.onto === i && s.iou > 0.3)).length;
@@ -540,6 +630,9 @@ const report = await page.evaluate(async (want, keep) => {
       // outline that is exactly right still reads as spill. It is scored on the
       // pages that are wholly in shot — which includes, in every case here, the
       // page the shutter would actually keep.
+      shown: scoredShown.map((s) => s.iou),
+      shownLoose: scoredShown.map((s) => (partial ?? []).includes(s.onto)),
+      shownSpill: scoredShown.map((s) => s.spill),
       loose: scored.map((s) => (partial ?? []).includes(s.onto)),
       spans: scored.some((s) => s.spans),
       probe,
@@ -561,22 +654,29 @@ if (keepAt) {
 const why = process.argv.includes('--why');
 const pct = (n) => `${(n * 100).toFixed(1)}%`;
 console.log('');
-console.log('case                                       want  got   IoU    spill  spans  missed');
+console.log('case                                       want  got   IoU   SHOWN   spill  spans  missed');
 let worstSpill = 0;
 let spans = 0;
 let wrongCount = 0;
 let ious = [];
+let shownIous = [];
+let worstShownSpill = 0;
 for (const row of report.rows) {
   const iou = row.iou.length ? row.iou.reduce((a, b) => a + b, 0) / row.iou.length : 0;
   const spill = row.spill.length ? Math.max(...row.spill) : 0;
   const scored = row.spill.filter((_, i) => !row.loose?.[i]);
   if (row.want) ious.push(...row.iou);
+  if (row.want) shownIous.push(...(row.shown ?? []));
+  const shownScored = (row.shownSpill ?? []).filter((_, i) => !row.shownLoose?.[i]);
+  worstShownSpill = Math.max(worstShownSpill, shownScored.length ? Math.max(...shownScored) : 0);
+  const shownIou = row.shown?.length ? row.shown.reduce((a, b) => a + b, 0) / row.shown.length : 0;
   worstSpill = Math.max(worstSpill, scored.length ? Math.max(...scored) : 0);
   if (row.spans) spans++;
   if (row.got !== row.want) wrongCount++;
   console.log(
     `${row.name.padEnd(42)}${String(row.want).padStart(3)}${String(row.got).padStart(5)}`
     + `${(row.iou.length ? pct(iou) : '   —').padStart(8)}`
+    + `${(row.shown?.length ? pct(shownIou) : '   —').padStart(8)}`
     + `${(row.spill.length ? pct(spill) : '   —').padStart(8)}`
     + `${(row.spans ? 'YES' : '.').padStart(7)}`
     + `${String(row.missed).padStart(8)}`
@@ -606,9 +706,17 @@ for (const row of report.rows) {
 const meanIou = ious.length ? ious.reduce((a, b) => a + b, 0) / ious.length : 0;
 console.log('');
 console.log(`mean IoU over every outline drawn on paper   ${pct(meanIou)}`);
+// SHOWN is the outline the scanner DRAWS and shoots with — the finder plus the
+// guard. It is the one the player sees and the only one that decides what is
+// kept, and until this round no corpus measured it. On eighteen of nineteen
+// cases it is the same number; on `book page whose GUTTER side falls into
+// shadow` the guard is the whole answer.
+const meanShown = shownIous.length ? shownIous.reduce((a, b) => a + b, 0) / shownIous.length : 0;
+console.log(`…and of the outline the scanner SHOWS        ${pct(meanShown)}`);
 console.log(`cases where the page count was wrong         ${wrongCount} of ${report.rows.length}`);
 console.log(`cases where ONE outline spanned two pages    ${spans}`);
 console.log(`worst spill (outline that was not paper)     ${pct(worstSpill)}`);
+console.log(`…worst spill of the outline SHOWN            ${pct(worstShownSpill)}`);
 console.log('   scored on the pages wholly in the picture; a page the frame cuts is not one');
 // SPILL IS A GATE, not a printed number. An outline can be exactly the right
 // COUNT and still be welded to a strip of the facing page — which is the
