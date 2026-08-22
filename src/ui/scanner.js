@@ -498,7 +498,11 @@ async function capture() {
     let page = canvas;
     if (cleanUp) {
       try {
-        page = straightenCanvas(canvas, canvas.width, canvas.height, corners);
+        // One page of several: the fold between this page and the one beside
+        // it has already been found, and nothing downstream may move it back
+        // over the neighbour. See guardQuad in straighten.js.
+        page = straightenCanvas(canvas, canvas.width, canvas.height, corners,
+          { oneOfSeveral: all.length > 1 });
       } catch {
         page = canvas;    // the photograph as taken is still a page
       }
@@ -609,7 +613,11 @@ async function reshape(file, thumbnail) {
   const { w, h } = sizeOfImage(image);
   let page;
   try {
-    page = straightenCanvas(image, w, h, chosen.quad);
+    // AS GIVEN: these corners were dragged onto the paper by hand, and the
+    // corrections `straightenCanvas` applies to a FOUND outline — pushing a
+    // side out to the frame, letting the whole thing out by a tenth — are all
+    // ways of second-guessing a guess. See `asGiven` in straighten.js.
+    page = straightenCanvas(image, w, h, chosen.quad, { asGiven: true });
   } catch {
     say('those edges could not be made into a page');
     return;

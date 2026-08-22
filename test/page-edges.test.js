@@ -182,7 +182,15 @@ describe('an open book', () => {
     const [left, right] = found;
     expect(left[1][0] * W).toBeGreaterThan(70);
     expect(left[1][0] * W).toBeLessThan(90);
-    expect(right[0][0] * W).toBeCloseTo(left[1][0] * W, 0);
+    // EACH PAGE STOPS AT ITS OWN EDGE OF THE CREASE, not at the middle of it.
+    // The two used to be asserted equal, which put half the fold — shadow and
+    // glued spine, and not paper — down the inner margin of both pages. The
+    // seam is six pixels wide here, so the two edges sit a fold apart with the
+    // fold between them.
+    expect(right[0][0] * W).toBeGreaterThan(left[1][0] * W);
+    expect(right[0][0] * W - left[1][0] * W).toBeLessThan(8);
+    expect(left[1][0] * W).toBeLessThan(80);
+    expect(right[0][0] * W).toBeGreaterThan(80);
   });
 
   it('keeps one wide page in one piece when there is no fold in it', () => {

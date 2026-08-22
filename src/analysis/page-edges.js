@@ -779,9 +779,37 @@ function trimToInk(quad, luma, w, h) {
 //   after it has been squared up, so a tilted book does not hide it.
 
 const HALF_FLOOR = 0.09;      // how much of the frame one page of a spread must fill
-const GUTTER_BAND = 0.16;     // how far from the middle the fold is looked for
+// HOW FAR FROM THE MIDDLE THE FOLD IS LOOKED FOR, and why it is no longer a
+// sixth.
+//
+// A spread photographed whole has its gutter down the middle, and for as long
+// as that was the only book this was shown, a sixth either way was plenty. It
+// is not the picture a phone over a music stand takes. THE COMPLAINT: "when i
+// scan a page from a book, it doesnt single out the page but instead get part
+// of the page to the right or left." That is the phone held close over ONE
+// page — which is what the scanner asks for, in those words — with a band of
+// the facing page still catching the edge of the frame. The fold in that
+// picture is a fifth of the way in, not half, so neither witness to it was ever
+// looked for where it was, `pagesTogether` never fired, and one outline went
+// round the page and its neighbour's edge.
+//
+// MEASURED, `npm run scan:pages`, case "book, ONE page, a BAND of the next one
+// in shot": 72.1% IoU and the outline spanning two pages, against 96.4% when
+// the gutter is dark enough to part the two leaves in the mask by itself.
+const GUTTER_BAND = 0.34;     // how far from the middle the fold is looked for
 const GUTTER_DARK = 0.92;     // how much darker than the paper beside it the fold must be
 const GUTTER_WIDE = 0.14;     // and how narrow: a spine is a line, a shadow is a wash
+// A fold has MUSIC ON BOTH SIDES OF IT. It is the guard that makes a search
+// this wide safe: the other thing that looks like a gutter is the page's own
+// margin, and there is nothing printed beyond that. The floor is a share of the
+// page's ink rather than an absolute, and it is low because the far side of an
+// off-centre fold is a BAND of a page rather than a page — a fifth of the frame
+// carrying a fifth of what is printed.
+const GUTTER_INK = 0.08;
+// How much of its own outline the bright thing has to fill before a fold is
+// looked for in it at all. The same 0.6 `looksLikePaper` has always used — see
+// the note on `canSplit` in findPages.
+const FILL_OUTLINE = 0.6;
 
 // Two pages, when the fold has cut the paper into two bright regions.
 function pagesApart(candidates, w, h) {
@@ -842,6 +870,7 @@ function foldIn(quad, luma, w, h) {
   const STEPS = 90;
   const bands = [[0.06, 0.36], [0.36, 0.66], [0.66, 0.96]];
   const found = [];
+  const widths = [];
   for (const [from, to] of bands) {
     const profile = acrossPage(quad, luma, w, h, from, to, STEPS);
     if (!profile) return null;
@@ -877,10 +906,13 @@ function foldIn(quad, luma, w, h) {
     while (closes < STEPS - 1 && profile[closes + 1] < level) closes++;
     if ((closes - opens + 1) / STEPS > GUTTER_WIDE) return null;
     found.push((at + 0.5) / STEPS);
+    widths.push((closes - opens + 1) / STEPS);
   }
   // The same seam each time, give or take the slant of the book.
   if (Math.max(...found) - Math.min(...found) > 0.06) return null;
-  return found;
+  // …and how wide it is, so the pages can be cut at its EDGES rather than down
+  // the middle of it. See `pagesTogether`.
+  return { at: found, wide: Math.max(...widths) };
 }
 
 // The other witness to a fold, and the one that works when the light does not.
@@ -926,17 +958,38 @@ function foldByInk(quad, luma, w, h) {
   const left = inkIn(0, bestFrom);
   const right = inkIn(bestTo, INK_COLS);
   if (!left || !right) return null;
-  if (Math.min(left, right) < grid.total * 0.25) return null;
+  if (Math.min(left, right) < grid.total * GUTTER_INK) return null;
   const middle = INK_INSET + ((bestFrom + bestTo) / 2 / INK_COLS) * (1 - 2 * INK_INSET);
-  return [middle, middle, middle];
+  // NO WIDTH FROM THIS ROUTE, deliberately. `pagesTogether` cuts at the EDGES
+  // of a fold when it knows how wide the fold is, and what this one measures is
+  // not the fold: it is the blank corridor between the two pages' printing,
+  // which is the gutter PLUS both inner margins. Cutting at its edges would
+  // shave the inner margin off both pages and land the knife on the first
+  // inked column, a grid patch — twenty pixels — from the first notehead. The
+  // middle of the corridor is the gutter, near enough, and margin is paper.
+  return { at: [middle, middle, middle], wide: 0 };
 }
 
 // One wide sheet, cut in two down the fold. The halves are the quadrilateral
 // split along the seam, which is where a spread's two pages actually are.
+// THE ASPECT GATE IS GONE, and it is worth saying what it was for. It read
+// `if (across < down * 1.08) return null` — one page is not this wide, so do
+// not go looking for a fold in it — and it was a cheap way of never asking the
+// question of a single sheet. It also ruled out the picture the complaint is
+// about: a phone close over ONE page of a book is looking at something the
+// shape of a page, with a band of the next one down the side, and that is
+// exactly what "not this wide" throws away. What replaces it is the evidence
+// itself: a crease dark and narrow and in the same place at the top, the middle
+// and the bottom, or a blank corridor with music printed on BOTH sides of it.
+// A sheet of music has neither.
+//
+// AND THE FAR SIDE NEED NOT BE A PAGE. This used to refuse unless BOTH halves
+// looked like paper, which is the same bug one step further down: the band of
+// the facing page in the corner of the frame is a tenth of the picture, not
+// half of it, so the refusal fired on precisely the case the fold was found
+// for. What matters is that the half being KEPT is a page; the other half is
+// being thrown away, and a scrap is a perfectly good thing to throw away.
 function pagesTogether(quad, luma, w, h) {
-  const across = (dist(quad[0], quad[1]) + dist(quad[3], quad[2])) / 2;
-  const down = (dist(quad[0], quad[3]) + dist(quad[1], quad[2])) / 2;
-  if (across < down * 1.08) return null;         // one page is not this wide
   // The crease first, because it is measured down the page in three bands and
   // so carries the book's lean; the ink corridor is one straight line and is
   // what answers when there is no crease to see.
@@ -946,16 +999,31 @@ function pagesTogether(quad, luma, w, h) {
   if (!map) return null;
   // A straight seam through the three readings, so a book that leans keeps its
   // pages square rather than gaining a wedge of its neighbour.
-  const slant = (fold[2] - fold[0]) / 2;
-  const middle = (fold[0] + fold[1] + fold[2]) / 3;
-  const top = through(map, middle - slant / 2, 0);
-  const bottom = through(map, middle + slant / 2, 1);
+  const seam = fold.at;
+  const slant = (seam[2] - seam[0]) / 2;
+  const middle = (seam[0] + seam[1] + seam[2]) / 3;
+  // CUT AT THE EDGES OF THE FOLD, NOT DOWN THE MIDDLE OF IT. A gutter is fifty
+  // pixels of shadow and glued spine, and it is not paper: cutting through its
+  // centre gives every page of a book a dark stripe down its inner margin,
+  // which is background inside the outline — exactly what the spill column
+  // counts. MEASURED, `npm run scan:pages`, case "book, ONE page, a BAND of the
+  // next one in shot": 12.2% of one outline was not paper, cut down the middle.
+  // Half a fold either way is a little of the page's own margin at worst, and a
+  // margin is paper.
+  const half = Math.max(0, Math.min(0.06, (fold.wide ?? 0) / 2));
+  const cut = (u, v) => through(map, u, v);
   const halves = [
-    [quad[0], top, bottom, quad[3]],
-    [top, quad[1], quad[2], bottom],
+    [quad[0], cut(middle - slant / 2 - half, 0), cut(middle + slant / 2 - half, 1), quad[3]],
+    [cut(middle - slant / 2 + half, 0), quad[1], quad[2], cut(middle + slant / 2 + half, 1)],
   ];
-  if (!halves.every((half) => looksLikePaper(half, null, w, h, HALF_FLOOR))) return null;
-  return halves;
+  const keep = halves.filter((half) => looksLikePaper(half, null, w, h, HALF_FLOOR));
+  if (!keep.length) return null;
+  // The BIGGEST half has to be one of the ones being kept. A cut that throws
+  // away the largest thing in the picture is not a book being read, it is a
+  // page being lost, and there is no undo for that.
+  const biggest = quadArea(halves[0]) >= quadArea(halves[1]) ? halves[0] : halves[1];
+  if (!keep.includes(biggest)) return null;
+  return keep;
 }
 
 const withinPicture = (quad, w, h) => quad.map(([x, y]) => [
@@ -996,16 +1064,29 @@ export function findPages(luma, w, h) {
     if (!found.every(Boolean)) continue;
     const quad = trimToInk(found, luma, w, h);
     if (!hasInk(inkGrid(quad, luma, w, h))) continue;
-    candidates.push({ region, quad, area: quadArea(quad) });
+    const area = quadArea(quad);
+    candidates.push({ region, quad, area, fill: area ? fillOf(region, quad, w) / area : 0 });
   }
   candidates.sort((a, b) => b.area - a.area);
 
   const spread = pagesApart(candidates, w, h);
   if (spread) return spread.map((quad) => withinPicture(quad, w, h));
-  const best = candidates.find(({ quad, region }) => pagesTogether(quad, luma, w, h)
-    || looksLikePaper(quad, fillOf(region, quad, w), w, h));
+  // A SHAPE THAT DOES NOT FILL ITS OWN OUTLINE IS NOT A BOOK EITHER, and this
+  // is the guard the split has to carry now that it is allowed to look for a
+  // fold anywhere. `looksLikePaper` has always refused a bright thing that
+  // fills less than 0.6 of the quadrilateral drawn round it; `pagesTogether`
+  // never had to, because the aspect gate kept it away from anything that was
+  // not obviously two pages wide. MEASURED, `npm run scan:pages`, case "sheet
+  // on stand, BRIGHT wall behind": the wall is a RING round the dark stand, its
+  // corners are the corners of the picture, and it fills 11.7% of them — and
+  // with the fold looked for freely it came back as a spread, two outlines,
+  // 100% of one of them not paper at all, in front of the page it was standing
+  // behind.
+  const canSplit = ({ quad, fill }) => fill >= FILL_OUTLINE && pagesTogether(quad, luma, w, h);
+  const best = candidates.find((one) => canSplit(one)
+    || looksLikePaper(one.quad, fillOf(one.region, one.quad, w), w, h));
   if (!best) return [];
-  const flat = pagesTogether(best.quad, luma, w, h);
+  const flat = canSplit(best);
   if (flat) return flat.map((half) => withinPicture(half, w, h));
   return [withinPicture(best.quad, w, h)];
 }
@@ -1106,7 +1187,8 @@ export function probePages(luma, w, h) {
       quad: quad.map(([x, y]) => [Math.round(x), Math.round(y)]),
       fill: fillOf(region, quad, w) / (quadArea(quad) || 1),
       paper: looksLikePaper(quad, fillOf(region, quad, w), w, h),
-      split: !!pagesTogether(quad, luma, w, h),
+      split: fillOf(region, quad, w) / (quadArea(quad) || 1) >= FILL_OUTLINE
+        && !!pagesTogether(quad, luma, w, h),
     });
     row.verdict = !hasInk(grid) ? 'no ink' : (row.split ? 'a spread' : (row.paper ? 'a page' : 'not paper-shaped'));
     return row;

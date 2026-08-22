@@ -267,6 +267,56 @@ const report = await page.evaluate(async (want, keep) => {
       },
     },
     {
+      // THE COMPLAINT, and the one a book on a stand actually produces: the
+      // phone is over ONE page, close enough to fill the frame with it, and a
+      // BAND OF THE FACING PAGE is still in the picture down one side. The fold
+      // is nowhere near the middle of what the camera sees — it is a fifth of
+      // the way in — and both witnesses to a fold used to be looked for in the
+      // middle third only, so there was no fold, no spread, and one outline
+      // over the page and its neighbour's edge.
+      // "when i scan a page from a book, it doesnt single out the page but
+      // instead get part of the page to the right or left."
+      name: 'book, ONE page, a BAND of the next one in shot',
+      draw() {
+        const { c, g } = frame(1500, 1100, '#2b2823');
+        // The facing page is CUT BY THE PICTURE, which is what "part of the
+        // page to the right or left" is: the phone is over one page and the
+        // next one runs off the side of the frame rather than sitting neatly
+        // inside it.
+        const beside = [[-140, 100], [330, 80], [336, 1032], [-134, 1012]];
+        const seen = [[0, 94], [330, 80], [336, 1032], [0, 1016]];
+        const aimed = [[386, 78], [1442, 88], [1436, 1038], [380, 1028]];
+        musicOn(g, beside, '#eae5dd');
+        musicOn(g, aimed, '#efeae2');
+        // A FAINT seam, because that is the one that goes wrong: a book
+        // pressed flat under a lamp has a gutter a few levels darker than its
+        // paper, so the two leaves are ONE bright region and nothing in the
+        // mask parts them.
+        g.fillStyle = 'rgb(204 197 186)';
+        g.fillRect(336, 80, 50, 955);
+        weather(c);
+        return { c, pages: [norm(seen, c), norm(aimed, c)], spread: true, partial: [0] };
+      },
+    },
+    {
+      // The same thing with the phone further over: a SLIVER of the next page,
+      // too little to be worth keeping as a page of its own. The answer here is
+      // one page, cut at the fold — not one page with a strip of its neighbour
+      // welded to it, which is what the spill column is counting.
+      name: 'book, ONE page, a SLIVER of the next one',
+      draw() {
+        const { c, g } = frame(1500, 1100, '#2b2823');
+        const beside = [[-140, 100], [150, 88], [156, 1030], [-134, 1012]];
+        const aimed = [[206, 78], [1442, 88], [1436, 1038], [200, 1028]];
+        musicOn(g, beside, '#eae5dd');
+        musicOn(g, aimed, '#efeae2');
+        g.fillStyle = 'rgb(204 197 186)';
+        g.fillRect(156, 88, 50, 950);
+        weather(c);
+        return { c, pages: [norm(aimed, c)] };
+      },
+    },
+    {
       // The complaint, drawn: a part lying on a desk barely darker than it is.
       // Paper and desk are one bright region, so the "page" is the frame.
       name: 'sheet on a WHITE desk',
@@ -372,7 +422,7 @@ const report = await page.evaluate(async (want, keep) => {
   const shots = [];
   for (const one of CASES) {
     if (want && !one.name.includes(want)) continue;
-    const { c, pages: truth, spread, apart } = one.draw();
+    const { c, pages: truth, spread, apart, partial } = one.draw();
     const g = c.getContext('2d', { willReadFrequently: true });
     // The same reading the scanner takes: one luma value a pixel, at the width
     // the live outline is searched at.
@@ -422,7 +472,15 @@ const report = await page.evaluate(async (want, keep) => {
       threw,
       missed,
       iou: scored.map((s) => s.iou),
+      onto: scored.map((s) => s.onto),
       spill: scored.map((s) => s.spill),
+      // SPILL CANNOT BE SCORED AGAINST A PAGE THE PICTURE CUTS OFF. Where the
+      // facing page runs off the side of the frame, the paper in the truth
+      // stops at the frame's edge and the paper in the room does not, so an
+      // outline that is exactly right still reads as spill. It is scored on the
+      // pages that are wholly in shot — which includes, in every case here, the
+      // page the shutter would actually keep.
+      loose: scored.map((s) => (partial ?? []).includes(s.onto)),
       spans: scored.some((s) => s.spans),
       probe,
     });
@@ -451,8 +509,9 @@ let ious = [];
 for (const row of report.rows) {
   const iou = row.iou.length ? row.iou.reduce((a, b) => a + b, 0) / row.iou.length : 0;
   const spill = row.spill.length ? Math.max(...row.spill) : 0;
+  const scored = row.spill.filter((_, i) => !row.loose?.[i]);
   if (row.want) ious.push(...row.iou);
-  worstSpill = Math.max(worstSpill, spill);
+  worstSpill = Math.max(worstSpill, scored.length ? Math.max(...scored) : 0);
   if (row.spans) spans++;
   if (row.got !== row.want) wrongCount++;
   console.log(
@@ -464,6 +523,12 @@ for (const row of report.rows) {
     + `${row.threw ? `  THREW ${row.threw}` : ''}`,
   );
   if (!why) continue;
+  // Each outline on its own. The row above is the mean IoU and the WORST spill,
+  // which says a case is bad without saying which of its outlines is.
+  row.iou.forEach((one, i) => {
+    console.log(`      outline ${i + 1}: IoU ${pct(one)}  spill ${pct(row.spill[i])}`
+      + `  onto page ${row.onto?.[i] ?? '?'}`);
+  });
   for (const one of row.probe ?? []) {
     console.log(`      region ${pct(one.size ?? 0)} of frame  ink ${pct(one.ink ?? 0)}`
       + ` (before the trim ${pct(one.inkBefore ?? 0)}, kept ${pct(one.trimmed ?? 0)})`
@@ -484,6 +549,15 @@ console.log(`mean IoU over every outline drawn on paper   ${pct(meanIou)}`);
 console.log(`cases where the page count was wrong         ${wrongCount} of ${report.rows.length}`);
 console.log(`cases where ONE outline spanned two pages    ${spans}`);
 console.log(`worst spill (outline that was not paper)     ${pct(worstSpill)}`);
+console.log('   scored on the pages wholly in the picture; a page the frame cuts is not one');
+// SPILL IS A GATE, not a printed number. An outline can be exactly the right
+// COUNT and still be welded to a strip of the facing page — which is the
+// complaint the two "book, ONE page" cases above are drawn from, and which
+// `spans` cannot see, because the strip is not most of a page. The bar is the
+// worst the corpus has ever read on a case that was right (9.0%, the page on a
+// white desk) with a little room over it.
+const SPILL_MOST = 0.12;
+if (worstSpill > SPILL_MOST) console.log(`  ^ over the bar of ${pct(SPILL_MOST)}`);
 if (errors.length) console.log(`page errors: ${errors.length}\n${errors.join('\n')}`);
 await browser.close();
-process.exit(spans || wrongCount ? 1 : 0);
+process.exit(spans || wrongCount || worstSpill > SPILL_MOST ? 1 : 0);

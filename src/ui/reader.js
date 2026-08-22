@@ -4011,7 +4011,7 @@ async function changeEdges(pageNumber) {
   const { w, h } = sizeOfImage(image);
   let page;
   try {
-    page = straightenCanvas(image, w, h, chosen.quad);
+    page = straightenCanvas(image, w, h, chosen.quad, { asGiven: true });
   } catch {
     say('those edges could not be made into a page');
     return;

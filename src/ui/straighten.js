@@ -219,6 +219,22 @@ function trustEdges(luma, w, h, quad) {
  * It is skipped for an outline that is plainly one page of several — a spread
  * photographed open, where each sheet is half the frame. Pushing the sides of
  * one of those out to the frame would swallow the facing page.
+ *
+ * "PLAINLY ONE OF SEVERAL" USED TO MEAN "UNDER 45% OF THE FRAME WIDE", and that
+ * is a description of a spread photographed whole rather than of the picture a
+ * phone over a music stand takes. Held close over ONE page of a book, with a
+ * band of the next one catching the side of the frame, the page being aimed at
+ * is seventy per cent of the width — so the guard ran, found the neighbour's
+ * music printed just beyond the fold, concluded that a boundary with print
+ * beyond it is not a paper edge, and pushed the outline back over the page next
+ * door. The finder had just done the work of telling the two apart.
+ * MEASURED, `npm run scan:edges`: the kept page came back 1119 pixels wide
+ * where the page aimed at is 1010, with the facing page's marks over 3% of its
+ * inner edge.
+ *
+ * So the caller says. When the finder returned more than one page, the boundary
+ * between them is the one thing in the picture that IS known, and nothing here
+ * may move it.
  */
 function guardQuad(source, width, height, quad) {
   if (!quad) return null;
@@ -333,11 +349,21 @@ function trimBackground(page) {
  * few per cent short no longer costs a system of music, and there is no undo
  * for a system of music.
  */
-function widen(quad, by = 0.1) {
+// `downOnly` is for a page of a BOOK, and it is the whole of what widening may
+// do to one. Sideways is where its neighbour is: a tenth on a page seventy per
+// cent of the frame wide is fifty pixels over the gutter and onto the next
+// leaf's margin, which is the thing the fold was found to prevent. MEASURED,
+// `npm run scan:edges`: the page kept off a book came back 1119 pixels wide
+// where the page aimed at is 1010, carrying 3% of the facing page's marks along
+// its inner edge. Up and down there is no neighbour and the old reason stands
+// unchanged — an outline a few per cent short of the top of a page costs a
+// system, and there is no undo for a system.
+function widen(quad, by = 0.1, downOnly = false) {
   const cx = quad.reduce((sum, [x]) => sum + x, 0) / quad.length;
   const cy = quad.reduce((sum, [, y]) => sum + y, 0) / quad.length;
+  const across = downOnly ? 0 : by;
   return quad.map(([x, y]) => [
-    Math.max(0, Math.min(1, cx + (x - cx) * (1 + by))),
+    Math.max(0, Math.min(1, cx + (x - cx) * (1 + across))),
     Math.max(0, Math.min(1, cy + (y - cy) * (1 + by))),
   ]);
 }
@@ -367,7 +393,9 @@ export function papersIn(source, width, height) {
     const found = findPages(lumaOf(source, w, h), w, h);
     // The scanner draws these on the screen and shoots with them, so they are
     // guarded here too — otherwise the outline a player is shown is not the one
-    // the page is cut to.
+    // the page is cut to. And never when there is more than one page in the
+    // frame: see guardQuad.
+    if (found.length > 1) return found;
     return found.map((quad) => guardQuad(source, width, height, quad));
   } catch {
     return [];
@@ -474,9 +502,34 @@ function cropToBright(source, width, height) {
   return out;
 }
 
-// The whole of it, on a canvas: square, then unlit. Returns a canvas — the
-// original if nothing could be done with it.
-export function straightenCanvas(source, width, height, known = null) {
+/**
+ * The whole of it, on a canvas: square, then unlit. Returns a canvas — the
+ * original if nothing could be done with it.
+ *
+ * `asGiven` IS THE DIFFERENCE BETWEEN AN OUTLINE AND AN INSTRUCTION.
+ *
+ * Everything above is written for a quadrilateral the FINDER produced, which is
+ * a guess and is treated as one: `guardQuad` overrules a boundary that has
+ * print beyond it, `widen` lets it out by a tenth in case it landed short, and
+ * `trimBackground` takes back whatever that let in. Three corrections, all of
+ * them right, all of them for a guess.
+ *
+ * A person dragging a corner onto the corner of the paper is not guessing, and
+ * the thing they are most often doing is cutting the FACING PAGE off — which is
+ * precisely the case those three corrections are built to undo. MEASURED,
+ * `npm run scan:edges`, on a book photographed the way the scanner asks for it
+ * (close, the page filling the frame top to bottom, a strip of the next page in
+ * shot): the crop dragged onto one page came back as the WHOLE PHOTOGRAPH,
+ * 1360x1000 where the page dragged was 1000x1000, with a third of its
+ * right-hand edge made of the facing page. `guardQuad` saw a sheet running off
+ * the top and the bottom of the picture, concluded there were no edges to be
+ * seen inside it, and returned the frame. "when i trim after taking the photo
+ * in scan, it doesnt update to what i cropped it to, but instead stays the
+ * same."
+ *
+ * So a hand crop is taken as given: cut where it says, and nowhere else.
+ */
+export function straightenCanvas(source, width, height, known = null, { asGiven = false, oneOfSeveral = false } = {}) {
   // Down to a size the device can hold before a single pixel is read. The
   // quadrilateral is measured in the picture's own 0–1 terms, so nothing about
   // the search changes; only the amount of memory it takes.
@@ -492,10 +545,15 @@ export function straightenCanvas(source, width, height, known = null) {
   }
   // Guarded whether it was found here or handed in: see guardQuad. The scanner
   // hands in the corners the player saw, and those went straight through.
-  const found = guardQuad(src, w, h, known ?? paperIn(src, w, h));
+  // A hand crop skips all of it — see `asGiven` above.
+  const start = known ?? paperIn(src, w, h);
+  // `oneOfSeveral`: this is one page of a book and the finder has already said
+  // where the other one is, so the guard — which would push this outline back
+  // over it — is not run. See guardQuad.
+  const found = asGiven || oneOfSeveral ? start : guardQuad(src, w, h, start);
   // Let out before it is cut: see widen. The margin is the difference between
   // an outline that is a little wrong and a page that has lost a line of music.
-  const quad = found ? widen(found) : null;
+  const quad = found && !asGiven ? widen(found, 0.1, oneOfSeveral) : found;
   let page = null;
   try {
     page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);
@@ -505,9 +563,10 @@ export function straightenCanvas(source, width, height, known = null) {
   if (!page) {
     page = scratch(w, h);
     page.getContext('2d').drawImage(src, 0, 0, w, h);
-  } else if (quad) {
-    // Only when there was an outline: a page found by brightness alone has no
-    // margin of ours around it to take back off.
+  } else if (quad && !asGiven) {
+    // Only when there was an outline, and never on a hand crop: a page found by
+    // brightness alone has no margin of ours around it to take back off, and a
+    // page somebody cut by hand has no margin of ours around it either.
     page = trimBackground(page);
   }
   try {
