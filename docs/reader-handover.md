@@ -90,6 +90,74 @@ mid-system", which was false once a C-clef and then a treble were read
 mid-system. Where the two ever disagree again, this file is the one that was
 measured.
 
+## PLAYING A SCAN FROM A BAR — the route that reads no notes at all
+
+This is not the reader and it does not use it except for two things: where the
+barlines are, and where each notehead sits between the staff lines. It exists
+because the route through PITCHES fails all at once — one misread clef puts a
+whole system a thirteenth out and the review then places nothing anywhere — and
+because a player does not need the notes named to ask "play me from here".
+
+**Tap a bar, hear that moment.** `bar-map.js` cuts a page reading into bars,
+`bar-sync.js` puts them over the pages as targets, and two taps while the take
+plays give a map. `report.js` gained `playTakeFrom(seconds)` so the page can ask
+for a moment without a second copy of the player.
+
+**THE COORDINATE IS POSITION, NOT BAR NUMBER**, and looking at the page is what
+settled it. `npm run scan:barmap` draws the boxes on the photograph: on the
+Bärenreiter BWV 1007 page — ten systems, two printed bars each — five come back
+cut exactly right and four have extra dividers where a stem was read as a
+barline, 31 boxes for 20 bars. Numbering those would make a system with six
+boxes take three times as long to play as the identical one beside it. A system
+is 1.0 wide however it was cut, so a false divider stops being an error and
+becomes somewhere else to tap.
+
+**The marks are kept per RECORDING**, because an anchor is a second of one take.
+Cropping a page, replacing one or reordering them clears them — an anchor is a
+position in a layout, and a layout that is thrown away takes its marks with it.
+
+**AND THE APP PLACES THE SYSTEMS ITSELF.** `placeSystems` in scan-align.js
+slides every system along the take by shape — direction, and step against leap —
+reusing `findStart`'s vocabulary and thresholds rather than growing a second
+copy. Three guards, each put there by a measurement:
+
+```
+  a rigid comparison cannot survive a note left out    3 of 10 placed
+  free skipping makes the score meaningless            every system 1.00, margin 0.00
+  the leading skips must be charged for too            10 of 10, exact, on a clean take
+  and how much music came BEFORE it is a second witness — see below
+```
+
+That last one is the one to keep. On the Bach, whose whole page is one arpeggio
+figure, system 1 placed at 5.6s where it starts at 12.7s — matched to the
+previous copy of its own figure, score 0.96, clear margin, and in order. Neither
+order nor pace can see a slip of one system. The number of noteheads before a
+system has to sit on the same line as the rest, and it did not: 16 notes off
+where the four good ones were 0, 1, 1 and 4.
+
+```
+  npm run scan:guess — a take built from a real page, tempo moving, a tenth of
+  the notes left out and a twentieth played wrong
+
+                          placed   between anchors   past the last   two taps
+    Mozart page 1          7/10     median 0.42s      9.25s          2.79s
+    Bach Prélude (repeats) 4/10     median 0.70s      4.60s          1.85s
+    worst ANCHOR itself    1.09s and 1.13s — nothing placed in the wrong place
+```
+
+**The two failures are kept apart and must stay apart.** Between the anchors the
+map beats the straight line it replaces by four times. Past the last anchor it
+extrapolates and drifts, and the answer to THAT is one more tap, not a cleverer
+match. Averaging them into one number hides which is which and points the next
+round at the wrong problem.
+
+**What it does not do.** It does not survive a take that repeats bars — practice
+is not a performance, and every anchor here assumes time moves forward through
+the page once. Segmenting a practice session into attempts and placing each
+separately is the next piece, and it is bigger than this one was. At about a
+fifth of the notes gone it places almost nothing; that is the refusal working,
+and the unit tests hold it to "right or refused" rather than to how many.
+
 ## THE LATEST ROUND — THE SCAN, not the reader, and the three complaints it came from
 
 Nothing below this section moved. This round is about the pipe between the
