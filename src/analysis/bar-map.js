@@ -114,6 +114,60 @@ export function barsInReadingOrder(layout) {
   return out;
 }
 
+/**
+ * The noteheads of each system, in reading order — the shape a take is placed
+ * against. One entry a system, in the same order `barsInReadingOrder` counts
+ * them, so a placement's system number is a position in the map.
+ */
+export function systemsOf(layout) {
+  const out = [];
+  for (const page of layout ?? []) {
+    for (const stave of page?.staves ?? []) {
+      const heads = stave?.heads ?? [];
+      const bars = stave?.bars ?? [];
+      if (!heads.length && bars.length < 2) continue;    // the same skip as above
+      out.push([...heads].sort((a, b) => (a.x ?? 0) - (b.x ?? 0)));
+    }
+  }
+  return out;
+}
+
+/**
+ * Anchors the app worked out for itself, from what was played.
+ *
+ * A system placed in the take says "this system began at that second", which is
+ * exactly one anchor at the system's own position. A system that could not be
+ * placed contributes nothing and the map runs straight across it — which is
+ * what it did before any of this existed, so a refusal costs nothing that was
+ * ever there.
+ *
+ * They are marked `guessed` so a caller can draw them differently and so a tap
+ * can overrule one: a place somebody says they heard is worth more than a place
+ * a shape-match believes, and it must never be the other way round.
+ */
+export function guessedAnchors(placements) {
+  return (placements ?? [])
+    .filter((one) => one?.sure && Number.isFinite(one.time))
+    .map((one) => ({ at: one.system, time: one.time, guessed: true, score: one.score }));
+}
+
+/**
+ * Hand-made marks, and the guesses under them.
+ *
+ * A tap wins outright — over a guess at the same place, and over any guess
+ * BETWEEN two taps, because two taps say the tempo across that stretch and a
+ * guess inside it that disagrees would bend the line away from what somebody
+ * heard with their own ears.
+ */
+export function mergeAnchors(hand, guessed) {
+  const mine = tidyAnchors(hand);
+  if (!mine.length) return tidyAnchors(guessed);
+  const first = mine[0].at;
+  const last = mine.at(-1).at;
+  const outside = (guessed ?? []).filter((one) => one.at < first || one.at > last);
+  return tidyAnchors([...outside, ...mine]);
+}
+
 /** Which bar a point on a page is in, or -1. Page and point in 0–1 terms. */
 export function barAtPoint(bars, page, x, y) {
   // The one whose box holds the point; and when a tap lands between two

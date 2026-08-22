@@ -1226,6 +1226,10 @@
        choosing one, and a target you cannot see is not one. */
     .scan-bar.marking { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.4); }
     .scan-bar.marked { box-shadow: inset 0 0 0 2px rgb(var(--primary-rgb) / 0.85); }
+    /* A place the app found for itself: dashed, because it is the app's claim
+       and not something anybody said they heard. A tap over one wins. */
+    .scan-bar.found { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.45); }
+    .scan-bar.found.marked { box-shadow: inset 0 0 0 2px rgb(var(--primary-rgb) / 0.85); }
     .scan-bar.sounding { background: rgb(var(--primary-rgb) / 0.18); }
     .bar-sync-say { margin: 0; flex: 1 1 14ch; font-size: 0.85rem; opacity: 0.75; }
     .bar-sync-bar {

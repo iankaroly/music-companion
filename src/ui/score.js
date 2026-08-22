@@ -1250,6 +1250,9 @@ async function renderScanTab() {
       play: playTakeFrom,
       follow: followPlayback,
       anchors: takeId != null ? (payload.barAnchors?.[takeId] ?? []) : [],
+      // What was played, so the layer can place the systems itself before
+      // anybody taps anything.
+      notes: ready?.played ?? null,
       onAnchors: (marks) => {
         saveBarAnchors(scoreId, takeId, marks).catch(() => {
           /* the marks still work for this sitting */
