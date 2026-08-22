@@ -30,6 +30,7 @@ import {
   systemsOf, guessedAnchors, mergeAnchors,
 } from '../analysis/bar-map.js';
 import { placeSystems } from '../analysis/scan-align.js';
+import { placeRuns, goesAt, sayRuns } from '../analysis/practice-runs.js';
 
 /** The anchors the shape-matcher found, if it found any. */
 function guessFrom(layout, notes) {
@@ -64,18 +65,32 @@ export function attachBarSync(container, {
   // system a thirteenth out. Systems it cannot place contribute nothing and the
   // map runs straight across them, which is what it did before any of this.
   let guessed = [];
+  // THE GOES THIS TAKE IS MADE OF. A practice recording is not one pass down the
+  // page: it is a dozen partial ones, and a bar played six times has six
+  // answers. Where there is more than one go, every press is answered from the
+  // goes rather than from a single climbing map — see practice-runs.js.
+  let runs = [];
   try {
-    if (notes?.length) guessed = guessFrom(layout, notes);
-  } catch { guessed = []; }
+    if (notes?.length) {
+      const systems = systemsOf(layout);
+      runs = placeRuns(systems, notes).filter((one) => one.sure);
+      guessed = guessFrom(layout, notes);
+    }
+  } catch { guessed = []; runs = []; }
+  const practising = runs.length > 1;
+  // Which go was offered last for each bar, so pressing the same bar again
+  // walks back through the earlier ones instead of replaying the same second.
+  const offered = new Map();
 
   let hand = [...(given ?? [])];
   // Everything the map runs on: the taps win, and see mergeAnchors for why they
   // win over the guesses BETWEEN them as well as the ones on top of them.
   const anchorsNow = () => mergeAnchors(hand, guessed);
   let anchors = anchorsNow();
-  // Marking is the job only when nothing — tapped or guessed — has produced a
-  // map. A page the app has placed for itself opens ready to play from.
-  let marking = anchors.length < 2;
+  // Marking is the job only when nothing — tapped, guessed, or worked out from
+  // the goes — has produced an answer. A page the app has placed for itself
+  // opens ready to play from.
+  let marking = anchors.length < 2 && runs.length < 1;
   let heard = 0;                        // the moment the take is at, in seconds
   let lit = -1;
   const boxes = new Map();              // bar index -> the element drawn for it
@@ -94,6 +109,11 @@ export function attachBarSync(container, {
     // found the page itself knows why bars they never touched already play, and
     // a player whose page could not be placed is not left wondering why it
     // asked them to tap.
+    if (practising) {
+      line.textContent = `${sayRuns(runs)} — tap a bar to hear the last go at it`;
+      onSay?.(line.textContent);
+      return;
+    }
     const found = guessed.length && !hand.length
       ? `found ${guessed.length} place${guessed.length === 1 ? '' : 's'} in this take by itself — `
       : '';
@@ -168,6 +188,14 @@ export function attachBarSync(container, {
       // WHERE YOU ARE NOW, said by tapping it. The moment recorded is the one
       // being HEARD rather than the one the clock is at — `follow` hands back
       // the latency-corrected time for exactly this reason (see report.js).
+      // A tap says "this bar was sounding at this second", which pins the GO
+      // that second falls in rather than the page as a whole — on a take with
+      // several goes there is no single map for it to pin.
+      const mine = runs.find((one) => heard >= one.from && heard <= one.to);
+      if (mine) {
+        mine.anchors = [...mine.anchors.filter((one) => Math.abs(one.at - bar.at) > 1e-4),
+          { at: bar.at, time: heard }].sort((a, b) => a.at - b.at);
+      }
       hand = [...hand.filter((one) => Math.abs(one.at - bar.at) > 1e-4),
         { at: bar.at, time: heard }];
       anchors = anchorsNow();
@@ -178,6 +206,26 @@ export function attachBarSync(container, {
       // already placed the page for itself.
       if (anchors.length >= 2) { marking = false; showMode(); return; }
       say();
+      return;
+    }
+    if (practising) {
+      const goes = goesAt(runs, bar);
+      if (!goes.length) {
+        line.textContent = 'nothing in this take was found at that bar';
+        return;
+      }
+      // THE LAST GO FIRST, because it is the one after you fixed whatever was
+      // wrong — and then backwards, one press at a time, round to the start.
+      const was = offered.get(bar.index);
+      const next = was === undefined ? goes.length - 1 : (was - 1 + goes.length) % goes.length;
+      offered.set(bar.index, next);
+      const which = goes.length - next;
+      line.textContent = goes.length === 1
+        ? 'one go at this bar'
+        : `${goes.length} goes at this bar — playing the `
+          + `${which === 1 ? 'last' : `${which}${which === 2 ? 'nd' : which === 3 ? 'rd' : 'th'} from last`}`
+          + '; press again for the one before';
+      play?.(goes[next].time);
       return;
     }
     const at = timeOfBar(anchors, bar);
