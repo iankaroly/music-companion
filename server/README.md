@@ -725,9 +725,20 @@ of that concerto part in every format tried.
 
 A `rhythmScore` of 0.261 means three quarters of the bars do not add up. That is
 a real measurement of a hard, photographed book — and it is exactly why the
-quality report exists rather than a "success" flag. Nothing here can tell you
+quality report exists rather than a "success" flag. Nothing in the SERVICE can tell you
 whether the notes that *were* read are the right PITCHES; that needs the
-original. Treat a low score as "correct it in MuseScore and upload that", which
+original.
+
+**There is now something that has one.** `npm run omr:truth`, in the app repo
+above this one, generates a page of music as a list of MIDI numbers, engraves it
+with LilyPond, photographs it, and scores what comes back as the longest run of
+the page's own notes IN THE ORDER PRINTED — so a reading that finds every
+notehead and names them all a third out scores zero. On a clean engraving handed
+straight in, Audiveris returns 86.6% of the notes in order; the same music
+photographed under a lamp and cut to the paper, 78.4%; and the same photograph
+squared up first — which is what the app used to send — 57.1%. That last gap is
+resampling: a staff line is one pixel of black on white, and this engine finds
+staves by looking for long dark runs. Treat a low score as "correct it in MuseScore and upload that", which
 is what the passthrough engine is for.
 
 None of this is an accuracy claim about the engines. It is evidence that the

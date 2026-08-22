@@ -61,7 +61,12 @@ const report = await page.evaluate(async (want, keep) => {
   // them, clipped to the quadrilateral the paper occupies. The ink matters —
   // it is what cuts a page into strips in a mask, and a finder tested on blank
   // paper is not tested.
-  const musicOn = (g, quad, tone) => {
+  // `density` is how much of the paper is printed on, and it exists because
+  // nothing in this corpus was ever a BUSY page. Every drawn sheet here reads
+  // 20-39% ink, a real photographed cadenza reads 56%, and the finder refuses
+  // anything over 62% as "not paper but ink" — so the case that fails was the
+  // one case never drawn. 1 is the old page; 3 is a page of semiquaver runs.
+  const musicOn = (g, quad, tone, density = 1) => {
     g.save();
     g.beginPath();
     quad.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
@@ -74,13 +79,17 @@ const report = await page.evaluate(async (want, keep) => {
     g.fill();
     g.clip();
     g.fillStyle = '#1a1814';
-    for (let system = 0; system < 8; system++) {
-      const y = top + h * (0.12 + system * 0.108);
+    const systems = Math.round(8 * density);
+    const step = 0.108 / density;
+    for (let system = 0; system < systems; system++) {
+      const y = top + h * (0.12 + system * step);
       for (let line = 0; line < 5; line++) {
-        g.fillRect(left + w * 0.08, y + line * (h * 0.009), w * 0.84, Math.max(1, h * 0.0016));
+        g.fillRect(left + w * 0.08, y + line * (h * 0.009 / density), w * 0.84, Math.max(1, h * 0.0016));
       }
-      for (let n = 0; n < 6; n++) {
-        g.fillRect(left + w * (0.12 + n * 0.13), y - h * 0.014, w * 0.08, h * 0.006);
+      const groups = Math.round(6 * density);
+      for (let n = 0; n < groups; n++) {
+        g.fillRect(left + w * (0.12 + n * (0.78 / groups)), y - h * 0.014,
+          w * (0.08 / density) * 1.6, h * 0.006 * density);
       }
     }
     g.restore();
@@ -314,6 +323,25 @@ const report = await page.evaluate(async (want, keep) => {
         g.fillRect(156, 88, 50, 950);
         weather(c);
         return { c, pages: [norm(aimed, c)] };
+      },
+    },
+    {
+      // A BUSY PAGE, and the one nothing here has ever drawn. Every other sheet
+      // in this corpus reads 20-39% ink; a photographed cadenza of semiquaver
+      // runs reads 56%, and a page engraved by LilyPond at that density reads
+      // 65%. The finder used to refuse anything over 62% as "not paper but
+      // ink" — so the busier the music, the likelier the app was to fall back
+      // to cropping the bright part of the frame, with no straightening at all
+      // and nobody told. MEASURED, `npm run omr:truth`, before: a page found
+      // and squared reads 85.5% of its notes in order, the same page merely
+      // cropped reads 54.0%.
+      name: 'sheet of DENSE music, semiquaver runs',
+      draw() {
+        const { c, g } = frame(1200, 1600, '#2b2823');
+        const quad = [[150, 150], [1050, 150], [1050, 1450], [150, 1450]];
+        musicOn(g, quad, '#efeae2', 2.5);
+        weather(c);
+        return { c, pages: [norm(quad, c)] };
       },
     },
     {

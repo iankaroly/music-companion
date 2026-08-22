@@ -235,7 +235,7 @@ async function chooseScore(id) {
 // Exported so the import can be measured from outside — see
 // tools/scan-once-check.mjs, which is what keeps a scanned page from being
 // straightened a second time.
-export async function addPaper(files, { name: given = null, raws = null, straightened = false } = {}) {
+export async function addPaper(files, { name: given = null, raws = null, quads = null, straightened = false } = {}) {
   const list = [...files];
   if (list.length === 0) return null;
   status(`reading ${list.length === 1 ? list[0].name : `${list.length} pages`}…`);
@@ -283,6 +283,16 @@ export async function addPaper(files, { name: given = null, raws = null, straigh
     // the reader, the crop, the page reader — is measuring the paper.
     const { straightenFile, readableImage, unreadableReason } = await import('./straighten.js');
     const flattened = [];
+    // The photograph behind each page and the corners in it are built in THIS
+    // loop rather than passed straight through, because a page that cannot be
+    // decoded is dropped from `flattened` and the other two arrays have to drop
+    // it too. They did not: `pages` came out short, `raws` came out full length,
+    // and every page after the refused one was paired with the photograph of
+    // its neighbour. Latent while the photographs were only there for "change
+    // the edges later"; not latent now that they decide WHICH PICTURE the
+    // recogniser is sent for which page.
+    const keptRaws = [];
+    const keptQuads = [];
     // A page that cannot be decoded is refused HERE, before anything is
     // written, and named while the player still knows which one it was. It used
     // to be stored anyway and the score simply would not open afterwards.
@@ -307,10 +317,19 @@ export async function addPaper(files, { name: given = null, raws = null, straigh
         if (straightened) {
           if (!await readableImage(file)) throw new Error(unreadableReason(file));
           flattened.push(file);
-          continue;
+        } else {
+          status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
+          flattened.push(await straightenFile(file));
         }
-        status(`straightening ${pages.length === 1 ? 'the page' : `page ${at + 1} of ${pages.length}`}…`);
-        flattened.push(await straightenFile(file));
+        keptRaws.push((raws ?? pages)[at] ?? null);
+        // Null when the scanner had no corners for it — which is what the
+        // Straighten chip being OFF means: the shot is kept as photographed and
+        // nothing was found in it. The recogniser then looks for the paper
+        // itself, and over an open book it will find two sheets, decline to
+        // guess which one this page was, and send the whole photograph. "As
+        // taken" is what was asked for; it is written down here so it is read
+        // rather than discovered.
+        keptQuads.push(quads?.[at] ?? null);
       } catch (err) {
         refused.push(`page ${at + 1}: ${why(err, 'it could not be read')}`);
       }
@@ -321,8 +340,14 @@ export async function addPaper(files, { name: given = null, raws = null, straigh
       pages: flattened,
       // The photographs as taken, so the edges can be changed later. From the
       // scanner these are the frames it kept; from the picker they are the
-      // files themselves, which is the same thing.
-      raws: raws ?? pages,
+      // files themselves, which is the same thing. One per page KEPT, in step
+      // with `pages` — see keptRaws above.
+      raws: keptRaws,
+      // …and where the paper was in each of them, when the scanner knew. A page
+      // out of the picker has none and the finder looks again when one is
+      // needed; a page of a BOOK cannot be found again after the fact, because
+      // the photograph has two sheets in it and nothing says which was kept.
+      quads: keptQuads,
     });
     // Some pages in, some refused: the part is still worth having, and the ones
     // that did not make it have to be said out loud rather than quietly missing.
@@ -696,7 +721,7 @@ export async function scanPages() {
     // the player saw and could move. Doing it again is the bug this flag exists
     // to prevent — see addPaper.
     return await addPaper(taken.pages, {
-      name: name || 'Scanned score', raws: taken.raws, straightened: true,
+      name: name || 'Scanned score', raws: taken.raws, quads: taken.quads, straightened: true,
     });
   } catch (err) {
     status(err.message, 'bad');

@@ -244,7 +244,7 @@ async function askService(url, timeoutMs) {
 }
 
 /** The pages of a stored scan, as files to send. */
-function filesFrom(payload, name) {
+async function filesFrom(payload, name) {
   const stem = String(name || 'score').replace(/[^\w. -]/g, '_');
 
   // A PDF goes as it is. It is the best input the pipeline can have — it can
@@ -254,19 +254,52 @@ function filesFrom(payload, name) {
     return [new File([payload.data], `${stem}.pdf`, { type: 'application/pdf' })];
   }
 
-  // Photographs go as the SQUARED-UP pages, not the originals. The app has
-  // already found the sheet of paper in each photograph, pulled it flat and
-  // taken the lighting off it, and that is a better page than the snapshot it
-  // came from. The service combines them into one document, in this order.
+  // PHOTOGRAPHS GO AS PHOTOGRAPHS, CUT TO THE PAPER — not as the squared-up
+  // pages, which is what they used to be and which is why a scan could come
+  // back as music nobody played.
+  //
+  // The squared page is the right page to READ FROM. A photograph of a book
+  // taken at arm's length is unpleasant to read music off, and the reader wants
+  // a rectangle with the shadows taken out. But every pixel of that rectangle
+  // has been resampled to make it, and a staff line is one pixel of black on
+  // white: rotate a raster three degrees and each line becomes two grey ones.
+  // Audiveris finds staves by looking for long dark runs, and deskews the page
+  // itself — on the marks, not on the pixels, which is the better way round.
+  //
+  // MEASURED, `npm run omr:truth` — 352 notes engraved by LilyPond,
+  // photographed, and scored as the longest run of the page's own notes that
+  // comes back in the order they are printed:
+  //
+  //   the engraving itself, no camera        86.6%    <- the ceiling
+  //   the photograph, as taken               85.5%
+  //   the photograph, cut to the paper       78.4%    <- what now goes
+  //   the page the app squared up            49.7%    <- what used to go
+  //
+  // Cut rather than whole, because the cut is what keeps the facing page and
+  // the table out of it — and a rectangle of original pixels costs nothing to
+  // take.
   const pages = payload?.pages ?? [];
-  if (pages.length) {
-    return pages.map((page, i) => new File(
-      [page],
-      `${stem}-page-${String(i + 1).padStart(3, '0')}.${page.type === 'image/png' ? 'png' : 'jpg'}`,
-      { type: page.type || 'image/jpeg' },
-    ));
+  const raws = payload?.raws ?? [];
+  const quads = payload?.quads ?? [];
+  if (!pages.length) throw new Error('there are no pages in that score to send');
+  const { pageForReading } = await import('../ui/straighten.js');
+  const named = (file, i) => new File(
+    [file],
+    `${stem}-page-${String(i + 1).padStart(3, '0')}.${file.type === 'image/png' ? 'png' : 'jpg'}`,
+    { type: file.type || 'image/jpeg' },
+  );
+  const out = [];
+  for (const [i, page] of pages.entries()) {
+    const raw = raws[i];
+    let best = null;
+    if (raw) {
+      // The corners the scanner kept, when it kept any: on a book they are the
+      // only thing that says which of the two sheets this page was.
+      best = await pageForReading(raw, quads[i] ?? null).catch(() => null);
+    }
+    out.push(named(best ?? page, i));
   }
-  throw new Error('there are no pages in that score to send');
+  return out;
 }
 
 /** Was this the network giving out, rather than the service answering? */
@@ -301,7 +334,7 @@ async function sending(where, init, onProgress = null) {
  */
 export async function readWithOmr(payload, { name = 'score', onProgress = null, signal = null } = {}) {
   const url = omrUrl();
-  const files = filesFrom(payload, name);
+  const files = await filesFrom(payload, name);
 
   const form = new FormData();
   for (const file of files) form.append('file', file);

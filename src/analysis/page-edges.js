@@ -382,7 +382,29 @@ const INK_ROWS = 88;          // …and down it
 const INK_PAPER = 0.75;       // "paper" for a row is this quantile of the row
 const INK_DARK = 0.92;        // and ink is this much darker than that
 const INK_FLOOR = 0.012;      // a page carries at least this much ink
-const INK_CEILING = 0.62;     // and this much means it is not paper but ink
+// HOW MUCH INK IS TOO MUCH TO BE PAPER, and it was set where no page had ever
+// been measured.
+//
+// Every sheet drawn in `npm run scan:pages` reads between 20% and 39% ink, so
+// nothing in this project ever asked what a BUSY page reads. A photograph of a
+// real cadenza — semiquaver runs, ten systems — reads 56%; the same music
+// engraved by LilyPond and read off the paper reads 65%. At 0.62 a page of hard
+// music was refused for being too printed, `findPage` returned null, and
+// `straightenCanvas` fell back to cropping the bright part of the frame: no
+// squaring up, no shadow taken off, no page found, and nothing said.
+//
+// MEASURED, `npm run omr:truth` — the page of 352 notes, photographed, read by
+// Audiveris and scored as the longest run of its own notes that comes back in
+// order: the photograph as taken 85.5%, and the "page" the app made of it
+// 54.0%. Thirty-one points, and not one of them the camera's fault.
+//
+// What the ceiling is actually for is a bright TEXTURED thing that is not paper
+// — wood grain, a patterned cloth, a keyboard — because a uniformly dark object
+// reads almost no ink at all by this measure (the paper level is taken per row,
+// so a dark row's own level is dark). 0.8 leaves the densest music this project
+// can draw (75.6%, `scan:pages` case "sheet of DENSE music") under the bar with
+// room, and still refuses a shape that is four-fifths marks.
+const INK_CEILING = 0.8;      // and this much means it is not paper but ink
 const INK_SPREAD = 0.45;      // and it reaches at least this far across the page
 const BLANK_EDGE = 0.12;      // a blank band this wide at an edge may not be margin
 const KEEP_MARGIN = 0.08;     // …and what is left of it when the rest is cut

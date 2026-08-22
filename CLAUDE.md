@@ -93,12 +93,38 @@ npm run scan:key-gate    the GATE on the one failure this reader is not allowed
                          to have: a note named from a key the page could not
                          agree. `scan:studies --phone` with a non-zero exit.
                          MUST print `notes NAMED on one of them   0`.
-npm run scan:pages       the SCANNER, not the reader: fourteen drawn camera
+npm run scan:pages       the SCANNER, not the reader: seventeen drawn camera
                          frames whose page corners are known, scored as IoU, as
                          SPILL (how much of the blue outline is not paper) and
                          as SPANS (one outline over two pages of a book).
-                         95.3% mean IoU, worst spill 9%, 0 spans. Run it
-                         whenever page-edges.js or the scanner UI moves.
+                         94.4% mean IoU, worst spill 9%, 0 spans, 0 page counts
+                         wrong. Run it whenever page-edges.js or the scanner UI
+                         moves. Three of the seventeen are the cases a phone
+                         over a music stand actually makes and nothing drew
+                         until now: one page of a book with a BAND of the next
+                         in shot, the same with a SLIVER, and a page of DENSE
+                         semiquaver runs (which was refused outright as "not
+                         paper but ink" until this round).
+npm run scan:edges       WHAT IS CUT IS WHAT WAS ASKED FOR, on both doors: the
+                         corners somebody DRAGGED (taken as given — none of the
+                         corrections `straightenCanvas` applies to a guess) and
+                         the page the SHUTTER keeps off a book (no wider than
+                         the page aimed at, none of the facing page in it).
+npm run omr:truth        THE ONLY THING HERE THAT KNOWS WHETHER THE NOTES ARE
+                         THE RIGHT NOTES. A page generated as MIDI numbers,
+                         engraved by LilyPond, photographed, brought in through
+                         the app's own path and sent to the pipeline; scored as
+                         the longest run of the page's own notes that comes back
+                         IN THE ORDER PRINTED. Needs `lilypond` and an OMR
+                         engine installed. Today: the engraving itself 86.6%,
+                         the photograph 85.5%, the photograph cut to the paper
+                         78.4% (what is sent), the squared-up page 57.1% (what
+                         used to be). Run it whenever anything between the
+                         shutter and the upload moves.
+npm run omr:payload      and the other half of that: it drives the app's own
+                         send, catches the upload before it leaves (no service
+                         is contacted) and checks that what is in it is the
+                         photograph cut to ONE sheet.
 npm run scan:import      THE SCAN, not the render: the three marked pages
                          photographed (SHRINK), straightened and de-shadowed
                          the way an import does it, read at READ_ACROSS and

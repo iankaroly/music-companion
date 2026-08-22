@@ -101,7 +101,9 @@
     "score:correct": "node tools/correct-notes-check.mjs",
     "score:coverage": "node tools/xml-coverage-check.mjs",
     "score:sync": "node tools/audio-sync-check.mjs",
-    "scan:edges": "node tools/scan-edges-check.mjs"
+    "scan:edges": "node tools/scan-edges-check.mjs",
+    "omr:truth": "node tools/omr-truth-check.mjs",
+    "omr:payload": "node tools/omr-payload-check.mjs"
   },
   "keywords": [],
   "author": "",

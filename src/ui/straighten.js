@@ -405,6 +405,25 @@ export function papersIn(source, width, height) {
 // The quadrilateral, drawn onto a rectangle. Every pixel of the output is
 // sampled from where it came from in the photograph — bilinear, so a page
 // straightened is not a page made of stairs.
+//
+// AND ONE SAMPLE PER OUTPUT PIXEL IS ENOUGH, which was measured the hard way
+// and is worth writing down so it is not built twice.
+//
+// One bilinear tap where the map SHRINKS reads two source pixels of four and
+// throws the rest away, so a staff line one pixel wide is in one row of the
+// answer and gone from the next. That is real, and averaging nine taps per
+// pixel instead of one does fix it: MEASURED on a photographed cadenza, the
+// same page squared the same size came back from Audiveris with 284 notes
+// against 242.
+//
+// It buys nothing where it is actually used. The page this makes is the page a
+// PLAYER READS — `npm run scan:import` is unmoved at 53.4% recall over the
+// three marked pages, 565 of 1059, with or without it — and the page the
+// RECOGNISER reads is not this one any more: it is the photograph cut to the
+// paper, unresampled, because a resampled staff line is what was costing the
+// scan its notes (see `pageForReading` below, and `npm run omr:truth`). Nine
+// samples a pixel is forty-eight million samples on a phone for a page nobody
+// measured a gain on.
 export function pullSquare(source, width, height, quad) {
   const size = rectFor(quad, width, height);
   const scale = Math.min(1, MOST / size.width);
@@ -453,6 +472,98 @@ export function pullSquare(source, width, height, quad) {
   }
   ctx.putImageData(image, 0, 0);
   return out;
+}
+
+/**
+ * The page, cut out of the photograph WITHOUT RESAMPLING A SINGLE PIXEL.
+ *
+ * THE PAGE A RECOGNISER SHOULD BE GIVEN, and it is not the page a player should
+ * be shown. Squaring up is worth having on screen — a photograph of a book
+ * taken at arm's length is unpleasant to read from and the reader wants a
+ * rectangle — but every pixel of that rectangle has been resampled, and a
+ * staff line is one pixel of black on white. Rotating a raster by three degrees
+ * turns each of those lines into two grey ones, and Audiveris finds staves by
+ * looking for long dark runs.
+ *
+ * MEASURED, `npm run omr:truth` — 352 engraved notes, photographed, scored as
+ * the longest run of the page's own notes that comes back in order:
+ *
+ *   the photograph, as taken                 85.5%
+ *   the page the app squared up              49.7%
+ *
+ * It is not the camera and it is not the size: both are the same music at the
+ * same scale. It is the resampling. Audiveris deskews a page itself, and does
+ * it better than we can, because it does it on the marks rather than on the
+ * pixels.
+ *
+ * So what goes to the recogniser is the photograph, cut to the sheet of paper
+ * found in it — a rectangle of the original pixels, copied, never interpolated.
+ * The crop still does the one job squaring up was doing for the recogniser,
+ * which is keeping the facing page and the table out of the picture.
+ */
+export function paperCrop(source, width, height, quad) {
+  if (!quad) return null;
+  // A little proud of the outline, because a crop cannot recover what it cuts
+  // and a margin costs a recogniser nothing.
+  const out = 0.02;
+  const left = Math.max(0, Math.min(...quad.map(([x]) => x)) - out);
+  const right = Math.min(1, Math.max(...quad.map(([x]) => x)) + out);
+  const top = Math.max(0, Math.min(...quad.map(([, y]) => y)) - out);
+  const bottom = Math.min(1, Math.max(...quad.map(([, y]) => y)) + out);
+  const x = Math.round(left * width);
+  const y = Math.round(top * height);
+  const w = Math.round((right - left) * width);
+  const h = Math.round((bottom - top) * height);
+  if (w < 40 || h < 40) return null;
+  const cut = scratch(w, h);
+  // Source and destination the same size: a copy, not a resample.
+  cut.getContext('2d').drawImage(source, x, y, w, h, 0, 0, w, h);
+  return cut;
+}
+
+/**
+ * The file to send to a RECOGNISER, out of the photograph behind a page.
+ *
+ * The corners come from the scanner when the scanner took the shot — the ones
+ * the player saw outlined and could move — and are looked for here when they do
+ * not, which is what a page chosen out of the phone's library has. When nothing
+ * in the picture is convincingly one sheet of paper, the photograph goes as it
+ * is: it is still a photograph of the music, and it is still better than a
+ * resampled page. Null only when the bytes cannot be decoded at all.
+ *
+ * Brought down to `READ_ACROSS` on its long edge, because that is the size
+ * Audiveris renders at and a phone upload is somebody's data. That shrink is
+ * `drawImage`'s, which is a proper filter over every source pixel and is
+ * axis-aligned — it is not the rotation that costs the staff lines.
+ */
+const READ_ACROSS = 2600;
+
+export async function pageForReading(file, quad = null) {
+  const image = await readableImage(file);
+  if (!image) return null;
+  const { w, h } = sizeOfImage(image);
+  if (!w || !h) return null;
+  let found = quad;
+  if (!found) {
+    const pages = papersIn(image, w, h);
+    // One sheet or nothing. Two means a book, and without the corners the
+    // scanner kept there is no saying which of them this page was.
+    found = pages.length === 1 ? pages[0] : null;
+  }
+  const cut = found ? paperCrop(image, w, h, found) : null;
+  const from = cut ?? image;
+  const fromW = cut ? cut.width : w;
+  const fromH = cut ? cut.height : h;
+  const shrink = Math.min(1, READ_ACROSS / Math.max(fromW, fromH));
+  let out = cut;
+  if (shrink < 1) {
+    out = scratch(fromW * shrink, fromH * shrink);
+    out.getContext('2d').drawImage(from, 0, 0, out.width, out.height);
+  }
+  if (!out) return file;                       // nothing to cut and nothing to shrink
+  const blob = await new Promise((resolve) => out.toBlob(resolve, 'image/jpeg', 0.92));
+  if (!blob?.size) return file;
+  return new File([blob], jpegName(file.name ?? 'page'), { type: 'image/jpeg' });
 }
 
 // No convincing quadrilateral: crop to the bright part of the frame instead.

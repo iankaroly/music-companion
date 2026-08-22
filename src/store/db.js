@@ -144,7 +144,7 @@ export async function saveScore({ name, xml, partIndex = 0, parts = [] }) {
 // It can be read, paged through and written on; it cannot be marked up against
 // a take, because nothing in a picture of a page says which note is which.
 export async function savePagesScore({
-  name, source, pageCount, data = null, pages = null, password = null, raws = null,
+  name, source, pageCount, data = null, pages = null, password = null, raws = null, quads = null,
 }) {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -157,7 +157,13 @@ export async function savePagesScore({
       // Kept because changing the edges later means going back to it: a crop of
       // a crop cannot return what the first one cut off. It roughly doubles
       // what a scanned part takes up, and is what makes the pages editable.
-      tx.objectStore('score-pages').put({ scoreId: req.result, source, data, pages, password, raws });
+      // `quads` is where the paper was in each of those photographs, in the
+      // photograph's own 0-1 terms, when the scanner knew — which is what lets
+      // the recogniser be sent ONE page of a book rather than the spread. Null
+      // for a part chosen out of the picker; the finder looks again for those.
+      tx.objectStore('score-pages').put({
+        scoreId: req.result, source, data, pages, password, raws, quads,
+      });
     };
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
@@ -506,7 +512,7 @@ export async function replacePages(scoreId, pages) {
 // the score is left alone, and only THAT page's measurements are forgotten —
 // where its staves are, where the music sits on it — because they are facts
 // about the picture that has just been replaced.
-export async function replaceOnePage(scoreId, index, file) {
+export async function replaceOnePage(scoreId, index, file, quad = undefined) {
   const db = await openDB();
   const row = await loadScorePages(scoreId);
   if (!row?.pages?.[index]) return null;
@@ -515,6 +521,18 @@ export async function replaceOnePage(scoreId, index, file) {
   if (row.layout) next.layout = row.layout.map((page, i) => (i === index ? null : page));
   if (row.crops) next.crops = row.crops.map((crop, i) => (i === index ? null : crop));
   if (row.sizes) next.sizes = row.sizes.map((size, i) => (i === index ? null : size));
+  // WHERE THE PAPER IS, when the caller has just been told by hand. The
+  // recogniser is sent the photograph cut to these corners, so a page whose
+  // edges are corrected weeks later and NOT recorded here would be recognised
+  // off the corners the shutter guessed — the crop fixed on screen and not in
+  // the notes. `undefined` means "leave it alone"; null means "there is no
+  // longer a quadrilateral for this page", which is what a crop taken off the
+  // squared page rather than off the photograph leaves behind.
+  if (quad !== undefined) {
+    const quads = row.quads ? [...row.quads] : new Array(row.pages.length).fill(null);
+    quads[index] = quad;
+    next.quads = quads;
+  }
   await new Promise((resolve, reject) => {
     const tx = db.transaction(['score-pages'], 'readwrite');
     tx.objectStore('score-pages').put(next);
@@ -533,6 +551,12 @@ export async function savePageOrder(scoreId, order) {
   const next = { ...row };
   if (row.pages) next.pages = kept.map((i) => row.pages[i]).filter(Boolean);
   if (row.layout) next.layout = kept.map((i) => row.layout[i] ?? null);
+  // The photograph behind each page and the corners in it move WITH the page.
+  // They did not, and it did not show while they were only there for "change
+  // the edges later"; it shows now, because they decide which photograph the
+  // recogniser is sent for which page.
+  if (row.raws) next.raws = kept.map((i) => row.raws[i] ?? null);
+  if (row.quads) next.quads = kept.map((i) => row.quads[i] ?? null);
   if (row.source === 'pdf') return null;   // a PDF keeps its own page order
   await new Promise((resolve, reject) => {
     const tx = db.transaction(['score-pages', 'scores'], 'readwrite');

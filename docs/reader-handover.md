@@ -90,6 +90,113 @@ mid-system", which was false once a C-clef and then a treble were read
 mid-system. Where the two ever disagree again, this file is the one that was
 measured.
 
+## THE LATEST ROUND — THE SCAN, not the reader, and the three complaints it came from
+
+Nothing below this section moved. This round is about the pipe between the
+camera and the recogniser, and every number in it is new.
+
+**"when i scan a page from a book, it doesnt single out the page but instead get
+part of the page to the right or left."** The fold was only ever looked for down
+the MIDDLE of a bright shape (`GUTTER_BAND` a sixth either way), and
+`pagesTogether` refused to look at all unless the shape was 1.08x wider than
+tall and BOTH halves were page-sized. That describes a spread photographed
+whole. It does not describe the picture a phone over a music stand takes, which
+is one page filling the frame with a band of the next one catching the side —
+fold at a fifth, shape of a page, and the far half a scrap. The band is a third
+either way now, the aspect gate is gone, and the far half need not be a page.
+What replaces the gate is the evidence itself: a crease dark and narrow and in
+the same place at the top, the middle and the bottom, or a blank corridor with
+music printed on BOTH sides of it. A shape that fills less than 0.6 of its own
+outline is not looked in at all — that is what stops the wall behind a stand
+coming back as a spread, and it is the guard the aspect gate used to be.
+
+```
+  npm run scan:pages, two cases drawn from the complaint
+    book, ONE page, a BAND of the next    72.1% IoU, ONE OUTLINE OVER TWO PAGES
+                                       -> 84.1%, two outlines, the page aimed
+                                          at 92.1% with no spill
+    book, ONE page, a SLIVER of the next  94.4% IoU, 1.7% spill -> 95.5%, 0.5%
+  the fourteen cases already right       0 wrong counts, 0 spans, worst spill
+                                         9.0%, unmoved
+```
+
+**"when i trim after taking the photo in scan, it doesnt update to what i
+cropped it to, but instead stays the same."** True, and total rather than
+approximate. `straightenCanvas` put every outline through three corrections
+written for a GUESS: `guardQuad` pushes a side out to the frame when there is
+print beyond it (and keeps the WHOLE FRAME when the sheet reaches both edges of
+the picture, which is what filling the frame means), `widen` lets it out by a
+tenth, `trimBackground` takes some back. A crop dragged onto one leaf of a book
+trips all three — there IS print beyond that edge, it is the facing page. A hand
+crop is now taken as given. MEASURED, `npm run scan:edges`: the crop came back
+as the WHOLE PHOTOGRAPH, 1360x1000 where the page dragged was 1000x1000, a third
+of its right edge made of the facing page -> 1000x1000 and 3.45%. The scanner's
+own shutter ran the same guard a second time on a page that is one of several
+(the kept page 1109px wide where the page aimed at is 1010 -> 1040), and a page
+of a book is widened up and down only, because sideways is where its neighbour
+is.
+
+**"the conversion to musicxml through audiveris was nothing like the score."**
+Two things, and the second is the big one.
+
+*A busy page was not being found at all.* `INK_CEILING` — how much of a bright
+shape may be ink before it is not paper — was 0.62, and every sheet ever drawn
+in `scan:pages` reads 20–39%, so nothing in this project had asked what a page
+of semiquaver runs reads. A photographed cadenza reads 56%; the same music
+engraved by LilyPond reads 65%. Over the bar, `findPage` returns null,
+`straightenCanvas` falls back to cropping the bright part of the frame, and the
+player is told nothing. It is 0.8 now, with `scan:pages` case "sheet of DENSE
+music" (75.6% ink) drawn to hold it, and the other sixteen cases unmoved.
+
+*And the page being sent to the recogniser was the wrong page.* The app sent the
+SQUARED-UP page — the sheet found, pulled flat, the lighting divided out — on
+the reasoning that it is a better page than the snapshot. It is a better page to
+READ FROM and a much worse page to RECOGNISE: every pixel of it has been
+resampled, a staff line is one pixel of black on white, and rotating a raster
+three degrees turns each line into two grey ones. Audiveris finds staves by
+looking for long dark runs and deskews the page itself, on the marks rather than
+on the pixels. What goes now is the photograph CUT to the sheet of paper found
+in it — a rectangle of the original pixels, copied, never interpolated, brought
+down to 2600 on its long edge — which keeps the facing page and the table out of
+it without touching a pixel of the music. On a book the corners the scanner kept
+say which of the two sheets the page was, so they are stored with the
+photograph.
+
+**AND THE INSTRUMENT THAT SAYS SO IS NEW, because there was none.** Everything
+the pipeline reports — bars, notes, how many bars add up — is blind to whether
+the notes are the RIGHT notes; `server/README.md` says so in as many words. So
+`npm run omr:truth` generates a page of music as a list of MIDI numbers,
+engraves it with LILYPOND (a real engraver, and pointedly not this repo's own),
+photographs it the way a phone does, brings it in through the app's own path,
+sends it to the pipeline, and scores the longest run of the page's notes that
+comes back IN THE ORDER THEY ARE PRINTED. A reading that finds every notehead
+and names them all a third out scores zero.
+
+```
+  352 notes, engraved, photographed, read by Audiveris
+                                          notes  in order  recall  invented
+    the engraving itself, no camera         306       305   86.6%         1
+    the photograph, as taken                340       301   85.5%        39
+    the photograph, cut to the paper        318       276   78.4%        42   <- sent now
+    the page the app squared up             264       201   57.1%        63   <- sent before
+```
+
+The camera costs one point. The squaring cost twenty-eight, and it had been
+costing them since the day scans were first sent. `npm run omr:payload` is the
+other half of that: it drives the app's own send, catches the upload before it
+leaves (no service is contacted) and looks at what is in it, because the last
+time a fix was proved on the convenient path instead of the one a player takes
+it cost four rounds.
+
+**What this round did NOT do, said plainly.** It did not make the recognition
+right. 78.4% of the notes in order, on a clean engraving photographed under a
+lamp, is what this pipeline is worth today, and the ceiling with no camera at
+all is 86.6% — the gap to a hundred is Audiveris, not us. "Identical to the
+score" is not on the table and nothing here should imply it is. What moved is
+that the app has stopped taking twenty-eight points off the top before the
+recogniser sees the page, and that there is now a number that would notice if it
+started again.
+
 ## THE ROUND THAT WROTE THIS — three items closed, and where each number moved
 
 Everything below this section was true before it. These three are not.

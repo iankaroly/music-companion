@@ -737,8 +737,18 @@ function finish(result) {
   for (const image of strip.querySelectorAll('img')) URL.revokeObjectURL(image.src);
   strip.replaceChildren();
   // The photographs go with the pages, so the edges can still be changed
-  // tomorrow rather than only during the session that took them.
-  const taken = result ? { pages: result, raws: shots.map((shot) => shot.raw ?? null) } : null;
+  // tomorrow rather than only during the session that took them — and the
+  // CORNERS go with them, because the recogniser is sent the photograph cut to
+  // the paper rather than the squared page, and on a book the corners are the
+  // only thing that says which of the two sheets this page was. See
+  // `filesFrom` in omr-client.js.
+  const taken = result
+    ? {
+      pages: result,
+      raws: shots.map((shot) => shot.raw ?? null),
+      quads: shots.map((shot) => shot.corners ?? null),
+    }
+    : null;
   pages = [];
   shots = [];
   done?.(taken);
