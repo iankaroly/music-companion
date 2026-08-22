@@ -1,7 +1,7 @@
 {
   "name": "practice-partner",
   "version": "1.0.0",
-  "description": "A practice companion for anyone who plays a pitch — strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
+  "description": "A practice companion for anyone who plays a pitch \u2014 strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
@@ -103,7 +103,9 @@
     "score:sync": "node tools/audio-sync-check.mjs",
     "scan:edges": "node tools/scan-edges-check.mjs",
     "omr:truth": "node tools/omr-truth-check.mjs",
-    "omr:payload": "node tools/omr-payload-check.mjs"
+    "omr:payload": "node tools/omr-payload-check.mjs",
+    "omr:look": "node tools/omr-look-check.mjs",
+    "scan:book": "node tools/scan-book-check.mjs"
   },
   "keywords": [],
   "author": "",

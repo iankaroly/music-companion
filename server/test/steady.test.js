@@ -101,3 +101,58 @@ test('and a real page comes out in the clef and key it is printed in', () => {
   const keys = new Set([...out.xml.matchAll(/<fifths>(-?\d+)<\/fifths>/g)].map((m) => m[1]));
   assert.equal(keys.size, 1, `the page still has ${keys.size} different key signatures`);
 });
+
+// A RECOGNISER THAT MISSES THE BARLINES PUTS BOTH CLEFS IN ONE "MEASURE", and
+// that is the shape of the failure on a photographed page rather than a
+// rendered one. The Bärenreiter page of BWV 1007, photographed as a book, came
+// back as 4 measures for 20 printed bars — the first holding 192 of the 297
+// notes, declaring a TREBLE clef part way down a page that is bass clef
+// throughout, and then correcting itself to bass INSIDE the same measure. One
+// clef read per measure sees only the first of those, so the part looks like it
+// has one clef, nothing is an outlier, and the correction written for exactly
+// this mistake never runs. The opening read `E4 B4 G5 F5` where the paper says
+// `G2 D3 B3 A3`: the same music, every note a thirteenth out.
+test('a runaway measure is cut at its clef changes, and the wrong half re-read', () => {
+  // One "measure" of sixty notes in treble, the clef corrected to bass half way
+  // through, then three ordinary bars of bass. No bar of one line of music
+  // holds sixty notes; this is a page whose barlines were missed.
+  const wrong = Array.from({ length: 30 }, () => noteOf('E', 4)).join('');
+  const right = Array.from({ length: 30 }, () => noteOf('G', 2)).join('');
+  const runaway = `<measure number="1"><attributes><key><fifths>0</fifths></key>`
+    + `<clef><sign>G</sign><line>2</line></clef></attributes>${wrong}`
+    + `<attributes><clef><sign>F</sign><line>4</line></clef></attributes>${right}</measure>`;
+  const xml = bars([
+    runaway,
+    bar(2, { notes: noteOf('G', 2) }),
+    bar(3, { notes: noteOf('G', 2) }),
+    bar(4, { notes: noteOf('G', 2) }),
+  ]);
+  const out = steadyClefsAndKeys(xml);
+  assert.equal(out.clefsFixed, 1, 'the treble half of the runaway measure is re-read');
+  // E4 under a treble clef sits on the same line as G2 under a bass one, so the
+  // thirty wrong notes come back as G2 and the thirty right ones do not move.
+  const steps = [...out.xml.matchAll(/<step>([A-G])<\/step><octave>(\d+)<\/octave>/g)]
+    .map((m) => m[1] + m[2]);
+  assert.equal(steps.filter((s) => s === 'G2').length, 63, 'every note is now a G2');
+  assert.equal(steps.filter((s) => s === 'E4').length, 0, 'and none is still an E4');
+});
+
+test('a bar the length of a bar is left alone, however its clef moves', () => {
+  // The case the file says it will not touch: a cello line that really does
+  // change clef inside a bar. Four notes, a clef change, four more — a bar, not
+  // a page with its barlines missing. Nothing may move.
+  const before = Array.from({ length: 4 }, () => noteOf('G', 2)).join('');
+  const after = Array.from({ length: 4 }, () => noteOf('E', 4)).join('');
+  const real = `<measure number="1"><attributes><key><fifths>0</fifths></key>`
+    + `<clef><sign>F</sign><line>4</line></clef></attributes>${before}`
+    + `<attributes><clef><sign>G</sign><line>2</line></clef></attributes>${after}</measure>`;
+  const xml = bars([
+    real,
+    bar(2, { notes: noteOf('G', 2) }),
+    bar(3, { notes: noteOf('G', 2) }),
+    bar(4, { notes: noteOf('G', 2) }),
+  ]);
+  const out = steadyClefsAndKeys(xml);
+  assert.equal(out.clefsFixed, 0, 'a real mid-bar clef change is not a misreading');
+  assert.match(out.xml, /<step>E<\/step><octave>4<\/octave>/, 'and its notes stay where they are');
+});

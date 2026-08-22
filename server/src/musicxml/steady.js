@@ -61,6 +61,31 @@ export function keyAlter(fifths, step) {
   return 0;
 }
 
+// A BAR THAT IS NOT A BAR GETS SPLIT WHERE ITS CLEF CHANGES.
+//
+// Everything below reads ONE clef and ONE key per measure, which is right while
+// a measure is a bar. On a hard page it is not: a recogniser that misses the
+// barlines returns the whole first half of the sheet as measure 1, and if it
+// changes its mind about the clef part way down — which is exactly what it does
+// when it reads the first system in the wrong clef and the rest right — both
+// clefs are inside one "measure" and only the first is ever seen. The part then
+// looks like it has one clef throughout, `kinds` is 1, nothing is out of line
+// with anything, and the correction that exists for precisely this mistake
+// never runs.
+//
+// MEASURED, on the Bärenreiter page of BWV 1007 photographed as a book: 20
+// printed bars came back as 4 measures, the first holding 192 of the 297 notes
+// and declaring a TREBLE clef on a page that is bass clef throughout. The
+// opening read `E4 B4 G5 F5 G5 B4 G5 B4` where the paper says
+// `G2 D3 B3 A3 B3 D3 B3 D3` — the same music, every note a thirteenth out.
+//
+// So a measure holding more notes than any bar could is cut at each clef
+// declaration inside it, and each piece is judged on its own. A measure the
+// length of a bar is left whole, which is what keeps a REAL mid-bar clef change
+// — a cello line going up to the tenor clef and back, the case this file says
+// it will not touch — out of this entirely.
+const RUNAWAY_BAR = 48;     // no bar of one line of music holds this many notes
+
 const measuresOf = (xml) => {
   const out = [];
   const open = /<measure\b[^>]*>/g;
@@ -69,7 +94,34 @@ const measuresOf = (xml) => {
     const close = xml.indexOf('</measure>', open.lastIndex);
     if (close === -1) break;
     const to = close + '</measure>'.length;
-    out.push({ from: match.index, to, text: xml.slice(match.index, to) });
+    const text = xml.slice(match.index, to);
+    const notes = (text.match(/<note\b/g) ?? []).length;
+    // Where each clef declaration starts, past the first: those are the cuts.
+    const cuts = [];
+    if (notes > RUNAWAY_BAR) {
+      const clef = /<clef\b[^>]*>/g;
+      let found = clef.exec(text);
+      let first = true;
+      while (found) {
+        if (!first) cuts.push(found.index);
+        first = false;
+        found = clef.exec(text);
+      }
+    }
+    if (!cuts.length) {
+      out.push({ from: match.index, to, text });
+    } else {
+      const edges = [0, ...cuts, text.length];
+      for (let i = 0; i < edges.length - 1; i += 1) {
+        const piece = text.slice(edges[i], edges[i + 1]);
+        // A piece with no notes in it decides nothing and is left as it is.
+        out.push({
+          from: match.index + edges[i],
+          to: match.index + edges[i + 1],
+          text: piece,
+        });
+      }
+    }
     open.lastIndex = to;
     match = open.exec(xml);
   }
