@@ -29,6 +29,10 @@
 //                 are printed, that the reading also has in that order. It is
 //                 the honest score: a reading that finds every notehead and
 //                 names them all a third out scores zero.
+//   values        of the notes in that run, how many also came back with the
+//                 right LENGTH — a crotchet read as a crotchet and not as a
+//                 minim. A note at the right pitch and the wrong length is
+//                 still a bar that will not line up against a recording.
 //   invented      notes in the reading that are not in that run. Some are real
 //                 notes read in the wrong place and some are marks that are not
 //                 notes; either way they are what an alignment trips over.
@@ -51,6 +55,10 @@ const flag = (name, fallback) => {
 const WORK = flag('keep', path.join(tmpdir(), 'practice-partner-omr-truth'));
 const APP = flag('app', 'http://localhost:5199');
 const CLEAN_ONLY = args.includes('--clean-only');
+// A page of nothing but semiquaver runs, which is what a cadenza is and what
+// the complaints are about. It is a different question from a page of ordinary
+// note values, and the answers are far apart: see the two runs in the handover.
+const DENSE = args.includes('--dense');
 const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
@@ -90,14 +98,37 @@ function makeMusic(bars = 22, seed = 11) {
     }
   }
   ladder.sort((a, b) => a - b);
+  // AND THE PAGE IS NOT ALL SEMIQUAVERS, which the first version of it was.
+  // A page of one note value says nothing about whether the reading got the
+  // VALUES right — an engine that answers "semiquaver" to everything scores a
+  // hundred per cent on it — and "its not converting to xml with the same
+  // notes or TYPE of notes" is half about the values. Each beat is filled with
+  // one of the shapes a study actually prints.
+  const BEATS = [
+    [['quarter', 1]],
+    [['eighth', 0.5], ['eighth', 0.5]],
+    [['16th', 0.25], ['16th', 0.25], ['16th', 0.25], ['16th', 0.25]],
+    [['eighth.', 0.75], ['16th', 0.25]],
+    [['16th', 0.25], ['16th', 0.25], ['eighth', 0.5]],
+  ];
   const notes = [];
   let at = 4;
   for (let bar = 0; bar < bars; bar += 1) {
     const shape = next();
+    // One bar in six is a pair of minims, so the page has long notes on it too.
+    if (!DENSE && next() < 0.16) {
+      for (let i = 0; i < 2; i += 1) {
+        notes.push({ midi: ladder[Math.max(0, Math.min(ladder.length - 1, at))], type: 'half' });
+        at += (shape < 0.6 ? 1 : 2);
+        if (at > ladder.length - 1) at = ladder.length - 3;
+      }
+      continue;
+    }
     for (let beat = 0; beat < 4; beat += 1) {
       const up = next() < 0.55 ? 1 : -1;
-      for (let i = 0; i < 4; i += 1) {
-        notes.push(ladder[Math.max(0, Math.min(ladder.length - 1, at))]);
+      const fill = DENSE ? BEATS[2] : BEATS[Math.floor(next() * BEATS.length) % BEATS.length];
+      for (const [type] of fill) {
+        notes.push({ midi: ladder[Math.max(0, Math.min(ladder.length - 1, at))], type });
         // A scale run most of the time, broken thirds the rest, so the page has
         // both the shapes a study has.
         at += (shape < 0.6 ? 1 : 2) * up;
@@ -108,6 +139,11 @@ function makeMusic(bars = 22, seed = 11) {
   }
   return notes;
 }
+
+// The value as LilyPond writes it, and as MusicXML calls it.
+const LILY = {
+  half: '2', quarter: '4', eighth: '8', 'eighth.': '8.', '16th': '16',
+};
 
 const lilyName = (midi) => {
   const pc = ((midi % 12) + 12) % 12;
@@ -123,9 +159,13 @@ const lilyName = (midi) => {
 function engrave(notes) {
   const png = path.join(WORK, 'page.png');
   if (existsSync(png)) return png;
+  // Every note carries its own value: LilyPond repeats the last one when it is
+  // left off, and a page whose values are generated cannot rely on that.
   const body = [];
-  for (let i = 0; i < notes.length; i += 4) {
-    body.push(notes.slice(i, i + 4).map((m, k) => `${lilyName(m)}${k === 0 ? '16' : ''}`).join(' '));
+  for (let i = 0; i < notes.length; i += 8) {
+    body.push(notes.slice(i, i + 8)
+      .map((one) => `${lilyName(one.midi)}${LILY[one.type]}`)
+      .join(' '));
   }
   const ly = `\\version "2.24.0"
 \\paper { paper-width = 8.5\\in paper-height = 11\\in top-margin = 0.55\\in bottom-margin = 0.55\\in
@@ -254,13 +294,8 @@ async function photograph(pngPath) {
     const kept = await straightenFile(photo);
     // The third thing that could be sent: the photograph cut to the sheet of
     // paper in it, with none of its pixels resampled.
-    const { papersIn, paperCrop } = await import('/src/ui/straighten.js');
-    const shotImage = await readableImage(photo);
-    const shotSize = sizeOfImage(shotImage);
-    const found = papersIn(shotImage, shotSize.w, shotSize.h);
-    const cropped = found.length
-      ? await asFile(paperCrop(shotImage, shotSize.w, shotSize.h, found[0]), 'cut.jpg', 0.92)
-      : null;
+    const { pageForReading } = await import('/src/ui/straighten.js');
+    const cropped = await pageForReading(photo);
     const bytesOf = async (file) => {
       const buf = new Uint8Array(await file.arrayBuffer());
       let s = '';
@@ -305,7 +340,12 @@ function pitchesIn(xml) {
     const octave = /<octave>(-?\d+)<\/octave>/.exec(one)?.[1];
     if (!step || octave == null) continue;
     const alter = Number(/<alter>(-?\d+)<\/alter>/.exec(one)?.[1] ?? 0);
-    out.push(STEP[step] + alter + 12 * (Number(octave) + 1));
+    // The value as well as the pitch. MusicXML writes a dotted quaver as an
+    // `eighth` with a `<dot/>`, so it is folded into one name here — the same
+    // name the page was generated with.
+    const type = /<type>([a-z0-9]+)<\/type>/.exec(one)?.[1] ?? '?';
+    const dots = (one.match(/<dot\s*\/>/g) ?? []).length;
+    out.push({ midi: STEP[step] + alter + 12 * (Number(octave) + 1), type: type + '.'.repeat(dots) });
   }
   return out;
 }
@@ -313,21 +353,34 @@ function pitchesIn(xml) {
 // The longest run of the page's notes the reading also has, in order. Anything
 // cleverer — nearest-neighbour, a window, forgiving an octave — would be
 // forgiving the reading for the thing that breaks an alignment.
+// …and it hands back WHICH notes those were, so the value of each can be asked
+// about too. A note read at the right pitch and the wrong length is still a
+// note the player did not play: "its not converting to xml with the same notes
+// or type of notes."
 function inOrder(want, got) {
   const n = want.length;
   const m = got.length;
-  let prev = new Int32Array(m + 1);
-  let row = new Int32Array(m + 1);
+  const table = [];
+  for (let i = 0; i <= n; i += 1) table.push(new Int32Array(m + 1));
   for (let i = 1; i <= n; i += 1) {
     for (let j = 1; j <= m; j += 1) {
-      row[j] = want[i - 1] === got[j - 1]
-        ? prev[j - 1] + 1
-        : Math.max(prev[j], row[j - 1]);
+      table[i][j] = want[i - 1].midi === got[j - 1].midi
+        ? table[i - 1][j - 1] + 1
+        : Math.max(table[i - 1][j], table[i][j - 1]);
     }
-    const swap = prev; prev = row; row = swap;
-    row.fill(0);
   }
-  return prev[m];
+  const pairs = [];
+  let i = n;
+  let j = m;
+  while (i > 0 && j > 0) {
+    if (want[i - 1].midi === got[j - 1].midi && table[i][j] === table[i - 1][j - 1] + 1) {
+      pairs.push([want[i - 1], got[j - 1]]);
+      i -= 1;
+      j -= 1;
+    } else if (table[i - 1][j] >= table[i][j - 1]) i -= 1;
+    else j -= 1;
+  }
+  return pairs.reverse();
 }
 
 async function readWith(file) {
@@ -347,8 +400,9 @@ async function readWith(file) {
 
 // --- the run ------------------------------------------------------------------
 
-const truth = makeMusic();
-console.log(`a page of ${truth.length} notes, engraved by LilyPond, in G major, bass clef`);
+const truth = makeMusic(DENSE ? 22 : 22);
+console.log(`a page of ${truth.length} notes, engraved by LilyPond, in G major, bass clef`
+  + `${DENSE ? ' — semiquaver runs throughout, the density of a cadenza' : ''}`);
 const pngPath = engrave(truth);
 
 const rows = [];
@@ -363,12 +417,15 @@ const score = async (label, file) => {
   }
   const xml = result.musicXml ?? result.xml ?? readFileSync(result.xmlPath ?? '', 'utf8');
   const got = pitchesIn(xml);
-  const run = inOrder(truth, got);
+  const pairs = inOrder(truth, got);
+  const run = pairs.length;
+  const sameType = pairs.filter(([want, had]) => want.type === had.type).length;
   rows.push({
     label,
     notes: got.length,
     run,
     recall: run / truth.length,
+    values: run ? sameType / run : 0,
     invented: got.length - run,
     bars: result.score?.measureCount ?? null,
     rhythm: result.quality?.rhythmScore ?? null,
@@ -387,7 +444,7 @@ if (!CLEAN_ONLY) {
 }
 
 console.log('');
-console.log('what was read                            notes  in order  recall  invented  bars  rhythm');
+console.log('what was read                            notes  in order  recall  values  invented  bars  rhythm');
 for (const row of rows) {
   if (row.failed) {
     console.log(`${row.label.padEnd(40)}  FAILED ${row.failed}`);
@@ -396,6 +453,7 @@ for (const row of rows) {
   console.log(`${row.label.padEnd(40)}${String(row.notes).padStart(6)}`
     + `${String(row.run).padStart(10)}`
     + `${`${(row.recall * 100).toFixed(1)}%`.padStart(8)}`
+    + `${`${(row.values * 100).toFixed(1)}%`.padStart(8)}`
     + `${String(row.invented).padStart(10)}`
     + `${String(row.bars ?? '—').padStart(6)}`
     + `${String(row.rhythm ?? '—').padStart(8)}`);

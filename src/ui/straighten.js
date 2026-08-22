@@ -608,12 +608,27 @@ export function paperCrop(source, width, height, quad) {
  * is: it is still a photograph of the music, and it is still better than a
  * resampled page. Null only when the bytes cannot be decoded at all.
  *
- * Brought down to `READ_ACROSS` on its long edge, because that is the size
- * Audiveris renders at and a phone upload is somebody's data. That shrink is
- * `drawImage`'s, which is a proper filter over every source pixel and is
- * axis-aligned — it is not the rotation that costs the staff lines.
+ * AND IT IS NOT BROUGHT DOWN TO SIZE HERE, which it was for an afternoon.
+ *
+ * The reasoning was sound and the measurement says otherwise. Audiveris renders
+ * at about 2600 across whatever it is handed, so shrinking to that before the
+ * upload looked free and saved somebody's data. It is not free: the service
+ * does the same shrink from the FULL photograph with a better resampler than a
+ * canvas `drawImage`, and doing it twice — once here, once there — costs the
+ * page its thin lines.
+ *
+ * MEASURED, `npm run omr:truth -- --dense`, a page of 352 semiquavers engraved,
+ * photographed, and scored as the longest run of its own notes that comes back
+ * in order (and how many of those also came back the right LENGTH):
+ *
+ *   cut to the paper, shrunk here to 2600     63.4%   values 83.4%
+ *   cut to the paper, sent as it is           78.4%   values 90.6%
+ *
+ * So the cut goes up at the size it was cut, and the only cap left is a guard
+ * against something absurd rather than a resolution policy. A phone photograph
+ * is about 4000 on its long edge and passes through untouched.
  */
-const READ_ACROSS = 2600;
+const READ_ACROSS = 4400;
 
 export async function pageForReading(file, quad = null) {
   const image = await readableImage(file);

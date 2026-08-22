@@ -188,6 +188,58 @@ leaves (no service is contacted) and looks at what is in it, because the last
 time a fix was proved on the convenient path instead of the one a player takes
 it cost four rounds.
 
+**AND THE ROUND AFTER IT MEASURED THE OTHER HALF — the note VALUES — and found
+two more things the app was doing to its own page.**
+
+`omr:truth` scored PITCH only, and half the complaint is not pitch: "its not
+converting to xml with the same notes or type of notes". It now scores both, and
+the page it engraves has real note values on it rather than being wall-to-wall
+semiquavers — a page of one value says nothing about whether the values were
+read, because an engine that answers "semiquaver" to everything scores full
+marks on it. `--dense` brings the old page back, because the two densities are
+different questions with far apart answers:
+
+```
+  a page of ORDINARY note values, 167 notes    in order  values
+    the engraving itself, no camera             100.0%   100.0%
+    the photograph, as taken                     95.2%    96.2%
+    the photograph, cut to the paper             85.6%    90.9%
+    the page the app squared up                  85.6%    77.6%
+
+  a page of SEMIQUAVER RUNS, 352 notes — a cadenza
+    the engraving itself, no camera              86.6%    95.4%
+    the photograph, as taken                     85.5%    94.0%
+    the photograph, cut to the paper             78.4%    90.6%
+    the page the app squared up                  57.1%    52.2%
+```
+
+Read the last line of each block first. On ordinary music the recogniser is
+PERFECT on a clean engraving and the camera costs about ten points; on a page of
+continuous semiquavers the engine itself is only 86.6%, and that ceiling is not
+ours to move. **Density is the lever, not the light and not the lens.**
+
+**AND THE APP WAS SHRINKING THE PAGE BEFORE SENDING IT, which cost fifteen
+points.** `pageForReading` brought the cut down to 2600 on its long edge on the
+reasoning that Audiveris renders at about that size anyway and a phone upload is
+somebody's data. The service does the same shrink from the FULL photograph with
+a better resampler than a canvas `drawImage`, and doing it twice costs the page
+its thin lines:
+
+```
+  cut to the paper, shrunk in the app to 2600    63.4%   values 83.4%
+  cut to the paper, sent at the size it was cut  78.4%   values 90.6%
+```
+
+The cap is 4400 now, which is a guard against something absurd rather than a
+resolution policy — a phone photograph passes through untouched.
+
+**A NOTE ON THE NOISE IN THESE NUMBERS.** The pipeline reads a short document
+four ways at once with a deadline on each, and keeps the best of whatever
+finished, so a loaded machine reads a page differently from an idle one. The
+"squared up" row has been seen at 57.1% and at 65.6% on identical input.
+Differences under about eight points are not evidence; the ones quoted above are
+two and three times that.
+
 **What this round did NOT do, said plainly.** It did not make the recognition
 right. 78.4% of the notes in order, on a clean engraving photographed under a
 lamp, is what this pipeline is worth today, and the ceiling with no camera at
