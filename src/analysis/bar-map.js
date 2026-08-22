@@ -152,6 +152,55 @@ export function guessedAnchors(placements) {
 }
 
 /**
+ * THE WHOLE TAKE, SPREAD EVENLY ACROSS THE PAGE — the map that needs no taps
+ * and no reading, and the one a player asked for in so many words:
+ *
+ *   "since, in music, the notes in each bar equal the same amount of time, what
+ *   I want to do is figure out a way. As soon as you hear the first note to the
+ *   last note that you hear, you divide that amount of time by how many bars
+ *   there are."
+ *
+ * IT IS TWO ANCHORS, NOT A DIVISION BY THE BAR COUNT, and the difference is the
+ * whole reason it is safe. The number of BOXES on a page is not the number of
+ * printed bars: `npm run scan:barmap` draws 31 of them over 20 printed bars,
+ * because a stem read as a barline cuts one bar into three. Dividing the take
+ * by 31 would put every seek in the wrong place on precisely the pages that
+ * produce spurious barlines — and it would need a bar COUNT, which the page
+ * does not reliably know.
+ *
+ * What the page does know is WHERE each box sits, measured in systems and
+ * fractions of a system. Pinning the first box to the first note and the last
+ * box's end to the last note, and letting `timeOfBar` run its straight line
+ * between them, is the same arithmetic he described — every bar gets its share
+ * of the time in proportion to how much of the page it takes up — without ever
+ * counting anything that might be miscounted. On a page of even note values
+ * those are the same answer; where they differ, this one is right.
+ *
+ * IT IS A FLOOR AND NOT A VERDICT. It assumes one pass down the page at a
+ * steady tempo, which is what a performance is and what a practice session is
+ * not, so `bar-sync.js` only reaches for it where nothing better placed the
+ * page — see the gate there. A tap overrules it anywhere.
+ *
+ * @param {Array<object>} bars from `barsInReadingOrder`
+ * @param {Array<object>} notes what was heard, each with `start` and `end`
+ * @returns {Array<object>} two anchors, or none when there is nothing to spread
+ */
+export function evenAnchors(bars, notes) {
+  const sounded = (notes ?? []).filter((one) => Number.isFinite(one?.start));
+  if (!bars?.length || sounded.length < 2) return [];
+  const first = Math.min(...sounded.map((one) => one.start));
+  const last = Math.max(...sounded.map((one) => (Number.isFinite(one.end) ? one.end : one.start)));
+  // A take shorter than this is not a page of music; spreading it would put
+  // every bar within a few tenths of every other and every seek in the wrong
+  // place with an air of confidence.
+  if (!(last - first > 1.5)) return [];
+  const from = bars[0].at;
+  const to = bars[bars.length - 1].to;
+  if (!(to > from)) return [];
+  return [{ at: from, time: first, even: true }, { at: to, time: last, even: true }];
+}
+
+/**
  * Hand-made marks, and the guesses under them.
  *
  * A tap wins outright — over a guess at the same place, and over any guess

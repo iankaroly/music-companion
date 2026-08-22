@@ -91,6 +91,19 @@ await page.evaluateOnNewDocument(() => {
   // …and a take with NOTHING in it, which is a different branch and the one
   // somebody hits when they tap the dot and then think better of it.
   window.__playNothing = async () => { await ctx.resume(); };
+  // WHERE PLAYBACK WAS ASKED TO BEGIN, measured as the LENGTH of the clip it
+  // started. `playFullFrom` extracts the samples from the seek point to the end
+  // and plays that clip from zero, so there is no offset to read — but a clip
+  // that runs to the end of the take is exactly `duration - from` long. Press
+  // the first bar and then another, and one divided by the other says how far
+  // through the take the second press landed, with nothing imported from the
+  // app and no second module instance to get wrong.
+  window.__clips = [];
+  const realStart = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function start(...rest) {
+    if (this.buffer) window.__clips.push(this.buffer.duration);
+    return realStart.apply(this, rest);
+  };
   navigator.mediaDevices.getUserMedia = async () => {
     await ctx.resume();
     const out = ctx.createMediaStreamDestination();
@@ -203,7 +216,11 @@ Object.assign(out, await page.evaluate(async (midi) => {
     await new Promise((x) => setTimeout(x, 100));
   }
   r.recording = button.classList.contains('recording');
-  const seconds = await window.__playNotes(midi.slice(0, 34), 0.34);
+  // THE WHOLE PAGE, not part of it. A take that stops half way down is placed
+  // correctly at half way down, so a check that plays half and then expects a
+  // press at four fifths of the page to land at four fifths of the take is
+  // asserting something false. He plays the page.
+  const seconds = await window.__playNotes(midi, 0.32);
   await new Promise((x) => setTimeout(x, seconds * 1000 + 600));
   button.click();
   return r;
@@ -229,10 +246,73 @@ Object.assign(out, await page.evaluate(() => {
   r.pitchMarks = stage ? stage.querySelectorAll('.scan-note').length : 0;
   r.barBoxes = stage ? stage.querySelectorAll('.scan-bar, .bar-sync-bar').length : 0;
   r.summary = document.querySelector('#score-tab-summary')?.textContent?.trim() ?? '';
+  // THE GRAPH, UNDER THE SCORE. He asked for it in those words, and the Score
+  // tab deliberately did not borrow it.
+  const dock = document.querySelector('#score-dock');
+  const chart = dock?.querySelector('#chart-scroll');
+  r.graphUnderTheScore = !!chart && chart.getBoundingClientRect().height > 20;
+  r.graphIsBelow = !!chart && !!stage
+    && chart.getBoundingClientRect().top >= stage.getBoundingClientRect().top;
+  // AND NO TAPPING REQUIRED. A strip still in marking mode is a page where
+  // every bar is inert until somebody finds the moment by ear.
+  r.askedToMark = !!document.querySelector('.bar-sync-bar.marking');
+  r.barLine = document.querySelector('.bar-sync-say')?.textContent?.trim() ?? '';
   r.recordStatus = document.querySelector('#status')?.textContent?.trim()
     ?? document.querySelector('#rec-status')?.textContent?.trim() ?? '(no status el)';
   r.hintOnTheMusic = document.querySelector('#reader-hint')?.textContent ?? null;
   r.paneShowing = pane ? !pane.hidden : null;
+  return r;
+}));
+
+// PRESS A BAR IN THE MIDDLE OF THE PAGE, with nothing tapped and nothing
+// marked, and see where the audio is asked to start. Even division says a bar
+// two thirds of the way down a page played in one pass should be about two
+// thirds of the way through the take.
+Object.assign(out, await page.evaluate(async () => {
+  const r = {};
+  const boxes = [...document.querySelectorAll('#score-stage .scan-bar')];
+  r.barsPressable = boxes.length;
+  if (!boxes.length) return r;
+  const stop = () => document.querySelector('#clip-play')?.click();
+  const settle = (ms) => new Promise((x) => setTimeout(x, ms));
+  // THE RULER: ↺ plays the take from the beginning, so the clip it starts is
+  // the whole thing. Reading the presses against the FIRST BAR instead would
+  // measure how far through what is left of the take each one landed, which is
+  // a different number whenever bar one is not at second zero.
+  window.__clips = [];
+  document.querySelector('#clip-restart')?.click();
+  await settle(700);
+  const whole = window.__clips[0] ?? 0;
+  stop();
+  await settle(300);
+  r.wholeTake = +whole.toFixed(2);
+  if (!whole) return r;
+
+  // Three presses across the page. What is asserted is what a player would
+  // check: they land in order, and each lands about where its bar sits.
+  r.presses = [];
+  for (const share of [0.15, 0.5, 0.85]) {
+    const which = Math.min(boxes.length - 1, Math.floor(boxes.length * share));
+    const box = boxes[which];
+    window.__clips = [];
+    box.click();
+    await settle(700);
+    const clip = window.__clips.at(-1);
+    stop();
+    await settle(250);
+    const first = Number(boxes[0].dataset.at);
+    const end = Number(boxes.at(-1).dataset.to);
+    r.presses.push({
+      bar: which,
+      // Where the bar sits on the page, in systems, as a share of the page.
+      onThePage: +((Number(box.dataset.at) - first) / (end - first)).toFixed(3),
+      // …and where in the take it started.
+      inTheTake: clip === undefined ? null : +(1 - clip / whole).toFixed(3),
+    });
+  }
+  r.ofBars = boxes.length;
+  // …and it must NOT have thrown the page full screen over what it just started.
+  r.readerOpenedOnTap = !document.querySelector('#reader')?.hidden;
   return r;
 }));
 
@@ -253,6 +333,17 @@ say('the page is on screen', out.pageOnScreen, 'true');
 say('with a mark on each note played', out.pitchMarks, '> 0');
 say('and bars to tap for the moment', out.barBoxes, '> 0');
 say('and it says what it heard', JSON.stringify(out.summary.slice(0, 60)), 'not empty');
+say('the graph is under the score', out.graphUnderTheScore && out.graphIsBelow, 'true');
+say('no tapping needed first', !out.askedToMark, 'true');
+say('  …it says', JSON.stringify(out.barLine.slice(0, 58)), '');
+say('bars you can press', out.barsPressable, '> 0');
+console.log(`the take is ${out.wholeTake}s long; three presses across the page:`);
+for (const one of out.presses ?? []) {
+  console.log(`   bar ${String(one.bar).padStart(2)} of ${out.ofBars}`
+    + `  ${(one.onThePage * 100).toFixed(0)}% down the page`
+    + `  ->  ${one.inTheTake === null ? 'nothing played' : `${(one.inTheTake * 100).toFixed(0)}% into the take`}`);
+}
+say('and it did NOT open full screen', !out.readerOpenedOnTap, 'true');
 console.log('record status:', JSON.stringify(out.recordStatus), ' hint:', JSON.stringify(out.hintOnTheMusic));
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
 console.log(`shot: ${process.env.TMPDIR ?? '/tmp'}reader-review.png`);
@@ -261,6 +352,16 @@ const ok = out.openedFromTheShelf && out.dotThere && out.recording
   && out.readerClosed && out.onTheScoreTab === 'score'
   && out.pageOnScreen && out.pitchMarks > 0 && out.barBoxes > 0
   && out.summary.length > 0
-  && out.silentKeptTheMusic && (out.silentSaidSo ?? '').length > 0;
+  && out.silentKeptTheMusic && (out.silentSaidSo ?? '').length > 0
+  && out.graphUnderTheScore && out.graphIsBelow
+  && !out.askedToMark && out.barsPressable > 0
+  && (out.presses ?? []).length === 3
+  && out.presses.every((one) => one.inTheTake !== null)
+  // In order, and each within a fifth of where its bar sits. A press that plays
+  // SOMETHING is not the promise; a press that plays that bar is.
+  && out.presses[0].inTheTake < out.presses[1].inTheTake
+  && out.presses[1].inTheTake < out.presses[2].inTheTake
+  && out.presses.every((one) => Math.abs(one.inTheTake - one.onThePage) < 0.2)
+  && !out.readerOpenedOnTap;
 console.log(ok ? '\nPASS — stop playing, and the take is in front of you on the page' : '\nFAIL');
 process.exit(ok ? 0 : 1);

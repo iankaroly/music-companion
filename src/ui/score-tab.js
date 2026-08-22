@@ -39,10 +39,22 @@ export function showBrowser() {
 
 // --- borrowing the playback panel ------------------------------------------
 
-// The controls, and deliberately NOT #chart-scroll: the graph is what the
-// Record tab IS, and taking it away would leave that tab a row of buttons over
-// nothing. The score is the graph's counterpart here, not its companion.
-const BORROWED = ['clip-head', 'note-zoom', 'playback-controls'];
+// The controls AND THE GRAPH.
+//
+// #chart-scroll was deliberately left behind for a long time, on the reasoning
+// that the graph is what the Record tab IS and taking it away would leave that
+// tab a row of buttons over nothing. That reasoning is about two tabs being
+// visible at once, and they never are: the panel is borrowed when this tab is
+// shown and handed straight back when it is hidden, so the Record tab has its
+// graph whenever anybody is looking at the Record tab.
+//
+// What the missing half cost is the thing the score and the graph are for
+// together — "below the score, we can have the whole audio wave thing like it
+// is now. When I click on one of the bars, it will go to that time in the wave
+// as well." A bar you press moves the playhead; without the graph here there
+// was nothing for it to move on, and the two halves of one take lived on two
+// screens.
+const BORROWED = ['clip-head', 'chart-scroll', 'note-zoom', 'playback-controls'];
 
 export function borrowPanel() {
   const dock = el('score-dock');
@@ -59,10 +71,11 @@ export function borrowPanel() {
   // The controls belong to a review; with no take loaded there is nothing for
   // them to control and #playback is hidden, so the dock follows it.
   dock.hidden = el('playback')?.hidden ?? true;
-  // A pitch/waveform switch with no chart under it is a button that does
-  // nothing visible.
+  // …and the pitch/waveform switch comes with it now that there is a chart
+  // under it. It lives inside #clip-head, which is borrowed, so it only has to
+  // stop being hidden.
   const mode = el('chart-mode');
-  if (mode) mode.hidden = true;
+  if (mode) mode.hidden = false;
   // Nor does comparing this note with the other times you played it belong at
   // the bottom of a page of music; it is a thing you do to a note on the graph.
   const compare = el('compare');

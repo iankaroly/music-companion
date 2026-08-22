@@ -8,6 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   barsInReadingOrder, barAtPoint, timeOfBar, barAtTime, placeAtTime, tidyAnchors, sayMap,
+  evenAnchors,
 } from '../src/analysis/bar-map.js';
 
 // A page as `readPages` measures one: staves down the page, each with the
@@ -162,5 +163,55 @@ describe('the moment a place in the piece was played', () => {
       .toBe('2 places marked, 2.0 of 3 systems between them');
     expect(sayMap([{ at: 0, time: 0 }, { at: 9, time: 60 }], bars))
       .toMatch(/longest gap is 9.0 systems/);
+  });
+});
+
+
+// THE TAKE SPREAD EVENLY ACROSS THE PAGE — the map that needs no taps.
+//
+// "as soon as you hear the first note to the last note that you hear, you
+// divide that amount of time by how many bars there are."
+describe('spreading a take evenly over the page', () => {
+  const page = {
+    staves: [
+      stave(0.1, [0.1, 0.5, 0.9], [0.15, 0.3, 0.6, 0.8]),
+      stave(0.4, [0.1, 0.5, 0.9], [0.15, 0.3, 0.6, 0.8]),
+    ],
+  };
+  const bars = barsInReadingOrder([page]);
+  const played = (times) => times.map(([start, end]) => ({ start, end }));
+
+  it('pins the first note to the start of the page and the last to the end', () => {
+    const anchors = evenAnchors(bars, played([[4, 4.5], [10, 10.5], [24, 25]]));
+    expect(anchors).toHaveLength(2);
+    expect(anchors[0].at).toBeCloseTo(bars[0].at, 6);
+    expect(anchors[0].time).toBeCloseTo(4, 6);
+    expect(anchors[1].at).toBeCloseTo(bars.at(-1).to, 6);
+    expect(anchors[1].time).toBeCloseTo(25, 6);
+  });
+
+  it('gives the middle of the page the middle of the take', () => {
+    const anchors = evenAnchors(bars, played([[0, 0.5], [30, 31]]));
+    const half = (bars[0].at + bars.at(-1).to) / 2;
+    expect(timeOfBar(anchors, half)).toBeCloseTo(15.5, 1);
+  });
+
+  // A bar takes its share of the time in proportion to how much of the PAGE it
+  // occupies, not to how many boxes there are — see the note on evenAnchors.
+  // Here every box is a quarter of the two systems, so the third box starts
+  // half way through.
+  it('shares the time out by where a bar sits, not by counting boxes', () => {
+    const anchors = evenAnchors(bars, played([[0, 0], [40, 40]]));
+    expect(bars).toHaveLength(4);
+    expect(timeOfBar(anchors, bars[2])).toBeCloseTo(20, 1);
+  });
+
+  it('says nothing when there is nothing to spread', () => {
+    expect(evenAnchors(bars, [])).toEqual([]);
+    expect(evenAnchors(bars, played([[3, 3.2]]))).toEqual([]);
+    // A take a second long is not a page of music, and spreading it would put
+    // every bar within a few hundredths of every other.
+    expect(evenAnchors(bars, played([[3, 3.2], [3.6, 3.8]]))).toEqual([]);
+    expect(evenAnchors([], played([[0, 1], [30, 31]]))).toEqual([]);
   });
 });

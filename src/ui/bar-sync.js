@@ -27,7 +27,7 @@
 
 import {
   barsInReadingOrder, barAtPoint, timeOfBar, barAtTime, sayMap,
-  systemsOf, guessedAnchors, mergeAnchors,
+  systemsOf, guessedAnchors, mergeAnchors, evenAnchors,
 } from '../analysis/bar-map.js';
 import { placeSystems } from '../analysis/scan-align.js';
 import {
@@ -93,13 +93,36 @@ export function attachBarSync(container, {
   const offered = new Map();
 
   let hand = [...(given ?? [])];
+  // THE TAKE SPREAD EVENLY ACROSS THE PAGE, when nothing else placed it.
+  //
+  // Before this, a page the shape-matcher could not place opened asking to be
+  // tapped twice, and until somebody did, every bar on it was inert. That is a
+  // gesture nobody performs on a page they have just played once: the whole
+  // point of pressing a bar is to hear it, and being told to first find the
+  // moment by ear and tap it is being asked to do the job by hand.
+  //
+  // ONLY WHERE NOTHING BETTER EXISTS, and that gate is the important half. A
+  // take with several goes in it is not one pass down the page — he played bar
+  // 3 six times — and spreading it evenly would answer every press with a
+  // confident wrong second. Those takes are answered from the goes instead
+  // (see `practising` below), and a page the matcher placed keeps its own
+  // anchors. See evenAnchors for why it is two anchors rather than a division
+  // by the number of boxes.
+  let even = [];
+  try {
+    if (notes?.length && runs.length <= 1 && mergeAnchors(given, guessed).length < 2) {
+      even = evenAnchors(bars, notes);
+    }
+  } catch { even = []; }
   // Everything the map runs on: the taps win, and see mergeAnchors for why they
-  // win over the guesses BETWEEN them as well as the ones on top of them.
-  const anchorsNow = () => mergeAnchors(hand, guessed);
+  // win over the guesses BETWEEN them as well as the ones on top of them. The
+  // even pair goes UNDER the shape guesses, so a system the matcher was sure
+  // about overrules the straight line at that place and the ends stay pinned.
+  const anchorsNow = () => mergeAnchors(hand, [...even, ...guessed]);
   let anchors = anchorsNow();
-  // Marking is the job only when nothing — tapped, guessed, or worked out from
-  // the goes — has produced an answer. A page the app has placed for itself
-  // opens ready to play from.
+  // Marking is the job only when nothing — tapped, guessed, spread, or worked
+  // out from the goes — has produced an answer. A page the app has placed for
+  // itself opens ready to play from.
   let marking = anchors.length < 2 && runs.length < 1;
   let heard = 0;                        // the moment the take is at, in seconds
   let lit = -1;
@@ -130,6 +153,15 @@ export function attachBarSync(container, {
     const found = guessed.length && !hand.length
       ? `found ${guessed.length} place${guessed.length === 1 ? '' : 's'} in this take by itself — `
       : '';
+    // The even spread says so plainly, because a player who taps a bar and
+    // lands a little out should know why, and know that a tap fixes it.
+    if (even.length && !hand.length && !guessed.length) {
+      const words = 'the take spread evenly over the page — tap a bar to hear it,'
+        + ' and mark one if it lands wrong';
+      line.textContent = words;
+      onSay?.(words);
+      return;
+    }
     const words = marking ? `${found}${base}` : `${found}${base} — tap a bar to hear it`;
     line.textContent = words;
     onSay?.(words);
@@ -190,7 +222,22 @@ export function attachBarSync(container, {
       box.style.width = `${(bar.right - bar.left) * 100}%`;
       box.style.height = `${(bar.bottom - bar.top) * 100}%`;
       box.setAttribute('aria-label', `Bar ${bar.index + 1}`);
-      box.addEventListener('click', () => press(bar));
+      // Where this box sits in the piece, in systems, so a check can state what
+      // it expects of a press instead of assuming every box is the same amount
+      // of music — which is the assumption bar-map.js exists to avoid.
+      box.dataset.at = String(bar.at);
+      box.dataset.to = String(bar.to);
+      // AND NOT ALSO A TAP ON THE SCORE. `score-tab.js` listens for a click
+      // anywhere on #score-stage and opens the full-screen reader, and these
+      // boxes cover almost all of it — so pressing a bar played the moment and
+      // then threw the page full screen on top of what it had just started.
+      // "when I click on the score after recording, instead of it opening into
+      // a full-screen score, it should just go to that bar." The ⤢ button is
+      // still the way to the stand.
+      box.addEventListener('click', (event) => {
+        event.stopPropagation();
+        press(bar);
+      });
       layer.append(box);
       boxes.set(bar.index, box);
     }
