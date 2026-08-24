@@ -177,6 +177,40 @@ export function initSettings(doc = document) {
     dialog.showModal();
   });
 
+  // TAP THE DARK AND THE SHEET GOES AWAY.
+  //
+  // Done is still there and still the deliberate way out. But nothing in this
+  // sheet is a decision you confirm — every control writes its preference the
+  // moment it is touched — so having to find a button at the bottom of a long
+  // scroll to leave is a step that buys nothing. "you can click anywhere off of
+  // the settings page and it will take you back."
+  //
+  // WHY THE RECTANGLE RATHER THAN `event.target === dialog`, which is the usual
+  // one-liner: the sheet has 1.4rem of padding, and a press on the padding IS a
+  // press on the dialog element. That version closes when you tap just inside
+  // the visible edge, which reads as the app losing your tap.
+  //
+  // AND WHY THE PRESS IS REMEMBERED. Two things here end a gesture somewhere
+  // other than where it started, and both would otherwise dismiss the sheet
+  // from the inside:
+  //   · the volume, drone and click sliders, which capture the pointer, so
+  //     dragging one past the edge and letting go lands a click outside;
+  //   · the sheet's own scroll, which is a drag on a list 78vh tall.
+  // So it closes only when the press BEGAN outside as well. That also settles
+  // the keyboard: Enter on a button synthesises a click at 0,0 — outside every
+  // rectangle — and there is no pointerdown behind it, so nothing closes.
+  const outside = (event) => {
+    const box = dialog.getBoundingClientRect();
+    return event.clientX < box.left || event.clientX > box.right
+      || event.clientY < box.top || event.clientY > box.bottom;
+  };
+  let pressedOutside = false;
+  dialog.addEventListener('pointerdown', (e) => { pressedOutside = outside(e); });
+  dialog.addEventListener('click', (e) => {
+    if (pressedOutside && outside(e)) dialog.close('away');
+    pressedOutside = false;
+  });
+
   wireSegment(doc.querySelector('#theme-seg'), 'data-theme-pick', pref, (value) => {
     writePreference(value);
     applyTheme(value, doc);

@@ -171,6 +171,14 @@ npm run reader:review    STOP A TAKE ON THE MUSIC AND LAND ON THE REVIEW —
                          microphone plays real notes — a suspended AudioContext
                          is silence, and a take with nothing in it is discarded
                          before it can reach a review. NO MICROPHONE.
+npm run settings:away    TAP THE DARK AND THE SETTINGS SHEET GOES AWAY, and
+                         nothing else does. The one-line version of this —
+                         close when `event.target` is the dialog — closes on a
+                         tap on the sheet's own 24px of PADDING, which is inside
+                         the sheet you can see; the rectangle version it was
+                         replaced with would instead close on a slider dragged
+                         out past the edge (range inputs capture the pointer) and
+                         on a keyboard's click at 0,0. All three are checks here.
 npm run review:taps      CAN A FINGER REACH THE REVIEW'S CONTROLS — the pixel
                          in the middle of the graph's play button, of Save and
                          of Discard, and what is actually there to receive a
