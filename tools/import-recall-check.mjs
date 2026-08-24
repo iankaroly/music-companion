@@ -45,14 +45,25 @@ for (const entry of index) {
   const truthPath = entry.truth.startsWith('/')
     ? entry.truth : new URL(`../${entry.truth}`, import.meta.url).pathname;
   const truth = JSON.parse(await readFile(truthPath, 'utf8'));
-  const out = await page.evaluate(async ({ b64, marks, wantKeep, across, shrink }) => {
+  const out = await page.evaluate(async ({ b64, marks, wantKeep, across, shrink, master }) => {
     window.__READ_ACROSS = across;
     const pdfjs = await import('/node_modules/pdfjs-dist/build/pdf.mjs');
     pdfjs.GlobalWorkerOptions.workerSrc = '/node_modules/pdfjs-dist/build/pdf.worker.mjs';
     const data = Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
     const doc = await pdfjs.getDocument({ data }).promise;
     const first = await doc.getPage(1);
-    const wide = 1400;
+    // THE MASTER THE PHOTOGRAPH IS TAKEN OF, and it is 1400 by default so every
+    // number this tool has ever printed is unchanged.
+    //
+    // It has to be raiseable to answer one question: what does a BIGGER camera
+    // buy? `shrink` shoots the master, so with a 1400 master the largest
+    // photograph this can simulate is 1400 across — and asking for more would
+    // upscale a 1400px render, which is not a bigger photograph but a blurrier
+    // one, and would price the gain at less than nothing. Render the master at
+    // 2800 and shoot it at 0.5 and at 1.0 and the two shots are a phone's
+    // preview frame and a phone's still, of the same page, with real detail in
+    // the second one.
+    const wide = master;
     const scale = wide / first.getViewport({ scale: 1 }).width;
     const view = first.getViewport({ scale });
     const sheet = document.createElement('canvas');
@@ -153,6 +164,7 @@ for (const entry of index) {
     wantKeep: !!keepAt,
     across: Number(process.env.READ_ACROSS ?? 1400),
     shrink: Number(process.env.SHRINK ?? 0.72),
+    master: Number(process.env.MASTER ?? 1400),
   });
   rows.push({ name: entry.name, ...out });
   if (keepAt && out.png) {
@@ -165,7 +177,10 @@ for (const entry of index) {
 const pc = (a, b) => (b ? `${((a / b) * 100).toFixed(1)}%` : '—');
 console.log('\nTHE READER AFTER THE IMPORT PIPELINE — the three marked pages,'
   + ' photographed and brought in the way the app brings a scan in');
-console.log(`  photographed at ${Number(process.env.SHRINK ?? 0.72)} of the rendered page,`
+const MASTER = Number(process.env.MASTER ?? 1400);
+const SHRINK = Number(process.env.SHRINK ?? 0.72);
+console.log(`  photographed at ${SHRINK} of a ${MASTER}px master`
+  + ` (${Math.round(MASTER * SHRINK)}px across),`
   + ` read at ${Number(process.env.READ_ACROSS ?? 1400)}px across\n`);
 console.log('  page          width  space  staves  clefs  key   found  marked  RECALL   priced');
 for (const r of rows) {

@@ -265,6 +265,43 @@ export function initSettings(doc = document) {
   };
   levels.push({ sync: refreshStorage }); // refreshed whenever the sheet opens
 
+  // --- what the camera gave -------------------------------------------------
+  //
+  // The reader's whole yield on a photographed page is decided by how many
+  // pixels the page came out at, and the browser is between the app and the
+  // camera: a track that CAN give 4032 across hands back 1280 unless it is
+  // asked, and on some browsers it hands back 1280 anyway. MEASURED, the three
+  // marked pages through the import pipeline (tools/import-recall-check.mjs):
+  // 54.9% of noteheads found at a page 1008px across, 82.5% at 1920, and only
+  // 84.4% at 2800 — a cliff and then a plateau. So this is one number worth
+  // showing, and it is shown where somebody holding the phone can read it.
+  const cameraLine = doc.querySelector('#camera-line');
+  const refreshCamera = async () => {
+    if (!cameraLine) return;
+    let said = null;
+    try {
+      ({ cameraReport: said } = await import('./scanner.js'));
+      said = said();
+    } catch { said = null; }
+    if (!said?.got?.width) {
+      cameraLine.textContent = 'Scan a page and this will say what the camera gave.';
+      return;
+    }
+    const { got, canGive, stills } = said;
+    const gave = `${got.width}×${got.height}`;
+    const most = canGive?.width?.max ? `${canGive.width.max}×${canGive.height?.max ?? '?'}` : null;
+    // The sentence a player can act on, rather than the three numbers.
+    const short = got.width < 1600;
+    cameraLine.textContent = `Last scan opened at ${gave}`
+      + (most && canGive.width.max > got.width + 32 ? `, of ${most} the camera has` : '')
+      + (stills ? ', and it takes real stills.' : '.')
+      + (short
+        ? ' That is small for reading music — use “Photograph it (full size)” for a'
+          + ' page with a lot of notes on it.'
+        : '');
+  };
+  levels.push({ sync: refreshCamera });
+
   doc.querySelector('#set-backup')?.addEventListener('click', async () => {
     try {
       const backup = await exportLibrary();

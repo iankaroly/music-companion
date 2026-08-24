@@ -75,6 +75,8 @@ let auto = false;
 let cleanUp = true;    // pull the page square and take the shadows out, on the way in
 // The camera's own still-photo taker, when the browser has one. See openScanner.
 let stills = null;
+// What the camera said it could do and what it opened at — see cameraReport.
+let cameraSaid = null;
 let paper = [];        // where the page or pages are in the LIVE picture: the outline
 let held = null;       // where they were a tick ago, for deciding it is being held still
 let done = null;       // resolve the promise openScanner returned
@@ -843,6 +845,7 @@ export async function openScanner() {
   // null and the frame is used as before — which is why the menu also offers
   // the camera app, the one route to a full-size picture on that phone.
   stills = null;
+  cameraSaid = null;
   try {
     const track = stream.getVideoTracks?.()[0];
     // ASK THE TRACK FOR EVERYTHING IT HAS, ON EVERY BROWSER.
@@ -866,6 +869,38 @@ export async function openScanner() {
           height: { ideal: can.height?.max ?? undefined },
         }).catch(() => {});
       }
+      // WHAT THE CAMERA WAS ASKED FOR AND WHAT IT GAVE, written down.
+      //
+      // Everything the reader manages on a photographed page is downstream of
+      // this one number, and nothing anywhere said what it was — so "the
+      // quality of this scan is still really bad" had no measurable half. The
+      // recall curve, `tools/import-recall-check.mjs` on the three marked pages
+      // at a 2800px master:
+      //
+      //   page 1008px across   staff space 4.0px   54.9%   (Bach finds NO staves)
+      //   page 1440px across   staff space 6.2px   73.0%
+      //   page 1920px across   staff space 8.0px   82.5%
+      //   page 2400px across   staff space 10.3px  84.0%
+      //   page 2800px across   staff space 12.0px  84.4%
+      //
+      // It is a cliff and then a plateau: the whole of the gain is in getting
+      // from a thousand pixels to about nineteen hundred, and a twelve-megapixel
+      // still buys under two points over a 1080p frame. So whether a native
+      // camera is worth building is decided by ONE reading — what `getSettings`
+      // comes back with here, on the phone in hand — and this is where it is
+      // taken. `asked` against `got` is the whole question: a track that can
+      // give 4032 and hands back 1280 is a track worth going around.
+      cameraSaid = {
+        got: track.getSettings?.() ?? null,
+        canGive: can ? { width: can.width, height: can.height } : null,
+        stills: typeof window.ImageCapture === 'function',
+      };
+      const got = cameraSaid.got;
+      console.log('[scanner] camera:', JSON.stringify({
+        got: got ? `${got.width}x${got.height}` : 'unknown',
+        canGive: can?.width?.max ? `${can.width.max}x${can.height?.max ?? '?'}` : 'unstated',
+        ImageCapture: cameraSaid.stills,
+      }));
     }
     if (track && typeof window.ImageCapture === 'function') {
       stills = new window.ImageCapture(track);
@@ -877,6 +912,16 @@ export async function openScanner() {
   say('fill the frame with the whole page, edges and all — the button lights when it has it');
   watch();
   return new Promise((resolve) => { done = resolve; });
+}
+
+/**
+ * What the camera said it could do and what it actually opened at.
+ *
+ * Read by Settings, so the answer can be seen on the phone that took the
+ * picture rather than only in a console attached to it.
+ */
+export function cameraReport() {
+  return cameraSaid;
 }
 
 export function scannerIsOpen() {

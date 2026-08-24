@@ -226,6 +226,27 @@ npm run scan:import      THE SCAN, not the render: the three marked pages
                          gives the reader. 51.4% recall at a 6px staff space
                          against 85.8% at 10px — the size of the photograph is
                          the lever, not the light.
+                         MASTER raises the page the photograph is taken OF, so
+                         a camera BIGGER than the old 1400px master can be
+                         priced: with a 1400 master, SHRINK past 1.0 upscales a
+                         render and measures a blurrier page, not a bigger one.
+                         The whole curve, MASTER=2800, READ_ACROSS = the page's
+                         own width, which is what the app reaches (paper.js
+                         draws at 1400 and again at 2400 where the space is
+                         small):
+                            1008px across   space 4.0px   54.9%  Bach finds NO staves
+                            1440px across   space 6.2px   73.0%
+                            1920px across   space 8.0px   82.5%
+                            2400px across   space 10.3px  84.0%
+                            2800px across   space 12.0px  84.4%
+                         A CLIFF AND THEN A PLATEAU, and it is the number that
+                         decides whether a native camera is worth building: all
+                         of the gain is between a thousand pixels and about
+                         nineteen hundred, and a twelve-megapixel still buys
+                         under two points over a 1080p frame. What the browser
+                         hands over is therefore the only thing left to measure,
+                         and Settings → Your camera says it (`cameraReport` in
+                         ui/scanner.js).
 npm run scan:light       the two pages a photograph becomes: the bright one
                          that goes to the screen (paper 255, shadow gone, ink
                          still ink) and the plain one the reader reads. They are
