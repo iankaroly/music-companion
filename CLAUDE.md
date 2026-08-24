@@ -97,8 +97,16 @@ npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          frames whose page corners are known, scored as IoU, as
                          SPILL (how much of the blue outline is not paper) and
                          as SPANS (one outline over two pages of a book).
-                         91.6% mean IoU, worst spill 9%, 0 spans, 0 page counts
-                         wrong. Run it whenever page-edges.js, straighten.js or
+                         91.8% mean IoU, worst spill 9%, 0 spans, 0 page counts
+                         wrong.
+                         WHY=<part of a case name> prints the sides — where the
+                         paper really is, where the finder put it AT THE SCALE
+                         THE GUARD SEES (220px, which is the only scale the app
+                         ever uses), and where the guard left it. The IoU column
+                         is measured at full canvas size and the app never runs
+                         there, so a case where those two disagree has two
+                         suspects and the table cannot tell them apart. It also
+                         prints which route fired. Run it whenever page-edges.js, straighten.js or
                          the scanner UI moves.
                          TWO COLUMNS, and the second one is new: IoU is
                          `findPages`, the finder; SHOWN is `papersIn` — the
@@ -116,6 +124,24 @@ npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          what was outlined, was false on the one frame it
                          mattered on. `findPaper` calls `papersIn` now, so this
                          column measures both.
+                         THE OPEN BOOK IS STILL THE WORST OF IT, and there is
+                         an address for it now. "the blue rectangle only reaches
+                         about 85% of the page, especially if it's on the left
+                         side." MEASURED, `WHY=BAND`, case `book, ONE page, a
+                         BAND of the next one in shot`: one bright region, so
+                         `pagesTogether` cuts it at the fold — and the fold is
+                         put at 0.284 of the frame when the paper really parts
+                         at 0.224..0.253. The seam lands PAST the gutter and a
+                         twentieth of the frame inside the page being aimed at,
+                         so that page's outline starts six per cent late on its
+                         left and the other swallows the whole gutter (11.8%
+                         spill). `foldByInk` was not the culprit — putting its
+                         seam on the darkest column of the corridor rather than
+                         the middle of it did not move this case at all — so
+                         `foldIn` is answering and mis-locating the crease.
+                         THAT IS THE NEXT THING TO PICK UP, and it wants
+                         `scan:frame` on a real photograph of his book rather
+                         than another pass over a drawn one.
                          AND THE SHOWN COLUMN IMMEDIATELY FOUND TWO FAULTS
                          NOTHING COULD SEE, both older than it and neither
                          touched yet: `book, ONE page, a SLIVER of the next one`

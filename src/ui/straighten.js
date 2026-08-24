@@ -18,7 +18,7 @@
 import { findPage, findPages, homography, through, rectFor } from '../analysis/page-edges.js';
 import { unshadow } from '../analysis/unshadow.js';
 
-const LOOK_AT = 220;      // the width the corners are looked for at
+export const LOOK_AT = 220;      // the width the corners are looked for at
 const MOST = 2000;        // the widest a straightened page is stored at
 // The longest edge the PIXEL work is done at. A phone camera hands over twelve
 // megapixels; squaring a page reads every one of them into a Float array, twice,

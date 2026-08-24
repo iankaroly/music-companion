@@ -581,6 +581,27 @@ const report = await page.evaluate(async (want, keep) => {
     try { found = findPages(luma, w, h); } catch (e) { threw = String(e); }
     let shown = [];
     try { shown = papersIn(c, c.width, c.height) ?? []; } catch { shown = []; }
+    // WHICH OF THE TWO DIFFERENCES MOVED IT. `found` is `findPages` on the
+    // canvas at full size; `shown` is `papersIn`, which is `findPages` on a
+    // thumbnail PLUS the guard. When the two disagree, those are two suspects
+    // and the column cannot tell them apart — so the middle term is taken here:
+    // the finder at the scale the guard sees, before the guard runs.
+    let raw = [];
+    try {
+      const { LOOK_AT } = await import('/src/ui/straighten.js');
+      const lw = Math.min(LOOK_AT ?? 900, c.width);
+      const lh = Math.max(1, Math.round(c.height * (lw / c.width)));
+      const small = document.createElement('canvas');
+      small.width = lw; small.height = lh;
+      small.getContext('2d', { willReadFrequently: true }).drawImage(c, 0, 0, lw, lh);
+      const sd = small.getContext('2d', { willReadFrequently: true })
+        .getImageData(0, 0, lw, lh).data;
+      const sl = new Float32Array(lw * lh);
+      for (let i = 0; i < lw * lh; i++) {
+        sl[i] = sd[i * 4] * 0.299 + sd[i * 4 + 1] * 0.587 + sd[i * 4 + 2] * 0.114;
+      }
+      raw = findPages(sl, lw, lh);
+    } catch { raw = []; }
     try { probe = probePages(luma, w, h); } catch (e) { probe = [{ verdict: String(e) }]; }
 
     // Each found outline against the page it best fits, and how much of it is
@@ -630,6 +651,17 @@ const report = await page.evaluate(async (want, keep) => {
       // outline that is exactly right still reads as spill. It is scored on the
       // pages that are wholly in shot — which includes, in every case here, the
       // page the shutter would actually keep.
+      raw: raw.map((quad) => {
+        let best = 0;
+        truth.forEach((real) => { best = Math.max(best, iou(quad, real)); });
+        return best;
+      }),
+      rawBoxes: raw.map((q) => [Math.min(...q.map((p) => p[0])), Math.max(...q.map((p) => p[0])),
+        Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[1]))]),
+      shownBoxes: shown.map((q) => [Math.min(...q.map((p) => p[0])), Math.max(...q.map((p) => p[0])),
+        Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[1]))]),
+      truthBoxes: truth.map((q) => [Math.min(...q.map((p) => p[0])), Math.max(...q.map((p) => p[0])),
+        Math.min(...q.map((p) => p[1])), Math.max(...q.map((p) => p[1]))]),
       shown: scoredShown.map((s) => s.iou),
       shownLoose: scoredShown.map((s) => (partial ?? []).includes(s.onto)),
       shownSpill: scoredShown.map((s) => s.spill),
@@ -654,6 +686,9 @@ if (keepAt) {
 const why = process.argv.includes('--why');
 const pct = (n) => `${(n * 100).toFixed(1)}%`;
 console.log('');
+// WHY=<part of a case name> prints the sides, so a case that comes back at 84%
+// says WHICH edge is short and by how much rather than only that it is.
+const WHY = process.env.WHY ?? null;
 console.log('case                                       want  got   IoU   SHOWN   spill  spans  missed');
 let worstSpill = 0;
 let spans = 0;
@@ -667,6 +702,23 @@ for (const row of report.rows) {
   const scored = row.spill.filter((_, i) => !row.loose?.[i]);
   if (row.want) ious.push(...row.iou);
   if (row.want) shownIous.push(...(row.shown ?? []));
+  if (WHY && row.name.toLowerCase().includes(WHY.toLowerCase())) {
+    const say = (label, boxes) => {
+      for (const [l, r, t, b] of boxes ?? []) {
+        console.log(`      ${label.padEnd(22)} x ${l.toFixed(3)}..${r.toFixed(3)}`
+          + `   y ${t.toFixed(3)}..${b.toFixed(3)}`);
+      }
+      if (!boxes?.length) console.log(`      ${label.padEnd(22)} —`);
+    };
+    console.log(`\n  ${row.name}`);
+    say('the paper really is', row.truthBoxes);
+    say('finder at 220 across', row.rawBoxes);
+    say('…and after the guard', row.shownBoxes);
+    console.log(`      route: ${JSON.stringify(row.probe)?.slice(0, 260)}`);
+    console.log(`      IoU at full size ${row.iou?.map((v) => (v * 100).toFixed(1)).join(", ")}`
+      + ` · at 220 ${row.raw?.map((v) => (v * 100).toFixed(1)).join(', ')}`
+      + ` · shown ${row.shown?.map((v) => (v * 100).toFixed(1)).join(', ')}\n`);
+  }
   const shownScored = (row.shownSpill ?? []).filter((_, i) => !row.shownLoose?.[i]);
   worstShownSpill = Math.max(worstShownSpill, shownScored.length ? Math.max(...shownScored) : 0);
   const shownIou = row.shown?.length ? row.shown.reduce((a, b) => a + b, 0) / row.shown.length : 0;

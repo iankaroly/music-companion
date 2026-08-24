@@ -828,6 +828,11 @@ const GUTTER_WIDE = 0.14;     // and how narrow: a spine is a line, a shadow is 
 // off-centre fold is a BAND of a page rather than a page — a fifth of the frame
 // carrying a fifth of what is printed.
 const GUTTER_INK = 0.08;
+// How much darker than the corridor's own ends the trough has to be before it
+// is believed to be the fold rather than arithmetic. Levels are 0-255, so this
+// is a shade a human would call slightly grey — a crease that shows at all
+// clears it, and an evenly lit margin does not.
+const GUTTER_TROUGH = 6;
 // How much of its own outline the bright thing has to fill before a fold is
 // looked for in it at all. The same 0.6 `looksLikePaper` has always used — see
 // the note on `canSplit` in findPages.
@@ -981,7 +986,46 @@ function foldByInk(quad, luma, w, h) {
   const right = inkIn(bestTo, INK_COLS);
   if (!left || !right) return null;
   if (Math.min(left, right) < grid.total * GUTTER_INK) return null;
-  const middle = INK_INSET + ((bestFrom + bestTo) / 2 / INK_COLS) * (1 - 2 * INK_INSET);
+  // THE DARKEST COLUMN IN THE CORRIDOR, NOT THE MIDDLE OF IT.
+  //
+  // The corridor is the gutter PLUS both inner margins, and its middle is the
+  // gutter only when those two margins are the same width in the picture. On
+  // the frame a phone over a music stand actually takes they are not: one page
+  // is a BAND running off the side of the frame and the other is a whole page
+  // seen at an angle, so their margins are nothing like each other and the
+  // middle of the corridor is not the fold.
+  //
+  // MEASURED, `npm run scan:pages -- WHY=BAND`, case "book, ONE page, a BAND of
+  // the next one in shot": the paper parts at 0.224..0.253 of the frame and the
+  // corridor's middle put the seam at 0.284 — past the gutter entirely and a
+  // twentieth of the frame INSIDE the page being aimed at. So the outline of
+  // the page he wanted started six per cent late on its left, which is the
+  // complaint: "the blue rectangle only reaches about 85% of the page,
+  // especially if it's on the left side."
+  //
+  // The gutter is still the darkest thing in that corridor even when it is not
+  // dark enough to part the two leaves in the mask — that is the whole reason
+  // this route is reached rather than `foldIn`. Reading brightness rather than
+  // ink costs nothing: `inkGrid` has already measured it.
+  const dim = (c) => {
+    let sum = 0;
+    for (let r = 0; r < INK_ROWS; r++) sum += grid.value[r * INK_COLS + c];
+    return sum / INK_ROWS;
+  };
+  let darkest = (bestFrom + bestTo - 1) / 2;
+  let least = Infinity;
+  for (let c = bestFrom; c < bestTo; c++) {
+    const v = dim(c);
+    if (v < least) { least = v; darkest = c; }
+  }
+  // …and only where the corridor really has a trough in it. A corridor of even
+  // margin with no crease anywhere in it has a darkest column by arithmetic and
+  // it means nothing; the middle is the better guess there, and it is the
+  // answer this route has always given.
+  const flat = dim(bestFrom) + dim(bestTo - 1);
+  const trough = least < (flat / 2) - GUTTER_TROUGH;
+  const seam = trough ? darkest + 0.5 : (bestFrom + bestTo) / 2;
+  const middle = INK_INSET + (seam / INK_COLS) * (1 - 2 * INK_INSET);
   // NO WIDTH FROM THIS ROUTE, deliberately. `pagesTogether` cuts at the EDGES
   // of a fold when it knows how wide the fold is, and what this one measures is
   // not the fold: it is the blank corridor between the two pages' printing,
