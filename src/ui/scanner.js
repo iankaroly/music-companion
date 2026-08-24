@@ -511,15 +511,26 @@ async function capture() {
     const number = String(pages.length + taken.length + 1).padStart(2, '0');
     const name = `page-${number}.jpg`;
     let page = canvas;
+    // WHERE THE PAGE THAT IS KEPT ACTUALLY CAME FROM, which is not `corners`.
+    //
+    // Three things move an outline between being found and being cut — the
+    // guard pushes a side out to the paper's real edge, `widen` lets the whole
+    // thing out by a tenth, and `trimBackground` takes back what that let in —
+    // and the editor was being opened on the outline BEFORE any of them. So its
+    // handles sat about a tenth inside the page that had been kept: "the edges
+    // start off below what was actually scanned in the blue rectangle", and
+    // dragging them back out was undoing work already done right.
+    let cut = corners;
     if (cleanUp) {
       try {
         // One page of several: the fold between this page and the one beside
         // it has already been found, and nothing downstream may move it back
         // over the neighbour. See guardQuad in straighten.js.
         page = straightenCanvas(canvas, canvas.width, canvas.height, corners,
-          { beside: besidesOf(all, keeping) });
+          { beside: besidesOf(all, keeping), onQuad: (q) => { cut = q ?? corners; } });
       } catch {
         page = canvas;    // the photograph as taken is still a page
+        cut = corners;
       }
     }
     // The straightened page first, the photograph as taken behind it: squaring
@@ -528,7 +539,8 @@ async function capture() {
       ?? (page === canvas ? null : await pageFrom(canvas, name));
     // The size of the page as it will be STORED, taken from the canvas it came
     // off rather than re-decoded: it is what the reader will get.
-    if (file) taken.push({ file, corners, w: page.width, h: page.height });
+    // `cut` and not `corners`: the editor opens on the page that was kept.
+    if (file) taken.push({ file, corners: cut, w: page.width, h: page.height });
   }
   if (!taken.length) {
     say('that shot did not come out — take it again');

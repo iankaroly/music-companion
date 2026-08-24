@@ -171,6 +171,30 @@ npm run reader:review    STOP A TAKE ON THE MUSIC AND LAND ON THE REVIEW —
                          microphone plays real notes — a suspended AudioContext
                          is silence, and a take with nothing in it is discarded
                          before it can reach a review. NO MICROPHONE.
+npm run crop:edit        MOVING THE EDGES OF A SCANNED PAGE — where the
+                         handles START and what a drag COSTS. The scanner kept
+                         the outline it FOUND and opened the editor on that, but
+                         three things move an outline between being found and
+                         being cut (the guard pushes a side out to the paper's
+                         real edge, `widen` lets it out by a tenth, and
+                         `trimBackground` takes back what that let in), so the
+                         handles sat inside the page that had been kept —
+                         2.9% of the frame on the drawn case, and dragging them
+                         out again undid work already done right.
+                         `straightenCanvas` reports the quad it cut (`onQuad`)
+                         and the scanner keeps THAT.
+                         The drag: 0.049ms a move before, 0.011 after —
+                         `draw` was writing an SVG source string into innerHTML
+                         on every pointermove, and the shade was a full-screen
+                         MASK, which is an offscreen buffer the size of the
+                         screen re-rasterised every frame over a
+                         twelve-megapixel photograph. One even-odd path now.
+                         AND IT ASSERTS THE OVERLAY IS THE SIZE OF THE LAYER,
+                         because taking the viewBox off an <svg> makes it a
+                         replaced element with an intrinsic 300x150 that ignores
+                         `inset: 0` — the outline shrank into the corner and
+                         every other assertion here still passed. That one was
+                         found by LOOKING at a screenshot.
 npm run settings:away    TAP THE DARK AND THE SETTINGS SHEET GOES AWAY, and
                          nothing else does. The one-line version of this —
                          close when `event.target` is the dialog — closes on a

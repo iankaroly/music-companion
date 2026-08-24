@@ -2299,21 +2299,41 @@
     #crop-overlay {
       position: absolute;
       inset: 0;
+      /* SAID OUTRIGHT, because `inset: 0` does not size an <svg>.
+         An SVG with no viewBox is a REPLACED element with an intrinsic size of
+         300x150, and a replaced element with `width: auto` takes that size and
+         ignores the right and bottom insets. It used to carry a viewBox, which
+         gives it a ratio instead of a size and let it stretch — so taking the
+         viewBox away silently shrank the whole overlay to 300x150 in the corner
+         and the outline vanished. MEASURED, and caught by LOOKING at it: the
+         checks still passed, because an SVG circle reports its geometry
+         whether or not the thing is on the screen. */
+      width: 100%;
+      height: 100%;
       touch-action: none;       /* the handles own every gesture on the picture */
     }
-    .crop-hint {
+    /* One stack, so the sentence cannot land on top of the buttons — which is
+       what it did as soon as four of them wrapped onto two rows. The picture is
+       given whatever height is left over; see fitStage in ui/crop.js. */
+    .crop-foot {
       position: absolute;
-      left: 0; right: 0; bottom: 4.6rem;
+      left: 0; right: 0;
+      bottom: max(0.7rem, env(safe-area-inset-bottom, 0px));
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.55rem;
+    }
+    .crop-hint {
+      margin: 0;
       text-align: center;
       color: rgb(255 255 255 / 0.85);
       font-family: var(--ui);
       font-size: 0.78rem;
       padding: 0 1rem;
+      max-width: 34rem;
     }
     .crop-bar {
-      position: absolute;
-      left: 0; right: 0;
-      bottom: max(0.7rem, env(safe-area-inset-bottom, 0px));
       display: flex;
       justify-content: center;
       flex-wrap: wrap;

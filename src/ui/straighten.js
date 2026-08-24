@@ -491,7 +491,13 @@ const TRIM_MOST = 1 / 5;     // never more than this off a side, whatever it loo
 const TRIM_DARKER = 0.78;   // a pixel this much darker than the paper is not paper
 const TRIM_ENOUGH = 0.3;    // and a line this much not-paper is a line to drop
 
+// Where the last trim cut, for the one caller that needs it. A return value
+// would mean changing every call site to unpack a pair for a number only one of
+// them wants; this is read immediately after the call and never held.
+let took = null;
+
 function trimBackground(page, { sideways = true } = {}) {
+  took = null;
   const w = page.width;
   const h = page.height;
   if (w < 40 || h < 40) return page;
@@ -565,6 +571,12 @@ function trimBackground(page, { sideways = true } = {}) {
   if (cutW < w * 0.5 || cutH < h * 0.5) return page;   // that is not a margin
   const cut = scratch(cutW, cutH);
   cut.getContext('2d').drawImage(page, left, top, cutW, cutH, 0, 0, cutW, cutH);
+  // WHAT WAS TAKEN OFF, in the squared page's own 0-1 terms, so a caller that
+  // needs to know WHERE the kept page is in the original photograph can map it
+  // back through the quadrilateral. See `onQuad` in straightenCanvas: without
+  // this, the last step of the pipeline moves the answer and nothing outside
+  // can see that it did.
+  took = { x0: left / w, y0: top / h, x1: (right + 1) / w, y1: (bottom + 1) / h };
   return cut;
 }
 
@@ -781,7 +793,25 @@ function cropToBright(source, width, height) {
  *
  * So a hand crop is taken as given: cut where it says, and nowhere else.
  */
-export function straightenCanvas(source, width, height, known = null, { asGiven = false, beside = null } = {}) {
+/**
+ * @param {Function} [onQuad] told WHERE IN THE PHOTOGRAPH the page it returns
+ *   came from, in 0-1 terms, once it is settled.
+ *
+ *   THE FAULT THIS FIXES. The scanner kept the corners it FOUND and handed
+ *   those to the edges editor — but three things happen to an outline between
+ *   being found and being cut, and every one of them moves it: the guard pushes
+ *   a side out to the paper's real edge, `widen` lets the whole thing out by a
+ *   tenth so an outline a little inside the paper does not cost a line of
+ *   music, and `trimBackground` takes back whatever of the table that let in.
+ *   So the handles opened INSIDE the page that had actually been kept, by about
+ *   a tenth of it — "the edges start off below what was actually scanned in the
+ *   blue rectangle" — and dragging them out again was undoing work the scanner
+ *   had already done correctly.
+ *
+ *   One quadrilateral, computed once, used to cut the page and shown in the
+ *   editor. Nothing downstream has to reconstruct it.
+ */
+export function straightenCanvas(source, width, height, known = null, { asGiven = false, beside = null, onQuad = null } = {}) {
   // Down to a size the device can hold before a single pixel is read. The
   // quadrilateral is measured in the picture's own 0–1 terms, so nothing about
   // the search changes; only the amount of memory it takes.
@@ -807,6 +837,9 @@ export function straightenCanvas(source, width, height, known = null, { asGiven 
   // an outline that is a little wrong and a page that has lost a line of music.
   const oneOfSeveral = !!(beside && (beside.left || beside.right || beside.top || beside.bottom));
   const quad = found && !asGiven ? widen(found, 0.1, oneOfSeveral) : found;
+  // Where the page this returns came from. It starts as the quadrilateral about
+  // to be cut and is narrowed again if the trim takes anything.
+  let cut = quad;
   let page = null;
   try {
     page = quad ? pullSquare(src, w, h, quad) : cropToBright(src, w, h);
@@ -821,6 +854,11 @@ export function straightenCanvas(source, width, height, known = null, { asGiven 
     // brightness alone has no margin of ours around it to take back off, and a
     // page somebody cut by hand has no margin of ours around it either.
     page = trimBackground(page, { sideways: !oneOfSeveral });
+    // …and the trim is part of where the page came from, so it goes into the
+    // answer rather than being lost at the last step. `pullSquare` maps the
+    // quadrilateral onto a rectangle, so a rectangle of that rectangle maps
+    // back by reading the same fractions along the quad's own sides.
+    if (took && quad) cut = within(quad, took);
   }
   try {
     const ctx = page.getContext('2d', { willReadFrequently: true });
@@ -834,7 +872,27 @@ export function straightenCanvas(source, width, height, known = null, { asGiven 
     unshadow(image.data, page.width, page.height);
     ctx.putImageData(image, 0, 0);
   } catch { /* an unlit page is better than no page, but not by enough to fail */ }
+  onQuad?.(cut ? cut.map(([x, y]) => [x, y]) : null);
   return page;
+}
+
+/**
+ * A rectangle OF a quadrilateral, back in the picture's own terms.
+ *
+ * `pullSquare` lays the quad flat onto a rectangle, so a fraction along the
+ * rectangle is the same fraction along the quad's own opposing sides. Reading
+ * the four corners of the rectangle that way gives the four corners of the
+ * region it came from — which is how a trim taken on the squared page is put
+ * back where it happened.
+ */
+function within(quad, { x0, y0, x1, y1 }) {
+  const [tl, tr, br, bl] = quad;
+  const at = (u, v) => {
+    const top = [tl[0] + (tr[0] - tl[0]) * u, tl[1] + (tr[1] - tl[1]) * u];
+    const bottom = [bl[0] + (br[0] - bl[0]) * u, bl[1] + (br[1] - bl[1]) * u];
+    return [top[0] + (bottom[0] - top[0]) * v, top[1] + (bottom[1] - top[1]) * v];
+  };
+  return [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)];
 }
 
 function loadImage(file) {

@@ -109,6 +109,7 @@
     "reader:review": "node tools/reader-review-check.mjs",
     "review:taps": "node tools/review-taps-check.mjs",
     "settings:away": "node tools/settings-away-check.mjs",
+    "crop:edit": "node tools/crop-edit-check.mjs",
     "scan:frame": "node tools/scan-frame-probe.mjs"
   },
   "keywords": [],
