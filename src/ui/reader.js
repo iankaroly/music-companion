@@ -3088,6 +3088,7 @@ function setTool(next) {
   if (INKS.includes(tool)) lastInk = tool;
   if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
+  placeRecordButton();   // it lives in whichever bar is showing
   for (const button of root.querySelectorAll('[data-tool]')) {
     const on = button.dataset.tool === tool;
     button.classList.toggle('on', on);
@@ -4380,6 +4381,7 @@ function showTake(state) {
   // it and the next tap on the music takes the bar away as usual.
   root?.classList.toggle('taking', !!state.recording);
   if (state.recording) setChrome(true);
+  placeRecordButton();
   button.disabled = !!state.busy;
   button.replaceChildren(icon(state.recording ? 'stopRec' : 'record'));
   const label = state.recording
@@ -4397,6 +4399,37 @@ function showTake(state) {
 async function toggleTakeHere() {
   const { toggleTake } = await import('./take-control.js');
   await toggleTake();
+}
+
+// WHICHEVER BAR IS ON SCREEN IS THE BAR IT IS IN.
+//
+// The button moved into `#reader-top`, and `#reader.drawing` hides that bar
+// outright — one bar at a time, reading or drawing, which is the right rule for
+// everything else in it. MEASURED, before this: start a take, pick up the
+// pencil to mark a fingering, and the only way to stop the take is gone —
+// `getBoundingClientRect()` 0x0 — leaving somebody to go and find the Record
+// tab. That is precisely the hazard the old floating dot existed to avoid, and
+// it is the one thing `showTake` promises in its own comment.
+//
+// A DOM node lives in exactly one place, so it is MOVED rather than copied —
+// the same arrangement score-tab.js uses for the playback panel, and for the
+// same reason: two of a control is two things to keep in step, and they do not
+// stay in step. Marking a fingering while a take runs is one of the two things
+// this reader is for; the stop goes where the hand already is.
+function placeRecordButton() {
+  const button = el('reader-record');
+  if (!button || !root) return;
+  const drawing = root.classList.contains('drawing');
+  const home = drawing
+    ? root.querySelector('#reader-ink-bar')
+    : root.querySelector('#reader-top .reader-bar-right');
+  if (!home || button.parentElement === home) return;
+  // On the ink bar it goes straight after the tick, which is the other control
+  // there that is about leaving rather than about drawing.
+  const after = drawing ? el('reader-done') : null;
+  if (after && after.parentElement === home) after.after(button);
+  else if (drawing) home.prepend(button);
+  else home.insertBefore(button, el('reader-annotate'));
 }
 
 function watchTake() {

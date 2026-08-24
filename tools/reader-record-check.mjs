@@ -123,6 +123,30 @@ const report = await page.evaluate(async () => {
   // was a tick that used to hide it.
   await new Promise((r) => setTimeout(r, 1200));
   out.stillVisibleASecondIn = seen();
+
+  // …AND STILL THERE WITH THE PENCIL IN YOUR HAND.
+  //
+  // Marking a fingering while a take runs is one of the two things this reader
+  // is for. The button moved into the top bar this round, and `#reader.drawing`
+  // hides that bar outright — so picking up the pencil mid-take took the only
+  // way to stop the take off the screen (measured: 0x0), which is the exact
+  // hazard the floating dot it replaced existed to avoid. It moves to whichever
+  // bar is showing now; this is the assertion that says so.
+  document.querySelector('#reader-annotate')?.click();
+  await new Promise((r) => setTimeout(r, 600));
+  out.drawingModeOn = document.querySelector('#reader')?.classList.contains('drawing');
+  const now = document.querySelector('#reader-record');
+  out.stillVisibleWithThePencilOut = !!now && seen();
+  out.stopReachableWhileDrawing = (() => {
+    if (!now) return false;
+    const b = now.getBoundingClientRect();
+    if (!(b.width > 0 && b.height > 0)) return false;
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    return hit === now || now.contains(hit);
+  })();
+  // Put the pen down again; stopping is tested from the reading bar.
+  document.querySelector('#reader-done')?.click();
+  await new Promise((r) => setTimeout(r, 400));
   button.click();
   for (let i = 0; i < 60 && button.classList.contains('recording'); i += 1) {
     await new Promise((r) => setTimeout(r, 100));
@@ -145,6 +169,8 @@ say('the music is on screen', report.musicShowing, 'true');
 say('pressing it starts a take', report.recordingShown, 'true');
 say('and the button is STILL on screen', report.stillVisibleWhileRecording, 'true');
 say('…still there a second into the take', report.stillVisibleASecondIn, 'true');
+say('…and still there with the pencil out', report.stillVisibleWithThePencilOut, 'true');
+say('…and a finger can reach it there', report.stopReachableWhileDrawing, 'true');
 say('the Record tab shows the same take', report.tabButtonSays, '"Stop & review"');
 say('the music is STILL on screen', report.musicWhileRecording, 'true');
 say('and the reader is still open', report.readerStillOpen, 'true');
@@ -159,6 +185,8 @@ const ok = report.hasButton && report.hiddenAtFirst === false
   && /stop/i.test(report.tabButtonSays ?? '')
   && report.musicWhileRecording && report.readerStillOpen
   && report.stillVisibleWhileRecording && report.stillVisibleASecondIn
+  && report.drawingModeOn && report.stillVisibleWithThePencilOut
+  && report.stopReachableWhileDrawing
   && report.stoppedFromTheSameButton && report.readerOpenAfter
   && report.offeredAgainAfter;
 console.log(ok ? '\nPASS — one take, two doors, and the music never leaves the screen' : '\nFAIL');

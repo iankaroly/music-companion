@@ -785,11 +785,21 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   // The cursor strip reports a drag as start · move · end and then fires a
   // click on top of it, so an 'end' swallows the 'tap' behind it — without that
   // letting go would restart the playback the 'end' had just resumed.
+  //
+  // SWALLOWED FOR A MOMENT, NOT UNTIL SOMEBODY TAPS. A pointercancel — the
+  // browser taking the gesture away for a scroll, a second finger, a call
+  // arriving — reports 'end' with no click behind it, and a flag left standing
+  // would eat the next real tap instead. One dead tap, minutes later, with
+  // nothing to connect it to: the shape of "it doesn't work sometimes". The
+  // click a drag leaves behind arrives in the same task or the next, so the
+  // window only has to cover that.
   let resumeAfterSeek = false;
-  let swallowTap = false;
+  let swallowUntil = 0;
+  const SWALLOW_MS = 300;
+  const now = () => (globalThis.performance?.now?.() ?? 0);
   const overviewSeek = (t, phase) => {
     const at = Math.max(0, t);
-    if (phase === 'tap' && swallowTap) { swallowTap = false; return; }
+    if (phase === 'tap' && now() < swallowUntil) { swallowUntil = 0; return; }
     if (phase === 'start' || phase === 'tap') {
       if (full?.playing) { resumeAfterSeek = true; pauseFull(root); }
       else if (zoom?.playing) { resumeAfterSeek = true; pauseZoom(root); }
@@ -803,7 +813,7 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
       zoom.retune?.();
     }
     setPlayheads(t);
-    if (phase === 'end') swallowTap = true;
+    if (phase === 'end') swallowUntil = now() + SWALLOW_MS;
     if ((phase === 'end' || phase === 'tap') && resumeAfterSeek) {
       resumeAfterSeek = false;
       playFullFrom(root, at);
