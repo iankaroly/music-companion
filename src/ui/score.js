@@ -1289,7 +1289,17 @@ async function renderScanTab() {
       // stretches are and refuses to compare them — the take's own free review
       // measures a pulse directly and needs no page to do it.
       const extra = document.createElement('small');
-      extra.className = 'scan-pairing scan-bars';
+      // NOT `scan-bars`, which is the LAYER of invisible boxes drawn over a
+      // photographed page — `position: absolute; inset: 0; z-index: 3`. This is
+      // a sentence ABOUT the barlines, and naming it after them turned a line of
+      // prose into a transparent sheet 390 by 1383 over the whole review.
+      // MEASURED at 390x844: `elementFromPoint` in the middle of the graph's
+      // play button, of Save and of Discard answered this <small> for all three,
+      // so not one of them could be pressed. "when I click the pause button on
+      // the graph below, it doesn't pause… when I click Save or Discard, none of
+      // those are working." The class is scoped to a page as well now, so the
+      // same collision cannot be made again by picking the same word.
+      extra.className = 'scan-pairing scan-barlines';
       const whole = (rhythm.bars ?? []).filter((b) => b.believed && b.length > 0);
       if (whole.length >= 3) {
         // NO RUSHING-OR-DRAGGING WORD HERE, and it is deliberate rather than

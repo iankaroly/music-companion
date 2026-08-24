@@ -171,8 +171,24 @@ npm run reader:review    STOP A TAKE ON THE MUSIC AND LAND ON THE REVIEW —
                          microphone plays real notes — a suspended AudioContext
                          is silence, and a take with nothing in it is discarded
                          before it can reach a review. NO MICROPHONE.
-npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the dot on the
-                         open score, pressed the way a finger presses it. One
+npm run review:taps      CAN A FINGER REACH THE REVIEW'S CONTROLS — the pixel
+                         in the middle of the graph's play button, of Save and
+                         of Discard, and what is actually there to receive a
+                         touch, at 390x844. It exists because none of the three
+                         could be pressed at all: the sentence in score.js that
+                         reports what the barlines cut the take into carried the
+                         class `scan-bars`, which is the LAYER of invisible
+                         boxes over a photographed page (`position: absolute;
+                         inset: 0; z-index: 3`), so a line of prose became a
+                         390x1383 transparent sheet over the whole review. Every
+                         handler was wired the whole time; the click never
+                         arrived. It also MAKES the hazard — a stray sentence
+                         carrying that class — because the real one is only
+                         written on a take the reader managed to bar, and a
+                         check that waits for the hazard to happen is a check
+                         that passes because it did not. NO MICROPHONE.
+npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the button in the
+                         reader's own bar, pressed the way a finger presses it. One
                          recorder behind two doors (the Record tab's button must
                          read "Stop & review" while the reader's dot is red),
                          the music still on screen throughout, and — the

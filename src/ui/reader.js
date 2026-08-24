@@ -28,7 +28,7 @@
 
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { saying } from './why.js';
-import { followPlayback } from './report.js';
+import { followPlayback, takeIsPlaying, toggleTakePlayback } from './report.js';
 import { openPaper } from './paper.js';
 import { bandsOfPage } from './bands.js';
 import { headsOf, pairNotes } from './scan-view.js';
@@ -395,8 +395,10 @@ const TOP_REACH = 0.25;
 // its own copy of the answer. They had already drifted apart by one entry, and
 // every control added afterwards was a bug waiting in whichever list somebody
 // forgot. There is one list.
+// `#reader-record` is not listed separately any more: it sits inside
+// `#reader-top`, which is, so a press on it was already not a page turn.
 const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-aids, #reader-record, .pick-pop, dialog';
+  + ' #reader-selection, #reader-land, #reader-aids, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -3062,8 +3064,14 @@ function isMenuOpen() {
 }
 
 function setChrome(on) {
-  chrome = on;
-  root?.classList.toggle('bare', !on);
+  // A RUNNING TAKE KEEPS THE BAR. Every gesture that reads as "I am reading
+  // now" — the tap on the music, the swipe, the page turn — asks for the chrome
+  // to go, and the record button now lives in it. Refusing here rather than at
+  // each of those four call sites is the same reason CHROME is one list: four
+  // copies of one rule is three of them waiting to be forgotten.
+  const taking = !!root?.classList.contains('taking');
+  chrome = on || taking;
+  root?.classList.toggle('bare', !chrome);
 }
 
 function setTool(next) {
@@ -3707,7 +3715,7 @@ function buildMenu(sheet) {
       onPick: () => togglePainted(),
     });
     menuRow(sheet, {
-      label: playing() ? 'Pause' : 'Play the take', glyph: playing() ? '❚❚' : '▶',
+      label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? '❚❚' : '▶',
       detail: 'the note being heard lights up',
       onPick: togglePlayback,
     });
@@ -4362,6 +4370,16 @@ function showTake(state) {
   // dot vanish mid-take — the invariant is worth stating in the view too.
   button.hidden = !state.recording && !state.canRecord;
   button.classList.toggle('recording', !!state.recording);
+  // …AND THE BAR IT SITS IN STAYS DOWN WHILE THE TAKE RUNS.
+  //
+  // The button used to float over the page, so it survived the reader putting
+  // its chrome away — which the reader does the moment somebody starts reading,
+  // because that is what it is for. In the bar it does not, and a running take
+  // with the bar away would be a take with no visible way to stop it and no
+  // sign that it was running. So a take pins the chrome open; stopping releases
+  // it and the next tap on the music takes the bar away as usual.
+  root?.classList.toggle('taking', !!state.recording);
+  if (state.recording) setChrome(true);
   button.disabled = !!state.busy;
   button.replaceChildren(icon(state.recording ? 'stopRec' : 'record'));
   const label = state.recording
@@ -4390,27 +4408,38 @@ function watchTake() {
 }
 
 /**
- * RECORD, ON THE MUSIC — and NOT in the bar that hides itself.
+ * RECORD, IN THE BAR, BESIDE THE PENCIL.
  *
  * Recording used to mean leaving the page: you chose the score on the Record
  * tab and then had a tab of charts in front of you instead of the notes you
  * were about to play. "when you select a score to record from, you can't
  * actually read the music."
  *
- * It cannot live in the top bar, which is the obvious place, because the reader
- * takes its chrome away the moment somebody starts reading — that is what the
- * reader is FOR — and a take with no visible way to stop it, and no sign that
- * it is running, is worse than no button. So it is a small mark on the page
- * itself: quiet while it is only an offer, red while it is recording, and
- * always there.
+ * The first answer was a floating dot in the bottom-right corner of the page,
+ * and the note that used to be here argued at length that the bar was the one
+ * place it could NOT go: the reader takes its chrome away the moment somebody
+ * starts reading, and a take with no visible way to stop it is worse than no
+ * button at all. That is a real hazard and the argument was sound; it is
+ * OVERRULED, on request — "instead of it being in the bottom right, I want it
+ * to be in the menu… maybe to the left of the pencil button" — and paid for
+ * rather than ignored:
  *
- * It is listed in CHROME so that pressing it is not also a page turn — the
- * right-hand side of the page is the "next page" tap, and this sits in it.
+ *   THE BAR CANNOT HIDE WHILE A TAKE IS RUNNING. `showTake` pins the chrome
+ *   open for as long as `state.recording`, so the invariant the old note was
+ *   defending — that there is always a visible way to stop — still holds. It is
+ *   the same invariant `showTake` already states about the button itself.
+ *
+ * What the corner cost was worth losing. A round dot floating over the
+ * bottom-right of a page sat exactly where a right hand rests on a phone
+ * propped on a stand, in the middle of the "next page" tap zone, and it was the
+ * one control in the reader that was not where the other controls are. Wanting
+ * to record and wanting to write a fingering are the same kind of wanting; they
+ * belong in the same row.
  */
 function buildRecordButton() {
   const button = iconButton(
     'reader-record', 'record', 'Record while you read', toggleTakeHere,
-    { className: 'reader-rec-dot' },
+    { className: 'reader-tool reader-rec' },
   );
   button.hidden = true;          // until something says it can record
   return button;
@@ -4446,6 +4475,9 @@ function buildTopBar() {
   right.className = 'reader-bar-right';
   right.append(
     iconButton('reader-play', 'play', 'Play the take', togglePlayback),
+    // RECORD, HERE, BESIDE THE PENCIL — see buildRecordButton for what moved
+    // and what had to hold for it to be safe.
+    buildRecordButton(),
     iconButton('reader-annotate', 'pen', 'Annotate this page', () => setTool(lastInk)),
     iconButton('reader-menu-btn', 'more', 'More', toggleMenu),
   );
@@ -4636,7 +4668,7 @@ function build() {
   }, { className: 'reader-chip' });
   land.hidden = true;
 
-  root.append(sheet, ink, buildRecordButton(), buildTopBar(), buildInkBar(), buildBrushPanel(),
+  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
     buildSelectionBar(), menu, line, land, upNext, aidsElement());
   document.body.append(root);
 
@@ -6136,31 +6168,30 @@ function followTake() {
 // button: the take plays, the review's own controls move in step, and the light
 // on the page follows.
 
-function transportButton() {
-  return document.querySelector('#clip-play');
-}
-
+// ASKED, NOT READ OFF THE BUTTON'S FACE.
+//
+// Both of these used to go through `#clip-play`: pressing it with `.click()`
+// and deciding whether the take was running by comparing its textContent with
+// '▶'. That is one fact kept in two places, and the second of them is a glyph —
+// change the character and the reader silently believes a stopped take is
+// playing, with no error anywhere. It also meant the reader could only work a
+// button that was ON THE PAGE, so the transport was unreachable whenever the
+// review's panel happened to be borrowed or hidden. report.js owns the player;
+// it can be asked and it can be told.
 function togglePlayback() {
-  const button = transportButton();
-  if (!button) return;
-  button.click();
-  // The engine flips the label; borrow it a moment later so this button agrees.
+  toggleTakePlayback();
+  // The engine flips its own controls; catch up a moment later so this button
+  // agrees with them.
   setTimeout(refreshPlayButton, 60);
-}
-
-function playing() {
-  const theirs = transportButton();
-  return !!theirs && (theirs.textContent ?? '').trim() !== '▶';
 }
 
 function refreshPlayButton() {
   const mine = el('reader-play');
   if (!mine) return;
-  const theirs = transportButton();
-  const playable = !!take && !!theirs && !document.querySelector('#playback')?.hidden;
+  const playable = !!take && !document.querySelector('#playback')?.hidden;
   mine.hidden = !playable;
   if (!playable) return;
-  const on = playing();
+  const on = takeIsPlaying();
   mine.replaceChildren(icon(on ? 'pause' : 'play'));
   mine.setAttribute('aria-label', on ? 'Pause the take' : 'Play the take');
 }
@@ -6295,6 +6326,11 @@ export function close() {
   // tab still has it.
   takeWatch?.();
   takeWatch = null;
+  // …and the pin the take put on the chrome goes with the watcher that set it.
+  // Left on, it would follow the next score onto the stand and refuse to let
+  // its bar out of the way — a reader that will not clear itself, for a take
+  // that is not running.
+  root.classList.remove('taking');
   for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
   delete document.documentElement.dataset.reading;
   unfollow?.();

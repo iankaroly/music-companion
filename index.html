@@ -161,18 +161,26 @@
          say it more precisely than a colour ever did. --off/--bad are not
          part of this: they carry timing, landing tiers and danger.
 
-         FLAT IS PURPLE and was blue, at the player's request. It still reads
-         cool against the warm sharp, and it stops competing with the two other
-         blues the app uses for things that are not intonation at all: the
-         scanner's page outline and the system's own selection blue. Those two
-         are deliberately left alone — neither of them means "flat". */
-      --sharp: #d9612c;
-      --flat: #7b4bc4;
+         RED FOR SHARP AND BLUE FOR FLAT, at the player's request — "instead of
+         purple for flat, I want blue for flat and then red for sharp". It has
+         been orange-and-purple and before that orange-and-blue; this is the
+         plainest naming of the pair and the one a string player already
+         carries, sharp being the hot side.
+
+         The two of them are picked to sit APART from the three colours nearest
+         them, because the review shows several at once: --bad (#ef5c73) is a
+         pink-red and carries "badly off" and danger, so sharp is a deeper,
+         less pink red; --primary is the app's purple and --sky its pale blue,
+         so flat is a saturated mid blue between them. The scanner's page
+         outline and the system's own selection blue are still left alone —
+         neither of them means "flat". */
+      --sharp: #d92d2a;
+      --flat: #1f6fe0;
       --good-soft: #d9f4e8;
       --off-soft: #fdeeda;
       --bad-soft: #fde3e8;
-      --sharp-soft: #fae3d6;
-      --flat-soft: #e8ddf8;
+      --sharp-soft: #fbdedd;
+      --flat-soft: #d9e6fb;
       --fill: rgb(var(--on-surface) / 0.06);
       --fill-2: rgb(var(--on-surface) / 0.12);
       --glass: rgb(var(--sf) / 0.55);
@@ -191,8 +199,8 @@
       /* The span tints behind the trace. Same hexes as the line colours above
          at low alpha, so a note's block and its line are one colour. */
       --chart-good-fill: rgb(23 181 120 / 0.12);
-      --chart-sharp-fill: rgb(217 97 44 / 0.14);
-      --chart-flat-fill: rgb(123 75 196 / 0.14);
+      --chart-sharp-fill: rgb(217 45 42 / 0.14);
+      --chart-flat-fill: rgb(31 111 224 / 0.14);
       --chart-wave: rgb(var(--on-surface) / 0.05);
       --display: "Fredoka", ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", sans-serif;
       --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
@@ -228,13 +236,13 @@
       --good: #35d295;
       --off: #ffb257;
       --bad: #ff7d90;
-      --sharp: #ff9a5e;
-      --flat: #b58cff;
+      --sharp: #ff6f6b;
+      --flat: #6fb2ff;
       --good-soft: #16362b;
       --off-soft: #3a2d18;
       --bad-soft: #3d1f27;
-      --sharp-soft: #3b2517;
-      --flat-soft: #2b2142;
+      --sharp-soft: #3d1c1e;
+      --flat-soft: #17293f;
       --glass: rgb(var(--sf) / 0.42);
       --glass-line: rgb(255 255 255 / 0.1);
       --surface-solid: #3b3f5e;
@@ -247,8 +255,8 @@
       --chart-grid: #302e48;
       --chart-tick-minor: #4a4770;
       --chart-good-fill: rgb(53 210 149 / 0.16);
-      --chart-sharp-fill: rgb(255 154 94 / 0.18);
-      --chart-flat-fill: rgb(181 140 255 / 0.18);
+      --chart-sharp-fill: rgb(255 111 107 / 0.18);
+      --chart-flat-fill: rgb(111 178 255 / 0.18);
       --chart-wave: rgb(var(--on-surface) / 0.08);
       --shadow: 0 2px 4px rgb(var(--sh) / 0.3), 0 12px 32px rgb(var(--sh) / 0.45);
     }
@@ -1217,7 +1225,11 @@
        So the marks are marks, and the bar under them is the control.
        Invisible until there is a reason to see one: a page covered in boxes is
        a page you cannot read the music off. */
-    .scan-bars { position: absolute; inset: 0; z-index: 3; }
+    /* Scoped to a page on purpose. Loose, this rule turns anything that
+       happens to carry the name into a full-size invisible sheet over
+       whatever is under it — which is exactly what it did to the review's
+       Save, Discard and play buttons. See ui/score.js, `scan-barlines`. */
+    .scan-page > .scan-bars { position: absolute; inset: 0; z-index: 3; }
     .scan-bar {
       position: absolute;
       margin: 0;
@@ -1230,6 +1242,15 @@
       transition: background 120ms ease, box-shadow 120ms ease;
     }
     .scan-bar:hover { background: rgb(var(--primary-rgb) / 0.08); }
+    /* ANSWERING THE FINGER BEFORE THE AUDIO DOES.
+       A bar press asks for a second of a recording, and getting one takes as
+       long as it takes: the buffer is cut, a source is started, and the light
+       that says WHICH bar only arrives on the first frame of playback. Until
+       this rule there was nothing at all in between — you pressed a bar on a
+       photograph and the page sat there. Feedback belongs on the press, not on
+       the result of it; this is the same tint the sounding bar gets, put down
+       the instant the finger lands and left for the real one to take over. */
+    .scan-bar:active { background: rgb(var(--primary-rgb) / 0.22); }
     /* While you are marking, every bar shows itself: the whole gesture is
        choosing one, and a target you cannot see is not one. */
     .scan-bar.marking { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.4); }
@@ -1591,41 +1612,36 @@
       box-shadow: 0 6px 20px rgb(var(--sh) / 0.12);
       transition: opacity 180ms, transform 220ms var(--spring);
     }
-    /* Recording, ON the music — see buildRecordButton. It is not in the bar that
-       hides itself, because a take with no visible way to stop it is worse than
-       no button. Quiet while it is only an offer; red while it is running. */
-    .reader-rec-dot {
-      position: fixed;
-      right: calc(env(safe-area-inset-right, 0px) + 0.7rem);
-      bottom: calc(env(safe-area-inset-bottom, 0px) + 0.7rem);
-      z-index: 6;
-      width: 2.9rem;
-      height: 2.9rem;
-      padding: 0;
-      display: grid;
-      place-items: center;
-      border: 0;
-      border-radius: 50%;
-      color: rgb(var(--sh) / 0.42);
-      background: rgb(var(--sf) / 0.72);
-      box-shadow: 0 1px 4px rgb(var(--sh) / 0.16);
-      backdrop-filter: blur(8px);
-      -webkit-backdrop-filter: blur(8px);
-      cursor: pointer;
-      transition: color 140ms ease, background 140ms ease, transform 140ms ease;
-    }
-    .reader-rec-dot svg { width: 1.4rem; height: 1.4rem; }
-    .reader-rec-dot:active { transform: scale(0.94); }
-    .reader-rec-dot:disabled { opacity: 0.5; }
-    .reader-rec-dot.recording {
+    /* RECORDING, IN THE BAR, BESIDE THE PENCIL — see buildRecordButton for why
+       it moved out of the bottom-right corner and what had to hold first.
+
+       It is a `.reader-tool` like everything else in the row, so it is the same
+       size, the same target and the same press; the only thing it does not
+       share is the colour, because record is the one control in the bar whose
+       state you must be able to see from across a room while your hands are
+       full. Quiet red while it is an offer, solid red while it is running.
+
+       The pulse is on the GLYPH and not on the button: a 2.2rem circle
+       breathing in a row of five still ones drags the eye off the music, which
+       is the thing the reader exists to leave alone. */
+    /* Written against `#reader-top` because `.reader-tool` is declared further
+       down this sheet and would otherwise win the colour on equal specificity —
+       which it did, and the offer came out the same blue as the pencil. */
+    #reader-top .reader-rec { color: #c0413f; }
+    :root[data-theme="dark"] #reader-top .reader-rec { color: #ff8a86; }
+    #reader-top .reader-rec:disabled { opacity: 0.5; }
+    #reader-top .reader-rec.recording {
       color: #fff;
       background: #e5484d;
-      box-shadow: 0 2px 10px rgb(229 72 77 / 0.45);
+      border-color: #e5484d;
+      box-shadow: 0 1px 8px rgb(229 72 77 / 0.5);
     }
-    .reader-rec-dot.recording svg { animation: reader-rec 1.6s ease-in-out infinite; }
-    @keyframes reader-rec { 50% { opacity: 0.4; } }
+    #reader-top .reader-rec.recording svg { animation: reader-rec 1.6s ease-in-out infinite; }
+    @keyframes reader-rec { 50% { opacity: 0.45; } }
     @media (prefers-reduced-motion: reduce) {
-      .reader-rec-dot.recording svg { animation: none; }
+      /* Not "no signal": the same fact said without anything oscillating, which
+         is what a vestibular preference asks for and not what "off" gives. */
+      #reader-top .reader-rec.recording svg { animation: none; }
     }
     #reader-count.recording::after { content: ' · rec'; color: #e5484d; }
     #reader-top .reader-bar-left,
@@ -2736,6 +2752,27 @@
       line-height: 1;
     }
     #score-save-bar { margin-top: 1.1rem; }
+    /* WHAT JUST HAPPENED, BESIDE THE BUTTON THAT DID IT — see main.js's
+       `saidOnTheBar`. The one status line at the top of the app is written over
+       by the review rebuilding itself a moment after a save, so a confirmation
+       that lived only there was gone before it could be read. Quiet, in the
+       app's own green, and it arrives rather than appearing: a completion is
+       news, and news that blinks into place reads as a glitch. */
+    #score-saved {
+      margin: 0.55rem auto 0;
+      text-align: center;
+      color: var(--good);
+      font-size: 0.86rem;
+      animation: score-saved-in 260ms var(--spring) both;
+    }
+    #score-saved::before { content: '✓ '; font-weight: 600; }
+    @keyframes score-saved-in {
+      from { opacity: 0; transform: translateY(-0.35rem); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #score-saved { animation: none; }
+    }
     #score-list-empty { display: none; }
     #score-search {
       width: 100%;
@@ -2959,11 +2996,29 @@
     }
     #playback-controls > button:hover { background: var(--fill-2); }
     #playback-controls > button.active { background: var(--grad); color: var(--on-primary); }
+    /* The whole transport answers a press on the way DOWN. These two carried a
+       spring transition and nothing to spring FROM, so a tap on Drone or on ½x
+       showed nothing until whatever it did had finished. */
+    #playback-controls > button:active, #playback-speed button:active { transform: scale(0.96); }
 
+    /* The close-up arrives now rather than appearing. A bar press and a tap on
+       the trace both open it (see report.js's selectAtMoment), so it is the
+       thing that turns up UNDER a gesture made somewhere else on the screen —
+       and a panel that blinks into existence a third of the way down a page
+       reads as the layout jumping rather than as an answer. It comes from just
+       above, which is where the gesture was. */
     #note-zoom {
       margin-top: 1rem;
       border-top: 1px dashed var(--line-strong);
       padding-top: 0.8rem;
+      animation: zoom-arrives 240ms var(--spring) both;
+    }
+    @keyframes zoom-arrives {
+      from { opacity: 0; transform: translateY(-0.4rem); }
+      to { opacity: 1; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      #note-zoom { animation: none; }
     }
     #note-chart { touch-action: pan-y; }
     #zoom-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.4rem; }

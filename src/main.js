@@ -483,19 +483,55 @@ function refreshSaveLabel() {
 }
 refreshSaveLabel();
 
+// SAYING IT WHERE THE BUTTON IS, and not only in the status line.
+//
+// Saving worked and looked as though it had not. The one line the app has is
+// `#status`, and saving a take re-renders the whole review on top of itself —
+// `renderFreeReview` and then `annotateTake`, which writes the take's summary
+// into that same line a moment later. So "saved to Bach — Prelude" appeared and
+// was overwritten inside a second by the sentence that had been there before
+// the press, and the save bar hid itself. Press, and the screen goes back to
+// exactly what it looked like: "when I click Save… none of those are working."
+//
+// So the confirmation lives in the bar the button is in, where it cannot be
+// overwritten by something else's news, and it stays until the bar has another
+// job to do. Feedback belongs beside the thing it is about.
+const scoreSaid = document.createElement('p');
+scoreSaid.id = 'score-saved';
+scoreSaid.className = 'hint saved';
+scoreSaid.hidden = true;
+scoreSaveBar?.after(scoreSaid);
+
+function saidOnTheBar(words) {
+  if (!scoreSaid) return;
+  scoreSaid.hidden = !words;
+  scoreSaid.textContent = words ?? '';
+}
+
 scoreSaveTake?.addEventListener('click', async () => {
   if (lastTake) { saveTake({ toScore: true }); return; }
-  if (savedTakeId === null) return;
+  // NOT A SILENT RETURN. There was one here, and it is the shape of every
+  // button that "does nothing when I click it": nothing to save, nothing said,
+  // nothing to tell a player whether the press was even received.
+  if (savedTakeId === null) {
+    saidOnTheBar(scoreName()
+      ? `this take is already filed under ${scoreName()}`
+      : 'no take on screen to keep');
+    return;
+  }
   const id = savedTakeId;
+  const piece = scoreName();
   try {
     await setRecordingScore(id, currentScoreId(), currentScoreStats());
     savedTakeId = null;
     refreshSaveLabel();
-    statusEl.textContent = `added to ${scoreName()}`;
+    statusEl.textContent = `added to ${piece}`;
+    saidOnTheBar(`added to ${piece}`);
     await takeSaved(id);
     refreshLibrary();
   } catch (err) {
     say(saying('could not add it to the piece', err), 'bad');
+    saidOnTheBar(saying('could not add it to the piece', err));
   }
 });
 
@@ -503,6 +539,7 @@ function clearTake() {
   clearRecNote(); // whatever went wrong last time is not about this take
   lastTake = null;
   savedTakeId = null; // a new take on screen; the last one is the library's now
+  saidOnTheBar(null);  // last take's news, about a take that is going away
   refreshSaveLabel();
   saveBar.hidden = true;
   hideReport(document);
@@ -785,7 +822,12 @@ async function saveTake({ toScore = false } = {}) {
     lastTake = null;
     savedTakeId = toScore ? null : id; // still fileable under a piece if it wasn't
     refreshSaveLabel();
-    statusEl.textContent = piece ? `saved to ${piece}` : 'saved to library';
+    const news = piece ? `saved to ${piece}` : 'saved to library';
+    statusEl.textContent = news;
+    // …and where it will still be readable in a second's time. The two lines
+    // below rebuild the whole review and write the take's summary into
+    // `#status`, so this is the only copy of the news that survives the press.
+    saidOnTheBar(toScore ? `saved to ${piece}` : 'saved to the library');
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -801,7 +843,13 @@ async function saveTake({ toScore = false } = {}) {
   }
 }
 
-saveBtn.addEventListener('click', () => saveTake());
+saveBtn.addEventListener('click', () => {
+  // Same silent-return hazard as the Score tab's button: `saveTake` returns at
+  // once with no take, and a Save that answers nothing is a Save that looks
+  // broken.
+  if (!lastTake) { say('no take on screen to save', 'bad'); return; }
+  saveTake();
+});
 
 document.querySelector('#discard-rec').addEventListener('click', () => {
   clearTake();
@@ -814,10 +862,12 @@ document.querySelector('#discard-rec').addEventListener('click', () => {
 // the piece, so this says no to that and leaves the recording alone.
 document.querySelector('#score-discard-take')?.addEventListener('click', () => {
   const kept = !lastTake && savedTakeId !== null;
-  clearTake();
-  statusEl.textContent = kept
+  const words = kept
     ? 'left in the library, not filed under the piece'
     : 'take discarded';
+  clearTake();   // clears the bar's own line, so the news goes on after it
+  statusEl.textContent = words;
+  saidOnTheBar(words);
 });
 
 function saveBlob(blob, filename) {

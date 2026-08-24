@@ -68,6 +68,16 @@ function tellFollowers(note, time) {
 export function playTakeFrom(seconds) {
   if (!full?.root || !full.recording) return false;
   const at = Math.max(0, Math.min(Number(seconds) || 0, full.recording.duration));
+  // …AND THE CLOSE-UP UNDER THE GRAPH GOES THERE TOO.
+  //
+  // "if I click anywhere on the graph, or even if I click a bar, it should show
+  // the zoomed-in graph below, and they should all be in sync." Pressing a bar
+  // used to move the whole-take playhead and nothing else: the cents-level
+  // inset kept showing whatever note was last chosen, or nothing at all, which
+  // on a page you have just pressed is the panel answering a question you did
+  // not ask. Tapping the graph has always opened it (see overviewSeek); a bar
+  // is the same gesture made on the music instead of on the trace.
+  selectAtMoment?.(at);
   playFullFrom(full.root, at);
   return true;
 }
@@ -77,9 +87,44 @@ export function takeLength() {
   return full?.recording?.duration ?? null;
 }
 
+/**
+ * IS THE TAKE SOUNDING — asked properly, rather than read off a button's face.
+ *
+ * The reader used to answer this by comparing `#clip-play`'s textContent with
+ * '▶', which is a second idea of the same fact kept in a glyph: change the
+ * character and the reader silently believes a stopped take is running. There
+ * is one player in this file and it knows.
+ */
+export function takeIsPlaying() {
+  return !!(full?.playing || zoom?.playing);
+}
+
+/**
+ * Play or pause the take from anywhere — the reader's button, the graph's, a
+ * keyboard. Whichever of the two players is loaded is the one it works.
+ *
+ * @returns {boolean} false when there is nothing loaded to play
+ */
+export function toggleTakePlayback() {
+  // `full.root` is the element the review was rendered into; the zoom player
+  // has no root of its own and has always been driven against the document.
+  const root = full?.root ?? document;
+  if (full?.playing) { pauseFull(root); return true; }
+  if (zoom?.playing) { pauseZoom(root); return true; }
+  if (zoom) { playZoomFrom(root, zoom.pos); return true; }
+  if (full) { playFullFrom(root, full.pos); return true; }
+  return false;
+}
+
 // Set by whichever note is open, read by the playback tick: what to write in
 // the note box for a given moment of the recording.
 let cursorReadout = null;
+
+// Open the close-up on whatever was played at a given second. Set by
+// renderReport, which is where the take's notes and the note-selecting closure
+// both live; called by playTakeFrom, so a press on a bar of the music and a tap
+// on the graph land on the same panel.
+let selectAtMoment = null;
 
 function setPlayheads(t) {
   currentChart?.setPlayhead(t);
@@ -724,12 +769,32 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   // Dragging the overview cursor (or tapping the chart) steers everything:
   // the whole-take play position, which note the zoom inset shows, and the
   // pitch any held drone follows.
+  //
+  // AND IT NO LONGER STOPS THE MUSIC. Pointing at a moment used to end the
+  // take: you were listening, you pointed at the passage you wanted, and the
+  // sound went out — so the only way to hear the place you had just chosen was
+  // to find the play button again. "I should be able to play and pause from any
+  // of them, and they should all kind of work together." Pointing is a SEEK
+  // now; the take carries on from where you pointed, and stopping is the pause
+  // button's job and nothing else's.
+  //
+  // It still pauses UNDER the gesture, because a moving playhead being dragged
+  // to a new place is two things arguing about where the cursor is. The pause
+  // lasts as long as the finger does.
+  //
+  // The cursor strip reports a drag as start · move · end and then fires a
+  // click on top of it, so an 'end' swallows the 'tap' behind it — without that
+  // letting go would restart the playback the 'end' had just resumed.
+  let resumeAfterSeek = false;
+  let swallowTap = false;
   const overviewSeek = (t, phase) => {
+    const at = Math.max(0, t);
+    if (phase === 'tap' && swallowTap) { swallowTap = false; return; }
     if (phase === 'start' || phase === 'tap') {
-      if (full?.playing) pauseFull(root);
-      else if (zoom?.playing) pauseZoom(root);
+      if (full?.playing) { resumeAfterSeek = true; pauseFull(root); }
+      else if (zoom?.playing) { resumeAfterSeek = true; pauseZoom(root); }
     }
-    if (full) full.pos = Math.max(0, t);
+    if (full) full.pos = at;
     const n = findNoteAt(allNotes, t);
     if (n && n !== selectedNote) {
       selectNote(n, t);
@@ -738,6 +803,11 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
       zoom.retune?.();
     }
     setPlayheads(t);
+    if (phase === 'end') swallowTap = true;
+    if ((phase === 'end' || phase === 'tap') && resumeAfterSeek) {
+      resumeAfterSeek = false;
+      playFullFrom(root, at);
+    }
   };
 
   // Built on demand rather than on every report open: it walks every sample,
@@ -1119,6 +1189,29 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   // note in the audio", so it plays.
   selectFromOutside = (note, atTime = null) => selectNote(note, atTime, { play: true });
 
+  // WHICH NOTE WAS BEING PLAYED AT THIS SECOND — the question a bar press asks.
+  //
+  // A bar is a rectangle on a page and a moment is a second of a recording (see
+  // bar-sync.js); neither of them knows a note object. This turns the second
+  // into the note that was sounding then, so pressing a bar opens the same
+  // close-up that tapping the trace at the same place opens.
+  //
+  // NEAREST, not `findNoteAt`'s tenth-of-a-second window: a bar press lands
+  // wherever the map put it, which is routinely in the rest between two notes,
+  // and answering "nothing" there would leave the inset showing whatever was
+  // last chosen — a panel answering a question nobody asked. It does not play:
+  // playTakeFrom starts the take a line later, and two starts is one of them
+  // cut off.
+  selectAtMoment = (t) => {
+    let best = null;
+    let bestDistance = Infinity;
+    for (const note of allNotes) {
+      const d = t < note.start ? note.start - t : t > note.end ? t - note.end : 0;
+      if (d < bestDistance) { bestDistance = d; best = note; }
+    }
+    if (best && best !== selectedNote) selectNote(best, t);
+  };
+
   // Spoken form of a tile, for anyone who isn't looking at the colour.
   const spoken = (d) => {
     if (!d.played) return `${d.name}, missed`;
@@ -1221,6 +1314,7 @@ export function hideReport(root) {
   zoom = null;
   full = null;
   cursorReadout = null; // the box it wrote into belongs to a closed report
+  selectAtMoment = null; // …and so do the notes it would have looked through
   selectedNote = null;
 }
 

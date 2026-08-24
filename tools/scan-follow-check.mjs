@@ -1069,8 +1069,8 @@ try {
       canvasWide: document.querySelector('#score-stage .scan-page canvas')?.width ?? 0,
       summary: (document.querySelector('#score-tab-summary')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
       rhythmRoute: document.querySelector('#score-tab-summary .scan-rhythm')?.dataset.route ?? null,
-      barRoute: document.querySelector('#score-tab-summary .scan-bars')?.dataset.route ?? null,
-      barText: (document.querySelector('#score-tab-summary .scan-bars')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+      barRoute: document.querySelector('#score-tab-summary .scan-barlines')?.dataset.route ?? null,
+      barText: (document.querySelector('#score-tab-summary .scan-barlines')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
       onTheirOwnHead: (view?.pairing?.marks ?? [])
         .filter((m, i) => m.headIndex === window.__wanted[i]).length,
       wanted: window.__wanted.length,
