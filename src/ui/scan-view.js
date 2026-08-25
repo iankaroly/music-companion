@@ -930,7 +930,15 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
   // sentence over the review; what is gone is a control whose subject was the
   // wrong notehead some of the time.
 
-  const across = Math.min(MAX_ACROSS, Math.max(320, container.clientWidth || 360));
+  // HOW WIDE THE PAGE IS DRAWN, and it is also how wide it is SHOWN: paper.js
+  // sets the canvas's CSS width to this (see sizeToBand), so a floor here is a
+  // floor on the layout and not only on the quality. It read `Math.max(320,
+  // …)`, and on a 320px phone the container is about 310 — so every page was
+  // drawn ten pixels wider than the card it sits in and hung off the side of
+  // the screen. The floor now only catches a container that has not been
+  // measured at all. `npm run edge:fit`.
+  const room = container.clientWidth || 360;
+  const across = Math.min(MAX_ACROSS, Math.max(240, room));
   for (const page of wanted) {
     const holder = document.createElement('div');
     holder.className = 'scan-page';

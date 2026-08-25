@@ -548,6 +548,7 @@
       z-index: 50;
       display: flex;
       gap: 0.1rem;
+      justify-content: center;
       padding: 0.42rem;
       border-radius: 2.4rem;
       background: rgb(var(--sf) / 0.4);
@@ -724,12 +725,19 @@
       border-radius: 999px;
       padding: 0.2rem;
       vertical-align: middle;
+      /* A row of five choices is as wide as five choices, and on a 320px phone
+         the metronome's subdivisions were 339 — ten pixels off each side of the
+         screen, with the first and last option half gone. It gives up the space
+         around the words rather than the words. `npm run edge:fit`. */
+      max-width: 100%;
+      min-width: 0;
     }
     .seg-btn {
       display: inline-flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      min-width: 0;
       gap: 0.05rem;
       border: none;
       background: none;
@@ -1144,10 +1152,21 @@
     /* Beside the sentence about the take, not on top of the music. */
     #score-tab-summary {
       display: flex;
+      /* A ROW THAT WRAPS. This is a flex row because the ⤢ that opens the
+         music full screen sits beside the sentence — and then the review
+         started appending its own `<small>` sentences to it (how the take
+         paired, what the barlines cut it into, how many noteheads went
+         unplayed), and every one of them became another item in a row that
+         could not wrap. On a 320px phone the last of them ran 19px off the
+         side of the screen. Each sentence takes its own line now, and the
+         first line keeps the button beside it. `npm run edge:fit`. */
+      flex-wrap: wrap;
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
     }
+    #score-tab-summary > * { min-width: 0; max-width: 100%; }
+    #score-tab-summary > .scan-pairing { flex: 1 0 100%; }
     /* The half of the analysis a photograph cannot do, said next to the thing
        that would fix it. Quiet — it is a footnote on a take that mostly worked,
        not a warning about one that did not. */
@@ -3943,18 +3962,49 @@
     @media (max-width: 640px) {
       header { padding: calc(0.9rem + env(safe-area-inset-top, 0px)) 0.6rem 0.75rem; }
       h1 { font-size: 1.3rem; }
-      .tab-btn { padding: 0.6rem 0.5rem 0.55rem; min-width: 3.9rem; font-size: 0.66rem; }
+      /* SIX TABS THAT FIT THE PHONE THEY ARE ON.
+         `min-width` and `white-space: nowrap` together made the row wider than
+         the bar holding it, and the bar is capped at the viewport — so the last
+         tab was CUT OFF, on every screen in the app, at every common phone
+         width. MEASURED: the row wants 389px and has 375 at 390 wide, so
+         "Metronome" lost 6px; at 375 it lost 21, at 360 it lost 36, and at 320
+         it lost 76 — three quarters of the word.
+         The words are all short and none of them may be truncated, so what
+         gives is the space around them: the side padding and, on the narrowest
+         phones, a fraction of the type. Nothing is hidden and nothing wraps. */
+      .tab-btn {
+        padding: 0.6rem 0.15rem 0.55rem;
+        min-width: 0;
+        /* An equal share of the bar each, rather than each as wide as its own
+           word: the bar keeps the width it had and the six targets stay the
+           same size as one another, which is what a row of tabs is. */
+        flex: 1 1 0;
+        font-size: clamp(0.56rem, 2.2vw, 0.66rem);
+      }
+      /* …and the bar itself spans the phone, so there IS a width to share. */
+      nav[role="tablist"] { width: calc(100vw - 0.8rem); }
       .tab-btn svg { width: 24px; height: 24px; }
       .tab-panel { padding: 0.7rem 0.6rem calc(5.8rem + env(safe-area-inset-bottom, 0px)); }
       #report { padding: 0.9rem 0.7rem; border-radius: 1.2rem; }
       /* The graphs are the reason this screen exists, and on a phone they were
          losing 2.6rem of an already narrow screen to the panel's padding and
          the card's. They run to both edges instead; everything else in the card
-         keeps its margins. (0.6rem panel + 0.7rem card = 1.3rem a side.) */
+         keeps its margins.
+
+         THE NUMBER IS THE PADDING THEY ARE ESCAPING, and it was wrong. It read
+         "0.6rem panel + 0.7rem card = 1.3rem a side", and there is no 0.7rem of
+         card: `#report` measures 0 padding on the Record tab, and on the Score
+         tab the same panel is MOVED into `#score-dock`, which has none either.
+         So the graph over-ran BOTH edges of the phone by 11 pixels and took the
+         pitch names down the side with it — "G#2" read "#2", on every take
+         reviewed. MEASURED at 390x844: the canvas sat at x = -11 and ran to
+         401. It is the panel's padding and nothing else. `npm run edge:fit`
+         asserts the graph reaches both edges and neither passes them, so a card
+         that regains its padding one day fails rather than hides. */
       #chart-scroll, #note-chart, #timing-chart {
-        margin-left: -1.3rem;
-        margin-right: -1.3rem;
-        width: calc(100% + 2.6rem);
+        margin-left: -0.6rem;
+        margin-right: -0.6rem;
+        width: calc(100% + 1.2rem);
         max-width: none;
       }
       #pitch-chart { height: min(46vh, 340px); }
@@ -3972,7 +4022,7 @@
       #metro-card { padding: 1.7rem 0.9rem 1.4rem; }
       #bpm-display { font-size: 4.6rem; }
       .cluster { padding: 0.95rem 0.7rem 1rem; border-radius: 1.5rem; }
-      .seg-btn { padding: 0.5rem 0.78rem; font-size: 0.86rem; }
+      .seg-btn { padding: 0.5rem clamp(0.3rem, 2.4vw, 0.78rem); font-size: 0.86rem; }
       /* Keep the bigger type on the landing rows; give back the gutters it
          needs to fit beside the bar. */
       .ld-row { gap: 0.5rem; }
@@ -4011,7 +4061,7 @@
       .metro-split { margin: 0.7rem -0.4rem 0.6rem; }
       #metro-card .row + .row { margin-top: 0.5rem; }
       #metro-card .row { gap: 0.4rem; }
-      #metro-card .seg-btn { padding: 0.36rem 0.6rem; font-size: 0.8rem; }
+      #metro-card .seg-btn { padding: 0.36rem clamp(0.24rem, 1.9vw, 0.6rem); font-size: 0.8rem; }
       #beat-dots { margin: 0.55rem 0 0.65rem; min-height: 1rem; }
       #beat-dots .beat-dot { width: 0.7rem; height: 0.7rem; }
       #metro-toggle { padding: 0.6rem 2.2rem; }
@@ -4061,7 +4111,7 @@
       #bpm-slider { margin: 0.4rem 0 0.35rem; }
       .metro-split { margin: 0.4rem -0.4rem 0.35rem; }
       #metro-card .row + .row { margin-top: 0.28rem; }
-      #metro-card .seg-btn { padding: 0.22rem 0.45rem; font-size: 0.73rem; }
+      #metro-card .seg-btn { padding: 0.22rem clamp(0.18rem, 1.5vw, 0.45rem); font-size: 0.73rem; }
       #metro-card .ctl { padding: 0.4rem 0.8rem; }
       #beat-dots { margin: 0.3rem 0 0.35rem; min-height: 0.8rem; }
       #beat-dots .beat-dot { width: 0.6rem; height: 0.6rem; }

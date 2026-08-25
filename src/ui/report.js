@@ -25,6 +25,7 @@ let playbackCtx = null;
 let currentSource = null;
 let playbackSpeed = 1;
 let currentChart = null;    // the overview chart
+let chartWatch = null;      // the ResizeObserver on #chart-scroll, if any
 let zoomChart = null;       // the per-note inset below it
 // The open report's own selectNote, so views outside this module — the score
 // page, most obviously — can hand a note back and get the zoom inset, the
@@ -865,6 +866,26 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
     if (selectedNote) currentChart.setHighlight(selectedNote);
   };
 
+  // THE CHART HAS TO BE BUILT AT THE WIDTH IT IS ACTUALLY SHOWN AT.
+  //
+  // `renderOverviewChart` sizes the canvas from `scroller.clientWidth`, and
+  // falls back to 900 when that is 0 — which is what a container that has not
+  // been laid out yet measures. The Record tab renders the card visible first
+  // for exactly this reason. The SCORE tab does not get that: the whole
+  // playback panel is moved into `#score-dock` (see score-tab.js) and the chart
+  // is built before the panel has landed anywhere with a width.
+  //
+  // MEASURED at 390x844: a canvas 900 CSS pixels wide, sitting at x = -11, so
+  // 510px of the trace was off the right of the screen and the pitch names down
+  // the left were cut in half — "G#2" reading "#2". Every take reviewed from
+  // the Score tab.
+  //
+  // So the scroller is WATCHED. A width it has never been built at rebuilds the
+  // chart, which covers the borrow, a tab switch, a rotation and a window drag
+  // with one mechanism instead of three.
+  let builtAt = 0;
+  let watching = null;
+
   // Re-render at a new scale/mode, keeping the time at the viewport center
   // under the viewport center.
   const rebuild = () => {
@@ -893,6 +914,22 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   }
 
   buildChart();
+  builtAt = scroller?.clientWidth ?? 0;
+
+  watching?.disconnect();
+  if (scroller && typeof ResizeObserver === 'function') {
+    watching = new ResizeObserver(() => {
+      const now = scroller.clientWidth;
+      // Nothing to draw into yet, and no point redrawing for a pixel: the
+      // spacer this rebuild sets is what scrolls, and it does not change the
+      // scroller's own width, so there is no loop to guard against beyond this.
+      if (!now || Math.abs(now - builtAt) < 4) return;
+      builtAt = now;
+      rebuild();
+    });
+    watching.observe(scroller);
+    chartWatch = watching;
+  }
 
   // the cursor knob starts at the beginning of the take
   if (full) {
@@ -1374,6 +1411,8 @@ export function hideReport(root) {
   hideLanding(root);
   hidePassages(root);
   root.querySelector('#note-zoom').hidden = true;
+  chartWatch?.disconnect();
+  chartWatch = null;
   currentChart = null;
   zoomChart = null;
   zoom = null;

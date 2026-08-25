@@ -118,7 +118,8 @@
     "startup:tabs": "node tools/startup-tabs-check.mjs",
     "shelf:find": "node tools/shelf-find-check.mjs",
     "app:sweep": "node tools/app-sweep-check.mjs",
-    "scan:lag": "node tools/scan-lag-check.mjs"
+    "scan:lag": "node tools/scan-lag-check.mjs",
+    "edge:fit": "node tools/edge-fit-check.mjs"
   },
   "keywords": [],
   "author": "",
