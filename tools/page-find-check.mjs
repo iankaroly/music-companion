@@ -52,7 +52,7 @@ page.on('pageerror', (e) => errors.push(String(e)));
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1200));
 
-const report = await page.evaluate(async (want, keep) => {
+const report = await page.evaluate(async (want, keep, preview) => {
   const { findPages, probePages } = await import('/src/analysis/page-edges.js');
   // AND THE OUTLINE THE PLAYER IS ACTUALLY SHOWN. `findPages` is the finder;
   // `papersIn` is the finder plus the guard that decides whether a boundary it
@@ -581,6 +581,28 @@ const report = await page.evaluate(async (want, keep) => {
     try { found = findPages(luma, w, h); } catch (e) { threw = String(e); }
     let shown = [];
     try { shown = papersIn(c, c.width, c.height) ?? []; } catch { shown = []; }
+    // THE OUTLINE AS THE LIVE SCANNER WOULD SEE IT, on request.
+    //
+    // The watch loop reads the video back off the GPU twice a tick — once at
+    // 64x48 to measure motion and once at LOOK_AT to find the page — and a
+    // readback is the expensive half of a tick on a phone whose video track is
+    // twelve megapixels. Doing it once, into a canvas at LOOK_AT, and finding
+    // AND guarding on that costs one readback instead of two — but it hands the
+    // GUARD a source at a fraction of the resolution it has always had. This
+    // measures what that is worth: `PREVIEW=1 npm run scan:pages` puts the same
+    // corpus through the cheap path and the SHOWN column says whether the
+    // outline moved.
+    if (preview) {
+      try {
+        const { LOOK_AT: at } = await import('/src/ui/straighten.js');
+        const pw = Math.min(at ?? 220, c.width);
+        const ph = Math.max(1, Math.round(c.height * (pw / c.width)));
+        const work = document.createElement('canvas');
+        work.width = pw; work.height = ph;
+        work.getContext('2d', { willReadFrequently: true }).drawImage(c, 0, 0, pw, ph);
+        shown = papersIn(work, pw, ph) ?? [];
+      } catch { /* the full-size answer stands */ }
+    }
     // WHICH OF THE TWO DIFFERENCES MOVED IT. `found` is `findPages` on the
     // canvas at full size; `shown` is `papersIn`, which is `findPages` on a
     // thumbnail PLUS the guard. When the two disagree, those are two suspects
@@ -672,7 +694,7 @@ const report = await page.evaluate(async (want, keep) => {
     if (keep) shots.push({ name: one.name, url: c.toDataURL('image/png') });
   }
   return { rows, shots };
-}, only, !!keepAt);
+}, only, !!keepAt, !!process.env.PREVIEW);
 
 if (keepAt) {
   mkdirSync(keepAt, { recursive: true });
