@@ -109,6 +109,57 @@ function clearSounding() {
   sounding = null;
 }
 
+// WHO IS DRIVING THE SCROLL.
+//
+// Following the playhead and reading the graph under the music are the same
+// gesture from the app's side — both are "the page is at a different scroll
+// offset now" — and only one of them is the player's. While a take is running,
+// the light moves down the page every few notes, and each time it leaves the
+// middle of the view the page is pulled back to it. So a hand reaching PAST the
+// music for the pause button or the trace was overruled a second later, every
+// second: "when it's playing and I try to scroll down on the score while it's
+// still playing to pause it or go to one of the graphs, it just automatically
+// scrolls back up to the score, which I don't like."
+//
+// So a hand that SCROLLS takes the wheel and keeps it. Latched on the gesture
+// — a `wheel`, or a finger that has actually moved — and deliberately NOT on
+// the `scroll` event, because `keepInView` scrolls, `scroll` fires, and a latch
+// listening for that would trip on its own footsteps and stop following on the
+// very first note.
+//
+// AND NOT ON `pointerdown` OR `touchstart` EITHER, which is what this listened
+// for first. A finger sends pointerdown before click, so every press of a bar
+// or of the play button armed the latch a moment BEFORE the take started, and
+// the score then never followed at all. MEASURED, and only measurable with a
+// real tap: `review:follow` used `.click()`, which sends no pointer events, and
+// the step passed with the thing under test untouched. Through
+// `page.touchscreen.tap` it read 214 follow ticks and 0 scrolls.
+//
+// A tap is not a scroll. `touchmove` is.
+//
+// It is given back at a SEEK, which is the other half of the sentence: pressing
+// a bar, or the graph, or ↺ means "take me there", and being taken there is the
+// whole point of the press. A seek is recognised from the followed time itself
+// — a jump backwards, or forward by more than a bar's worth — so this stays on
+// the receiving end of report.js's one-way arrangement and does not need the
+// player to announce anything.
+let scrollIsOurs = true;
+let followedAt = null;
+// Counted so a check can state the three-way fact rather than the absence of a
+// symptom: while nobody has touched the page the follower scrolls it, after a
+// touch the follower keeps arriving and stops scrolling it, and a seek starts
+// it again. See tools/review-follow-check.mjs.
+let follows = 0;
+let scrolls = 0;
+const SEEK_JUMP = 1.5;   // seconds; playback advances by a frame, a seek does not
+
+const handOverScroll = () => { scrollIsOurs = false; };
+// Passive: neither is prevented, and saying so keeps the listener off the
+// scrolling critical path.
+for (const kind of ['wheel', 'touchmove']) {
+  window.addEventListener(kind, handOverScroll, { passive: true, capture: true });
+}
+
 // Keep the sounding bar on screen without yanking the page around: only scroll
 // when the note has actually left the comfortable middle of the view.
 //
@@ -116,13 +167,20 @@ function clearSounding() {
 // scrolls past it, so measuring against the stage would have said every note
 // was comfortably in view and quietly stopped following.
 function keepInView(element) {
+  if (!scrollIsOurs) return;
   const stage = el('score-stage');
   if (!stage) return;
   const frame = { top: 0, bottom: window.innerHeight, height: window.innerHeight };
   const box = element.getBoundingClientRect();
   const margin = Math.min(120, frame.height * 0.25);
   if (box.top >= frame.top + margin && box.bottom <= frame.bottom - margin) return;
+  scrolls += 1;
   element.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' });
+}
+
+/** What the follower has done and who has the scroll — for checks. */
+export function followState() {
+  return { ours: scrollIsOurs, at: followedAt, follows, scrolls };
 }
 
 // --- reading it full screen ---------------------------------------------------
@@ -174,7 +232,31 @@ export function initScoreFullScreen(handler = null) {
 export function follow(noteheadFor) {
   unfollow?.();
   clearSounding();
+  scrollIsOurs = true;
+  followedAt = null;
+  follows = 0;
+  scrolls = 0;
   unfollow = followPlayback((note, time) => {
+    // A SEEK GIVES THE SCROLL BACK. Playing forwards advances the followed time
+    // by a frame at a time; pressing a bar or the trace moves it in one step,
+    // which is somebody asking to be shown a different part of the music.
+    //
+    // `time` is null between clips and inside a silence, and that is NOT a
+    // seek — so the last real second is kept rather than cleared, and a stop
+    // followed by a start in the same place leaves the scroll where the player
+    // put it. Which is right: pausing to look at the graph and pressing play
+    // again is not a request to be taken back to the music.
+    if (Number.isFinite(time)) {
+      // …and the FIRST second of a freshly mounted review arms it too. Without
+      // this the opening tick has nothing to compare against, so a review whose
+      // very first gesture was a scroll would never follow at all.
+      if (followedAt === null
+        || time < followedAt || time - followedAt > SEEK_JUMP) {
+        scrollIsOurs = true;
+      }
+      followedAt = time;
+    }
+    follows += 1;
     const next = noteheadFor?.(note, time) ?? null;
     if (next === sounding) return;
     clearSounding();
@@ -188,6 +270,10 @@ export function follow(noteheadFor) {
 export function stopFollowing() {
   unfollow?.();
   unfollow = null;
+  followedAt = null;
+  // The next take starts by following again, so the latch does not carry a
+  // scroll somebody did during the last one into it.
+  scrollIsOurs = true;
   clearSounding();
 }
 

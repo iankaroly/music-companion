@@ -141,39 +141,41 @@ export function attachBarSync(container, {
   // to find somewhere to put the sentence is a caller that will not bother.
   const line = document.createElement('p');
   line.className = 'bar-sync-say';
+  // WHAT THIS LINE IS FOR, now that it is not for instructions.
+  //
+  // It used to end every sentence with "— tap a bar to hear it", and open with
+  // "play the take and tap the bar you are hearing". That is the app teaching
+  // its own surface, over and over, on a screen where the bars are already
+  // drawn on the music and pressing one is the only thing there is to do.
+  //
+  // What is left is what the app FOUND: how many goes at this music, how many
+  // places it placed by itself, how wide the widest guess is, and — from
+  // press() — the answers to a press that could not be honoured. Facts a
+  // player could not work out by looking, and nothing else.
   const say = () => {
-    // `sayMap` already tells somebody what to do while there is no map yet, so
-    // adding an instruction here as well says it twice — "play the take and tap
-    // the bar you are hearing — tap the bar you can hear", which is what it did
-    // the first time it was drawn on a real page.
     const base = sayMap(anchors, bars);
-    // WHERE THE MAP CAME FROM, said out loud. A player who is told the app
-    // found the page itself knows why bars they never touched already play, and
-    // a player whose page could not be placed is not left wondering why it
-    // asked them to tap.
     if (practising) {
       const again = passages.length
         ? `, ${passages.length} of them played more than once`
         : '';
-      line.textContent = `${sayRuns(runs)}${again} — tap a bar to hear the last go at it`;
+      line.textContent = `${sayRuns(runs)}${again}`;
       onSay?.(line.textContent);
       return;
     }
     const found = guessed.length && !hand.length
       ? `found ${guessed.length} place${guessed.length === 1 ? '' : 's'} in this take by itself — `
       : '';
-    // The even spread says so plainly, because a player who taps a bar and
-    // lands a little out should know why, and know that a tap fixes it.
+    // The even spread still says so, because a bar that plays a little out is
+    // otherwise a bug rather than a stated approximation — but it says it as a
+    // fact about the map and not as a thing to go and do about it.
     if (even.length && !hand.length && !guessed.length) {
-      const words = 'the take spread evenly over the page — tap a bar to hear it,'
-        + ' and mark one if it lands wrong';
+      const words = 'the take spread evenly over the page';
       line.textContent = words;
       onSay?.(words);
       return;
     }
-    const words = marking ? `${found}${base}` : `${found}${base} — tap a bar to hear it`;
-    line.textContent = words;
-    onSay?.(words);
+    line.textContent = `${found}${base}`;
+    onSay?.(line.textContent);
   };
 
   // --- the strip of controls ----------------------------------------------
@@ -280,7 +282,36 @@ export function attachBarSync(container, {
     if (practising) {
       const goes = goesAt(runs, bar);
       if (!goes.length) {
-        line.textContent = 'nothing in this take was found at that bar';
+        // A PRESS IS ALWAYS ANSWERED WITH SOUND.
+        //
+        // "Even if it's playing somewhere else in the score, I should click the
+        // bar and it starts from that bar." A practice take is a dozen partial
+        // passes and the goes only cover the music that was actually played —
+        // so a bar in the middle of a passage he skipped had no go, and the
+        // press produced a sentence and silence. Which is the app refusing a
+        // press it can very nearly honour: the goes it DID place say where the
+        // take is at every bar around this one.
+        //
+        // So: the map first, which the guesses and the taps still feed even on
+        // a practice take; and failing that, the nearest bar anything was
+        // played at — said out loud, because landing somewhere other than where
+        // a finger pointed is a thing a player has to be told rather than left
+        // to notice.
+        const mapped = timeOfBar(anchors, bar);
+        if (mapped !== null) { play?.(mapped); return; }
+        let near = null;
+        for (const other of bars) {
+          const found = goesAt(runs, other);
+          if (!found.length) continue;
+          const away = Math.abs(other.at - bar.at);
+          if (!near || away < near.away) near = { away, bar: other, time: found.at(-1).time };
+        }
+        if (!near) {
+          line.textContent = 'nothing in this take was found on these pages';
+          return;
+        }
+        line.textContent = `nothing was played at that bar — from bar ${near.bar.index + 1}, the nearest that was`;
+        play?.(near.time);
         return;
       }
       // THE LAST GO FIRST, because it is the one after you fixed whatever was
