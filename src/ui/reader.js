@@ -5469,6 +5469,16 @@ async function drawOnePage(index, quick = false) {
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
   const mine = era;
+  // WHAT THIS DRAW PUT UP, from the draw itself.
+  //
+  // paper.js used to answer with `drewACard()` / `drewAThumb()` — two booleans
+  // for the whole score, drained by whichever caller asked first. Two pages
+  // drawing at once, which is a turn and the look-ahead behind it, and the
+  // second was told it had drawn neither. MEASURED: four cards drawn, the flag
+  // true for the first page and false for the second — and the second was then
+  // marked finished below and never asked again, so its card stayed on the
+  // music. A draw says what it drew now, to the caller that asked for it.
+  let drew = null;
   try {
     // COLD MEANS "PUT SOMETHING THERE NOW".
     //
@@ -5484,7 +5494,7 @@ async function drawOnePage(index, quick = false) {
     // for some other reason — a resize, a sharpen — and replacing it with a
     // soft copy first would be a flicker rather than a fix.
     const cold = !drawn.has(index) || canvas.width <= 1;
-    await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight,
+    drew = await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight,
       quick ? ROUGH : 1, { instant: cold });
   } catch (err) {
     // The pages were rebuilt underneath this one — rotated, resized, a page
@@ -5507,22 +5517,41 @@ async function drawOnePage(index, quick = false) {
   // the score for about 20 seconds, it'll then say Page 1 could not be read,
   // and I have to go back to the menu and reopen the score."
   //
-  // So it asks again, three times, backing off. Bounded because a page that is
-  // genuinely unreadable must settle on saying so rather than blinking at
-  // somebody for ever, and slow because the thing being waited for is the
-  // reading pass finishing rather than a network.
-  if (paper.drewACard?.()) {
+  // WHY TWENTY SECONDS, and it is not the reading pass being slow. When the
+  // pass finishes it stores what it measured, and storing triggers a RE-LAYOUT
+  // — `relayoutSameScore` → `layOutPaper`, which destroys the paper instance
+  // and builds a new one with an empty cache and an empty set of small copies,
+  // then decodes every visible page again from nothing. MEASURED at 16.8–20.3s
+  // after opening a four-page part. Before that moment a card is impossible;
+  // after it, every page is decoded afresh with nothing to fall back on, at the
+  // exact moment the reading pass has finished eating the memory.
+  //
+  // The retry used to be bounded at three, at 0.9s, 1.8s and 2.7s — so it gave
+  // up 5.4s after the first card, and the pressure it is waiting out lasts
+  // longer than that. MEASURED on a single page with decodes refused for 12s:
+  // four cards, none healed, the card never cleared; with 3s of refusal it
+  // healed. It keeps asking now, backing off to a steady three seconds, and
+  // stops only when the page arrives or the score is closed — a card is a page
+  // that has not come yet, and there is no number of tries after which that
+  // stops being true.
+  const carded = !!drew?.card;
+  if (carded) {
     cards.drawn += 1;
     const tries = (cardTries.get(index) ?? 0) + 1;
     cardTries.set(index, tries);
-    if (tries <= 3) {
-      setTimeout(() => {
-        if (mine !== era) return;
-        drawn.delete(index);
-        rough.delete(index);
-        drawOnePage(index, false);
-      }, 900 * tries);
-    }
+    setTimeout(() => {
+      if (mine !== era) return;
+      if (!cardTries.has(index)) return;   // it healed on somebody else's draw
+      // NEITHER `drawn` NOR `rough` IS CLEARED HERE, and that is the whole
+      // point of marking a carded page rough below. The early return at the top
+      // of this function is `drawn && !(sharp && rough)` — so a page that is
+      // drawn AND rough falls through to a sharp draw, which is exactly what a
+      // card is owed. Clearing `rough` first (which this did, and which I wrote)
+      // turns that condition true and the retry returns without drawing
+      // anything: MEASURED, four pages carded and still carded 36 seconds
+      // later with the retry firing every three.
+      drawOnePage(index, false);
+    }, Math.min(900 * tries, 3000));
   } else {
     if (cardTries.has(index)) cards.healed += 1;
     cardTries.delete(index);
@@ -5534,9 +5563,16 @@ async function drawOnePage(index, quick = false) {
   // page nobody has turned to from showing white for a second. That page is
   // soft and uncropped, so it owes a proper draw exactly the way a page drawn
   // quickly during a fast turn does, and it goes through the same door.
-  const wasThumb = !!paper.drewAThumb?.();
+  const wasThumb = !!drew?.thumb;
   drawn.add(index);
-  if (quick || wasThumb) rough.add(index);
+  // A CARD IS NEVER A FINISHED PAGE. `drawn` is what the early return at the
+  // top of this function consults, and marking a carded page done was the other
+  // half of why a card stuck: the retry deleted it from `drawn`, but any other
+  // draw of that page in between put it back and the retry then found nothing
+  // to do. It is marked ROUGH instead — which `drawn` needs to stay true for,
+  // because `whenPagesReady` counts it — so the page is still owed a sharp draw
+  // and the early return will not skip it.
+  if (quick || wasThumb || carded) rough.add(index);
   else rough.delete(index);
   // The canvas has just been given a size, which means the box the ink is
   // placed against has just changed — and on the paper path that box IS the

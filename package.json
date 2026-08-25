@@ -120,7 +120,8 @@
     "app:sweep": "node tools/app-sweep-check.mjs",
     "scan:lag": "node tools/scan-lag-check.mjs",
     "edge:fit": "node tools/edge-fit-check.mjs",
-    "app:reach": "node tools/reach-check.mjs"
+    "app:reach": "node tools/reach-check.mjs",
+    "reader:card": "node tools/reader-card-check.mjs"
   },
   "keywords": [],
   "author": "",

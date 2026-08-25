@@ -314,6 +314,27 @@ npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
                          press the tab until it takes: the app restores the last
                          tab AFTER load, and a single click at a fixed delay
                          raced it and measured the tuner half the time.
+npm run reader:card      "PAGE 1 COULD NOT BE READ", TWENTY SECONDS IN, AND HOW
+                         IT GOES AWAY. The twenty seconds is not the reading
+                         pass being slow: when it finishes it STORES what it
+                         measured, and storing triggers a re-layout —
+                         `relayoutSameScore` → `layOutPaper` — which destroys
+                         the paper instance and builds a new one with an empty
+                         decode cache and an empty set of small copies, then
+                         decodes every visible page again from nothing.
+                         Measured at 11.7–20.3s after opening. Before that a
+                         card is impossible; after it every page is decoded
+                         afresh with nothing to fall back on, at exactly the
+                         moment the reading pass has finished eating the memory.
+                         This refuses every decode for TWELVE SECONDS, armed on
+                         the re-layout itself, and then asserts the card is
+                         gone. The window has to outlast the old three-try retry
+                         (0.9 + 1.8 + 2.7 = 5.4s) or it heals on a broken build
+                         and proves nothing — a three-second refusal does.
+                         It reads the CANVAS, not a counter: the counter is the
+                         thing that was wrong (17 cards drawn, 15 counted, one
+                         boolean for the whole score drained by whoever asked
+                         first). NO MICROPHONE, NO CAMERA.
 npm run app:sweep        WALK THE WHOLE APP AND WRITE DOWN EVERYTHING IT THROWS.
                          It asserts almost nothing: it works the app the way a
                          hand works it and reports what came out of the console.

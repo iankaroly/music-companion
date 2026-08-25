@@ -570,7 +570,7 @@ async function openPdf(data, password = null, known = {}) {
             dpr * withinReach(w * dpr, h * dpr));
           context.setTransform(pixels, 0, 0, pixels, 0, 0);
           context.drawImage(spare.el, 0, 0, w, h);
-          return;
+          return { thumb: true, card: false };
         }
       }
       const page = await doc.getPage(index + 1);
@@ -596,6 +596,10 @@ async function openPdf(data, password = null, known = {}) {
           -Math.round(crop.y * base.height * scale)],
         background: PAPER,
       }).promise;
+      // A PDF page has no card: pdf.js either renders it or throws, and a throw
+      // is the reader's own "could not be drawn". Said in the same shape as the
+      // photograph side so one caller reads one answer.
+      return { thumb: false, card: false };
     },
     destroy() { thumbs.drop(); doc.destroy?.(); },
   };
@@ -764,9 +768,17 @@ async function openImages(blobs, known = {}) {
   // that failed and for one that has not happened yet.
   const thumbs = thumbStore();
   const failures = { soft: 0, card: 0 };
-  // Whether the last thing drawn was the "could not be read" card, and whether
-  // it was a small copy standing in for a page not decoded yet. Read and
-  // cleared by `drewACard()` / `drewAThumb()`; see drawBand.
+  // WHAT THE LAST DRAW PUT UP, said by the draw itself.
+  //
+  // These were two booleans for the WHOLE SCORE, drained by whichever caller
+  // asked first. Two pages drawing at once — a turn and the look-ahead behind
+  // it — and the second was told it had drawn neither a card nor a small copy.
+  // MEASURED: four cards drawn, `drewACard()` true for the first page and false
+  // for the second; and in the reader that page is then marked finished and
+  // never asked again, so its card stayed on the music for the rest of the
+  // session. `drawBand` RETURNS what it drew now, so a caller learns about its
+  // own page and nothing is drained by anybody. The two readers below stay for
+  // `page:card`, which asks bare.
   let drewCard = false;
   let drewThumb = false;
   // Every page is decoded through the same door as the importer, so a format
@@ -887,10 +899,21 @@ async function openImages(blobs, known = {}) {
       return crops.get(index);
     }
     const page = await load(index);
+    // A FAILED DECODE IS NOT AN ANSWER, AND MUST NOT BE REMEMBERED AS ONE.
+    //
+    // `load` is careful never to cache a refusal — the cause is a phone short
+    // of memory and it passes — and then this cached its CONSEQUENCE: the card
+    // is a whole 1000x1400 sheet, so the crop came out {0,0,1,1} and stuck.
+    // MEASURED on one page: {0.088, 0.114, 0.822, 0.748} when it decodes,
+    // {0,0,1,1} during a refusal, and {0,0,1,1} still there after the page had
+    // healed. `bandPages` cuts every slice of a page from this, so a page that
+    // carded once was banded uncropped and at the wrong aspect for the rest of
+    // the session — it came back on the glass and stayed wrong.
+    if (page.missing) return { x: 0, y: 0, w: 1, h: 1 };
     const small = scratch(CROP_AT, Math.max(1, Math.round(CROP_AT * (page.h / page.w))));
     small.getContext('2d', { willReadFrequently: true })
       .drawImage(page.el, 0, 0, small.width, small.height);
-    crops.set(index, page.missing ? { x: 0, y: 0, w: 1, h: 1 } : contentBox(small));
+    crops.set(index, contentBox(small));
     return crops.get(index);
   }
   // THE SMALL COPIES, MADE BEFORE ANYBODY ASKS. See THUMB_WIDE.
@@ -940,6 +963,9 @@ async function openImages(blobs, known = {}) {
         return sizes.get(index);
       }
       const page = await load(index);
+      // …and the same for the size. The card's 1000x1400 is not the page's
+      // size, and remembering it is how a healed page keeps the card's shape.
+      if (page.missing) return { w: page.w, h: page.h };
       sizes.set(index, { w: page.w, h: page.h });
       return sizes.get(index);
     },
@@ -1003,7 +1029,7 @@ async function openImages(blobs, known = {}) {
           context.setTransform(pixels, 0, 0, pixels, 0, 0);
           context.drawImage(spare.el, 0, 0, w, h);
           if (!plain) brighten(context, canvas.width, canvas.height);
-          return;
+          return { thumb: true, card: false };
         }
       }
       const page = await load(index);
@@ -1034,6 +1060,7 @@ async function openImages(blobs, known = {}) {
       // shown — so nothing is held in memory for it and a page that is never
       // looked at is never brightened. See `brighten`.
       if (!plain) brighten(context, canvas.width, canvas.height);
+      return { thumb: false, card: !!page.missing };
     },
     destroy() {
       for (const promise of cache.values()) {
