@@ -29,8 +29,28 @@ const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 const PORT = process.env.PORT ?? '5199';
-const PAGES = 10;
+const PAGES = Number(process.env.PAGES ?? 10);
 const TURNS = 6;
+// HOW BIG A PAGE IS, and it is most of what this measures.
+//
+// The default is a small synthetic PNG that decodes in about twenty
+// milliseconds, which is nothing like the thing being complained about: a page
+// photographed on a phone is twelve megapixels and takes a few hundred
+// milliseconds to become pixels. `WIDE=2600 npm run reader:turns:cold` builds
+// the pages at that size and encodes them as JPEG, which is what a scan is.
+const WIDE = Number(process.env.WIDE ?? 1100);
+// PHOTOGRAPHS OR A PDF. They are different readers underneath and they fail
+// differently: an image is decoded once and cached, a PDF page is RENDERED
+// afresh every single time it is drawn. `KIND=pdf npm run reader:turns:cold`
+// measures the second, which is the half of "a bunch of pages of a PDF or just
+// music" that nothing here used to cover.
+const KIND = process.env.KIND ?? 'images';
+// A PHONE, MODELLED. This laptop decodes a twelve-megapixel JPEG in a few tens
+// of milliseconds and his phone does not — so measured here at full speed there
+// is no white screen to see, before or after any fix. `THROTTLE=6` slows the
+// processor by six, which is roughly the gap, and is the setting the numbers in
+// the commit messages are read at.
+const THROTTLE = Number(process.env.THROTTLE ?? 1);
 
 const browser = await puppeteer.launch({ executablePath: SHELL, headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
@@ -38,6 +58,7 @@ await page.setViewport({ width: 1024, height: 1366, deviceScaleFactor: 2, hasTou
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
 
+if (THROTTLE > 1) await page.emulateCPUThrottling(THROTTLE);
 await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1800));
 await page.evaluate(() => {
@@ -46,11 +67,12 @@ await page.evaluate(() => {
 });
 
 // A part of several pages, each one real enough for the page reader to work on.
-const scoreId = await page.evaluate(async (count) => {
+const scoreId = await page.evaluate(async ({ count, wide, kind }) => {
   const draw = (n) => {
     const c = document.createElement('canvas');
-    c.width = 1100; c.height = 1500;
+    c.width = wide; c.height = Math.round((wide * 1500) / 1100);
     const g = c.getContext('2d');
+    g.setTransform(wide / 1100, 0, 0, wide / 1100, 0, 0);
     g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
     g.fillStyle = '#111';
     const space = 13;
@@ -67,12 +89,31 @@ const scoreId = await page.evaluate(async (count) => {
         g.fillRect(x + space * 0.5, y - space * 3, 2, space * 3);
       }
     }
-    return c.toDataURL('image/png');
+    // A BLOB, NOT A DATA URL, and the whole measurement turned on it.
+    //
+    // `readableImage` cannot decode a data URL: every page fell through to the
+    // "could not be read" placeholder, and what this tool was timing was the
+    // DECODE LADDER giving up — four quick tries and then a 900ms wait before
+    // the last one (see `load` in paper.js). That is where the ~1000ms turns
+    // came from, and it is why cold and warm looked alike: neither was decoding
+    // anything. Ten pages, ten cards, and a conclusion about the look-ahead.
+    return new Promise((done) => c.toBlob(done,
+      kind === 'pdf' || wide > 1400 ? 'image/jpeg' : 'image/png', 0.9));
   };
   const { savePagesScore } = await import('/src/store/db.js');
-  const pages = Array.from({ length: count }, (_, i) => draw(i));
+  const pages = await Promise.all(Array.from({ length: count }, (_, i) => draw(i)));
+  if (kind === 'pdf') {
+    const { pdfFromPages } = await import('/src/ui/export.js');
+    const made = pdfFromPages(await Promise.all(pages.map(async (blob) => ({
+      bytes: new Uint8Array(await blob.arrayBuffer()),
+      width: wide,
+      height: Math.round((wide * 1500) / 1100),
+    }))));
+    const data = made instanceof Blob ? await made.arrayBuffer() : made;
+    return savePagesScore({ name: 'Turn test', source: 'pdf', pageCount: count, data });
+  }
   return savePagesScore({ name: 'Turn test', source: 'images', pageCount: count, pages });
-}, PAGES);
+}, { count: PAGES, wide: WIDE, kind: KIND });
 
 // Open the part and tap through it as fast as a hand can, timing how long each
 // turn takes to actually put a DRAWN page on screen.
@@ -89,6 +130,9 @@ const tap = async (x, y) => {
 };
 
 const readerState = () => page.evaluate(() => {
+  // Never measure placeholders again: `cardsDrawn` climbing means the pages are
+  // not decoding, and every number below is then about the decode ladder giving
+  // up rather than about turning a page.
   const count = document.querySelector('#reader-count')?.textContent ?? '';
   const on = Number((count.match(/p\.\s*(\d+)/) ?? [])[1] ?? 0) - 1;
   const node = [...document.querySelectorAll('#reader .osmd-page')][on];
@@ -131,7 +175,9 @@ async function run(label, { width, height }) {
   return { times, mean, moved };
 }
 
-console.log(`\n${''.padEnd(22)} ${Array.from({ length: TURNS }, (_, i) => `t${i + 1}`.padStart(5)).join(' ')}`);
+console.log(`\n  ${PAGES} ${KIND === 'pdf' ? 'PDF' : 'photographed'} pages, ${WIDE}px across`
+  + `${THROTTLE > 1 ? `, processor slowed ${THROTTLE}x` : ''}`);
+console.log(`${''.padEnd(22)} ${Array.from({ length: TURNS }, (_, i) => `t${i + 1}`.padStart(5)).join(' ')}`);
 const size = { width: 1024, height: 1366 };
 const cold = await run('cold (never opened)', size);
 
@@ -183,6 +229,60 @@ async function warmth(label) {
 
 console.log('');
 await warmth('warm-up');
+// --- A PAGE NOBODY HAS BEEN NEAR ---------------------------------------------
+//
+// "you try to tap through it really fast or just tap to a page that you
+// haven't tapped to yet. It shows a white screen, and then it loads in a
+// couple seconds later."
+//
+// Turning is covered above and the look-ahead covers it: three pages in front
+// of you are drawn before you ask. A JUMP has no look-ahead at all — the page
+// list, a bookmark, a setlist — and lands somewhere nothing has decoded. That
+// is the white screen, and it is the case nothing here measured.
+//
+// Timed from the jump to a page with pixels on it, on a part opened a moment
+// ago so the reading pass is still running beside it, which is exactly when it
+// happens.
+async function jumps(label) {
+  await page.evaluate(async (id) => {
+    const { openReader, close } = await import('/src/ui/reader.js');
+    const { loadScore } = await import('/src/store/db.js');
+    close?.();
+    await new Promise((r) => setTimeout(r, 400));
+    await openReader(await loadScore(id), {});
+    await new Promise((r) => setTimeout(r, 700));
+  }, scoreId);
+
+  const times = [];
+  for (const to of [PAGES - 1, 1, Math.floor(PAGES / 2), PAGES - 2]) {
+    const ms = await page.evaluate(async (index) => {
+      const { showPage } = await import('/src/ui/reader.js');
+      const began = performance.now();
+      await showPage(index);
+      // Waited on the PICTURE. showPage resolves when the reader has moved;
+      // what is being timed is when there is something to read.
+      for (let i = 0; i < 400; i += 1) {
+        const node = [...document.querySelectorAll('#reader .osmd-page')][index];
+        const canvas = node?.querySelector('canvas');
+        if (canvas && canvas.width > 1) break;
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      return Math.round(performance.now() - began);
+    }, to);
+    times.push(ms);
+    await new Promise((r) => setTimeout(r, 150));
+  }
+  const mean = Math.round(times.reduce((a, b) => a + b, 0) / times.length);
+  console.log(`${label.padEnd(22)} ${times.map((t) => String(t).padStart(5)).join(' ')}`
+    + `   mean ${mean}ms  worst ${Math.max(...times)}ms`);
+  return { times, mean };
+}
+
+console.log('');
+console.log(`${''.padEnd(22)} jumps to a page nothing has drawn`);
+await jumps('jump (cold)');
+
+
 
 const stored = await page.evaluate(async (id) => {
   const { loadScorePages } = await import('/src/store/db.js');

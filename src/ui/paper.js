@@ -419,6 +419,43 @@ async function openPdf(data, password = null, known = {}) {
   }).promise;
   const crops = new Map();
   const sizes = new Map();
+  // A small render of every page, kept — see thumbStore and THUMB_WIDE.
+  //
+  // A PDF has no decode cache at all: `drawBand` renders through pdf.js every
+  // single time, and the reader hands a page's pixels back the moment it is
+  // more than a page or two behind you. So a jump to a page nobody has been
+  // near is a full render with a finger waiting on it, which is the white
+  // rectangle. A page rendered at 460 across costs a fraction of one rendered
+  // for the glass, and it is drawn instantly while the real one is built.
+  const thumbs = thumbStore();
+  let drewThumb = false;
+  let warming = null;
+  const warm = () => {
+    if (warming) return warming;
+    warming = (async () => {
+      for (let i = 0; i < doc.numPages; i += 1) {
+        if (thumbs.has(i)) continue;
+        await breathe();
+        try {
+          const page = await doc.getPage(i + 1);
+          const base = page.getViewport({ scale: 1 });
+          const scale = Math.min(1, THUMB_WIDE / base.width);
+          const small = scratch(Math.max(1, Math.round(base.width * scale)),
+            Math.max(1, Math.round(base.height * scale)));
+          await page.render({
+            canvasContext: small.getContext('2d'),
+            viewport: page.getViewport({ scale }),
+            canvas: small,
+            background: PAPER,
+          }).promise;
+          thumbs.put(i, small, small.width, small.height);
+          small.width = 0;
+          small.height = 0;
+        } catch { /* a page without a small copy is drawn the slow way */ }
+      }
+    })();
+    return warming;
+  };
   // Where the music is on this page. Measured off a thumbnail the first time,
   // which means RENDERING the page — so if it was measured when the score came
   // in, that answer is used and nothing is rendered at all.
@@ -442,6 +479,10 @@ async function openPdf(data, password = null, known = {}) {
   }
   return {
     count: doc.numPages,
+    warm,
+    thumbsReady: () => thumbs.count(),
+    /** See the note on the image side: the caller owes this page a real draw. */
+    drewAThumb() { const was = drewThumb; drewThumb = false; return was; },
     async aspect(index) {
       const page = await doc.getPage(index + 1);
       const view = page.getViewport({ scale: 1 });
@@ -508,7 +549,26 @@ async function openPdf(data, password = null, known = {}) {
     // applied inside a transform that has already flipped the page the right way
     // up, so using them renders the music upside down. `transform` is applied in
     // the canvas's own coordinates, where "up and left" means what it says.
-    async drawBand(index, canvas, rect, width, height, density = 1) {
+    async drawBand(index, canvas, rect, width, height, density = 1, { instant = false } = {}) {
+      // The small render first, where the canvas is cold — see `warm` above.
+      // Drawn WHOLE rather than cropped: measuring the crop means rendering the
+      // page, which is the wait this exists to remove.
+      if (instant) {
+        warm();
+        const spare = thumbs.get(index);
+        if (spare) {
+          drewThumb = true;
+          const dpr = window.devicePixelRatio || 1;
+          const fit = Math.min(width / spare.w, height / spare.h);
+          const w = Math.max(1, Math.round(spare.w * fit));
+          const h = Math.max(1, Math.round(spare.h * fit));
+          const { context, pixels } = sizeToBand(canvas, w, h,
+            dpr * withinReach(w * dpr, h * dpr));
+          context.setTransform(pixels, 0, 0, pixels, 0, 0);
+          context.drawImage(spare.el, 0, 0, w, h);
+          return;
+        }
+      }
       const page = await doc.getPage(index + 1);
       const base = page.getViewport({ scale: 1 });
       const dpr = window.devicePixelRatio || 1;
@@ -533,7 +593,7 @@ async function openPdf(data, password = null, known = {}) {
         background: PAPER,
       }).promise;
     },
-    destroy() { doc.destroy?.(); },
+    destroy() { thumbs.drop(); doc.destroy?.(); },
   };
 }
 
@@ -578,55 +638,99 @@ const DECODED_PAGES = 8;
 // pinch without holding four times the memory the screen can show.
 const DECODE_MAX = 1800;
 
+// --- A PAGE YOU HAVE NOT LOOKED AT YET, ON SCREEN AT ONCE ---------------------
+//
+// "as soon as it loads in, you try to tap through it really fast or just tap to
+// a page that you haven't tapped to yet. It shows a white screen, and then it
+// loads in a couple seconds later. It should be immediate."
+//
+// The reader looks three pages ahead and draws them early, which makes turning
+// instant right up until a hand outruns it — and on the first taps of a part,
+// hunting for where you left off, a hand always does. Past the look-ahead there
+// is nothing on the canvas at all, because the page has never been decoded, and
+// a twelve-megapixel photograph takes a few hundred milliseconds to become
+// pixels. White, then music.
+//
+// So every page gets a SMALL copy, made once in the background while nobody is
+// waiting, and a page that has no full decode yet is painted from that
+// immediately and sharpened a moment later. The reader already has the
+// machinery for "this is soft, sharpen it": see `rough` and `sharpenSoon`.
+//
+// The size is chosen against memory rather than against sharpness. A copy this
+// wide is about 1.2MB of RGBA where the page it stands in for is twenty, and
+// the budget below is a hard ceiling on the lot — a forty-page part fills it
+// and then keeps only what has been looked at most recently, which is the same
+// behaviour this had before for the ten pages it used to keep.
+const THUMB_WIDE = 460;
+const THUMB_PIXELS = 6_000_000;   // ≈24MB of RGBA, whatever the page count is
+
+// Small copies of pages, kept by LAST USE and bounded by total pixels.
+//
+// Two jobs, and they used to be one: standing in for a decode that FAILED (a
+// phone short of memory answers with nothing rather than with pixels, and a
+// page that has been seen must never be replaced by a card saying it cannot
+// be), and standing in for a decode that has not HAPPENED yet. Same picture,
+// same store.
+function thumbStore() {
+  const held = new Map();
+  let pixels = 0;
+  const touch = (index) => {
+    if (!held.has(index)) return null;
+    const one = held.get(index);
+    held.delete(index);
+    held.set(index, one);
+    return one;
+  };
+  return {
+    get: touch,
+    has: (index) => held.has(index),
+    count: () => held.size,
+    put(index, image, w, h) {
+      if (held.has(index)) { touch(index); return; }
+      try {
+        const scale = Math.min(1, THUMB_WIDE / w);
+        const small = scratch(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
+        small.getContext('2d').drawImage(image, 0, 0, small.width, small.height);
+        held.set(index, { el: small, w: small.width, h: small.height });
+        pixels += small.width * small.height;
+        // Kept by LAST USE, not by when it was made: the first version of this
+        // threw away the copy of page 1 as soon as pages 2 to 12 had been
+        // looked at, which is exactly the part a reader does before coming back
+        // to page 1.
+        while (pixels > THUMB_PIXELS && held.size > 1) {
+          const oldest = held.keys().next().value;
+          const going = held.get(oldest);
+          held.delete(oldest);
+          if (going?.el) {
+            pixels -= going.w * going.h;
+            going.el.width = 0;
+            going.el.height = 0;
+          }
+        }
+      } catch { /* no small copy is still a page */ }
+    },
+    drop() {
+      for (const one of held.values()) { one.el.width = 0; one.el.height = 0; }
+      held.clear();
+      pixels = 0;
+    },
+  };
+}
+
 async function openImages(blobs, known = {}) {
   const cache = new Map();
   const crops = new Map();
   const sizes = new Map();
 
-  // A small copy of each page that has been decoded, so a decode that fails
-  // later has something true to fall back on. Three of them, because the
-  // failure that matters is on the page being looked at.
-  const backups = new Map();
-  // Small enough that keeping several costs less than one full decode — a spare
-  // is 1.5MB where the page it stands in for is twenty — and big enough to read
-  // a stave off while the device gets its memory back.
-  const BACKUP_WIDE = 560;
-  // MORE SPARES THAN DECODED PAGES, deliberately. A spare costs about a
-  // megabyte where the page it stands in for costs twenty, and the whole point
-  // of it is to still be there when the decoded one has been thrown away — so
-  // a pool smaller than the decode cache would be empty exactly when it was
-  // needed. Ten of these is fifteen megabytes; the decode cap this round put in
-  // saved four times that.
-  const BACKUP_KEEP = DECODED_PAGES + 2;
+  // A small copy of each page — see thumbStore. It stands in both for a decode
+  // that failed and for one that has not happened yet.
+  const thumbs = thumbStore();
   const failures = { soft: 0, card: 0 };
-  // Whether the last thing drawn was the "could not be read" card. Read and
-  // cleared by `drewACard()`; see drawBand.
+  // Whether the last thing drawn was the "could not be read" card, and whether
+  // it was a small copy standing in for a page not decoded yet. Read and
+  // cleared by `drewACard()` / `drewAThumb()`; see drawBand.
   let drewCard = false;
-  // Kept by LAST USE, not by when it was made. The first version of this threw
-  // away the spare for page 1 as soon as pages 2 to 12 had been looked at,
-  // which is exactly the part a reader does before coming back to page 1.
-  const touchBackup = (index) => {
-    if (!backups.has(index)) return backups.get(index);
-    const held = backups.get(index);
-    backups.delete(index);
-    backups.set(index, held);
-    return held;
-  };
-  const keepBackup = (index, image, w, h) => {
-    if (backups.has(index)) { touchBackup(index); return; }
-    try {
-      const scale = Math.min(1, BACKUP_WIDE / w);
-      const spare = scratch(Math.round(w * scale), Math.round(h * scale));
-      spare.getContext('2d').drawImage(image, 0, 0, spare.width, spare.height);
-      backups.set(index, { el: spare, w: spare.width, h: spare.height });
-      while (backups.size > BACKUP_KEEP) {
-        const oldest = backups.keys().next().value;
-        const going = backups.get(oldest);
-        backups.delete(oldest);
-        if (going?.el) { going.el.width = 0; going.el.height = 0; }
-      }
-    } catch { /* no spare copy is still a page */ }
-  };
+  let drewThumb = false;
   // Every page is decoded through the same door as the importer, so a format
   // one of them accepts is a format the other one draws.
   //
@@ -637,6 +741,12 @@ async function openImages(blobs, known = {}) {
   // photographs held against a device that has nothing like that to give, and
   // what iOS does about it is take the pixels back out of the canvases the
   // reader is using to show them. Which is the page going black.
+  // WHICH PAGES ARE ACTUALLY PIXELS. `cache` holds a PROMISE, put there the
+  // moment a decode is asked for — so "is it in the cache" answers yes for a
+  // page the look-ahead started fetching a moment ago and will not have for
+  // another second. Waiting on that is the white screen. This is the set of
+  // pages that have finished.
+  const ready = new Set();
   const load = (index) => {
     if (cache.has(index)) {
       // Looked at again: back to the front of the queue.
@@ -703,7 +813,7 @@ async function openImages(blobs, known = {}) {
         // that is what a failure falls back to. Softer than the page itself,
         // and the player keeps reading. The card is for a page that has never
         // been read at all, which is the only case it was ever true of.
-        const spare = touchBackup(index);
+        const spare = thumbs.get(index);
         if (spare) {
           failures.soft += 1;
           return { el: spare.el, w: spare.w, h: spare.h, missing: false, soft: true };
@@ -712,7 +822,8 @@ async function openImages(blobs, known = {}) {
         return { el: missingPage(index), w: 1000, h: 1400, missing: true };
       }
       const { w, h } = sizeOfImage(image);
-      keepBackup(index, image, w, h);
+      thumbs.put(index, image, w, h);
+      ready.add(index);
       return { el: image, w, h, missing: false };
     })();
     cache.set(index, promise);
@@ -721,6 +832,7 @@ async function openImages(blobs, known = {}) {
       const oldest = cache.keys().next().value;
       const going = cache.get(oldest);
       cache.delete(oldest);
+      ready.delete(oldest);
       // close() is what hands an ImageBitmap's memory back; without it the
       // decoded page stays alive until the collector gets round to it, which on
       // the device that needs the memory is far too late.
@@ -743,8 +855,38 @@ async function openImages(blobs, known = {}) {
     crops.set(index, page.missing ? { x: 0, y: 0, w: 1, h: 1 } : contentBox(small));
     return crops.get(index);
   }
+  // THE SMALL COPIES, MADE BEFORE ANYBODY ASKS. See THUMB_WIDE.
+  //
+  // Decoded at a fraction of the size — `readableImageSmall` asks the decoder
+  // for a small bitmap rather than decoding the whole photograph and shrinking
+  // it — and with a breath between pages, so this never holds up a turn or the
+  // measuring pass running beside it. Started once, from the first draw, so a
+  // score nobody opens costs nothing.
+  let warming = null;
+  const warm = () => {
+    if (warming) return warming;
+    warming = (async () => {
+      for (let i = 0; i < blobs.length; i += 1) {
+        if (thumbs.has(i)) continue;
+        await breathe();
+        const blob = blobs[i];
+        if (!blob) continue;
+        try {
+          const small = await readableImageSmall(blob, THUMB_WIDE);
+          if (!small) continue;
+          const { w, h } = sizeOfImage(small);
+          thumbs.put(i, small, w, h);
+          small.close?.();
+        } catch { /* a page without a small copy is drawn the slow way */ }
+      }
+    })();
+    return warming;
+  };
+
   return {
     count: blobs.length,
+    warm,
+    thumbsReady: () => thumbs.count(),
     async aspect(index) {
       const page = await load(index);
       return page.w / page.h;
@@ -763,6 +905,13 @@ async function openImages(blobs, known = {}) {
     measured() { return measuredSoFar(blobs.length, crops, sizes); },
     /** Did the last draw put up a card instead of a page, and clear that. */
     drewACard() { const was = drewCard; drewCard = false; return was; },
+    /**
+     * Did the last draw use the small copy rather than the page, and clear
+     * that. The caller owes that page a proper draw — the reader already has
+     * somewhere to put it, `rough` and `sharpenSoon`, which is the same debt a
+     * page drawn quickly during a fast turn incurs.
+     */
+    drewAThumb() { const was = drewThumb; drewThumb = false; return was; },
     // For the check that keeps the card off a page that has been read: how many
     // decodes fell back to a spare copy, and how many got as far as the card.
     trouble() { return { ...failures }; },
@@ -783,7 +932,38 @@ async function openImages(blobs, known = {}) {
         ? { x: 0, y: band.top, w: 1, h: band.bottom - band.top }
         : { x: 0, y: 0, w: 1, h: 1 }, width, height, 1, opts);
     },
-    async drawBand(index, canvas, rect, width, height, density = 1, { plain = false } = {}) {
+    async drawBand(index, canvas, rect, width, height, density = 1,
+      { plain = false, instant = false } = {}) {
+      // THE SMALL COPY FIRST, WHERE THE PAGE HAS NOT BEEN DECODED YET.
+      //
+      // A page nobody has turned to has no bitmap, and making one out of a
+      // twelve-megapixel photograph is the second of white screen this exists
+      // to remove. If there is a small copy, it goes up NOW and the real decode
+      // is started behind it; `drewAThumb()` tells the reader it owes this page
+      // a proper draw.
+      //
+      // Drawn WHOLE rather than cropped, deliberately. `cropFor` would have to
+      // decode the page to measure it — which is the wait — and a placeholder
+      // showing a little more margin for a moment is not worth caching a crop
+      // measured off a 460-pixel copy for the sharp draw to inherit.
+      if (instant && !ready.has(index)) {
+        warm();
+        const spare = thumbs.get(index);
+        if (spare) {
+          drewThumb = true;
+          load(index).catch(() => {});
+          const dpr = window.devicePixelRatio || 1;
+          const fit = Math.min(width / spare.w, height / spare.h);
+          const w = Math.max(1, Math.round(spare.w * fit));
+          const h = Math.max(1, Math.round(spare.h * fit));
+          const { context, pixels } = sizeToBand(canvas, w, h,
+            dpr * withinReach(w * dpr, h * dpr));
+          context.setTransform(pixels, 0, 0, pixels, 0, 0);
+          context.drawImage(spare.el, 0, 0, w, h);
+          if (!plain) brighten(context, canvas.width, canvas.height);
+          return;
+        }
+      }
       const page = await load(index);
       // WHAT WAS DRAWN, said back. A card is a TEMPORARY state — see `load`,
       // where a decode that fails is deliberately not remembered — and the
@@ -818,6 +998,8 @@ async function openImages(blobs, known = {}) {
         Promise.resolve(promise).then((page) => page?.el?.close?.()).catch(() => {});
       }
       cache.clear();
+      ready.clear();
+      thumbs.drop();
     },
   };
 }
