@@ -864,6 +864,11 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
     });
     currentChart.setPlayhead(full ? full.pos : null);
     if (selectedNote) currentChart.setHighlight(selectedNote);
+    // A CHART BUILT AFTER THE FILTER WAS SET STILL ANSWERS TO IT. `buildChart`
+    // runs again on a pinch, a mode switch and a resize, and each time it is a
+    // new controller that has never heard of the filter.
+    applyHeldToChart = (set) => currentChart?.setShown?.(set);
+    applyHeldFilter?.();
   };
 
   // THE CHART HAS TO BE BUILT AT THE WIDTH IT IS ACTUALLY SHOWN AT.
@@ -1223,22 +1228,37 @@ function degreeState(d) {
 // pressed on the score still opens, still plays, and still lights up.
 //
 // The GRAPH is left whole on purpose. It draws the take's own trace, and its
-// time and pitch range are taken from the notes it is given — filtering them
-// would crop the recording to whatever survived the filter and leave the
-// playhead unable to reach the rest of it. The trace is the recording; this is
-// a filter on the list of what was found in it.
+// time and pitch range are taken from the notes it is given, so handing it a
+// filtered array crops the recording and strands the playhead. MEASURED: on a
+// 14.7s take the chart collapsed to 11.41s, the pitch gutter closed so 368 of
+// 1043 sounding samples became gaps, and the cursor could not reach the take's
+// own first note.
+//
+// THE GRAPH ANSWERS NOW, and not that way. It is given every note, as before,
+// for its range and its hit-testing — and separately a SET of the ones that are
+// shown, which is the only thing the tint reads (see `shown` in pitch-chart.js).
+// A note the filter dropped keeps its trace and loses its colour and its band.
+// "make it so it actually updates with the graph so that it just shows those
+// notes."
 let heldLeast = Number(localStorage.getItem('heldLeast')) || 0;
-let applyHeldFilter = null;   // set by renderReport, called by the select
+let applyHeldFilter = null;   // set by renderReport, called by the field
+let applyHeldToChart = null;  // …and the half of it that repaints the graph
 
 function wireHeldFilter(root) {
-  const pick = root.querySelector('#held-least');
-  if (!pick) return;
-  pick.value = String(heldLeast);
-  pick.onchange = () => {
-    heldLeast = Number(pick.value) || 0;
+  const field = root.querySelector('#held-least');
+  if (!field) return;
+  // Empty means all of them, which is what the placeholder says.
+  field.value = heldLeast > 0 ? String(heldLeast) : '';
+  // ON EVERY KEYSTROKE, not on change: a number typed into a field and then
+  // left alone — because you have gone back to looking at the graph, which is
+  // the point — never fires `change` at all on iOS until the field is blurred.
+  const moved = () => {
+    heldLeast = Math.max(0, Number(field.value) || 0);
     localStorage.setItem('heldLeast', String(heldLeast));
     applyHeldFilter?.();
   };
+  field.oninput = moved;
+  field.onchange = moved;
 }
 
 export function renderReport(root, alignment, recording = null, extras = {}) {
@@ -1348,10 +1368,12 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   // Held long enough, or not: applied here and again whenever the picker moves.
   applyHeldFilter = () => {
     let shown = 0;
+    const standing = new Set();
     for (const d of degrees) {
       const row = rowFor.get(d);
-      if (!row) continue;
       const long = !d.played || (d.played.end - d.played.start) >= heldLeast;
+      if (d.played && long) standing.add(d.played);
+      if (!row) continue;
       row.hidden = !long;
       if (long) shown += 1;
     }
@@ -1360,6 +1382,22 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       summary.textContent = heldLeast > 0 && shown !== degrees.length
         ? `${shown} of ${degrees.length} notes, held ${heldLeast}s or longer`
         : `${allNotes.length} notes`;
+    }
+    // …and the graph says the same thing. `null` rather than the whole set when
+    // nothing is being filtered, so the chart can skip the lookup entirely.
+    applyHeldToChart?.(heldLeast > 0 ? standing : null);
+    // The spoken summary of the canvas has to agree with the picture, or a
+    // screen reader is told about thirty notes while four are drawn.
+    // COUNTED FROM WHAT THE CANVAS DRAWS, not from the grid. `shown` above
+    // counts DEGREES, which include the ones nobody played — the chart has no
+    // mark for those, so quoting that number tells a screen reader about marks
+    // that are not there.
+    const chartEl = root.querySelector('#pitch-chart');
+    if (chartEl && heldLeast > 0 && standing.size !== allNotes.length) {
+      chartEl.setAttribute('aria-label',
+        `Pitch over the whole take. Showing the ${standing.size} of ${allNotes.length}`
+        + ` notes held ${heldLeast} seconds or longer; the rest of the trace is there`
+        + ' in grey.');
     }
   };
   wireHeldFilter(root);
@@ -1425,6 +1463,7 @@ export function hideReport(root) {
   zoom = null;
   full = null;
   applyHeldFilter = null; // the tiles it hid have gone with the report
+  applyHeldToChart = null; // …and so has the chart it was repainting
   cursorReadout = null; // the box it wrote into belongs to a closed report
   selectAtMoment = null; // …and so do the notes it would have looked through
   selectedNote = null;

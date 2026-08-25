@@ -347,11 +347,10 @@ export function initControls(root) {
   pick('#preset-list');
   pick('#ref-interval');
   pick('#ref-octave');
-  // The held-for filter sits in the same row as the two above and has to look
-  // like them: left as a raw <select> it was the one browser dropdown in a row
-  // of pills. (Found by looking at the row, not by a check — every assertion
-  // about it passed while it looked wrong.)
-  pick('#held-least');
+  // `#held-least` used to be picked here, when it was a <select>. It is a
+  // number field now — `menu()` reads `options[selectedIndex]`, which an
+  // <input> does not have, and leaving this line in threw during startup and
+  // left every other picker in the app as a raw browser widget.
   // Its options arrive from IndexedDB after this runs, and change again on
   // every upload — the observer inside menu() is what keeps the list honest.
   pick('#score-pick', { search: true });

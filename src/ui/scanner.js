@@ -659,7 +659,11 @@ async function capture() {
   shotOf = previous ? Float32Array.from(previous) : null;
   for (const { file, corners } of taken) {
     pages.push(file);
-    shots.push({ raw, corners });
+    // The RAW photograph's shape, kept with it. The edges editor draws its
+    // outline before the picture has decoded (see editCorners), and without a
+    // shape to place it against it lands on the stage and jumps once when the
+    // photograph arrives.
+    shots.push({ raw, corners, aspect: canvas.width / canvas.height });
     settleThumb(slot, file, pages.length - 1);
   }
   refreshCount();
@@ -827,7 +831,7 @@ async function reshape(file, thumbnail) {
   const shot = shots[at];
   if (at < 0 || !shot?.raw) return;
   const { editCorners, bakeLook } = await import('./crop.js');
-  const chosen = await editCorners(shot.raw, shot.corners);
+  const chosen = await editCorners(shot.raw, shot.corners, null, { aspect: shot.aspect });
   if (!chosen) return;
   const image = await readableImage(shot.raw);
   if (!image) return;

@@ -128,13 +128,19 @@ const editor = await page.evaluate(async () => {
   const root = document.querySelector('#crop');
   if (!root || root.hidden) return { open: false };
   const buttons = [...root.querySelectorAll('.crop-bar button')].map((b) => b.textContent.trim());
-  const looks = [...root.querySelectorAll('.crop-look')].map((b) => b.textContent.trim());
+  // Symbols now, at the top — the word is the label a screen reader gets.
+  const looks = [...root.querySelectorAll('.crop-look')].map((b) => b.getAttribute('aria-label'));
   const pic = root.querySelector('#crop-picture').getBoundingClientRect();
   return {
     open: true,
     buttons,
     looks,
-    looksHidden: !!root.querySelector('.crop-looks')?.hidden,
+    looksHidden: !!root.querySelector('.crop-head')?.hidden,
+    looksAtTop: (() => {
+      const bar = root.querySelector('.crop-looks')?.getBoundingClientRect();
+      const pic = root.querySelector('#crop-picture')?.getBoundingClientRect();
+      return !!bar && !!pic && bar.bottom <= pic.top + 2;
+    })(),
     hint: !!root.querySelector('.crop-hint'),
     // How much of the screen the picture gets, which is what "I just want it to
     // be huge" is asking for.
@@ -166,8 +172,9 @@ check('it has two buttons and no more', editor.buttons?.length === 2,
 // those are asserted rather than assumed, because a row of options is exactly
 // the thing that grew into the four buttons and the sentence he asked to have
 // taken away.
-check('and one row of looks above them, with no prose', editor.looks?.length === 4,
-  `[${editor.looks?.join(', ')}]`);
+check('and one row of looks, as symbols, above the page', editor.looks?.length === 4
+  && editor.looksAtTop === true,
+  `[${editor.looks?.join(', ')}]${editor.looksAtTop ? ' over the picture' : ' NOT over the picture'}`);
 check('there are no instructions on it', editor.hint === false);
 check('and the picture still has most of the screen', editor.share > 0.75,
   `${Math.round((editor.share ?? 0) * 100)}% of it`);

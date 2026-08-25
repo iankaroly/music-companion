@@ -299,17 +299,23 @@ const PX_PER_SEC = 120;
 // Consecutive trace points sharing an intonation verdict are stroked as ONE
 // path rather than one path per point. A ten-minute take is ~52,000 points;
 // as individual strokes that alone missed frame budget by an order of magnitude.
-function drawTrace(ctx, pts, from, to, x, y) {
+function drawTrace(ctx, pts, from, to, x, y, keep = null) {
   ctx.lineWidth = LINE_WIDTH;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
+  // A point whose note the filter dropped loses its VERDICT and keeps its LINE.
+  // The trace is the recording; all of it is drawn whatever is being looked
+  // for, and what the filter changes is which parts of it are being claimed
+  // about. Grey is the same thing this already draws for a reading that
+  // belongs to no note at all.
+  const stat = (p) => (keep && p.note && !keep(p.note) ? null : p.status);
   let i = from;
   while (i < to) {
     if (pts[i].mf === null) { i++; continue; }
     // a run ends at a gap, or where the verdict changes
-    const status = pts[i].status;
+    const status = stat(pts[i]);
     let j = i + 1;
-    while (j < to && pts[j].mf !== null && pts[j].status === status) j++;
+    while (j < to && pts[j].mf !== null && stat(pts[j]) === status) j++;
     if (j - i > 1) {
       ctx.strokeStyle = status ? STATUS_LINE()[status] : C().muted;
       ctx.beginPath();
@@ -344,9 +350,22 @@ function lowerBound(pts, t) {
 
 export function renderOverviewChart(canvas, {
   readings, notes, a4, onSeek, onNoteHover, onScale,
-  pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null,
+  pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null, shown = null,
 }) {
-  if (notes.length === 0) return { setPlayhead() {}, setHover() {}, setHighlight() {} };
+  if (notes.length === 0) {
+    return { setPlayhead() {}, setHover() {}, setHighlight() {}, setShown() {} };
+  }
+  // WHICH NOTES THE FILTER LEFT STANDING — a Set, or null for all of them.
+  //
+  // RANGE AND HIT-TESTING KEEP READING `notes`, and that is the whole design.
+  // Handing this function a filtered array instead is the obvious thing and it
+  // was measured and looked at: on a 14.7s take with four notes held a second
+  // or more, the chart collapsed to 11.41s, the pitch gutter closed from G2–G5
+  // to G#3–F4 so 368 of 1043 sounding samples became gaps, and the playhead
+  // could not reach the take's own first note. The chart still spans the whole
+  // recording; only the TINT answers to the filter.
+  let shownSet = shown;
+  const isShown = (n) => !shownSet || shownSet.has(n);
   const padT = 0.4;
   const starts = notes.map((n) => n.start);
   const ends = notes.map((n) => n.end);
@@ -393,7 +412,7 @@ export function renderOverviewChart(canvas, {
     if (mf < yMin - 0.5 || mf > yMax + 0.5) { pts.push({ time: r.time, mf: null }); continue; }
     // the trace wears the intonation verdict of the note it belongs to
     const note = findNoteAt(notes, r.time, 0);
-    pts.push({ time: r.time, mf, status: note ? intonationHue(note.cents) : null });
+    pts.push({ time: r.time, mf, status: note ? intonationHue(note.cents) : null, note });
   }
   // Notes are drawn per screenful too, so they get the same bisection.
   const noteStarts = notes.map((n) => ({ time: n.start, n }));
@@ -420,6 +439,11 @@ export function renderOverviewChart(canvas, {
     // note spans, tinted by intonation; the selected/hovered note lights up
     for (const n of notes) {
       if (n.end < tVis0 || n.start > tVis1) continue;
+      // A band is a CLAIM about a note — this one ran sharp — so a note the
+      // filter dropped gets none. Greying them instead was tried and looked at:
+      // twenty-six pale columns read as data and re-clutter the picture the
+      // filter is there to clear.
+      if (!isShown(n)) continue;
       const spanW = Math.max(2, x(n.end) - x(n.start));
       ctx.fillStyle = STATUS_SPAN()[intonationHue(n.cents)];
       ctx.fillRect(x(n.start), PAD.top, spanW, h);
@@ -443,7 +467,8 @@ export function renderOverviewChart(canvas, {
         for (let b = b0; b <= b1; b++) if (wave.peaks[b] > amp) amp = wave.peaks[b];
         if (amp <= 0) continue;
         const note = findNoteAt(notes, (ta + tb) / 2, 0);
-        ctx.fillStyle = note ? STATUS_LINE()[intonationHue(note.cents)] : C().muted;
+        ctx.fillStyle = note && isShown(note)
+          ? STATUS_LINE()[intonationHue(note.cents)] : C().muted;
         const barH = Math.max(0.6, amp * 0.92 * (h / 2 - 2));
         ctx.fillRect(px, mid - barH, 1, barH * 2);
       }
@@ -459,7 +484,7 @@ export function renderOverviewChart(canvas, {
       }
       const from = Math.max(0, lowerBound(pts, tVis0) - 1);
       const to = Math.min(pts.length, lowerBound(pts, tVis1) + 1);
-      drawTrace(ctx, pts, from, to, x, y);
+      drawTrace(ctx, pts, from, to, x, y, shownSet ? isShown : null);
     }
 
     // above the plot, under the playhead: where you are in the recording
@@ -575,6 +600,16 @@ export function renderOverviewChart(canvas, {
   };
   const withKnob = controller.setPlayhead;
   controller.setPlayhead = (t) => { withKnob(t); placeKnob(t); };
+
+  // A REPAINT, NOT A REBUILD. The filter moves on every keystroke of a typed
+  // field; rebuilding re-derives `pts` — 187ms of findNoteAt on a ten-minute
+  // take — re-creates the controller and its listeners, and has to put the
+  // scroll position back by hand. Nothing about the geometry changes when the
+  // filter does, so nothing about the geometry is rebuilt.
+  controller.setShown = (set) => {
+    shownSet = set ?? null;
+    controller.repaint();
+  };
 
   const hoverAt = (e) => {
     const time = timeAt(e);

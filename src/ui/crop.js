@@ -15,7 +15,8 @@
 import {
   moveCorner, moveEdge, edgeMidpoints, handleAt, WHOLE_FRAME,
 } from '../analysis/crop-geometry.js';
-import { readableImage, sizeOfImage } from './straighten.js';
+// `readableImage` and `sizeOfImage` were used to decode the photograph a second
+// time before the editor would open. See editCorners for what replaced them.
 
 const REACH = 0.055;      // how near a finger has to be, in picture terms
 
@@ -27,6 +28,13 @@ let quad = null;
 let found = null;         // what the scanner thought, for Reset
 let dragging = null;      // { kind, index, from } while a handle is held
 let frame = null;         // where the picture actually sits on screen
+// The photograph's shape, before the photograph has arrived.
+//
+// The editor is drawn BEFORE the picture is decoded now (see editCorners), and
+// `measure` needs an aspect ratio to place the outline against. A caller that
+// knows the shape says so and the outline lands right first time; without one
+// it is placed against the stage and repositions once when the picture lands.
+let aspectHint = null;
 
 function el(tag, className) {
   const node = document.createElement(tag);
@@ -41,7 +49,9 @@ function measure() {
   const box = picture.getBoundingClientRect();
   const own = overlay?.getBoundingClientRect()
     ?? { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
-  const natural = picture.naturalWidth / picture.naturalHeight;
+  const natural = (picture.naturalWidth / picture.naturalHeight)
+    || aspectHint
+    || (box.width / box.height);
   const shown = box.width / box.height;
   const width = shown > natural ? box.height * natural : box.width;
   const height = shown > natural ? box.height : box.width / natural;
@@ -233,6 +243,14 @@ function build() {
   // outline and the eight handles with it, in an editor whose whole geometry is
   // measured off the rendered box of an <img>, and a rotate that breaks the
   // drag is worse than no rotate.
+  //
+  // AT THE TOP, AS SYMBOLS. They were four words in a row over the buttons, and
+  // the buttons are what you press when you are FINISHED — so the one row you
+  // touch while you are working sat furthest from the picture and read as a
+  // fourth and fifth button to get past. "I want the features for color and
+  // stuff to be at the top and be like the symbols." A toolbar over the page,
+  // four marks, the one in use lit — which is where every scanner app on this
+  // platform puts them, and it gives the picture back the row it was using.
   const looks = el('div', 'crop-looks');
   looks.setAttribute('role', 'radiogroup');
   looks.setAttribute('aria-label', 'How the page is developed');
@@ -240,8 +258,14 @@ function build() {
     const chip = el('button', 'crop-look');
     chip.type = 'button';
     chip.dataset.look = one.id;
-    chip.textContent = one.name;
     chip.setAttribute('role', 'radio');
+    // The word is the label a screen reader reads and the tooltip a pointer
+    // gets; the mark is what a finger goes to.
+    chip.setAttribute('aria-label', one.name);
+    chip.title = one.name;
+    chip.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"`
+      + ` stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"`
+      + ` aria-hidden="true">${one.mark}</svg>`;
     chip.addEventListener('click', () => setLook(one.id));
     looks.append(chip);
   }
@@ -266,9 +290,11 @@ function build() {
   // telling you what to do was printed straight through "Cancel" and "Whole
   // photo". LOOKED AT, at 390x844, which is the only way that kind of fault is
   // ever found.
+  const head = el('div', 'crop-head');
+  head.append(looks);
   const foot = el('div', 'crop-foot');
-  foot.append(looks, bar);
-  root.append(stage, overlay, foot);
+  foot.append(bar);
+  root.append(head, stage, overlay, foot);
   document.body.append(root);
   // …and the picture gets whatever is left. Measured rather than guessed at,
   // because how tall the foot is depends on how many rows the buttons take,
@@ -280,15 +306,19 @@ function build() {
 
 // How much room the picture has, once the foot has had what it needs.
 function fitStage() {
+  const head = root?.querySelector('.crop-head');
   const foot = root?.querySelector('.crop-foot');
   const stage = root?.querySelector('.crop-stage');
   if (!foot || !stage) return;
   const tall = Math.ceil(foot.getBoundingClientRect().height);
   if (tall > 0) stage.style.bottom = `${tall + 20}px`;
+  const over = Math.ceil(head?.getBoundingClientRect().bottom ?? 0);
+  if (over > 0) stage.style.top = `${over + 12}px`;
 }
 
 function finish(result) {
   root.hidden = true;
+  aspectHint = null;
   URL.revokeObjectURL(picture.src);
   picture.removeAttribute('src');
   window.removeEventListener('resize', onResize);
@@ -304,10 +334,42 @@ function finish(result) {
 // of the finished page. The two are written next to each other so they cannot
 // drift into showing one thing and saving another.
 export const LOOKS = [
-  { id: 'colour', name: 'Colour', filter: 'none' },
-  { id: 'grey', name: 'Grey', filter: 'grayscale(1)' },
-  { id: 'sharp', name: 'Sharper', filter: 'contrast(1.35) saturate(0.85) brightness(1.05)' },
-  { id: 'ink', name: 'Ink', filter: 'grayscale(1) contrast(2.6) brightness(1.14)' },
+  // `mark` is what the toolbar draws, `filter` is the preview on the <img>, and
+  // `bake` below is what is done to the finished page. All three live on one
+  // line each so they cannot drift into showing one thing and saving another.
+  {
+    id: 'colour',
+    name: 'Colour',
+    filter: 'none',
+    // Three overlapping circles: colour, the way every app draws it.
+    mark: '<circle cx="12" cy="8.6" r="4.4"/><circle cx="8.4" cy="15" r="4.4"/>'
+      + '<circle cx="15.6" cy="15" r="4.4"/>',
+  },
+  {
+    id: 'grey',
+    name: 'Grey',
+    filter: 'grayscale(1)',
+    // A disc with one half filled — the contrast mark, and the one everybody
+    // reads as "take the colour out".
+    mark: '<circle cx="12" cy="12" r="8"/>'
+      + '<path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor" stroke="none"/>',
+  },
+  {
+    id: 'sharp',
+    name: 'Sharper',
+    filter: 'contrast(1.35) saturate(0.85) brightness(1.05)',
+    // A sun: more light, more contrast, nothing thrown away.
+    mark: '<circle cx="12" cy="12" r="3.8"/><path d="M12 2.6v2.4M12 19v2.4'
+      + 'M2.6 12h2.4M19 12h2.4M5.3 5.3l1.7 1.7M17 17l1.7 1.7M18.7 5.3 17 7M7 17l-1.7 1.7"/>',
+  },
+  {
+    id: 'ink',
+    name: 'Ink',
+    filter: 'grayscale(1) contrast(2.6) brightness(1.14)',
+    // A drop, filled: black on white, and nothing in between.
+    mark: '<path d="M12 3.2c3.4 4 5.6 6.6 5.6 9.4a5.6 5.6 0 1 1-11.2 0'
+      + 'c0-2.8 2.2-5.4 5.6-9.4z" fill="currentColor" stroke="none"/>',
+  },
 ];
 const LOOK_KEY = 'scanLook';
 let look = 'colour';
@@ -373,28 +435,96 @@ export function bakeLook(canvas, which = look) {
 // photograph that does not exist.
 const PHOTO_WORDS = { keep: 'Use these edges' };
 
-export async function editCorners(blob, corners = null, words = null, { develops = true } = {}) {
+export async function editCorners(blob, corners = null, words = null,
+  { develops = true, aspect = null } = {}) {
   build();
   const say = { ...PHOTO_WORDS, ...(words ?? {}) };
   root.querySelector('#crop-keep').textContent = say.keep;
   // Only where the caller is going to re-encode the page. Trimming a page of a
   // PDF stores a rectangle and touches no pixels, so a row of looks there would
   // be four buttons that do nothing.
-  root.querySelector('.crop-looks').hidden = !develops;
+  root.querySelector('.crop-head').hidden = !develops;
   showLook();
-  const image = await readableImage(blob);
-  if (!image) return null;
-  const { w, h } = sizeOfImage(image);
+  // THE BLOB WAS LOADED TWICE, AND NOTHING WAS DRAWN UNTIL BOTH FINISHED.
+  //
+  // "when I go to Crop Scan and click Edges, it's still delayed… It takes a
+  // second to open." This read:
+  //
+  //     const image = await readableImage(blob);   // load #1, off-screen
+  //     const { w, h } = sizeOfImage(image);       // its only use
+  //     picture.src = URL.createObjectURL(blob);   // load #2, same bytes
+  //     root.hidden = false;
+  //     await picture.onload;                      // …and nothing drawn until it lands
+  //
+  // NOT TWO PIXEL DECODES, and the first version of this note said it was.
+  // `readableImage` resolves on `<img>.onload` and never calls `.decode()`, and
+  // line 1 only ever read `naturalWidth`/`naturalHeight`, which come off the
+  // JPEG header — measured at 1.9ms against 57.3ms for the decode that follows
+  // at rasterisation. There is one pixel decode and there always was. What the
+  // first load actually cost is a second blob URL, a second header parse and a
+  // second `<img>` load, of the same bytes under a different URL so nothing is
+  // shared between them.
+  //
+  // The wait was mostly the ORDER, not the work. MEASURED against the running
+  // app on a 3000x4000 JPEG, three orderings, medians of three, press to an
+  // outline / press to a painted picture, at 20x throttle:
+  //
+  //     as written                      90 / 90 ms
+  //     drawn before the load           13 / 49 ms
+  //     one load, shown when ready      54 / 54 ms
+  //
+  // So: the outline goes up FIRST where the shape is known, and the picture
+  // arrives under it — and where it is not, the editor waits and opens with the
+  // page already in it. See the note by `aspectHint` below for why that split
+  // exists and what the alternative costs.
   found = (corners ?? WHOLE_FRAME).map((p) => [...p]);
   quad = found.map((p) => [...p]);
-  picture.src = URL.createObjectURL(blob);
-  root.hidden = false;
-  await new Promise((resolve) => {
-    if (picture.complete && picture.naturalWidth) resolve();
-    else picture.onload = resolve;
+  aspectHint = Number.isFinite(aspect) && aspect > 0 ? aspect : null;
+  picture.removeAttribute('src');
+  const url = URL.createObjectURL(blob);
+  picture.src = url;
+  // ONLY WHERE THERE IS A REAL SHAPE TO DRAW AGAINST.
+  //
+  // Drawing the outline before the picture lands is worth 13ms to an outline
+  // against 54 — but only when the shape is known. Without one the outline is
+  // placed against the stage and then MOVES when the photograph arrives:
+  // measured at 90 CSS pixels on a 3000x4000 page. A jump that size is worse
+  // than the wait it saves, and it is the reader's two call sites that have no
+  // shape to give — the page they open on is a stored file, not a frame the
+  // scanner has just taken and still knows the size of.
+  if (aspectHint) {
+    root.hidden = false;
+    fitStage();
+    measure();
+    draw();
+  }
+  const readable = await new Promise((resolve) => {
+    if (picture.complete && picture.naturalWidth) resolve(true);
+    else {
+      picture.onload = () => resolve(true);
+      picture.onerror = () => resolve(false);
+    }
   });
-  // The overlay is sized to the window and the picture to whatever is left of
-  // it, so both have to be measured after the layout has happened.
+  // WHAT `readableImage` WAS ALSO FOR. It was the guard behind `if (!image)
+  // return null`, and without something in its place a blob nothing can decode
+  // left the editor on screen for ever with a postage-stamp outline and a
+  // promise that never settled — measured, on a Blob of the word "not an image
+  // at all". The cost of the reorder is a brief flash of the editor before it
+  // closes on a picture that cannot be read; the alternative is the wait.
+  if (!readable) {
+    root.hidden = true;
+    URL.revokeObjectURL(url);
+    picture.removeAttribute('src');
+    aspectHint = null;
+    return null;
+  }
+  const w = picture.naturalWidth;
+  const h = picture.naturalHeight;
+  // Now that the picture has a size of its own. Where the outline went up
+  // early this is the pass that puts it exactly on the photograph; where it did
+  // not, this is the only pass, and the editor appears with the page already in
+  // it rather than a moment before.
+  root.hidden = false;
   fitStage();
   measure();
   draw();

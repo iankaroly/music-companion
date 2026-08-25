@@ -3066,13 +3066,29 @@ function isMenuOpen() {
 }
 
 function setChrome(on) {
-  // A RUNNING TAKE KEEPS THE BAR. Every gesture that reads as "I am reading
-  // now" — the tap on the music, the swipe, the page turn — asks for the chrome
-  // to go, and the record button now lives in it. Refusing here rather than at
-  // each of those four call sites is the same reason CHROME is one list: four
-  // copies of one rule is three of them waiting to be forgotten.
-  const taking = !!root?.classList.contains('taking');
-  chrome = on || taking;
+  // A RUNNING TAKE NO LONGER KEEPS THE BAR.
+  //
+  // It used to: `chrome = on || taking` pinned it open for the length of a take
+  // so there was always a visible way to stop. OVERRULED, on request — "once
+  // you click record, it gets rid of the menu bar right away… then you see the
+  // full screen and you can click at the top to get it back."
+  //
+  // The invariant that pin defended is paid for twice over, and neither payment
+  // costs the music a pixel:
+  //   · THE TAP. While the bar is away, a tap in the top quarter of the screen
+  //     brings it back, and so does a tap in the middle third — the same
+  //     gesture that brings it back for anything else, so there is nothing new
+  //     to learn and the stop is one tap away at any moment of a take.
+  //   · THE INK BAR. `placeRecordButton` puts the one button in whichever bar
+  //     is showing, and `.bare` styles `#reader-top` ONLY — `#reader-ink-bar`
+  //     answers to `.drawing` and nothing else. So a pencil picked up mid-take
+  //     still has the stop under the hand.
+  //
+  // What is genuinely given up, and is the price of what was asked for: with
+  // the bar away there is nothing on the screen saying a take is running. The
+  // ` · rec` clock lives in `#reader-count`, inside the bar. The Record tab
+  // still shows it.
+  chrome = on;
   root?.classList.toggle('bare', !chrome);
 }
 
@@ -4365,16 +4381,11 @@ function showTake(state) {
   // dot vanish mid-take — the invariant is worth stating in the view too.
   button.hidden = !state.recording && !state.canRecord;
   button.classList.toggle('recording', !!state.recording);
-  // …AND THE BAR IT SITS IN STAYS DOWN WHILE THE TAKE RUNS.
-  //
-  // The button used to float over the page, so it survived the reader putting
-  // its chrome away — which the reader does the moment somebody starts reading,
-  // because that is what it is for. In the bar it does not, and a running take
-  // with the bar away would be a take with no visible way to stop it and no
-  // sign that it was running. So a take pins the chrome open; stopping releases
-  // it and the next tap on the music takes the bar away as usual.
-  root?.classList.toggle('taking', !!state.recording);
-  if (state.recording) setChrome(true);
+  // A VIEW, AND NOTHING ELSE. This used to pin the chrome open for the length
+  // of a take (`root.classList.toggle('taking', …)` and `setChrome(true)`), and
+  // it ran on every publish of the take clock — four times a second — so
+  // anything that put the bar away was undone within 50ms. See setChrome for
+  // what replaced the invariant it was defending.
   placeRecordButton();
   button.disabled = !!state.busy;
   button.replaceChildren(icon(state.recording ? 'stopRec' : 'record'));
@@ -4391,8 +4402,17 @@ function showTake(state) {
 }
 
 async function toggleTakeHere() {
-  const { toggleTake } = await import('./take-control.js');
-  await toggleTake();
+  const { toggleTake, takeState } = await import('./take-control.js');
+  const starting = !takeState()?.recording;
+  // AWAY AT ONCE, not when the take actually begins. A count-in is two bars of
+  // clicks before a single sample is recorded, and leaving the bar over the
+  // music for those is the whole of the complaint. The gesture is what hides
+  // it, so it goes on the way in.
+  if (starting) setChrome(false);
+  const went = await toggleTake();
+  // …and back, if it never started. A refused microphone, or a start that
+  // walked away, would otherwise leave a bare page and no way to see why.
+  if (starting && went === false) setChrome(true);
 }
 
 // WHICHEVER BAR IS ON SCREEN IS THE BAR IT IS IN.
@@ -6424,6 +6444,9 @@ export function close() {
   // Left on, it would follow the next score onto the stand and refuse to let
   // its bar out of the way — a reader that will not clear itself, for a take
   // that is not running.
+  // `taking` was the class that pinned the bar open for the length of a take.
+  // Nothing sets it any more (see setChrome); this stays so a reader left open
+  // across a reload of the module cannot come back wearing it.
   root.classList.remove('taking');
   for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
   delete document.documentElement.dataset.reading;

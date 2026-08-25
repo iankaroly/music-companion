@@ -335,57 +335,87 @@ console.log(`      (unplaced take: said “${unplaced.said}”, `
 // page finds its tile, and a detached tile would throw the moment somebody
 // pressed a short note on the music.
 const held = await page.evaluate(async () => {
-  const pick = document.querySelector('#held-least');
-  if (!pick) return { missing: true };
+  const field = document.querySelector('#held-least');
+  if (!field) return { missing: true };
   const tiles = () => [...document.querySelectorAll('#report-grid .degree')];
   const shown = () => tiles().filter((t) => !t.hidden).length;
-  // Driven through the PILL, not by setting the select's value — the select is
-  // hidden and controls.js puts a `.pick-btn` in its place (see initControls),
-  // so setting `.value` would test a handler nobody can reach with a finger.
-  const set = async (label) => {
-    const btn = document.querySelector('#held-least-line .pick-btn');
-    if (!btn) return false;
-    btn.click();
-    await new Promise((r) => setTimeout(r, 200));
-    const row = [...document.querySelectorAll('.pick-pop .pick-row')]
-      .find((r) => r.textContent.trim() === label);
-    if (!row) return false;
-    row.click();
-    await new Promise((r) => setTimeout(r, 250));
-    return true;
+  const canvas = document.querySelector('#pitch-chart');
+  // WHAT THE GRAPH IS SHOWING, as a number. The bands are the only thing on
+  // that canvas painted in the three verdict fills, so counting pixels that are
+  // NOT the ground and not the trace's grey is a direct count of how much of
+  // the take is being claimed about. A picture that does not move when the
+  // filter does is the fault this exists to catch — the two screenshots either
+  // side of a pick used to be byte-identical.
+  const tinted = () => {
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    const d = g.getImageData(0, 0, canvas.width, canvas.height).data;
+    let on = 0;
+    for (let i = 0; i < d.length; i += 4) {
+      const r = d[i];
+      const gg = d[i + 1];
+      const b = d[i + 2];
+      // A verdict fill is tinted: one channel clearly away from the other two.
+      if (Math.max(r, gg, b) - Math.min(r, gg, b) > 10) on += 1;
+    }
+    return on;
   };
-  const droveIt = await set('0.25s+');
-  const quarter = shown();
-  await set('0.5s+');
-  const half = shown();
-  await set('any');
+  // Typed, the way a finger types — an `input` event per keystroke, which is
+  // what the field listens for.
+  const type = async (text) => {
+    field.value = text;
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 350));
+  };
+  await type('');
   const all = shown();
-  await set('0.5s+');
+  const allTint = tinted();
+  // The fixture holds every note for 0.3s, so 0.25 keeps them all and 0.5 none.
+  await type('0.25');
+  const quarter = shown();
+  const quarterTint = tinted();
+  await type('0.5');
+  const half = shown();
+  const halfTint = tinted();
   const summary = document.querySelector('#notes-summary')?.textContent ?? '';
-  void droveIt;
   const stillThere = tiles().length;
-  // …and a hidden note pressed from the score still opens and plays.
+  const typed = field.value;
+  // …and a filtered note pressed on the page still opens and plays.
   let pressed = 'not tried';
   try {
-    const { selectPlayedNote } = await import('/src/ui/report.js');
     const bar = document.querySelectorAll('.scan-bar')[4];
     bar?.click();
     await new Promise((r) => setTimeout(r, 500));
     pressed = document.querySelector('#note-zoom')?.hidden === false ? 'opened' : 'stayed shut';
-    void selectPlayedNote;
   } catch (err) { pressed = `threw ${err.message}`; }
-  await set('any');
-  return { all, quarter, half, summary, stillThere, pressed, droveIt };
+  await type('');
+  const backTint = tinted();
+  return {
+    all, quarter, half, summary, stillThere, pressed, typed,
+    allTint, quarterTint, halfTint, backTint,
+  };
 });
-check('the held-for picker filters the note list',
-  held.droveIt === true && held.all > 0 && held.quarter === held.all && held.half === 0,
-  `any → ${held.all}, 0.25s+ → ${held.quarter}, 0.5s+ → ${held.half} (notes are held 0.3s)`);
+
+check('a duration typed into the field filters the note list',
+  held.all > 0 && held.quarter === held.all && held.half === 0,
+  `empty → ${held.all}, 0.25 → ${held.quarter}, 0.5 → ${held.half} (notes are held 0.3s)`);
+// THE PICTURE MOVES WITH IT. This is the assertion the previous round did not
+// have, and its absence is why the graph sat unchanged for a fortnight while
+// every other assertion about the filter passed.
+check('…and the graph stops claiming anything about the notes it dropped',
+  held.halfTint < held.allTint * 0.2
+  && Math.abs(held.quarterTint - held.allTint) < held.allTint * 0.01,
+  `tinted pixels: empty ${held.allTint}, 0.25 ${held.quarterTint}, 0.5 ${held.halfTint}`);
+check('…and they come back when the field is cleared',
+  Math.abs(held.backTint - held.allTint) < held.allTint * 0.02,
+  `${held.allTint} → ${held.halfTint} → ${held.backTint}`);
 check('…and says so where the count is',
   /held 0.5s or longer/.test(held.summary), `“${held.summary}”`);
 check('…and hides the tiles rather than removing them',
   held.stillThere === held.all, `${held.stillThere} tiles still in the grid`);
 check('…and a filtered note pressed on the page still opens',
   held.pressed === 'opened', held.pressed);
+check('…and the field holds the number that was typed', held.typed === '0.5',
+  `the field read "${held.typed}"`);
 
 if (errors.length) {
   console.log('\nerrors on the page:');

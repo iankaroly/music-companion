@@ -422,13 +422,22 @@ npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the button in t
                          reader's own bar, pressed the way a finger presses it. One
                          recorder behind two doors (the Record tab's button must
                          read "Stop & review" while the reader's dot is red),
-                         the music still on screen throughout, and — the
-                         assertion that matters — the dot MEASURED IN PIXELS
-                         while the take runs and a second into it. It shipped
-                         invisible once: the state event carried no `canRecord`,
-                         so the first tick of the clock hid the only way to stop
-                         a running take, and a check that read `hidden` only at
-                         the start passed ten out of ten over it.
+                         and the music still on screen throughout.
+                         THE CONTRACT REVERSED, and this entry with it. It used
+                         to assert the dot was STILL THERE while the take ran: a
+                         take pinned the bar open so there was always a visible
+                         way to stop, after it once shipped invisible. He asked
+                         for the opposite — "once you click record, it gets rid
+                         of the menu bar right away… you can click at the top to
+                         get it back" — so the bar now goes at the press, and
+                         what pays for it is checked instead: it is bare a
+                         second in, a tap at the top brings it back WITH the
+                         stop on it and the take still running, and the pencil
+                         path still has the stop under the hand.
+                         `seen()` HIT-TESTS NOW. It used to read the button's
+                         own hidden/box/opacity — none of which a button reports
+                         about its PARENT — so it passed while the bar it sits
+                         in was translated clean off the top of the screen.
                          NO MICROPHONE: getUserMedia is replaced before load.
 npm run scan:practice    THE SAME, ON A TAKE THAT PRACTISES — one system four
                          times, a run-in, the whole page, once more at the end.
