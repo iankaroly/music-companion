@@ -115,7 +115,8 @@
     "scan:frame": "node tools/scan-frame-probe.mjs",
     "review:follow": "node tools/review-follow-check.mjs",
     "metro:page": "node tools/metro-page-check.mjs",
-    "startup:tabs": "node tools/startup-tabs-check.mjs"
+    "startup:tabs": "node tools/startup-tabs-check.mjs",
+    "shelf:find": "node tools/shelf-find-check.mjs"
   },
   "keywords": [],
   "author": "",

@@ -16,7 +16,7 @@ import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
   reviewIsWaiting, showTakeReview, scanPages, askScoreName,
-  notationScores, pairWithNotation, importNotationFor, measurePages, scoreStatus,
+  measurePages, scoreStatus,
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { initPenCheck } from './ui/pen-check.js';
@@ -935,6 +935,8 @@ async function shareTake(r) {
 // --- library ---------------------------------------------------------------
 
 const libraryList = document.querySelector('#library-list');
+const librarySearch = document.querySelector('#library-search');
+let libraryFilter = '';
 const libraryEmpty = document.querySelector('#library-empty');
 const renameDialog = document.querySelector('#rename-dialog');
 const renameInput = document.querySelector('#rename-input');
@@ -1190,6 +1192,11 @@ libraryBack.addEventListener('click', () => {
   refreshLibrary();
 });
 document.querySelector('#new-folder').addEventListener('click', () => askFolderName('create'));
+// The same button on the Scores shelf. One set of folders holds both takes and
+// pieces (see the note above `openFolder`), so a folder made here is the folder
+// the Library shows too — which is why making one had to be possible from both
+// shelves and until now was only possible from one.
+document.querySelector('#score-folder')?.addEventListener('click', () => askFolderName('create'));
 
 // Score name by id, so a take can say which piece it was played from without
 // each row going to the database for it.
@@ -1617,10 +1624,6 @@ function scoreActions(score, anchor = null) {
   if (score.kind === 'pages') {
     rows.push({ label: 'Pages\u2026', onPick: () => openPageManager(score) });
     rows.push({
-      label: score.notationId != null ? 'Change its notation\u2026' : 'Add notation for analysis\u2026',
-      onPick: () => pairFromShelf(score),
-    });
-    rows.push({
       label: 'Straighten the pages',
       onPick: () => straightenScore(score),
     });
@@ -1734,38 +1737,20 @@ async function openPageManager(score) {
   dialog.showModal();
 }
 
-// Choosing the notation behind a scan from the shelf \u2014 which is where you are
-// standing when you notice it is missing.
-async function pairFromShelf(score) {
-  const scores = await notationScores();
-  const rows = scores.map((row) => ({
-    label: row.id === score.notationId ? `\u2713 ${row.name}` : row.name,
-    onPick: async () => { await pairWithNotation(score.id, row.id); refreshLibrary(); },
-  }));
-  rows.push({
-    label: '\uFF0B Import a MusicXML file\u2026',
-    onPick: () => {
-      const input = document.querySelector('#score-notation-file');
-      if (!input) return;
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        input.value = '';
-        if (!file) return;
-        await importNotationFor(score.id, file).catch(() => {});
-        refreshLibrary();
-      };
-      input.click();
-    },
-  });
-  if (score.notationId != null) {
-    rows.push({
-      label: 'Unpair',
-      danger: true,
-      onPick: async () => { await pairWithNotation(score.id, null); refreshLibrary(); },
-    });
-  }
-  actionMenu(document.querySelector('#score-browser-title'), rows);
-}
+// THE NOTATION DOORS ARE GONE FROM THE SURFACE, and the machinery is not.
+//
+// "Get rid of the ad notation stuff." Pairing a photographed part with a
+// MusicXML file is the one thing that lets this app say "that was the wrong
+// note", and it was offered in four places — the shelf's ⋯ menu, the reader's
+// options sheet, a button under the review, and a paragraph explaining why the
+// analysis was incomplete. Four offers for something almost nobody has the file
+// for, and the paragraph was the worst of them: a block of grey prose about a
+// feature, on the screen you land on straight after playing.
+//
+// `pairWithNotation`, `importNotationFor`, `notationId` and the whole paired
+// review path STAY — a score that is already paired still reads that way, and
+// `scan:import` still measures it. What went is every way of asking for it.
+// `pairFromShelf` lived here.
 
 async function refreshScoreTab() {
   if (!scoreList) return;
@@ -1856,7 +1841,13 @@ async function refreshScoreTab() {
         }
       }
     }
-    if (scoreSearch) scoreSearch.hidden = inScore || inSet || showingSets || scoreNames.size < 6;
+    // Hidden only where searching means nothing: inside one piece, inside a
+    // setlist, or on the list of setlists. It used to also require six pieces
+    // on the shelf, which made it a box you had to earn — and the shelf you
+    // are looking at is not the one you learn the app on.
+    if (scoreSearch) scoreSearch.hidden = inScore || inSet || showingSets;
+    const folderBtn = document.querySelector('#score-folder');
+    if (folderBtn) folderBtn.hidden = inScore || inSet || inFolder || showingSets;
     scoreListEmpty.style.display = scoreList.children.length ? 'none' : 'block';
     scoreListEmpty.textContent = showingSets && !inSet
       ? 'No setlists yet. A setlist is the pieces of a recital or a lesson in the order'
@@ -1877,29 +1868,12 @@ async function refreshScoreTab() {
 // because that is what was on the stand.
 document.querySelector('#score-load')?.addEventListener('click', (e) => {
   actionMenu(e.currentTarget, [
-    {
-      label: 'Scan',
-      onPick: () => scanPages(),
-    },
-    {
-      // THE ROUTE TO A FULL-SIZE PICTURE, and on an iPhone the only one.
-      //
-      // The scanner works off the video the browser gives a web page, which is
-      // a fraction of what the camera can take — Safari has no way to ask for a
-      // real still, so on that phone this is it. Which is why the two top rows
-      // read as two different things: "(full size)" is the whole difference
-      // between them, and is a NAME rather than a sentence about one.
-      label: 'Photograph (full size)',
-      onPick: () => document.querySelector('#score-photos')?.click(),
-    },
-    {
-      label: 'PDF',
-      onPick: () => document.querySelector('#score-pdf')?.click(),
-    },
-    {
-      label: 'Music file',
-      onPick: () => document.querySelector('#score-file')?.click(),
-    },
+    { label: 'Scan', onPick: () => scanPages() },
+    { label: 'PDF', onPick: () => document.querySelector('#score-pdf')?.click() },
+    // Photographs, MusicXML and a PDF you would rather find yourself, all
+    // through one picker — see the input in index.html for why the separate
+    // "Photograph (full size)" row went and what happens to the camera.
+    { label: 'Choose file', onPick: () => document.querySelector('#score-file')?.click() },
   ]);
 });
 
@@ -1942,12 +1916,26 @@ async function refreshLibrary() {
       ? folders.find((f) => f.id === openFolder)?.name ?? 'Folder'
       : 'Library';
 
-    const shown = inFolder
-      ? recordings.filter((r) => r.folderId === openFolder)
-      : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
+    // SEARCHING LOOKS THROUGH THE WHOLE LIBRARY, folders and all — the same
+    // rule the score shelf uses, and for the same reason: being made to
+    // remember which folder you filed a take in before you may look for it is
+    // the thing a search box exists to spare you. A take is found by its own
+    // name, by the piece it was played from, or by its date as it is written on
+    // the row, because those are the three things on screen to read.
+    const needle = libraryFilter.trim().toLowerCase();
+    const says = (r) => [
+      r.name ?? '',
+      r.scoreId != null ? (scoreNames.get(r.scoreId) ?? '') : '',
+      formatWhen(r.date),
+    ].join(' ').toLowerCase().includes(needle);
+    const shown = needle
+      ? recordings.filter(says)
+      : inFolder
+        ? recordings.filter((r) => r.folderId === openFolder)
+        : recordings.filter((r) => r.folderId === undefined || r.folderId === null);
 
     libraryList.replaceChildren();
-    if (!inFolder) {
+    if (!inFolder && !needle) {
       const counts = new Map();
       for (const r of recordings) {
         if (r.folderId != null) counts.set(r.folderId, (counts.get(r.folderId) ?? 0) + 1);
@@ -1957,12 +1945,18 @@ async function refreshLibrary() {
     for (const r of shown) libraryList.append(libraryRow(r));
 
     libraryEmpty.style.display = libraryList.children.length ? 'none' : 'block';
-    libraryEmpty.textContent = inFolder
-      ? 'Nothing in this folder yet — move a take in from ⋯'
-      : 'Nothing here yet — record a take and save it 🎶';
+    libraryEmpty.textContent = needle
+      ? `Nothing here called “${libraryFilter.trim()}”.`
+      : inFolder
+        ? 'Nothing in this folder yet — move a take in from ⋯'
+        : 'Nothing here yet — record a take and save it 🎶';
     await refreshScoreTab(); // the same takes, shelved by piece
   } catch { /* blocked IndexedDB — library stays empty */ }
 }
+librarySearch?.addEventListener('input', () => {
+  libraryFilter = librarySearch.value;
+  refreshLibrary();
+});
 refreshLibrary();
 
 // --- metronome -------------------------------------------------------------

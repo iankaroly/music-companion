@@ -795,6 +795,27 @@
       box-shadow: 0 20px 50px rgb(var(--sh) / 0.28), inset 0 1px 0 var(--inset-hi);
       animation: pop-in 240ms var(--spring);
     }
+    /* The search field in a long pop-over — see `menu()` in ui/controls.js.
+       Sticky, because the list under it scrolls and a filter that scrolls away
+       is a filter you cannot correct. */
+    .pick-find {
+      position: sticky;
+      top: -0.4rem;
+      z-index: 1;
+      margin: -0.4rem -0.4rem 0.35rem;
+      padding: 0.5rem 0.9rem;
+      font: inherit;
+      font-size: 0.92rem;
+      color: var(--ink);
+      background: rgb(var(--sf) / 0.92);
+      border: none;
+      border-bottom: 1px solid var(--glass-line);
+      border-radius: 1.3rem 1.3rem 0 0;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+    .pick-find::placeholder { color: var(--muted); }
+    .pick-find:focus { outline: none; background: rgb(var(--sf) / 1); }
     .pick-pop.explain { display: block; max-width: min(19rem, 88vw); padding: 0.85rem 1rem; text-align: left; }
     .pick-pop.explain b { display: block; font-family: var(--display); font-weight: 500; font-size: 0.9rem; margin-bottom: 0.3rem; }
     .pick-pop.explain p { color: var(--muted); font-size: 0.8rem; line-height: 1.5; }
@@ -2372,6 +2393,30 @@
       align-items: center;
       gap: 0.55rem;
     }
+    /* The row of looks, over the buttons. Chips rather than a segmented
+       control because there are four of them and the words are short — and
+       because this bar has to survive a 390px screen without wrapping into the
+       picture, which is what the foot is measured for (see fitStage). */
+    .crop-looks {
+      display: flex;
+      justify-content: center;
+      flex-wrap: wrap;
+      gap: 0.35rem;
+      margin-bottom: 0.55rem;
+    }
+    .crop-look {
+      font-family: var(--display);
+      font-size: 0.8rem;
+      font-weight: 500;
+      padding: 0.36rem 0.8rem;
+      border-radius: 999px;
+      border: 1px solid rgb(255 255 255 / 0.22);
+      background: rgb(255 255 255 / 0.1);
+      color: #fff;
+      cursor: pointer;
+    }
+    .crop-look.on { background: #fff; color: #111; border-color: #fff; }
+    .crop-look:active { transform: scale(0.96); }
     .crop-bar {
       display: flex;
       justify-content: center;
@@ -2833,7 +2878,8 @@
       #score-saved { animation: none; }
     }
     #score-list-empty { display: none; }
-    #score-search {
+    /* The two shelves search the same way and look the same doing it. */
+    #score-search, #library-search {
       width: 100%;
       margin-bottom: 0.7rem;
       font-size: 1rem;
@@ -2846,7 +2892,7 @@
       appearance: none;
       -webkit-appearance: none;
     }
-    #score-search::placeholder { color: var(--muted); }
+    #score-search::placeholder, #library-search::placeholder { color: var(--muted); }
     #score-review-head { justify-content: flex-start; margin-bottom: 0.8rem; }
     #score-review-title {
       font-family: var(--display);
@@ -4115,7 +4161,18 @@
        greys the scores out and they simply cannot be chosen. Anything picked
        is sniffed by its bytes in mxl.js and refused with a reason if it is not
        a score, which is better than a filter that hides the right file. -->
-  <input id="score-file" type="file" hidden>
+  <!-- ONE PICKER FOR EVERYTHING THAT IS A FILE. "It should just say Scan, PDF
+       and choose file." A MusicXML part, a PDF and a photograph all arrive the
+       same way and `addFromFile` already routes on what the file IS, so three
+       rows in the menu were three names for one gesture.
+
+       No `capture` attribute, deliberately: with plain `accept="image/*"` iOS
+       offers Photo Library / Take Photo / Choose File, so the camera app's own
+       twelve megapixels — measured as the sharpest way into this reader — is
+       still there, one tap further in than the row that used to launch it
+       outright. -->
+  <input id="score-file" type="file" multiple
+         accept=".musicxml,.mxl,.xml,application/pdf,image/*" hidden>
   <!-- Paper. Two inputs rather than one because the phone offers different
        things for each: a PDF comes from Files (or from the Files app's own
        document scanner, which is the nearest thing to a scanner this app can
@@ -4166,7 +4223,6 @@
   </dialog>
   <input id="score-notation-file" type="file" hidden>
   <input id="score-pdf" type="file" accept="application/pdf,.pdf" hidden>
-  <input id="score-photos" type="file" accept="image/*" capture="environment" multiple hidden>
 
   <main id="panes">
     <!-- ================= tuner ================= -->
@@ -4290,7 +4346,6 @@
             <option value="none" selected>no score</option>
           </select>
           <button id="score-add" class="ctl" type="button">Load score…</button>
-          <button id="score-pair" class="ctl" type="button" hidden>Add notation…</button>
           <button id="score-remove" class="ctl" type="button" hidden>Remove</button>
         </div>
         <!-- Empty, and it stays empty until something needs SAYING. It used to open
@@ -4403,6 +4458,7 @@
           <span id="library-title">Library</span>
           <button id="new-folder" type="button">＋ Folder</button>
         </div>
+        <input id="library-search" type="search" placeholder="Search takes" aria-label="Search takes">
         <ul id="library-list"></ul>
         <div id="library-empty">Nothing here yet — record a take and save it 🎶</div>
       </div>
@@ -4428,10 +4484,16 @@
           <button id="score-browser-back" type="button" hidden>← Scores</button>
           <span id="score-browser-title">Scores</span>
           <button id="score-sets" class="ctl" type="button">Setlists</button>
+          <button id="score-folder" class="ctl" type="button">＋ Folder</button>
           <button id="score-load" class="ctl" type="button">＋ Score</button>
         </div>
-        <!-- Twenty pieces is a scroll; forty is a search. -->
-        <input id="score-search" type="search" placeholder="Find a piece" aria-label="Find a piece">
+        <!-- ALWAYS THERE. It used to appear only past six pieces, on the
+             reasoning that twenty is a scroll and forty is a search — but a
+             search box you have to earn is a search box nobody knows is there,
+             and the shelf you are looking at is not the one you learn the app
+             on. It is hidden only where searching means nothing: inside one
+             piece, inside a setlist, or on the list of setlists. -->
+        <input id="score-search" type="search" placeholder="Search scores" aria-label="Search scores">
         <ul id="score-list"></ul>
         <div id="score-list-empty">No scores yet. Load a MusicXML or .mxl part — export
         one from MuseScore, or download it from IMSLP — and it will open here to play from.</div>

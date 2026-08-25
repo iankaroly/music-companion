@@ -165,7 +165,6 @@ let unpaired = null;
 async function chooseScore(id) {
   resetSheet();
   unpaired = null;
-  el('score-pair').hidden = true;
   if (!id) {
     current = null;
     el('score-remove').hidden = true;
@@ -200,13 +199,14 @@ async function chooseScore(id) {
         current = { ...row, paper: row, notes: [], plain: true };
         unpaired = row;
         showReviewCard(false);
-        el('score-pair').hidden = false;
         el('score-remove').hidden = false;
         scoreChanged?.();
-        // The NAME, and the one fact about this score that its name cannot
-        // carry: there is no notation behind it, which is why wrong notes will
-        // not be caught. Not a paragraph teaching the app.
-        status(`${row.name} — pages only, no notation`);
+        // Just the name. "Get rid of the little grey text that says 'scan
+        // score, pages only, no notation', like those types of texts." The
+        // clause was there to explain what the review would and would not say;
+        // with the notation doors gone there is nothing to explain and nothing
+        // to do about it.
+        status(row.name);
         return;
       }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
@@ -824,22 +824,12 @@ function openScoreButton() {
   return open;
 }
 
-// Said out loud, and next to the thing that would fix it. This is the only part
-// of the analysis a scan cannot do, and a player who is not told that is a
-// player who thinks the app looked at their notes and had no opinion.
-function scanGapNote() {
-  const gap = document.createElement('p');
-  gap.className = 'score-scan-gap';
-  gap.textContent = 'Read from the sound: intonation, how each note spoke, and'
-    + ' your own pulse. Whether you played the written note needs the notation —';
-  const add = document.createElement('button');
-  add.type = 'button';
-  add.className = 'linkish';
-  add.textContent = 'add its MusicXML';
-  add.addEventListener('click', () => el('score-pair')?.click());
-  gap.append(' ', add, '.');
-  return gap;
-}
+// `scanGapNote` lived here: a grey paragraph under every scan review saying
+// that intonation and pulse come from the sound but "whether you played the
+// written note needs the notation", with a link to add a MusicXML file. It was
+// the last of the four notation doors and the least welcome of them — a block
+// of prose about a missing feature, on the screen you land on straight after
+// playing. "Get rid of the little grey text… I don't want it to explain stuff."
 
 function showScanReview(analysis) {
   const title = el('score-review-title');
@@ -877,7 +867,7 @@ function showScanReview(analysis) {
   // card, a tab switch away with nothing to suggest it had anything on it.)
   const sheet = el('score-sheet');
   if (sheet) {
-    sheet.replaceChildren(reviewButton(), fullScreenLink(), scanGapNote());
+    sheet.replaceChildren(reviewButton(), fullScreenLink());
     sheet.hidden = false;
   }
 
@@ -1221,8 +1211,13 @@ async function renderScanTab() {
       // "on these pages" rather than "in that passage": the dashed noteheads
       // are now every head on the pages being shown that this take did not
       // play, not only the ones beside it. See the note above quietWanted.
+      //
+      // The second half of this used to be "Press one to hear what is written
+      // there, synthesised" — an instruction, and a stale one: pressing a
+      // notehead on a scan does nothing at all any more, every tap on a page
+      // goes to the bar under it.
       extra.textContent = ` ${view.quiet} noteheads on these pages were not played in this take`
-        + ' — the dashed ones. Press one to hear what is written there, synthesised.';
+        + ' — the dashed ones.';
       line.append(extra);
     }
   }
@@ -1725,18 +1720,24 @@ export function initScoreCard({
 
   add.addEventListener('click', () => file.click());
 
+  // ONE PICKER, THREE KINDS OF FILE. A run of photographs is a part and has to
+  // arrive together — `addPaper` takes them as pages of one score — while a
+  // MusicXML file is a part on its own, so the two are told apart by what was
+  // chosen rather than by which button was pressed.
   file.addEventListener('change', async () => {
-    const chosen = file.files?.[0];
+    const chosen = [...(file.files ?? [])];
     file.value = ''; // so picking the same file twice still fires
-    if (!chosen) return;
+    if (chosen.length === 0) return;
     try {
-      await addFromFile(chosen);
+      const paper = chosen.filter((one) => isPdf(one) || isImage(one));
+      if (paper.length === chosen.length) await addPaper(chosen);
+      else await addFromFile(chosen[0]);
     } catch (err) {
       status(saying('could not read that file', err), 'bad');
     }
   });
 
-  for (const id of ['score-pdf', 'score-photos']) {
+  for (const id of ['score-pdf']) {
     el(id)?.addEventListener('change', async (e) => {
       const chosen = [...(e.target.files ?? [])];
       e.target.value = '';
@@ -1749,29 +1750,8 @@ export function initScoreCard({
     });
   }
 
-  // The way out of the dead end, one tap from the words that describe it.
-  el('score-pair')?.addEventListener('click', () => {
-    const paperId = unpaired?.id;
-    if (paperId == null) return;
-    const input = el('score-notation-file');
-    if (!input) return;
-    input.onchange = async () => {
-      const chosen = input.files?.[0];
-      input.value = '';
-      if (!chosen) return;
-      try {
-        status('reading the notation…');
-        const notationId = await importNotationFor(paperId, chosen);
-        if (notationId != null) {
-          el('score-pair').hidden = true;
-          await selectScore(paperId);   // now it can be marked up
-        }
-      } catch (err) {
-        status(saying('could not read that file', err), 'bad');
-      }
-    };
-    input.click();
-  });
+  // The `#score-pair` button's listener lived here, and the button with it.
+  // See main.js for why all four notation doors went.
 
   remove.addEventListener('click', async () => {
     if (!current) return;

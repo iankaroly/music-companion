@@ -210,11 +210,26 @@ export function menu(sel, { format } = {}) {
   }
   function render() { text.textContent = currentLabel(); }
 
+  // A LIST LONG ENOUGH TO SCROLL GETS A SEARCH BOX.
+  //
+  // "When you click 'Playing from' in the Record tab, there should also be an
+  // option to search in the drop-down menu of the different scores." A shelf of
+  // forty pieces in a pop-over is a scroll, and the piece you want is the one
+  // you already know the name of.
+  //
+  // Gated on the LENGTH of the list rather than on which control it is,
+  // because the same function draws "same note / fifth up / fifth down" and a
+  // search field in a list of three is worse than no search field at all. The
+  // score picker crosses the line as soon as somebody owns a few pieces; the
+  // fixed lists in this app never do.
+  const SEARCH_PAST = 8;
+
   function open() {
     closePop();
     const pop = document.createElement('div');
     pop.className = 'pick-pop';
     pop.setAttribute('role', 'listbox');
+    const rows = [];
     for (const o of sel.options) {
       if (o.value === '' && sel.options.length > 1) continue; // placeholder rows stay out of the list
       const row = document.createElement('button');
@@ -231,12 +246,35 @@ export function menu(sel, { format } = {}) {
           fireChange(sel);
         }
       });
+      rows.push(row);
       pop.append(row);
+    }
+    let find = null;
+    if (rows.length > SEARCH_PAST) {
+      find = document.createElement('input');
+      find.type = 'search';
+      find.className = 'pick-find';
+      find.placeholder = 'Search';
+      find.setAttribute('aria-label', `Search ${label ?? 'the list'}`);
+      find.addEventListener('input', () => {
+        const needle = find.value.trim().toLowerCase();
+        for (const row of rows) {
+          row.hidden = !!needle && !row.textContent.toLowerCase().includes(needle);
+        }
+      });
+      // Typing must not close the pop-over the way a press outside it does.
+      find.addEventListener('click', (e) => e.stopPropagation());
+      find.addEventListener('pointerdown', (e) => e.stopPropagation());
+      pop.prepend(find);
     }
     document.body.append(pop);
     placePop(pop, btn);
     btn.setAttribute('aria-expanded', 'true');
     pop.querySelector('.on')?.scrollIntoView({ block: 'nearest' });
+    // NOT focused on a phone. Focusing it raises the keyboard over the list it
+    // is there to filter, so the search is there to be reached for rather than
+    // put in the way of somebody who was going to tap the second row.
+    if (find && !window.matchMedia?.('(max-width: 700px)')?.matches) find.focus();
     openPop = { pop, btn };
   }
 

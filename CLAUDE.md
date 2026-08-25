@@ -314,6 +314,42 @@ npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
                          press the tab until it takes: the app restores the last
                          tab AFTER load, and a single click at a fixed delay
                          raced it and measured the tuner half the time.
+npm run reader:turns:cold
+                         HOW LONG A PAGE TAKES TO ARRIVE. Three knobs, and the
+                         defaults hide the thing being complained about:
+                         `WIDE=2600` builds the pages at the size a phone
+                         photograph actually is (the default 1100px PNG decodes
+                         in about twenty milliseconds), `KIND=pdf` measures the
+                         other reader entirely — a PDF page is RENDERED afresh
+                         every time it is drawn, where an image is decoded once
+                         and cached — and `THROTTLE=6` slows the processor by
+                         roughly the gap between this laptop and his phone.
+                         It measures TURNS and, separately, JUMPS: a jump has no
+                         look-ahead in front of it, which is the "tap to a page
+                         you haven't tapped to yet" case.
+                         ITS FIXTURE WAS BROKEN FOR A LONG TIME and every number
+                         it printed was wrong: the pages were stored as data
+                         URLs, `readableImage` cannot decode one, and what the
+                         tool was timing was the DECODE LADDER GIVING UP — four
+                         quick tries and a 900ms wait before the last. That is
+                         where its ~1000ms turns came from, and why it concluded
+                         cold and warm were alike. Blobs now, and `cardsDrawn`
+                         is on `readerState()` so a run against placeholders
+                         cannot look like a run against pages.
+npm run shelf:find      SEARCHING THE THREE LISTS. The score shelf, the library
+                         and the "playing from" pop-over are three different
+                         mechanisms — two filter their own list, the third is a
+                         pop-over `menu()` builds out of a hidden <select> — so
+                         one sentence ("search like forScore") is three pieces
+                         of work. The pop-over's search is gated on the LENGTH
+                         of the list rather than on which control it is, because
+                         the same function draws "same note / fifth up / fifth
+                         down" and a search field in a list of three is worse
+                         than none; BOTH halves of that gate are checked. It
+                         also checks the ＋ Folder button on the shelf, and it
+                         names its takes with `renameRecording` — handing a
+                         `name` to `saveRecording` stores nothing, which is how
+                         this first "found" no takes at all.
 npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the button in the
                          reader's own bar, pressed the way a finger presses it. One
                          recorder behind two doors (the Record tab's button must

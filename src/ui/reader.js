@@ -2708,7 +2708,9 @@ let turnWay = 1;
 // it doesn't register". Turns are counted from where the reader is going.
 let wantedPage = 0;
 
-async function showPage(index) {
+// Exported so a check can jump the way the page list and a bookmark jump —
+// straight to a page nothing has been near. See tools/reader-cold-turns.mjs.
+export async function showPage(index) {
   usedNow();
   if (!pageEls.length) return;
   const next = Math.max(0, Math.min(pageEls.length - 1, index));
@@ -3750,14 +3752,6 @@ function buildMenu(sheet) {
       onPick: score?.source === 'pdf' ? openTrimMenu : openEdgesMenu,
     });
   }
-  if (isPaper()) {
-    menuGroup(sheet, 'notation');
-    menuRow(sheet, {
-      label: score?.notationId != null ? 'Change the notation…' : 'Add notation for analysis…',
-      glyph: '♪',
-      onPick: chooseNotation,
-    });
-  }
   menuGroup(sheet, 'play');
   // Both of these used to CLOSE the score and take you to a tab, which is a
   // metronome you use before you start playing and never again. They open on
@@ -3926,7 +3920,9 @@ async function trimPage(pageNumber) {
   const start = at
     ? [[at.x, at.y], [at.x + at.w, at.y], [at.x + at.w, at.y + at.h], [at.x, at.y + at.h]]
     : null;
-  const chosen = await editCorners(blob, start, { keep: 'Trim it here' });
+  // No looks here: trimming a page of a PDF stores a rectangle and re-encodes
+  // nothing, so there is nothing for them to be baked into.
+  const chosen = await editCorners(blob, start, { keep: 'Trim it here' }, { develops: false });
   if (!chosen) return;
   // The corners move independently, because the same editor squares up a
   // photograph taken at an angle. A page of a PDF is already square, so what is
@@ -3991,7 +3987,7 @@ async function changeEdges(pageNumber) {
     return;
   }
   const fresh = !!row?.raws?.[pageNumber];
-  const { editCorners } = await import('./crop.js');
+  const { editCorners, bakeLook } = await import('./crop.js');
   const { readableImage, sizeOfImage, straightenCanvas } = await import('./straighten.js');
   // Starting from the whole photograph when it IS the photograph, and from the
   // whole page when all that is left is the page — in which case the edges can
@@ -4004,6 +4000,7 @@ async function changeEdges(pageNumber) {
   let page;
   try {
     page = straightenCanvas(image, w, h, chosen.quad, { asGiven: true });
+    bakeLook(page, chosen.look);
   } catch {
     say('those edges could not be made into a page');
     return;
@@ -4027,44 +4024,9 @@ async function changeEdges(pageNumber) {
 // What this does instead is let you SAY the two are the same piece: recognise
 // the scan once in MuseScore (or wherever), bring the MusicXML back, and from
 // then on the piece reads from your pages and analyses from the file.
-async function chooseNotation() {
-  if (!score) return;
-  const { notationScores, pairWithNotation, importNotationFor } = await import('./score.js');
-  const scores = await notationScores();
-  const rows = scores.map((row) => ({
-    label: row.id === score.notationId ? `✓ ${row.name}` : row.name,
-    onPick: async () => {
-      await pairWithNotation(score.id, row.id);
-      score.notationId = row.id;
-    },
-  }));
-  rows.push({
-    label: '＋ Import a MusicXML file…',
-    onPick: () => {
-      const input = document.querySelector('#score-notation-file');
-      if (!input) return;
-      input.onchange = async () => {
-        const file = input.files?.[0];
-        input.value = '';
-        if (!file) return;
-        const id = await importNotationFor(score.id, file).catch(() => null);
-        if (id != null) score.notationId = id;
-      };
-      input.click();
-    },
-  });
-  if (score.notationId != null) {
-    rows.push({
-      label: 'Unpair',
-      danger: true,
-      onPick: async () => {
-        await pairWithNotation(score.id, null);
-        delete score.notationId;
-      },
-    });
-  }
-  actionMenu(el('reader-menu-btn'), rows);
-}
+// `chooseNotation` lived here — the reader's door to pairing a scan with a
+// MusicXML file. Removed with the other three (see main.js). The machinery it
+// called is untouched; nothing in the app asks for it any more.
 
 async function toggleSpread() {
   spread = !spread;
@@ -5439,8 +5401,22 @@ async function drawOnePage(index, quick = false) {
   const across = window.innerWidth / (spread ? 2 : 1);
   const mine = era;
   try {
+    // COLD MEANS "PUT SOMETHING THERE NOW".
+    //
+    // A canvas with no pixels on it is a white rectangle where the music
+    // should be, and how long it stays white is how long the page takes to
+    // decode or render — a few hundred milliseconds for a photographed page on
+    // a phone, and longer for a PDF page. `instant` lets paper.js answer from
+    // the small copy it keeps of every page (see THUMB_WIDE) and hand back the
+    // debt through `drewAThumb()`, which is paid below by the same sharpening
+    // that a fast turn's rough draw uses.
+    //
+    // Only when the canvas is COLD. A page already on screen is being redrawn
+    // for some other reason — a resize, a sharpen — and replacing it with a
+    // soft copy first would be a flicker rather than a fix.
+    const cold = !drawn.has(index) || canvas.width <= 1;
     await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight,
-      quick ? ROUGH : 1);
+      quick ? ROUGH : 1, { instant: cold });
   } catch (err) {
     // The pages were rebuilt underneath this one — rotated, resized, a page
     // recropped. It drew on a canvas nobody can see any more, and it has
@@ -5482,8 +5458,16 @@ async function drawOnePage(index, quick = false) {
     if (cardTries.has(index)) cards.healed += 1;
     cardTries.delete(index);
   }
+  // A PAGE PAINTED FROM ITS SMALL COPY IS A ROUGH PAGE, whoever asked for it.
+  //
+  // `paper.drawBand` puts up the small copy at once where the page has not been
+  // decoded yet (see THUMB_WIDE in paper.js) — which is what stops a tap onto a
+  // page nobody has turned to from showing white for a second. That page is
+  // soft and uncropped, so it owes a proper draw exactly the way a page drawn
+  // quickly during a fast turn does, and it goes through the same door.
+  const wasThumb = !!paper.drewAThumb?.();
   drawn.add(index);
-  if (quick) rough.add(index);
+  if (quick || wasThumb) rough.add(index);
   else rough.delete(index);
   // The canvas has just been given a size, which means the box the ink is
   // placed against has just changed — and on the paper path that box IS the
@@ -5494,7 +5478,7 @@ async function drawOnePage(index, quick = false) {
   dropDryInk();
   redraw(); // the ink layer measures the page it has just been given a size for
   // …and then the same page properly, once nobody is waiting on anything.
-  if (quick) sharpenSoon(index);
+  if (quick || wasThumb) sharpenSoon(index);
 }
 
 // The proper draw, after the rough one. Held back until the turns have stopped:
@@ -6358,6 +6342,11 @@ export function readerState() {
     // is a page that has not arrived yet.
     cardsDrawn: cards.drawn,
     cardsHealed: cards.healed,
+    // How many pages have a small copy ready to be painted the instant somebody
+    // taps onto them — see THUMB_WIDE in paper.js. A check that finds this at
+    // zero is measuring a reader whose warm pass never ran, not a slow turn.
+    thumbsReady: paper?.thumbsReady?.() ?? null,
+    roughNow: rough.size,
   };
 }
 
