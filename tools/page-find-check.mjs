@@ -714,7 +714,7 @@ for (const row of report.rows) {
     say('the paper really is', row.truthBoxes);
     say('finder at 220 across', row.rawBoxes);
     say('…and after the guard', row.shownBoxes);
-    console.log(`      route: ${JSON.stringify(row.probe)?.slice(0, 260)}`);
+    console.log(`      route: ${JSON.stringify(row.probe)?.slice(0, 200)}`);
     console.log(`      IoU at full size ${row.iou?.map((v) => (v * 100).toFixed(1)).join(", ")}`
       + ` · at 220 ${row.raw?.map((v) => (v * 100).toFixed(1)).join(', ')}`
       + ` · shown ${row.shown?.map((v) => (v * 100).toFixed(1)).join(', ')}\n`);

@@ -19,6 +19,14 @@ import { findPage, findPages, homography, through, rectFor } from '../analysis/p
 import { unshadow } from '../analysis/unshadow.js';
 
 export const LOOK_AT = 220;      // the width the corners are looked for at
+// HOW NARROW A SEAM HAS TO BE TO BE A GUTTER, in fractions of the frame. Two
+// leaves of a book meet across a crease; two sheets on a desk have a table
+// between them, and the midpoint of THAT is table. Six per cent of a frame is
+// wider than any gutter a phone held over a book photographs and narrower than
+// anywhere anybody puts two separate sheets down.
+const GUTTER_GAP = 0.06;
+// How far a column may fall below the page's own paper and still be the page.
+const PAPER_HOLDS = 0.8;
 const MOST = 2000;        // the widest a straightened page is stored at
 // The longest edge the PIXEL work is done at. A phone camera hands over twelve
 // megapixels; squaring a page reads every one of them into a Float array, twice,
@@ -241,6 +249,91 @@ function printReachesTo(luma, w, h, quad, side, limit) {
 }
 
 /**
+ * HOW FAR THE PAGE'S OWN PAPER REACHES towards the fold.
+ *
+ * `printReachesTo` asks where the PRINTING stops, and the answer to that is the
+ * last note — which is what the outline was stopping at: "the blue rectangle,
+ * when it's an open book, goes just to where the note's cut off. I don't want
+ * that. I want it to go to the middle of the book, where the crease is."
+ *
+ * Between the last note and the crease is this page's own inner margin, and it
+ * is paper. So this asks a different question of the same columns: is this
+ * still the page? A column of inner margin is blank and BRIGHT — as bright as
+ * the page it belongs to, near enough — and the crease is where that falls
+ * away. Walking out and stopping at the fall gives the paper's own edge.
+ *
+ * NOT THE MIDPOINT, which was the first thing tried and is wrong for a reason
+ * worth writing down: the midpoint is the bottom of the trough, and half of
+ * that trough is the leaf opposite. MEASURED, `npm run scan:pages`, taking the
+ * midpoint outright: `open book, dark crease` 95.9% -> 93.7% and `open book on
+ * a PALE desk` 94.9% -> 93.8%.
+ *
+ * Judged against the page's OWN paper level, taken from the columns just inside
+ * the edge it is starting from, because a page gets darker towards its spine
+ * and a level from the middle of it calls the last inch background.
+ *
+ * @returns the position, in 0-1 of the frame, or null for "no further"
+ */
+function paperReachesTo(luma, w, h, quad, side, limit) {
+  const vertical = side === 'left' || side === 'right';
+  const [tl, tr, br, bl] = quad;
+  const from = vertical
+    ? (side === 'right' ? Math.max(tr[0], br[0]) : Math.min(tl[0], bl[0]))
+    : (side === 'bottom' ? Math.max(bl[1], br[1]) : Math.min(tl[1], tr[1]));
+  const lowSpan = vertical ? Math.min(tl[1], tr[1]) : Math.min(tl[0], bl[0]);
+  const highSpan = vertical ? Math.max(bl[1], br[1]) : Math.max(tr[0], br[0]);
+  const spanPx = Math.round((highSpan - lowSpan) * (vertical ? h : w));
+  if (spanPx < 40) return null;
+  const a = Math.round(lowSpan * (vertical ? h : w));
+  const across = vertical ? w : h;
+  const outward = side === 'right' || side === 'bottom' ? 1 : -1;
+  const start = Math.round(from * across);
+  const stop = Math.round(limit * across);
+  const steps = Math.abs(stop - start);
+  if (steps < 3) return null;
+
+  const at = (i, j) => (vertical ? luma[j * w + i] : luma[i * w + j]);
+  // A column's paper: the 60th percentile, so printing in it does not drag the
+  // reading down and a stray highlight does not lift it.
+  const paperOf = (i) => {
+    const values = [];
+    for (let j = a; j < a + spanPx; j += 1) {
+      const v = at(i, j);
+      if (v !== undefined) values.push(v);
+    }
+    if (values.length < 40) return null;
+    values.sort((x, y) => x - y);
+    return values[Math.floor(values.length * 0.6)];
+  };
+  // The page's own level, from the last few columns INSIDE the edge.
+  const inside = [];
+  for (let k = 1; k <= 8; k += 1) {
+    const v = paperOf(start - outward * k);
+    if (v !== null) inside.push(v);
+  }
+  if (inside.length < 4) return null;
+  inside.sort((x, y) => x - y);
+  const level = inside[Math.floor(inside.length / 2)];
+  if (!(level > 0)) return null;
+
+  let last = null;
+  for (let k = 1; k <= steps; k += 1) {
+    const i = start + outward * k;
+    if (i < 0 || i >= across) break;
+    const v = paperOf(i);
+    if (v === null) break;
+    // Still the page while it is within a fifth of the page's own paper. A
+    // gutter is a shadow and falls much further than that; a margin does not
+    // fall at all.
+    if (v < level * PAPER_HOLDS) break;
+    last = i;
+  }
+  if (last === null) return null;
+  const to = last / across;
+  return side === 'right' || side === 'bottom' ? Math.min(to, limit) : Math.max(to, limit);
+}
+
+/**
  * Does the sheet reach both sides of the picture in either direction?
  *
  * If it does, it is bigger than the frame and part of it was never in the
@@ -315,6 +408,39 @@ function trustEdges(luma, w, h, quad, beside = null) {
     if (!beside?.[side]) return null;
     const limit = beside.edge?.[side];
     if (limit === null || limit === undefined) return null;
+    // ALL THE WAY TO THE CREASE, where the neighbour is a FACING PAGE.
+    //
+    // "the blue rectangle, when it's an open book, goes just to where the
+    // note's cut off. I don't want that. I want it to go to the middle of the
+    // book, where the crease is where it opens."
+    //
+    // He is right, and the outline stopping at the last note is this function
+    // doing exactly what it was written to do: walk outward and keep the last
+    // column that still carries printing. That was the cautious answer to a
+    // real hazard — the side facing a neighbour is the one side that must never
+    // be pushed to the edge of the picture — but the cap is not the picture, it
+    // is the MIDPOINT between the two outlines, and neither leaf of a book can
+    // reach past the middle without taking the other's music. Inside that cap
+    // there is nothing to be careful about: what lies between the last note and
+    // the fold is this page's own inner margin, and a margin is paper.
+    //
+    // ONLY WHERE THE NEIGHBOUR IS A FACING PAGE. Two loose sheets a hand apart
+    // on a desk are "beside" each other by the same test, and the midpoint
+    // between those two is desk. So it is asked how far apart they are: a
+    // gutter is a seam, and anything wider than a seam is a gap with a table in
+    // it and keeps the careful answer.
+    const gap = beside.gap?.[side];
+    if (Number.isFinite(gap) && gap <= GUTTER_GAP) {
+      // AS FAR AS THE PAPER GOES, which is neither of the two answers that were
+      // easy to reach for. MEASURED, `npm run scan:pages`, going to the
+      // midpoint outright: `open book, dark crease` 95.9% -> 93.7% and `open
+      // book on a PALE desk` 94.9% -> 93.8%. The middle of a crease is not this
+      // leaf's edge — it is the bottom of the trough, and half of that trough
+      // belongs to the page opposite. So the outline is walked out over its own
+      // inner margin and stops where the paper does.
+      const onPaper = paperReachesTo(luma, w, h, quad, side, limit);
+      if (onPaper !== null) return onPaper;
+    }
     const to = printReachesTo(luma, w, h, quad, side, limit);
     if (to === null) return null;
     // A little past the last mark, for the sliver of margin printing never
@@ -382,6 +508,10 @@ export function besideOf(quads, at) {
   // Nearest neighbour wins, so three pages in a row do not let the middle one
   // reach past the one beside it.
   const edge = { left: null, right: null, top: null, bottom: null };
+  // HOW FAR APART the two outlines are on that side, so a book's seam can be
+  // told from two sheets with a desk between them. Negative where they overlap.
+  const gap = { left: null, right: null, top: null, bottom: null };
+  const closer = (was, now) => (was === null ? now : Math.min(was, now));
   const nearer = (was, now, side) => {
     if (was === null) return now;
     return side === 'right' || side === 'bottom' ? Math.min(was, now) : Math.max(was, now);
@@ -396,24 +526,28 @@ export function besideOf(quads, at) {
       if (it.right <= me.right && (it.left + it.right) / 2 < (me.left + me.right) / 2) {
         found.left = true;
         edge.left = nearer(edge.left, (me.left + it.right) / 2, 'left');
+        gap.left = closer(gap.left, me.left - it.right);
       }
       if (it.left >= me.left && (it.left + it.right) / 2 > (me.left + me.right) / 2) {
         found.right = true;
         edge.right = nearer(edge.right, (me.right + it.left) / 2, 'right');
+        gap.right = closer(gap.right, it.left - me.right);
       }
     }
     if (overlapX > (me.right - me.left) * 0.4) {
       if ((it.top + it.bottom) / 2 < (me.top + me.bottom) / 2) {
         found.top = true;
         edge.top = nearer(edge.top, (me.top + it.bottom) / 2, 'top');
+        gap.top = closer(gap.top, me.top - it.bottom);
       }
       if ((it.top + it.bottom) / 2 > (me.top + me.bottom) / 2) {
         found.bottom = true;
         edge.bottom = nearer(edge.bottom, (me.bottom + it.top) / 2, 'bottom');
+        gap.bottom = closer(gap.bottom, it.top - me.bottom);
       }
     }
   });
-  return { ...found, edge };
+  return { ...found, edge, gap };
 }
 
 /**

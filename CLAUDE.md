@@ -97,8 +97,8 @@ npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          frames whose page corners are known, scored as IoU, as
                          SPILL (how much of the blue outline is not paper) and
                          as SPANS (one outline over two pages of a book).
-                         91.8% mean IoU, worst spill 9%, 0 spans, 0 page counts
-                         wrong.
+                         91.8% mean IoU (92.1% SHOWN), worst spill 9%, 0 spans,
+                         0 page counts wrong.
                          WHY=<part of a case name> prints the sides — where the
                          paper really is, where the finder put it AT THE SCALE
                          THE GUARD SEES (220px, which is the only scale the app
@@ -124,8 +124,28 @@ npm run scan:pages       the SCANNER, not the reader: nineteen drawn camera
                          what was outlined, was false on the one frame it
                          mattered on. `findPaper` calls `papersIn` now, so this
                          column measures both.
-                         THE OPEN BOOK IS STILL THE WORST OF IT, and there is
-                         an address for it now. "the blue rectangle only reaches
+                         THE GUTTER SIDE REACHES THE PAPER'S OWN EDGE NOW, not
+                         the last note. "the blue rectangle, when it's an open
+                         book, goes just to where the note's cut off… I want it
+                         to go to the middle of the book, where the crease is."
+                         `printReachesTo` asks where the PRINTING stops and that
+                         is the last note; between it and the crease is this
+                         page's own inner margin, which is paper.
+                         `paperReachesTo` walks the same columns asking whether
+                         it is still the page — blank margin holds the page's own
+                         brightness, a crease falls away — and stops at the fall.
+                         ONLY WHERE THE NEIGHBOUR IS A FACING PAGE: two loose
+                         sheets are "beside" each other by the same test and the
+                         middle of THAT is desk, so `besideOf` reports the gap
+                         and anything wider than a seam keeps the old answer.
+                         NOT THE MIDPOINT, which was tried first and is the
+                         bottom of the trough with half of it belonging to the
+                         other leaf: `open book, dark crease` 95.9% -> 93.7% and
+                         `open book on a PALE desk` 94.9% -> 93.8%. Walking to
+                         the paper's edge instead takes them to 96.6% and 95.9%
+                         with nothing else moved either way.
+                         THE ONE-REGION CASE IS STILL OPEN, and there is an
+                         address for it. "the blue rectangle only reaches
                          about 85% of the page, especially if it's on the left
                          side." MEASURED, `WHY=BAND`, case `book, ONE page, a
                          BAND of the next one in shot`: one bright region, so
@@ -197,6 +217,23 @@ npm run reader:review    STOP A TAKE ON THE MUSIC AND LAND ON THE REVIEW —
                          microphone plays real notes — a suspended AudioContext
                          is silence, and a take with nothing in it is discarded
                          before it can reach a review. NO MICROPHONE.
+npm run scan:strip       THE ROW OF THUMBNAILS AT THE FOOT OF THE SCANNER:
+                         how long after the shutter a picture is in it (69ms
+                         against 340ms for the finished page — the frame goes up
+                         at once and the straightened page replaces it), that
+                         the MIDDLE OF THE PICTURE opens the edges rather than a
+                         thirty-pixel word in its corner, that the ✕ still owns
+                         its own middle, and that the editor is the page and two
+                         buttons with no instructions on it.
+npm run page:card        "PAGE 1 COULD NOT BE READ" HAS TO BE TEMPORARY. Every
+                         decoder is refused, the card goes up, the refusal is
+                         lifted, and the very next ask has to get the page —
+                         `load` never remembers a failure, and now `drewACard`
+                         says one happened so the reader can ask again. It tests
+                         the PAPER layer: driving the whole reader into an iOS
+                         memory refusal headlessly hung rather than measured, so
+                         the reader's own retry is watched through
+                         `readerState().cardsDrawn/cardsHealed` on the device.
 npm run crop:edit        MOVING THE EDGES OF A SCANNED PAGE — where the
                          handles START and what a drag COSTS. The scanner kept
                          the outline it FOUND and opened the editor on that, but
