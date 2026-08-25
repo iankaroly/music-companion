@@ -303,6 +303,11 @@ export function initControls(root) {
   pick('#preset-list');
   pick('#ref-interval');
   pick('#ref-octave');
+  // The held-for filter sits in the same row as the two above and has to look
+  // like them: left as a raw <select> it was the one browser dropdown in a row
+  // of pills. (Found by looking at the row, not by a check — every assertion
+  // about it passed while it looked wrong.)
+  pick('#held-least');
   // Its options arrive from IndexedDB after this runs, and change again on
   // every upload — the observer inside menu() is what keeps the list honest.
   pick('#score-pick');

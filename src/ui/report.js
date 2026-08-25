@@ -1161,6 +1161,42 @@ function degreeState(d) {
 // session pitch trace appears immediately; clicking a played tile zooms
 // the chart to that note and replays it (target at full volume, neighbors
 // ducked) with a playhead sweeping in sync with the audio.
+// --- ONLY THE NOTES THAT WERE HELD -----------------------------------------
+//
+// "I'd like to add a feature where you can select a duration, like 0.5 seconds
+// and up… It'll only show you the pitches, like the notes, that were sustained
+// for that amount of time or longer."
+//
+// A take of a real piece is mostly passing notes, and a semiquaver has no
+// intonation worth arguing with: the pitch a player can actually judge — and
+// fix — is the one that stood still long enough to have one. Reading a grid of
+// four hundred tiles to find the dozen long notes is the job this does.
+//
+// HIDDEN, NOT REMOVED. `tileByNote` is how a notehead pressed on the score
+// finds its tile (see selectNote → showPlayback), and a note filtered out of
+// the grid is still a note somebody can press on the page. So the tiles stay
+// in the map and in the DOM, and only stop being shown — a filtered note
+// pressed on the score still opens, still plays, and still lights up.
+//
+// The GRAPH is left whole on purpose. It draws the take's own trace, and its
+// time and pitch range are taken from the notes it is given — filtering them
+// would crop the recording to whatever survived the filter and leave the
+// playhead unable to reach the rest of it. The trace is the recording; this is
+// a filter on the list of what was found in it.
+let heldLeast = Number(localStorage.getItem('heldLeast')) || 0;
+let applyHeldFilter = null;   // set by renderReport, called by the select
+
+function wireHeldFilter(root) {
+  const pick = root.querySelector('#held-least');
+  if (!pick) return;
+  pick.value = String(heldLeast);
+  pick.onchange = () => {
+    heldLeast = Number(pick.value) || 0;
+    localStorage.setItem('heldLeast', String(heldLeast));
+    applyHeldFilter?.();
+  };
+}
+
 export function renderReport(root, alignment, recording = null, extras = {}) {
   const report = root.querySelector('#report');
   const grid = root.querySelector('#report-grid');
@@ -1234,6 +1270,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
   };
 
   grid.replaceChildren();
+  const rowFor = new Map();   // degree -> its tile, for the held-for filter
   for (const d of degrees) {
     // A real button when it does something: a div with a click handler cannot
     // be reached by keyboard and is announced as nothing at all.
@@ -1260,11 +1297,29 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       tile.addEventListener('mouseenter', () => currentChart?.setHighlight?.(d.played));
       tile.addEventListener('mouseleave', () => currentChart?.setHighlight?.(null));
     }
+    rowFor.set(d, tile);
     grid.append(tile);
   }
 
-  root.querySelector('#notes-summary').textContent =
-    `${allNotes.length} notes — expand to browse`;
+  // Held long enough, or not: applied here and again whenever the picker moves.
+  applyHeldFilter = () => {
+    let shown = 0;
+    for (const d of degrees) {
+      const row = rowFor.get(d);
+      if (!row) continue;
+      const long = !d.played || (d.played.end - d.played.start) >= heldLeast;
+      row.hidden = !long;
+      if (long) shown += 1;
+    }
+    const summary = root.querySelector('#notes-summary');
+    if (summary) {
+      summary.textContent = heldLeast > 0 && shown !== degrees.length
+        ? `${shown} of ${degrees.length} notes, held ${heldLeast}s or longer`
+        : `${allNotes.length} notes`;
+    }
+  };
+  wireHeldFilter(root);
+  applyHeldFilter();
 
   // The chart is the centre of this screen and a canvas says nothing to a
   // screen reader, so it carries a summary of what it draws.
@@ -1323,6 +1378,7 @@ export function hideReport(root) {
   zoomChart = null;
   zoom = null;
   full = null;
+  applyHeldFilter = null; // the tiles it hid have gone with the report
   cursorReadout = null; // the box it wrote into belongs to a closed report
   selectAtMoment = null; // …and so do the notes it would have looked through
   selectedNote = null;

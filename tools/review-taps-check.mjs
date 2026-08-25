@@ -264,6 +264,129 @@ check('a tap on the graph seeks and keeps playing',
   seek.before === '❚❚' && seek.after === '❚❚',
   `${seek.before} → ${seek.after}`);
 
+// A BAR PRESSED WHILE THE TAKE IS ALREADY RUNNING.
+//
+// "when I click on a bar, it should start playing from that bar. Even if it's
+// playing somewhere else in the score, I should click the bar and it starts
+// from that bar." Every earlier assertion here presses a bar from a standing
+// start, which is a different code path from the inside: playClip has to tear
+// down a source that is mid-flight and put up another without the old one's
+// `onended` reporting the new one as finished.
+//
+// WHAT IS ASSERTED. Not the audio clock — there is no rAF in the headless
+// shell, so the playhead never advances and a position read here would be the
+// number that was set, not the number that was played. What can be seen is
+// that the press was HONOURED: the transport stayed running rather than
+// falling back to ▶, and the close-up under the graph moved to a different
+// note — which is `selectAtMoment` answering the new second, and the one
+// visible thing that says the press landed somewhere else in the take.
+const midPlay = await page.evaluate(async () => {
+  const btn = document.querySelector('#clip-play');
+  const bars = [...document.querySelectorAll('.scan-bar')];
+  if (bars.length < 12) return { bars: bars.length };
+  bars[2].click();
+  await new Promise((r) => setTimeout(r, 700));
+  const first = { play: btn.textContent, note: document.querySelector('#zoom-label')?.textContent };
+  // …and now, without pausing anything, a bar most of the way through.
+  bars[bars.length - 3].click();
+  await new Promise((r) => setTimeout(r, 700));
+  const second = { play: btn.textContent, note: document.querySelector('#zoom-label')?.textContent };
+  return { first, second };
+});
+check('a bar pressed while the take is running keeps it running',
+  midPlay.first?.play === '❚❚' && midPlay.second?.play === '❚❚',
+  `${midPlay.first?.play ?? `only ${midPlay.bars} bars`} → ${midPlay.second?.play ?? ''}`);
+check('…and moves the take to that bar',
+  !!midPlay.second?.note && midPlay.second.note !== midPlay.first?.note,
+  `“${midPlay.first?.note ?? ''}” → “${midPlay.second?.note ?? ''}”`);
+
+// AND THE SAME PRESS ON A TAKE THE APP COULD NOT PLACE.
+//
+// The bar layer has two modes. With a map, a press is a seek. Without one —
+// fewer than two anchors, which is where a take the reader could not place
+// starts — a press MARKS where you are instead, and plays nothing. That is not
+// a bug, but it is the other half of "I click the bar and it starts from that
+// bar", so what actually happens is measured rather than assumed.
+const unplaced = await page.evaluate(async () => {
+  const clear = document.querySelector('.bar-sync-bar .ctl:nth-child(2)');
+  const btn = document.querySelector('#clip-play');
+  if (btn.textContent === '❚❚') { btn.click(); await new Promise((r) => setTimeout(r, 400)); }
+  clear?.click();
+  await new Promise((r) => setTimeout(r, 300));
+  const said = document.querySelector('.bar-sync-say')?.textContent ?? '';
+  const bars = [...document.querySelectorAll('.scan-bar')];
+  bars[5]?.click();
+  await new Promise((r) => setTimeout(r, 600));
+  return { said, play: btn.textContent, marked: !!bars[5]?.classList.contains('marked') };
+});
+console.log(`      (unplaced take: said “${unplaced.said}”, `
+  + `press left the transport at ${unplaced.play}, marked=${unplaced.marked})`);
+
+// ONLY THE NOTES THAT WERE HELD.
+//
+// "you can select a duration, like 0.5 seconds and up… It'll only show you the
+// pitches, like the notes, that were sustained for that amount of time or
+// longer." The fixture take holds every note for 0.3s, so a threshold either
+// side of that says whether the picker is doing arithmetic on the take or just
+// setting a class: at 0.25s every tile stays, at 0.5s none of them do.
+//
+// It also checks the thing that makes this safe to do at all — that a filtered
+// note is HIDDEN and not removed. `tileByNote` is how a notehead pressed on the
+// page finds its tile, and a detached tile would throw the moment somebody
+// pressed a short note on the music.
+const held = await page.evaluate(async () => {
+  const pick = document.querySelector('#held-least');
+  if (!pick) return { missing: true };
+  const tiles = () => [...document.querySelectorAll('#report-grid .degree')];
+  const shown = () => tiles().filter((t) => !t.hidden).length;
+  // Driven through the PILL, not by setting the select's value — the select is
+  // hidden and controls.js puts a `.pick-btn` in its place (see initControls),
+  // so setting `.value` would test a handler nobody can reach with a finger.
+  const set = async (label) => {
+    const btn = document.querySelector('#held-least-line .pick-btn');
+    if (!btn) return false;
+    btn.click();
+    await new Promise((r) => setTimeout(r, 200));
+    const row = [...document.querySelectorAll('.pick-pop .pick-row')]
+      .find((r) => r.textContent.trim() === label);
+    if (!row) return false;
+    row.click();
+    await new Promise((r) => setTimeout(r, 250));
+    return true;
+  };
+  const droveIt = await set('0.25s+');
+  const quarter = shown();
+  await set('0.5s+');
+  const half = shown();
+  await set('any');
+  const all = shown();
+  await set('0.5s+');
+  const summary = document.querySelector('#notes-summary')?.textContent ?? '';
+  void droveIt;
+  const stillThere = tiles().length;
+  // …and a hidden note pressed from the score still opens and plays.
+  let pressed = 'not tried';
+  try {
+    const { selectPlayedNote } = await import('/src/ui/report.js');
+    const bar = document.querySelectorAll('.scan-bar')[4];
+    bar?.click();
+    await new Promise((r) => setTimeout(r, 500));
+    pressed = document.querySelector('#note-zoom')?.hidden === false ? 'opened' : 'stayed shut';
+    void selectPlayedNote;
+  } catch (err) { pressed = `threw ${err.message}`; }
+  await set('any');
+  return { all, quarter, half, summary, stillThere, pressed, droveIt };
+});
+check('the held-for picker filters the note list',
+  held.droveIt === true && held.all > 0 && held.quarter === held.all && held.half === 0,
+  `any → ${held.all}, 0.25s+ → ${held.quarter}, 0.5s+ → ${held.half} (notes are held 0.3s)`);
+check('…and says so where the count is',
+  /held 0.5s or longer/.test(held.summary), `“${held.summary}”`);
+check('…and hides the tiles rather than removing them',
+  held.stillThere === held.all, `${held.stillThere} tiles still in the grid`);
+check('…and a filtered note pressed on the page still opens',
+  held.pressed === 'opened', held.pressed);
+
 if (errors.length) {
   console.log('\nerrors on the page:');
   for (const e of errors.slice(0, 6)) console.log(`  ${e}`);
