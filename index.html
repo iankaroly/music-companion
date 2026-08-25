@@ -1074,6 +1074,24 @@
 
     /* --- the score you played from ------------------------------------- */
     .score-row { align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    /* THE SAME SIZE AS THE PICKER BESIDE THEM.
+       "the load score, and remove buttons are too big that they are touching
+       the count in section above." They are `.ctl`s — 42px tall, padded for a
+       primary action — sitting in a row whose other control is a 32px picker,
+       so the row was ten pixels taller than it needed to be and crowded the
+       count-in above it. Nothing on this row is a primary action; the Record
+       button above is. Matched to `.pick-btn` exactly: same height, same
+       padding, same type. */
+    .score-row button.ctl {
+      font-size: 0.84rem;
+      font-weight: 500;
+      padding: 0.5rem 0.95rem;
+      border-radius: 999px;
+      background: var(--fill);
+      border: none;
+      box-shadow: none;
+    }
+    .score-row button.ctl:hover { background: var(--fill-2); }
     #score-card .hint, #rec-note, #score-tab-hint {
       color: var(--muted);
       font-size: 0.8rem;
@@ -2263,12 +2281,18 @@
       height: 100%;
       object-fit: cover;    /* the page fills the screen; the shot is the full frame */
     }
-    /* The shutter fired: one white blink, the way a camera says it took one. */
+    /* The shutter fired: one white blink, the way a camera says it took one.
+       It takes no taps. It is a full-screen sheet for 180ms and it had no
+       `pointer-events: none`, so a press landing in that window — a second
+       shot, the ✕, the thumbnail that has just appeared — hit the flash and
+       went nowhere. Found by `scan:strip`, which hit-tested the middle of the
+       new thumbnail and got `flash`. */
     #scanner.flash::after {
       content: '';
       position: absolute;
       inset: 0;
       background: #fff;
+      pointer-events: none;
       animation: scan-flash 180ms ease-out;
     }
     @keyframes scan-flash { from { opacity: 0.85; } to { opacity: 0; } }
@@ -3430,23 +3454,32 @@
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+    /* THEY LOOK PRESSABLE AGAIN. Bare tinted words are the platform idiom in a
+       navigation bar, and in a row of three above a list they read as labels
+       rather than as controls — "put a box around the setlists, +folder,
+       +score though so they look like pressable buttons."
+       A box, then, but not the capsule they started as: a filled shape with a
+       hairline round it, at list-row scale, so three of them sit over the shelf
+       without competing with it. */
     #library-head button, #score-browser-head button {
       font-family: var(--display);
-      font-size: 0.92rem;
-      font-weight: 400;
-      background: none;
-      border: none;
+      font-size: 0.84rem;
+      font-weight: 500;
+      background: var(--fill);
+      border: 1px solid var(--line);
       box-shadow: none;
-      border-radius: 0.5rem;
-      padding: 0.3rem 0.25rem;
-      color: var(--primary);
+      border-radius: 0.55rem;
+      padding: 0.34rem 0.7rem;
+      color: var(--ink);
       cursor: pointer;
       white-space: nowrap;
-      transition: opacity 150ms;
+      transition: background 150ms, border-color 150ms;
     }
-    #library-head button:hover, #score-browser-head button:hover { opacity: 0.65; }
-    #library-head button:active, #score-browser-head button:active { opacity: 0.45; }
-    #library-head, #score-browser-head { gap: 0.9rem; }
+    #library-head button:hover, #score-browser-head button:hover {
+      background: var(--fill-2); border-color: var(--line-strong);
+    }
+    #library-head button:active, #score-browser-head button:active { background: var(--line); }
+    #library-head, #score-browser-head { gap: 0.45rem; }
     .lib-folder { color: var(--primary); flex: none; display: grid; place-items: center; }
     .lib-folder svg { width: 1.35rem; height: 1.35rem; display: block; }
     #library-empty, #score-list-empty {

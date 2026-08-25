@@ -190,7 +190,7 @@ export function actionMenu(btn, items) {
   openPop = { pop, btn };
 }
 
-export function menu(sel, { format } = {}) {
+export function menu(sel, { format, search = false } = {}) {
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'pick-btn';
@@ -220,8 +220,14 @@ export function menu(sel, { format } = {}) {
   // Gated on the LENGTH of the list rather than on which control it is,
   // because the same function draws "same note / fifth up / fifth down" and a
   // search field in a list of three is worse than no search field at all. The
-  // score picker crosses the line as soon as somebody owns a few pieces; the
-  // fixed lists in this app never do.
+  // fixed lists in this app never cross the line.
+  //
+  // …EXCEPT WHERE THE CALLER ASKS FOR IT OUTRIGHT. "when you choose what score
+  // to play from the playing from section, make sure there is a way to search
+  // for the score inside of the dropdown" — and the shelf a player is building
+  // is small on the day they look for the field and large by the time they need
+  // it, so a field that appears at the eighth piece is a field they never find
+  // out about. `search: true` on the score picker means always.
   const SEARCH_PAST = 8;
 
   function open() {
@@ -250,7 +256,7 @@ export function menu(sel, { format } = {}) {
       pop.append(row);
     }
     let find = null;
-    if (rows.length > SEARCH_PAST) {
+    if (search || rows.length > SEARCH_PAST) {
       find = document.createElement('input');
       find.type = 'search';
       find.className = 'pick-find';
@@ -348,7 +354,7 @@ export function initControls(root) {
   pick('#held-least');
   // Its options arrive from IndexedDB after this runs, and change again on
   // every upload — the observer inside menu() is what keeps the list honest.
-  pick('#score-pick');
+  pick('#score-pick', { search: true });
   pick('#score-target');
   seg('#count-in', { format: (o) => o.value === '0' ? 'none' : `${o.value} bar${o.value === '1' ? '' : 's'}` });
   seg('#beats-per-bar', { format: (o) => o.value });

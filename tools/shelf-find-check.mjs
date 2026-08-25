@@ -53,9 +53,12 @@ await page.goto(APP, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1600));
 
 // A shelf worth searching, and a few takes to go with it.
-const NAMES = ['Bach Suite I', 'Bach Suite II', 'Elgar Concerto', 'Dvořák Concerto',
-  'Popper Op. 73 no. 1', 'Popper Op. 73 no. 2', 'Franck Sonata', 'Brahms E minor',
-  'Saint-Saëns Concerto', 'Schumann Fantasiestücke', 'Fauré Élégie', 'Kodály Solo Sonata'];
+// THREE PIECES, not twelve. The score picker's search is not gated on how many
+// there are — a shelf is small on the day somebody looks for the field and large
+// by the time they need it, so a field that appears at the eighth piece is a
+// field nobody finds out about. Checked at a size where the length gate would
+// NOT have shown it.
+const NAMES = ['Bach Suite I', 'Bach Suite II', 'Elgar Concerto'];
 await page.evaluate(async ({ names, xml }) => {
   document.querySelector('#welcome')?.remove();
   document.querySelector('#welcome-card')?.remove();
@@ -97,7 +100,7 @@ const shelf = await page.evaluate(async () => {
   const box = document.querySelector('#score-search');
   const rows = () => [...document.querySelectorAll('#score-list li')].length;
   const before = rows();
-  box.value = 'popper';
+  box.value = 'bach';
   box.dispatchEvent(new Event('input', { bubbles: true }));
   await new Promise((r) => setTimeout(r, 400));
   const found = [...document.querySelectorAll('#score-list li')]
@@ -152,8 +155,8 @@ const picker = await page.evaluate(async () => {
   const small = document.querySelector('#ref-interval');
   return { has: true, before, left, smallOptions: small ? small.options.length : null };
 });
-check('the "playing from" list has a search field', picker.has === true,
-  `${picker.before} rows in the list`);
+check('the "playing from" list has a search field, however short the list',
+  picker.has === true, `${picker.before} rows in the list`);
 check('…and typing narrows it to what you asked for',
   picker.left?.length === 2 && picker.left.every((one) => /bach/i.test(one)),
   `[${picker.left?.join(', ')}]`);
