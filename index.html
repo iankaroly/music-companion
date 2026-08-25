@@ -2444,6 +2444,15 @@
       cursor: pointer;
     }
     .scan-shutter:active { transform: scale(0.92); }
+    /* Before the camera has given a frame. It is not a mode anybody stays in
+       for more than a second, but pressing during it did nothing and said
+       nothing — so it now looks like what it is. */
+    .scan-shutter:disabled {
+      opacity: 0.4;
+      cursor: default;
+      border-color: rgb(255 255 255 / 0.5);
+    }
+    .scan-shutter:disabled:active { transform: none; }
     /* The page is square in view: the button says so before you press it, the
        same moment the outline over the picture turns blue. */
     .scan-shutter.ready {

@@ -50,7 +50,7 @@ import {
 import { saying } from './why.js';
 import {
   straightenCanvas, readableImage, sizeOfImage, papersIn, paperRunsOffTheFrame,
-  besideOf as besidesOf,
+  besideOf as besidesOf, LOOK_AT,
 } from './straighten.js';
 
 let root = null;
@@ -96,8 +96,9 @@ sample.height = SAMPLE_H;
 // be looked for at different widths, then at the same width by the same finder,
 // and now by the same function end to end. Each step of that was made after the
 // outline and the kept page disagreed about something.
-function findPaper() {
+function findPaper(from) {
   if (!video?.videoWidth) return [];
+  const source = from ?? video;
   // THE GUARDED OUTLINE, which is the one the shutter cuts to.
   //
   // This used to call `findPages` itself, on its own luma of the frame. That is
@@ -113,7 +114,7 @@ function findPaper() {
   // "it's still trying to show, not show, that 12.5% of the page." The stored
   // page had been fixed; the outline he was looking at had not.
   try {
-    return papersIn(video, video.videoWidth, video.videoHeight);
+    return papersIn(source, source.width ?? video.videoWidth, source.height ?? video.videoHeight);
   } catch {
     return [];
   }
@@ -257,9 +258,44 @@ function say(text) {
 
 // What the camera is looking at, in two numbers: how much it moved since last
 // time, and how much of it looks like paper.
-function readFrame() {
+// ONE READBACK A TICK, NOT TWO — and the readback is the expensive half.
+//
+// Every tick used to pull the video off the GPU twice: once into a 64x48 canvas
+// to measure motion, and again inside `papersIn` at LOOK_AT to find the page.
+// A readback costs what the SOURCE costs, not what the destination costs, so
+// both of those are priced at the size of the video track — 640x480 on this
+// laptop and up to twelve megapixels on his phone.
+//
+// MEASURED, `npm run scan:lag` with the processor slowed six times: a tick took
+// 36ms of which reading the frame was 18 and finding the page was 16, on a
+// 640x480 track. At 150ms a tick that is a quarter of the thread spent looking
+// at the picture, before anything else on the screen gets a turn — which is
+// what "the scanner is slow to use" is made of.
+//
+// So the video is read ONCE, into a canvas at the size the finder wants anyway,
+// and the motion sample is taken from THAT — a canvas-to-canvas draw of a small
+// source, which costs nothing like a readback of the track.
+//
+// The page-find gets the same canvas. `papersIn` downsamples to LOOK_AT itself,
+// so the FINDER sees exactly what it saw before; only the GUARD is handed a
+// smaller source than it used to have. MEASURED on the whole corpus,
+// `PREVIEW=1 npm run scan:pages`: every outline in all nineteen cases is
+// identical either way.
+let work = null;
+function frameNow() {
+  if (!video?.videoWidth) return null;
+  const wide = Math.min(LOOK_AT, video.videoWidth);
+  const tall = Math.max(1, Math.round(video.videoHeight * (wide / video.videoWidth)));
+  if (!work) work = document.createElement('canvas');
+  if (work.width !== wide || work.height !== tall) { work.width = wide; work.height = tall; }
+  work.getContext('2d', { willReadFrequently: true }).drawImage(video, 0, 0, wide, tall);
+  return work;
+}
+
+function readFrame(from) {
+  const source = from ?? video;
   const ctx = sample.getContext('2d', { willReadFrequently: true });
-  ctx.drawImage(video, 0, 0, SAMPLE_W, SAMPLE_H);
+  ctx.drawImage(source, 0, 0, SAMPLE_W, SAMPLE_H);
   const { data } = ctx.getImageData(0, 0, SAMPLE_W, SAMPLE_H);
   const count = data.length / 4;
   const next = new Float32Array(count);
@@ -314,16 +350,54 @@ function different(a, b) {
   return total / a.length;
 }
 
+// HOW LONG A TICK OF THE WATCH LOOP TAKES, and where it went.
+//
+// The loop runs every TICK milliseconds and does the whole page-find on the
+// frame. If a tick costs more than the gap between ticks, the main thread is
+// saturated and everything on it is behind — the blue outline, a tap, the
+// button lighting. "The scanner is slow to use" was an open item for weeks with
+// nothing behind it but that sentence, because nobody had separated the outline
+// from the shutter from the app. See tools/scan-lag-check.mjs.
+const cost = { ticks: [], find: [], frame: [] };
+const keepCost = (into, ms) => { into.push(ms); if (into.length > 40) into.shift(); };
+/** The last few dozen ticks, in milliseconds — for checks. */
+export function scannerCost() {
+  const mid = (list) => {
+    if (!list.length) return null;
+    const sorted = [...list].sort((a, b) => a - b);
+    return Math.round(sorted[Math.floor(sorted.length / 2)]);
+  };
+  return {
+    every: TICK,
+    tick: mid(cost.ticks),
+    worst: cost.ticks.length ? Math.round(Math.max(...cost.ticks)) : null,
+    find: mid(cost.find),
+    frame: mid(cost.frame),
+    ticks: cost.ticks.length,
+  };
+}
+
 function watch() {
   clearInterval(watching);
   waiting = 0;
-  watching = setInterval(() => {
+  cost.ticks = [];
+  cost.find = [];
+  cost.frame = [];
+  // Timed from outside the body, because the body returns early in several
+  // places and a stopwatch stopped at the end of it would only ever measure the
+  // longest path.
+  const oneTick = () => {
     if (!video || video.readyState < 2) return;
-    const { motion, paper: bright, ink, lit, frame } = readFrame();
+    const began = performance.now();
+    const picture = frameNow();
+    const { motion, paper: bright, ink, lit, frame } = readFrame(picture);
+    const read = performance.now();
+    keepCost(cost.frame, read - began);
     // Where the sheet of paper is, every tick, whether or not the shutter is
     // automatic: the outline is what tells you the scan is going to come out.
     const before = held;
-    paper = findPaper();
+    paper = findPaper(picture);
+    keepCost(cost.find, performance.now() - read);
     held = paper.length ? paper : null;
     // How much of the frame the page BEING KEPT fills — not how much all the
     // paper in the picture fills. One press keeps one sheet, so the size of the
@@ -446,6 +520,11 @@ function watch() {
       armed = false;
       capture();
     }
+  };
+  watching = setInterval(() => {
+    const began = performance.now();
+    oneTick();
+    keepCost(cost.ticks, performance.now() - began);
   }, TICK);
 }
 
@@ -471,6 +550,21 @@ async function pageFrom(canvas, name) {
 }
 
 async function capture() {
+  // A PRESS BEFORE THE CAMERA IS RUNNING IS STILL A PRESS.
+  //
+  // This returned in silence while `videoWidth` was 0, which is the first
+  // second or so after the scanner opens — long enough for a hand that opened
+  // it to have already reached the shutter. Nothing appeared, nothing was said,
+  // and the only thing to do was press again. MEASURED: four presses in that
+  // window put ONE page in the strip, and four after it put four.
+  //
+  // The button is disabled until there is a frame (see `waitingForCamera`), so
+  // this is the second line of defence rather than the first — and it says so
+  // rather than returning into nothing.
+  // The button is off until there is a frame (see `waitForFirstFrame`), so
+  // reaching here at all means something got past that. Saying anything is
+  // pointless — the watch loop rewrites the status line a few times a second —
+  // so the feedback is the button being visibly not ready yet.
   if (!video?.videoWidth) return;
   const canvas = document.createElement('canvas');
   // A REAL PHOTOGRAPH IF THE BROWSER WILL TAKE ONE, the frame on screen if not.
@@ -858,13 +952,43 @@ function build() {
   const bottom = document.createElement('div');
   bottom.id = 'scan-bottom';
   bottom.append(
-    button('scan-shutter', '', 'scan-shutter', () => { armed = false; capture(); }),
+    shutterButton(),
     button('scan-done', 'Done', 'ctl primary', () => finish(pages)),
   );
 
   root.append(video, guide, top, statusLine, strip, bottom);
   document.body.append(root);
   return root;
+}
+
+// BORN DISABLED. The shell is built before `getUserMedia` is even called, so a
+// shutter that is only turned off once the camera starts is a shutter that is
+// live and dead at the same time for as long as the permission prompt and the
+// stream take — which is the whole of the window a hand actually presses in.
+function shutterButton() {
+  const shutter = button('scan-shutter', '', 'scan-shutter', () => { armed = false; capture(); });
+  shutter.disabled = true;
+  return shutter;
+}
+
+// Off until the camera has actually produced a frame, and on the moment it
+// does. A shutter that can be pressed and does nothing is worse than one that
+// is visibly not ready yet.
+function waitForFirstFrame() {
+  const shutter = el('scan-shutter');
+  if (shutter) shutter.disabled = !video?.videoWidth;
+  if (!shutter || video?.videoWidth) return;
+  let tries = 0;
+  const look = () => {
+    tries += 1;
+    if (!video || !el('scan-shutter')) return;
+    if (video.videoWidth) { el('scan-shutter').disabled = false; return; }
+    // Ten seconds is longer than any camera takes; past that, leave the button
+    // pressable rather than permanently dead, and let `capture` say why.
+    if (tries > 100) { el('scan-shutter').disabled = false; return; }
+    setTimeout(look, 100);
+  };
+  setTimeout(look, 100);
 }
 
 function stopCamera() {
@@ -953,6 +1077,10 @@ export async function openScanner() {
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
+  // …AND THE SHUTTER COMES ALIVE WITH IT. `video.play()` resolves before the
+  // first frame has a size, so the button is armed by the frame rather than by
+  // the promise.
+  waitForFirstFrame();
 
   // THE FULL-SIZE PICTURE, WHERE THE BROWSER WILL GIVE ONE.
   //
