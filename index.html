@@ -3311,8 +3311,6 @@
     #landing-card-note { text-align: left; line-height: 1.5; margin-top: 0.75rem; }
 
     /* ---- timing ---- */
-    #timing { margin-top: 1.1rem; border-top: 1px dashed var(--line-strong); padding-top: 0.9rem; }
-    #timing-head { display: flex; align-items: baseline; justify-content: center; gap: 0.5rem; margin-bottom: 0.7rem; }
     .timing-title {
       font-family: var(--display);
       font-weight: 500;
@@ -3321,126 +3319,14 @@
       text-transform: uppercase;
       color: var(--muted);
     }
-    #timing-verdict {
-      font-family: var(--display);
-      font-weight: 500;
-      font-size: 0.92rem;
-      padding: 0.3rem 0.9rem;
-      border-radius: 999px;
-    }
-    #timing-verdict[data-verdict="steady"] { background: var(--good-soft); color: var(--good); }
-    #timing-verdict[data-verdict="rushing"],
-    #timing-verdict[data-verdict="dragging"] { background: var(--off-soft); color: var(--off); }
-    #timing-verdict[data-verdict="uneven"] { background: var(--bad-soft); color: var(--bad); }
-    #timing-tiles { display: flex; gap: 0.5rem; justify-content: center; }
-    #timing-chart { width: 100%; height: 160px; display: block; margin-top: 0.8rem; }
-    #timing-worst { display: flex; flex-wrap: wrap; gap: 0.5rem; justify-content: center; margin-top: 0.8rem; }
 
     /* the pulse controls: auto, or a tempo you name and hold yourself to */
-    #timing-controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.55rem;
-      align-items: center;
-      justify-content: center;
-      margin-bottom: 0.8rem;
-    }
-    #timing-controls > button, #timing-bpm-box {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-family: var(--display);
-      font-size: 0.92rem;
-      font-weight: 500;
-      background: var(--fill);
-      border: none;
-      border-radius: 999px;
-      padding: 0.62rem 1.2rem;
-      cursor: pointer;
-      color: var(--ink);
-      transition: transform 260ms var(--spring), background 150ms;
-    }
-    #timing-controls > button:hover { background: var(--fill-2); }
-    #timing-controls > button:active { transform: scale(0.93); }
-    #timing-controls > button.active { background: var(--grad); color: var(--on-primary); }
-    #timing-bpm-box { padding: 0.28rem 0.45rem; cursor: default; }
-    #timing-bpm-box button {
-      width: 1.95rem; height: 1.95rem;
-      border: none;
-      border-radius: 50%;
-      background: rgb(var(--sf) / 0.8);
-      font-size: 1.05rem;
-      line-height: 1;
-      color: var(--ink);
-      cursor: pointer;
-    }
-    #timing-bpm-box button:active { transform: scale(0.9); }
-    #timing-bpm {
-      width: 3.7rem;
-      text-align: center;
-      font-family: var(--num);
-      font-weight: 600;
-      font-size: 1.05rem;
-      font-variant-numeric: tabular-nums;
-      background: none;
-      border: none;
-      appearance: none;
-      -webkit-appearance: none;
-      padding: 0;
-    }
-    #timing-bpm-box small { color: var(--muted); font-size: 0.68rem; padding-right: 0.3rem; }
-    #timing-div, #timing-filter {
-      display: inline-flex;
-      background: var(--fill);
-      border-radius: 999px;
-      padding: 0.2rem;
-      gap: 0.12rem;
-    }
-    #timing-div button, #timing-filter button {
-      border: none;
-      background: none;
-      border-radius: 999px;
-      font-family: var(--display);
-      font-size: 0.83rem;
-      font-weight: 500;
-      color: var(--muted);
-      padding: 0.44rem 0.92rem;
-      cursor: pointer;
-      transition: background 150ms, color 150ms;
-    }
-    #timing-div button.active, #timing-filter button.active {
-      background: var(--surface-solid);
-      color: var(--primary);
-      box-shadow: 0 2px 6px rgb(var(--sh) / 0.14);
-    }
-    #timing-filter { margin-top: 0.7rem; }
     .tm-none { color: var(--muted); font-size: 0.86rem; align-self: center; }
     /* The tiles are numbers with names a musician hasn't agreed to; each one
        is a button that says what it means and what good looks like. */
-    #timing-tiles .wk-tile {
-      border: none;
-      font: inherit;
-      color: inherit;
-      cursor: pointer;
-      text-align: center;
-      transition: transform 260ms var(--spring), background 150ms;
-    }
-    #timing-tiles .wk-tile:hover { background: rgb(var(--sf) / 0.9); }
-    #timing-tiles .wk-tile:active { transform: scale(0.95); }
     /* Scoped to the report: these are tap targets beside a graph, sized with
        the rest of the timing panel. The coach's own week tiles keep the
        smaller scale that suits a dense summary card. */
-    #timing-tiles .wk-tile { padding: 0.85rem 0.4rem 0.75rem; }
-    #timing-tiles .wk-tile b { font-size: 1.65rem; }
-    #timing-tiles .wk-tile span { font-size: 0.78rem; }
-    #timing-summary {
-      font-size: 0.95rem;
-      line-height: 1.5;
-      color: var(--ink);
-      text-align: center;
-      margin-bottom: 0.8rem;
-    }
-    #timing-legend { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
     .tm-chip {
       font-family: var(--display);
       font-size: 0.85rem;
@@ -3458,7 +3344,6 @@
     /* the count that opens the rest of the list, not a chip about a note */
     .tm-more { color: var(--muted); font-style: normal; background: none; box-shadow: inset 0 0 0 1.5px var(--fill-2); }
     .tm-more:hover { background: var(--fill); color: var(--primary); }
-    #timing-hint { color: var(--muted); font-size: 0.82rem; margin-top: 0.6rem; line-height: 1.45; }
 
     /* ---- library ---- */
     #library { margin: 0 auto; text-align: center; width: min(34rem, 100%); }
@@ -3936,7 +3821,6 @@
       #report { padding: 1.6rem 1.8rem; }
       #pitch-chart { height: clamp(260px, 34vh, 380px); }
       #note-chart { height: 220px; }
-      #timing-chart { height: 200px; }
       #library { width: min(44rem, 100%); }
       #tuner { padding: 2.6rem 2rem 2rem; }
       #gauge-wrap { max-width: 30rem; }
@@ -3945,7 +3829,7 @@
       #bpm-display { font-size: 7rem; }
       .tab-btn { min-width: 5.6rem; font-size: 0.76rem; padding: 0.7rem 1.2rem 0.6rem; }
       .tab-btn svg { width: 27px; height: 27px; }
-      #timing-tiles .wk-tile b, .wk-tile b { font-size: 1.7rem; }
+      .wk-tile b { font-size: 1.7rem; }
       /* two columns of report detail, since there is width for it */
       #landing-bars, #landing-band-rows { max-width: 34rem; margin: 0 auto; }
     }
@@ -4001,7 +3885,7 @@
          401. It is the panel's padding and nothing else. `npm run edge:fit`
          asserts the graph reaches both edges and neither passes them, so a card
          that regains its padding one day fails rather than hides. */
-      #chart-scroll, #note-chart, #timing-chart {
+      #chart-scroll, #note-chart {
         margin-left: -0.6rem;
         margin-right: -0.6rem;
         width: calc(100% + 1.2rem);
@@ -4009,13 +3893,8 @@
       }
       #pitch-chart { height: min(46vh, 340px); }
       #note-chart { height: 190px; }
-      #timing-chart { height: 172px; }
       /* five tiles across a phone: the figures give up a little size so the
          captions under them stay on one or two honest lines */
-      #timing-tiles { gap: 0.3rem; }
-      #timing-tiles .wk-tile { padding: 0.6rem 0.15rem 0.5rem; border-radius: 0.9rem; }
-      #timing-tiles .wk-tile b { font-size: 1.15rem; }
-      #timing-tiles .wk-tile span { font-size: 0.6rem; }
       #tuner { padding: 1.6rem 0.9rem 1.4rem; }
       #note { font-size: 2.9rem; }
       #playback-controls { gap: 0.5rem; }
