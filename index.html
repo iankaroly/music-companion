@@ -202,10 +202,24 @@
       --chart-sharp-fill: rgb(217 45 42 / 0.14);
       --chart-flat-fill: rgb(31 111 224 / 0.14);
       --chart-wave: rgb(var(--on-surface) / 0.05);
-      --display: "Fredoka", ui-rounded, -apple-system, "SF Pro Rounded", "Avenir Next", sans-serif;
+      /* THE FACE THIS APP IS SET IN.
+         It was Fredoka — a rounded geometric display face — on every label,
+         every button and every title in the app: sixty-three places. It is a
+         good face and it is the wrong one here. A player's shelf reads
+         "Bach — Suite No. 1 in G" and "Dvořák — Concerto in B minor", and a
+         rounded face turns those into something a children's app would print;
+         it is also the single loudest thing in a screen that is otherwise
+         trying to stay out of the way of the music.
+         The system face instead — SF Pro on his phone — which is what forScore,
+         Newzik and every reference edition's app are set in, and what a title
+         with an accent, an opus number and an em-dash in it is designed for.
+         Nothing else about the type changes: the same sizes, the same weights.
+         `--display` still exists, and still means "the face for names and
+         labels", so the sixty-three sites did not have to be touched. */
+      --display: -apple-system, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
       --ui: -apple-system, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
-      /* Figures read as data, not as decoration: the rounded display face makes
-         a bare "68" or "7¢" look like a toy. */
+      /* Figures read as data, not as decoration. */
       --num: -apple-system, "SF Pro Display", "Helvetica Neue", "Segoe UI", Roboto, Arial, sans-serif;
       --shadow: 0 2px 4px rgb(var(--sh) / 0.05), 0 12px 32px rgb(var(--sh) / 0.1);
       --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -2807,12 +2821,12 @@
       left: 50%;
       transform: translateX(-50%);
       width: min(22rem, calc(100vw - 1.6rem));
-      max-height: 72vh;
+      max-height: 78vh;
       overflow-y: auto;
       display: none;
       flex-direction: column;
-      padding: 0.5rem;
-      border-radius: 1.4rem;
+      padding: 0.25rem 0 0.4rem;
+      border-radius: 0.9rem;
       background: rgb(var(--sf) / 0.92);
       -webkit-backdrop-filter: blur(26px) saturate(1.8);
       backdrop-filter: blur(26px) saturate(1.8);
@@ -2820,25 +2834,68 @@
       box-shadow: 0 18px 44px rgb(var(--sh) / 0.26);
     }
     #reader-menu.open { display: flex; animation: pop-in 180ms var(--spring); }
+    /* THE OPTIONS SHEET, AS A LIST RATHER THAN AS A COLUMN OF BUTTONS.
+       It was eleven rows at 0.55rem of padding each with a rounded rectangle
+       around every one of them, wide-tracked uppercase headings between, and
+       a Unicode character at the left of each — different fonts, different
+       weights, one of them an empty box. Sixteen rows did not fit on a phone.
+       The idiom every list on this platform uses instead: rows flush against
+       one another with a hairline between, the icon column aligned, the group
+       heading small and quiet, and the whole thing tight enough to read as one
+       object. Twenty rows fit where eleven did. */
     .reader-menu-head {
-      font-family: var(--display); font-weight: 500; font-size: 0.72rem;
-      letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted);
-      padding: 0.6rem 0.7rem 0.3rem;
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 0.7rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+      padding: 0.7rem 0.85rem 0.22rem;
     }
+    .reader-menu-head:first-child { padding-top: 0.3rem; }
     .reader-menu-row {
-      display: flex; align-items: center; gap: 0.7rem;
+      display: flex; align-items: center; gap: 0.75rem;
       width: 100%; text-align: left;
-      padding: 0.55rem 0.7rem;
-      border: none; background: none; border-radius: 0.9rem;
+      padding: 0.42rem 0.85rem;
+      min-height: 2.2rem;
+      border: none; background: none; border-radius: 0;
       color: var(--ink); cursor: pointer;
     }
+    /* A hairline between rows of the same group, and none under the last of
+       one: the gap before the next heading is the separator there.
+       INSET TO THE WORDS, not run to both edges — the icon column is a column,
+       and a rule that crosses it turns a list into a grid. It is the detail
+       that separates a list somebody drew from a list the platform drew. */
+    .reader-menu-row + .reader-menu-row::before {
+      content: '';
+      position: absolute;
+      left: 3rem; right: 0; top: 0;
+      border-top: 1px solid var(--line);
+    }
+    .reader-menu-row { position: relative; }
     .reader-menu-row:hover { background: var(--fill); }
+    .reader-menu-row:active { background: var(--fill-2, var(--fill)); }
     .reader-menu-row.danger { color: var(--bad); }
-    .reader-menu-glyph { width: 1.4rem; text-align: center; color: var(--primary); }
+    .reader-menu-glyph {
+      width: 1.35rem; flex: none;
+      display: grid; place-items: center;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .reader-menu-glyph svg { width: 1.2rem; height: 1.2rem; display: block; }
     .reader-menu-row.danger .reader-menu-glyph { color: var(--bad); }
-    .reader-menu-text { display: flex; flex-direction: column; }
-    .reader-menu-text b { font-family: var(--display); font-weight: 500; font-size: 0.92rem; }
-    .reader-menu-text small { font-size: 0.74rem; color: var(--muted); }
+    .reader-menu-text { display: flex; flex-direction: column; min-width: 0; }
+    .reader-menu-text b {
+      font-family: var(--display);
+      font-weight: 400;
+      font-size: 0.94rem;
+      line-height: 1.25;
+      letter-spacing: -0.005em;
+    }
+    .reader-menu-text small {
+      font-size: 0.76rem; color: var(--muted); line-height: 1.3;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
 
     /* Correcting the notes: a row of keys along the bottom, and the notehead
        being worked on lit so it is obvious which one the keys will move. It
@@ -2906,16 +2963,19 @@
       #score-saved { animation: none; }
     }
     #score-list-empty { display: none; }
-    /* The two shelves search the same way and look the same doing it. */
+    /* The two shelves search the same way and look the same doing it.
+       A field rather than a lozenge: a fully-round 44px capsule the width of
+       the screen is the loudest thing on a shelf, and a search box should be
+       the quietest. */
     #score-search, #library-search {
       width: 100%;
       margin-bottom: 0.7rem;
-      font-size: 1rem;
+      font-size: 0.94rem;
       font-family: var(--ui);
-      background: rgb(var(--sf) / 0.8);
-      border: 1px solid var(--glass-line);
-      border-radius: 999px;
-      padding: 0.5rem 1rem;
+      background: var(--fill);
+      border: none;
+      border-radius: 0.62rem;
+      padding: 0.42rem 0.8rem;
       color: var(--ink);
       appearance: none;
       -webkit-appearance: none;
@@ -3354,31 +3414,39 @@
       margin-bottom: 0.7rem;
       text-align: left;
     }
+    /* THE TITLE IS A TITLE. It was set at the same size as a list row, which
+       left the screen with no top to it — and the three actions beside it were
+       grey capsules, which is three more objects competing with the shelf they
+       sit over. A heading and three plain actions in the accent colour is what
+       a navigation bar is, on this platform and in every score reader. */
     #library-title, #score-browser-title {
       flex: 1;
       min-width: 0;
       font-family: var(--display);
-      font-weight: 500;
-      font-size: 1.05rem;
+      font-weight: 700;
+      font-size: 1.5rem;
+      letter-spacing: -0.021em;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
     #library-head button, #score-browser-head button {
       font-family: var(--display);
-      font-size: 0.8rem;
-      font-weight: 500;
-      background: var(--fill);
+      font-size: 0.92rem;
+      font-weight: 400;
+      background: none;
       border: none;
-      border-radius: 999px;
-      padding: 0.45rem 0.9rem;
-      color: var(--ink);
+      box-shadow: none;
+      border-radius: 0.5rem;
+      padding: 0.3rem 0.25rem;
+      color: var(--primary);
       cursor: pointer;
       white-space: nowrap;
-      transition: transform 260ms var(--spring), background 150ms;
+      transition: opacity 150ms;
     }
-    #library-head button:hover, #score-browser-head button:hover { background: var(--fill-2); color: var(--primary); }
-    #library-head button:active, #score-browser-head button:active { transform: scale(0.93); }
+    #library-head button:hover, #score-browser-head button:hover { opacity: 0.65; }
+    #library-head button:active, #score-browser-head button:active { opacity: 0.45; }
+    #library-head, #score-browser-head { gap: 0.9rem; }
     .lib-folder { color: var(--primary); flex: none; display: grid; place-items: center; }
     .lib-folder svg { width: 1.35rem; height: 1.35rem; display: block; }
     #library-empty, #score-list-empty {
@@ -3388,21 +3456,47 @@
       font-size: 0.9rem;
       padding: 2.4rem 1rem;
     }
-    #library-list, #score-list { list-style: none; padding: 0; display: grid; gap: 0.55rem; }
-    /* The name is what you scan a library by, so it gets the whole row and a
-       real type size; the row itself is the Open button and everything else
-       lives behind ⋯. */
-    .lib-item {
-      display: flex;
-      align-items: stretch;
+    /* ONE LIST, NOT A STACK OF CARDS.
+       Every row was its own floating object: a 1.3rem radius, a border, a
+       blur and a drop shadow, with a 0.55rem gap to the next one. Six pieces
+       on a shelf came out as six identical lavender lozenges — which is the
+       look of an app that has six things in it, not of a library. A shelf is
+       a LIST: rows flush against one another with a hairline between, held in
+       one rounded container, the way every reference edition's app and every
+       list on this platform draws one. It also fits three more pieces on the
+       screen, which is the point of a shelf. */
+    #library-list, #score-list {
+      list-style: none;
+      padding: 0;
+      display: grid;
+      gap: 0;
       background: var(--glass);
       -webkit-backdrop-filter: blur(18px) saturate(1.5);
       backdrop-filter: blur(18px) saturate(1.5);
       border: 1px solid var(--glass-line);
-      border-radius: 1.3rem;
-      box-shadow: 0 2px 8px rgb(var(--sh) / 0.07);
+      border-radius: 0.85rem;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgb(var(--sh) / 0.06);
+    }
+    /* Nothing in it: no container either, or an empty rounded box sits under
+       the sentence explaining that there is nothing to put in it. */
+    #library-list:empty, #score-list:empty { border: none; background: none; box-shadow: none; }
+    .lib-item {
+      display: flex;
+      align-items: stretch;
+      background: none;
+      border: none;
+      border-radius: 0;
       overflow: hidden;
       font-variant-numeric: tabular-nums;
+    }
+    .lib-item { position: relative; }
+    /* Inset to the words, for the reason written over the reader's own list. */
+    .lib-item + .lib-item::before {
+      content: '';
+      position: absolute;
+      left: 0.95rem; right: 0; top: 0;
+      border-top: 1px solid var(--line);
     }
     .lib-open {
       flex: 1;
@@ -3412,7 +3506,7 @@
       gap: 0.7rem;
       background: none;
       border: none;
-      padding: 0.8rem 0.5rem 0.8rem 1.05rem;
+      padding: 0.62rem 0.5rem 0.62rem 0.95rem;
       text-align: left;
       cursor: pointer;
       transition: background 150ms;
@@ -3422,25 +3516,28 @@
     .lib-name {
       display: block;
       font-family: var(--display);
-      font-weight: 500;
-      font-size: 1.02rem;
-      line-height: 1.25;
+      font-weight: 400;
+      font-size: 0.98rem;
+      letter-spacing: -0.008em;
+      line-height: 1.3;
       color: var(--ink);
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
     }
-    .lib-sub { display: block; color: var(--muted); font-size: 0.76rem; margin-top: 0.1rem; }
+    .lib-sub {
+      display: block; color: var(--muted); font-size: 0.78rem; margin-top: 0.05rem;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
     .lib-chev { color: var(--muted); flex: none; }
     .lib-chev svg { width: 1rem; height: 1rem; display: block; }
     .lib-more {
       flex: none;
-      width: 2.9rem;
+      width: 2.6rem;
       display: grid;
       place-items: center;
       background: none;
       border: none;
-      border-left: 1px solid var(--line);
       color: var(--muted);
       font-size: 1.15rem;
       line-height: 1;
@@ -3899,7 +3996,11 @@
       #note { font-size: 2.9rem; }
       #playback-controls { gap: 0.5rem; }
       #metro-card { padding: 1.7rem 0.9rem 1.4rem; }
-      #bpm-display { font-size: 4.6rem; }
+      /* 4.6rem in the rounded face. The system face sets larger at the same
+         size and took the card five pixels past the bottom of a 393x852 phone
+         — trimmed at the source of that change rather than by tightening a gap
+         somewhere else. `npm run metro:page`. */
+      #bpm-display { font-size: 4.25rem; }
       .cluster { padding: 0.95rem 0.7rem 1rem; border-radius: 1.5rem; }
       .seg-btn { padding: 0.5rem clamp(0.3rem, 2.4vw, 0.78rem); font-size: 0.86rem; }
       /* Keep the bigger type on the landing rows; give back the gutters it

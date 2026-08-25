@@ -3647,9 +3647,12 @@ function menuRow(sheet, { label, detail = '', glyph = '', danger = false, onPick
   const row = document.createElement('button');
   row.type = 'button';
   row.className = danger ? 'reader-menu-row danger' : 'reader-menu-row';
-  const icon = document.createElement('span');
-  icon.className = 'reader-menu-glyph';
-  icon.textContent = glyph;
+  const mark = document.createElement('span');
+  mark.className = 'reader-menu-glyph';
+  // Drawn rather than typed — see ICONS. A name that is not in the set falls
+  // back to the character, so a row added in a hurry still gets something.
+  if (ICONS[glyph]) mark.append(icon(glyph));
+  else mark.textContent = glyph;
   const text = document.createElement('span');
   text.className = 'reader-menu-text';
   const name = document.createElement('b');
@@ -3660,7 +3663,7 @@ function menuRow(sheet, { label, detail = '', glyph = '', danger = false, onPick
     sub.textContent = detail;
     text.append(sub);
   }
-  row.append(icon, text);
+  row.append(mark, text);
   row.addEventListener('click', () => { closeMenu(); onPick(); });
   sheet.append(row);
 }
@@ -3691,7 +3694,7 @@ function buildMenu(sheet) {
   // that could not be paired). Nothing that merely restates the label.
   menuGroup(sheet, 'score');
   menuRow(sheet, {
-    label: 'Annotate', glyph: '✎',
+    label: 'Annotate', glyph: 'pen',
     onPick: () => setTool(lastInk),
   });
   // Only for a score read off a page: a part somebody exported from MuseScore
@@ -3699,12 +3702,12 @@ function buildMenu(sheet) {
   if (asPrinted) {
     menuRow(sheet, {
       label: correcting ? 'Stop correcting' : 'Correct the notes',
-      glyph: '♪',
+      glyph: 'note',
       onPick: () => setCorrecting(!correcting),
     });
   }
   menuRow(sheet, {
-    label: 'Clear this page', glyph: '⌧',
+    label: 'Clear this page', glyph: 'clear',
     onPick: clearPage,
   });
   const canMark = isPaper() ? (!!take?.notes?.length && !!layout) : !!take?.aligned;
@@ -3722,18 +3725,18 @@ function buildMenu(sheet) {
       label: refused
         ? (painted ? 'Hide why this take is not on the page' : 'Why this take is not on the page')
         : (painted ? 'Hide what you played' : 'Show what you played'),
-      glyph: '◉',
+      glyph: 'paint',
       onPick: () => togglePainted(),
     });
     menuRow(sheet, {
-      label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? '❚❚' : '▶',
+      label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? 'pause' : 'play',
       onPick: togglePlayback,
     });
   }
   {
     menuGroup(sheet, 'size');
-    menuRow(sheet, { label: 'Bigger', glyph: '+', onPick: () => resize(ZOOM_STEP) });
-    menuRow(sheet, { label: 'Smaller', glyph: '−', onPick: () => resize(1 / ZOOM_STEP) });
+    menuRow(sheet, { label: 'Bigger', glyph: 'bigger', onPick: () => resize(ZOOM_STEP) });
+    menuRow(sheet, { label: 'Smaller', glyph: 'smaller', onPick: () => resize(1 / ZOOM_STEP) });
   }
   if (isPaper()) {
     menuGroup(sheet, 'pages');
@@ -3748,7 +3751,7 @@ function buildMenu(sheet) {
     // this score actually has.
     menuRow(sheet, {
       label: 'Change the edges…',
-      glyph: '⛶',
+      glyph: 'edges',
       onPick: score?.source === 'pdf' ? openTrimMenu : openEdgesMenu,
     });
   }
@@ -3757,33 +3760,33 @@ function buildMenu(sheet) {
   // metronome you use before you start playing and never again. They open on
   // the page now, over the foot of it, and the music stays where it is.
   menuRow(sheet, {
-    label: aidsShowing() === 'metronome' ? 'Hide the metronome' : 'Metronome', glyph: '𝅘𝅥',
+    label: aidsShowing() === 'metronome' ? 'Hide the metronome' : 'Metronome', glyph: 'metronome',
     onPick: () => {
       if (aidsShowing() === 'metronome') hideAids(); else showAids('metronome');
       closeMenu();
     },
   });
   menuRow(sheet, {
-    label: aidsShowing() === 'tuner' ? 'Hide the tuner' : 'Tuner', glyph: '♪',
+    label: aidsShowing() === 'tuner' ? 'Hide the tuner' : 'Tuner', glyph: 'note',
     onPick: () => {
       if (aidsShowing() === 'tuner') hideAids(); else showAids('tuner');
       closeMenu();
     },
   });
   menuRow(sheet, {
-    label: 'Record a take', glyph: '●',
+    label: 'Record a take', glyph: 'record',
     onPick: () => { close(); document.querySelector('.tab-btn[data-tab="analyze"]')?.click(); },
   });
 
   menuGroup(sheet, 'places');
   menuRow(sheet, {
-    label: 'Jumps', glyph: '↴',
+    label: 'Jumps', glyph: 'jump',
     // An ANSWER, not an explanation: how many are taped to this score.
     detail: linksOf().length ? `${linksOf().length} taped to this score` : '',
     onPick: openLinks,
   });
   menuRow(sheet, {
-    label: 'Bookmarks', glyph: '⚑',
+    label: 'Bookmarks', glyph: 'bookmark',
     detail: bookmarksOf().length
       ? bookmarksOf().map((m) => m.label).join(' · ').slice(0, 44)
       : '',
@@ -3791,28 +3794,28 @@ function buildMenu(sheet) {
   });
   menuRow(sheet, {
     label: spread ? 'One page at a time' : 'Two pages side by side',
-    glyph: '▥',
+    glyph: spread ? 'onePage' : 'spread',
     onPick: toggleSpread,
   });
   menuRow(sheet, {
     label: night ? 'Light page' : 'Dark page',
-    glyph: night ? '☀' : '☾',
+    glyph: night ? 'sun' : 'moon',
     onPick: toggleNight,
   });
   menuGroup(sheet, 'file');
   menuRow(sheet, {
-    label: 'Send a copy…', glyph: '⤴',
+    label: 'Send a copy…', glyph: 'send',
     onPick: openSend,
   });
   menuRow(sheet, {
-    label: 'Rename…', glyph: 'Aa', detail: score?.name ?? '',
+    label: 'Rename…', glyph: 'rename', detail: score?.name ?? '',
     onPick: renameThisScore,
   });
   menuRow(sheet, {
-    label: 'Delete this score', glyph: '␡', danger: true,
+    label: 'Delete this score', glyph: 'trash', danger: true,
     onPick: deleteThisScore,
   });
-  menuRow(sheet, { label: 'Close the score', glyph: '✕', onPick: close });
+  menuRow(sheet, { label: 'Close the score', glyph: 'close', onPick: close });
 }
 
 // Naming and unnaming. A scan arrives called whatever the camera called it, so
@@ -4117,6 +4120,37 @@ const ICONS = {
   layers: '<path d="M12 3.5l8.5 4.5L12 12.5 3.5 8z"/><path d="M4.5 12.5L12 16.5l7.5-4"/>',
   fit: '<path d="M9 4.5H4.5V9M15 4.5h4.5V9M9 19.5H4.5V15M15 19.5h4.5V15"/>',
   brush: '<path d="M6 20c2.5 0 4-1.5 4-3.5S8.5 13 6.5 13.5C5 14 4 16 4 20z"/><path d="M10.5 15.5l8-8a2 2 0 0 0-3-3l-8 8"/>',
+  // THE OPTIONS SHEET USED UNICODE, and it showed. The rows were labelled with
+  // whatever character was nearest — ✎ ⌧ ⛶ ↴ ⚑ ▥ ☾ ● + − — which are drawn by
+  // whatever font on the device happens to have them, at whatever weight and
+  // size that font draws them at. So the sheet was a column of mismatched
+  // marks; and 𝅘𝅥 (U+1D15F, a quarter note) is in no font an iPhone ships, so
+  // the metronome's row came up as TWO EMPTY BOXES. Everything in that sheet is
+  // drawn here now, at one weight, on one grid.
+  metronome: '<path d="M9.2 20.5 12 4.2h0.1l2.7 16.3z" /><path d="M6.8 20.5h10.4"/><path d="M9.9 14h4.2"/>',
+  note: '<circle cx="9" cy="17.5" r="3" /><path d="M12 17.5V5l6 2"/>',
+  bookmark: '<path d="M7 4.5h10v15l-5-3.6-5 3.6z"/>',
+  jump: '<path d="M5 7h9a4 4 0 0 1 0 8H8"/><path d="M10.5 12 8 15l2.5 3"/>',
+  spread: '<rect x="3.5" y="5" width="7.5" height="14" rx="1.2"/>'
+    + '<rect x="13" y="5" width="7.5" height="14" rx="1.2"/>',
+  onePage: '<rect x="6.5" y="4.5" width="11" height="15" rx="1.4"/>',
+  moon: '<path d="M19 14.6A7.6 7.6 0 0 1 9.4 5 7.6 7.6 0 1 0 19 14.6z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2'
+    + 'M5.6 5.6l1.4 1.4M17 17l1.4 1.4M18.4 5.6 17 7M7 17l-1.4 1.4"/>',
+  send: '<path d="M12 4v12"/><path d="M8 8l4-4 4 4"/><path d="M5 15v3.5h14V15"/>',
+  // A luggage tag: the thing a name is written on. Drawn as letters ("Aa") it
+  // came out as an A beside a small h at icon size, which is a mark nobody can
+  // read and nothing recognises.
+  rename: '<path d="M11.4 3.8H19a1.2 1.2 0 0 1 1.2 1.2v7.6a1.6 1.6 0 0 1-.47 1.13l-6.2 6.2'
+    + 'a1.2 1.2 0 0 1-1.7 0l-7.6-7.6a1.2 1.2 0 0 1 0-1.7l6.2-6.2a1.6 1.6 0 0 1 1.13-.47z"/>'
+    + '<circle cx="16" cy="8" r="1.3"/>',
+  trash: '<path d="M5 7h14"/><path d="M9.5 7V4.8h5V7"/><path d="M6.8 7l0.9 12.2h8.6L17.2 7"/>',
+  bigger: '<path d="M12 6v12M6 12h12"/>',
+  smaller: '<path d="M6 12h12"/>',
+  edges: '<path d="M4 8.5V4.5h4"/><path d="M20 8.5V4.5h-4"/><path d="M4 15.5v4h4"/>'
+    + '<path d="M20 15.5v4h-4"/>',
+  paint: '<circle cx="12" cy="12" r="7.5"/><path d="M12 4.5a7.5 7.5 0 0 1 0 15"'
+    + ' fill="currentColor" stroke="none"/>',
 };
 
 function icon(name) {
