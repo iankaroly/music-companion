@@ -314,6 +314,49 @@ npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
                          press the tab until it takes: the app restores the last
                          tab AFTER load, and a single click at a fixed delay
                          raced it and measured the tuner half the time.
+npm run app:sweep        WALK THE WHOLE APP AND WRITE DOWN EVERYTHING IT THROWS.
+                         It asserts almost nothing: it works the app the way a
+                         hand works it and reports what came out of the console.
+                         Both bugs that mattered this week were sitting there
+                         and invisible to every targeted check in this repo —
+                         main.js stopping dead for anybody whose last tab was
+                         not the tuner, and a ReferenceError at the end of every
+                         edges edit.
+                         TWO THINGS MAKE IT SHARP, both taken from how those
+                         hid. EVERYTHING TWICE — open, act, act again, close,
+                         reopen — because the second lap is what catches a
+                         handler holding something that has been replaced. And
+                         FROM A COLD START, FIVE WAYS: what the app remembers
+                         between visits is a real input and never the default.
+                         It also COUNTS WHAT IT DID and fails if a step goes
+                         quiet, which found three of its own steps doing nothing
+                         the first time it ran. And it keeps a ledger over
+                         `ResizeObserver`, because a watcher made on every
+                         render and never disconnected throws nothing and draws
+                         nothing wrong until the screen changes size.
+                         NO REAL CAMERA: the fake device only.
+npm run edge:fit         NOTHING RUNS OFF THE EDGE OF THE SCREEN, at five phone
+                         widths from 320 to 430. It looks at the DOCUMENT rather
+                         than at a list of suspects, because the next one of
+                         these will be somewhere nobody thought to look — and it
+                         found five at once, including the tab bar (the last tab
+                         cut off on every screen in the app) and the pitch graph
+                         (11px off BOTH edges, taking the pitch names with it).
+                         Two things are allowed past the edge and both are
+                         named in the tool: anything inside something that
+                         scrolls sideways, and the drifting colour behind
+                         everything. It also asserts the graph REACHES both
+                         edges, so a bleed that is too small fails too.
+npm run scan:lag         HOW SLOW THE SCANNER IS, in three numbers, because "the
+                         scanner is slow to use" was open and undiagnosed for
+                         weeks behind one sentence: "I do not know whether what
+                         is slow is the outline, the shutter, or the app." The
+                         outline is a tick of the watch loop (it runs every
+                         150ms and finds the page on every one); the shutter is
+                         press-to-picture and press-to-page; the app is
+                         press-to-usable-again. THROTTLE=6 slows the processor
+                         by roughly the gap to a phone, which is where the
+                         numbers in the commit messages are read.
 npm run reader:turns:cold
                          HOW LONG A PAGE TAKES TO ARRIVE. Three knobs, and the
                          defaults hide the thing being complained about:
