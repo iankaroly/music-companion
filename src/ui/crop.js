@@ -214,6 +214,38 @@ function build() {
   // from a bad drag, and Cancel is the way back now — it costs one more tap on
   // the rare occasion somebody wants it, and it buys every other visit a screen
   // with nothing on it but the page.
+  // HOW THE PAGE IS DEVELOPED, which is the one option worth a row.
+  //
+  // "The Fourscore app has more features when you're scanning the page and then
+  // you edit it. There are color options, stuff like that."
+  //
+  // A photographed page is a photograph of paper in a room: warm under a lamp,
+  // grey in the shade, and never the flat black-on-white a printed part is.
+  // Every scanning app on a phone offers the same four answers to that and they
+  // are the right four — leave it alone, take the colour out, push it to ink,
+  // or lift the contrast without going all the way. They are BAKED here rather
+  // than applied when the page is drawn, because the page is being re-encoded
+  // at this moment anyway and a setting kept per page is a setting to store, to
+  // migrate, and to get wrong.
+  //
+  // Nothing else from that editor is copied. Rotation is the obvious next one
+  // and it is deliberately absent: turning the picture would have to turn the
+  // outline and the eight handles with it, in an editor whose whole geometry is
+  // measured off the rendered box of an <img>, and a rotate that breaks the
+  // drag is worse than no rotate.
+  const looks = el('div', 'crop-looks');
+  looks.setAttribute('role', 'radiogroup');
+  looks.setAttribute('aria-label', 'How the page is developed');
+  for (const one of LOOKS) {
+    const chip = el('button', 'crop-look');
+    chip.type = 'button';
+    chip.dataset.look = one.id;
+    chip.textContent = one.name;
+    chip.setAttribute('role', 'radio');
+    chip.addEventListener('click', () => setLook(one.id));
+    looks.append(chip);
+  }
+
   const bar = el('div', 'crop-bar');
   const cancel = el('button', 'ctl');
   cancel.type = 'button';
@@ -235,7 +267,7 @@ function build() {
   // photo". LOOKED AT, at 390x844, which is the only way that kind of fault is
   // ever found.
   const foot = el('div', 'crop-foot');
-  foot.append(bar);
+  foot.append(looks, bar);
   root.append(stage, overlay, foot);
   document.body.append(root);
   // …and the picture gets whatever is left. Measured rather than guessed at,
@@ -267,6 +299,71 @@ function finish(result) {
 
 // The photograph as taken, and where the paper was thought to be. Resolves with
 // the corners the player settled on, or null if they left it alone.
+// THE FOUR LOOKS. `filter` is what the picture wears in the editor — it is a
+// preview and costs nothing — and `bake` is what is actually done to the pixels
+// of the finished page. The two are written next to each other so they cannot
+// drift into showing one thing and saving another.
+export const LOOKS = [
+  { id: 'colour', name: 'Colour', filter: 'none' },
+  { id: 'grey', name: 'Grey', filter: 'grayscale(1)' },
+  { id: 'sharp', name: 'Sharper', filter: 'contrast(1.35) saturate(0.85) brightness(1.05)' },
+  { id: 'ink', name: 'Ink', filter: 'grayscale(1) contrast(2.6) brightness(1.14)' },
+];
+const LOOK_KEY = 'scanLook';
+let look = 'colour';
+try { look = localStorage.getItem(LOOK_KEY) ?? 'colour'; } catch { /* fine */ }
+if (!LOOKS.some((one) => one.id === look)) look = 'colour';
+
+function setLook(id) {
+  look = LOOKS.some((one) => one.id === id) ? id : 'colour';
+  try { localStorage.setItem(LOOK_KEY, look); } catch { /* fine */ }
+  showLook();
+}
+
+function showLook() {
+  if (!root) return;
+  const chosen = LOOKS.find((one) => one.id === look) ?? LOOKS[0];
+  picture.style.filter = chosen.filter;
+  for (const chip of root.querySelectorAll('.crop-look')) {
+    const on = chip.dataset.look === look;
+    chip.classList.toggle('on', on);
+    chip.setAttribute('aria-checked', String(on));
+  }
+}
+
+/**
+ * Bake a look into a canvas of a finished page, in place.
+ *
+ * Done on the page rather than on the photograph: `straightenCanvas` has
+ * already flattened the lighting across the sheet (see `unshadow`), which is
+ * what makes a single threshold a reasonable thing to do at all — on the raw
+ * photograph the shadow down one side would come out as a black stripe.
+ */
+export function bakeLook(canvas, which = look) {
+  if (which === 'colour' || !canvas?.width) return canvas;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  let data;
+  try { data = context.getImageData(0, 0, canvas.width, canvas.height); } catch { return canvas; }
+  const px = data.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const grey = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    let v = grey;
+    if (which === 'ink') {
+      // Not a hard threshold: a stem a pixel wide disappears at one, and the
+      // page comes out speckled where the paper is. A steep curve about the
+      // middle keeps the thin strokes and still takes the paper to white.
+      v = 255 / (1 + Math.exp(-(grey - 150) / 12));
+    } else if (which === 'sharp') {
+      v = Math.max(0, Math.min(255, (grey - 128) * 1.35 + 128 + 8));
+    }
+    px[i] = v;
+    px[i + 1] = v;
+    px[i + 2] = v;
+  }
+  context.putImageData(data, 0, 0);
+  return canvas;
+}
+
 // The word on the one button that has one.
 //
 // This editor does two jobs. On a photograph it is finding the sheet of paper
@@ -276,10 +373,15 @@ function finish(result) {
 // photograph that does not exist.
 const PHOTO_WORDS = { keep: 'Use these edges' };
 
-export async function editCorners(blob, corners = null, words = null) {
+export async function editCorners(blob, corners = null, words = null, { develops = true } = {}) {
   build();
   const say = { ...PHOTO_WORDS, ...(words ?? {}) };
   root.querySelector('#crop-keep').textContent = say.keep;
+  // Only where the caller is going to re-encode the page. Trimming a page of a
+  // PDF stores a rectangle and touches no pixels, so a row of looks there would
+  // be four buttons that do nothing.
+  root.querySelector('.crop-looks').hidden = !develops;
+  showLook();
   const image = await readableImage(blob);
   if (!image) return null;
   const { w, h } = sizeOfImage(image);
@@ -298,7 +400,7 @@ export async function editCorners(blob, corners = null, words = null) {
   draw();
   window.addEventListener('resize', onResize);
   return new Promise((resolve) => { done = resolve; })
-    .then((result) => (result ? { quad: result, width: w, height: h } : null));
+    .then((result) => (result ? { quad: result, width: w, height: h, look } : null));
 }
 
 export function cropIsOpen() {

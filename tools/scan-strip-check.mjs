@@ -127,11 +127,14 @@ const editor = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 600));
   const root = document.querySelector('#crop');
   if (!root || root.hidden) return { open: false };
-  const buttons = [...root.querySelectorAll('button')].map((b) => b.textContent.trim());
+  const buttons = [...root.querySelectorAll('.crop-bar button')].map((b) => b.textContent.trim());
+  const looks = [...root.querySelectorAll('.crop-look')].map((b) => b.textContent.trim());
   const pic = root.querySelector('#crop-picture').getBoundingClientRect();
   return {
     open: true,
     buttons,
+    looks,
+    looksHidden: !!root.querySelector('.crop-looks')?.hidden,
     hint: !!root.querySelector('.crop-hint'),
     // How much of the screen the picture gets, which is what "I just want it to
     // be huge" is asking for.
@@ -151,8 +154,22 @@ const editor = await page.evaluate(async () => {
 check('the editor opens', editor.open === true);
 check('it has two buttons and no more', editor.buttons?.length === 2,
   `[${editor.buttons?.join(', ')}]`);
+// A DELIBERATE REVERSAL, AND A SMALL ONE. This asserted "two buttons and no
+// more" over the WHOLE editor, from "I just want it to be huge… there are no
+// instructions. You can just trim it and then confirm it." It still holds for
+// the buttons that DO something to the crop — Cancel and confirm — and one row
+// has been added above them, from the round after: "The Fourscore app has more
+// features when you're scanning the page and then you edit it. There are color
+// options, stuff like that."
+//
+// Four chips, no prose, and the picture still has most of the screen. Both of
+// those are asserted rather than assumed, because a row of options is exactly
+// the thing that grew into the four buttons and the sentence he asked to have
+// taken away.
+check('and one row of looks above them, with no prose', editor.looks?.length === 4,
+  `[${editor.looks?.join(', ')}]`);
 check('there are no instructions on it', editor.hint === false);
-check('and the picture has most of the screen', editor.share > 0.8,
+check('and the picture still has most of the screen', editor.share > 0.75,
   `${Math.round((editor.share ?? 0) * 100)}% of it`);
 // A page held close enough to fill the frame has its corners at 0,0 and 1,1, so
 // the handles land on the edge of the picture. There has to be something left

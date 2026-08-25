@@ -732,7 +732,7 @@ async function reshape(file, thumbnail) {
   const at = pages.indexOf(file);
   const shot = shots[at];
   if (at < 0 || !shot?.raw) return;
-  const { editCorners } = await import('./crop.js');
+  const { editCorners, bakeLook } = await import('./crop.js');
   const chosen = await editCorners(shot.raw, shot.corners);
   if (!chosen) return;
   const image = await readableImage(shot.raw);
@@ -745,6 +745,8 @@ async function reshape(file, thumbnail) {
     // side out to the frame, letting the whole thing out by a tenth — are all
     // ways of second-guessing a guess. See `asGiven` in straighten.js.
     page = straightenCanvas(image, w, h, chosen.quad, { asGiven: true });
+    // …and developed the way the editor was left. See bakeLook.
+    bakeLook(page, chosen.look);
   } catch {
     say('those edges could not be made into a page');
     return;
