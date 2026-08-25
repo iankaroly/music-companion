@@ -281,7 +281,39 @@ npm run review:taps      CAN A FINGER REACH THE REVIEW'S CONTROLS — the pixel
                          carrying that class — because the real one is only
                          written on a take the reader managed to bar, and a
                          check that waits for the hazard to happen is a check
-                         that passes because it did not. NO MICROPHONE.
+                         that passes because it did not. It also covers the
+                         held-for picker under the graph (only the notes
+                         sustained N seconds or longer stay in the list) —
+                         including that a filtered note is HIDDEN and not
+                         removed, because `tileByNote` is how a notehead pressed
+                         on the page finds its tile. NO MICROPHONE.
+npm run review:follow    WHO IS DRIVING THE SCROLL WHILE A TAKE PLAYS. The light
+                         moves down the music and the page is pulled after it,
+                         so a hand reaching PAST the music for the pause button
+                         or the trace was overruled a second later, every second.
+                         A touch now takes the wheel and a SEEK gives it back —
+                         latched on the gesture (`wheel`/`touchstart`/
+                         `pointerdown`) and never on the `scroll` event, because
+                         `keepInView` scrolls and a latch listening for that
+                         would trip on its own footsteps. Three facts, not one:
+                         the follower DOES scroll before anyone touches it, it
+                         keeps arriving and stops scrolling after a touch, and a
+                         bar press starts it again. score-tab.js counts both
+                         halves (`followState`) so the middle one cannot pass by
+                         being dead. NO MICROPHONE.
+npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
+                         everything on it, so the drag was slack rather than
+                         content: the card is set in rem and comes to ~640px,
+                         and the panel reserves another 104 for the tab bar, so
+                         anything shorter than about 750 was a page and a bit —
+                         and the bit was Start. Checked at every height a phone
+                         hands this app (568 through 1180): no scroll, AND Start
+                         still above the tab bar and still what a finger lands
+                         on. That second half is the point — the cheap way to
+                         stop a page scrolling is to clip it. It also has to
+                         press the tab until it takes: the app restores the last
+                         tab AFTER load, and a single click at a fixed delay
+                         raced it and measured the tuner half the time.
 npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the button in the
                          reader's own bar, pressed the way a finger presses it. One
                          recorder behind two doors (the Record tab's button must

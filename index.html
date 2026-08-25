@@ -3925,6 +3925,93 @@
       .ld-val { width: 4.9rem; font-size: 0.78rem; }
     }
 
+    /* ---- A SHORT SCREEN IS STILL ONE PAGE ---------------------------------
+       "When I click on the metronome tab, it lets me scroll up and down, which
+       I don't like. It should just be that page. You shouldn't be able to
+       scroll up and down."
+
+       And it IS one page — one card, everything on it at once, nothing below
+       the fold worth going to find. It scrolled because the card is set in rem
+       and comes to about 640px, and the panel it sits in reserves another 104
+       for the tab bar: on any screen shorter than about 750 that is a page and
+       a bit, and the bit is Start.
+
+       So on a short screen the card gives up its SPACING and keeps its
+       CONTROLS. Nothing here is hidden, moved, or made unreachable — the
+       number gets smaller, the gaps between rows close up, and the segmented
+       pickers lose a little padding. Written by height rather than width
+       because that is the thing that is short: an iPhone in Safari with its
+       own toolbar over the page is 390 wide either way.
+
+       MEASURED at every height a phone hands this app, and by looking:
+       `npm run metro:page` asserts no scroll AND that Start is still above the
+       tab bar and still what a finger lands on — because the cheap way to stop
+       a page scrolling is to clip it, and Start under the tab bar would be
+       worse than the scroll. */
+    @media (max-height: 780px) {
+      #metro-card { padding: 1.1rem 0.9rem 1rem; }
+      #bpm-display { font-size: clamp(2.7rem, 8vh, 4.6rem); }
+      #tempo-name { margin-top: 0.1rem; font-size: 0.9rem; }
+      #bpm-slider { margin: 0.75rem 0 0.6rem; }
+      .metro-split { margin: 0.7rem -0.4rem 0.6rem; }
+      #metro-card .row + .row { margin-top: 0.5rem; }
+      #metro-card .row { gap: 0.4rem; }
+      #metro-card .seg-btn { padding: 0.36rem 0.6rem; font-size: 0.8rem; }
+      #beat-dots { margin: 0.55rem 0 0.65rem; min-height: 1rem; }
+      #beat-dots .beat-dot { width: 0.7rem; height: 0.7rem; }
+      #metro-toggle { padding: 0.6rem 2.2rem; }
+    }
+    /* SIDEWAYS. A phone in landscape is 393 tall — shorter than anything it is
+       upright — and no amount of closing gaps fits a column of eleven rows into
+       it. But it is also 852 WIDE, and the card is using a third of that. So in
+       landscape it becomes two columns: the tempo and its slider on the left,
+       everything you set on the right. Nothing is hidden and nothing moves out
+       of reach; the card simply stops pretending it is on a phone held upright.
+       `dense` matters — without it the second column starts below the first
+       instead of beside it. */
+    @media (orientation: landscape) and (max-height: 520px) {
+      #tab-metronome .column { width: min(54rem, 100%); }
+      /* The tab bar is shorter in landscape and the reserve under the card was
+         still sized for a phone held upright. */
+      #tab-metronome { padding-bottom: calc(5.2rem + env(safe-area-inset-bottom, 0px)); }
+      #metro-card {
+        display: grid;
+        grid-auto-flow: row dense;
+        grid-template-columns: 0.72fr 1.28fr;
+        column-gap: 1.4rem;
+        align-items: center;
+        padding: 0.7rem 1.1rem;
+      }
+      /* By POSITION, not by `nth-of-type`: every child of this card is a
+         `div`, so `.row:nth-of-type(1)` matches the tempo readout and the
+         columns come out shuffled. The card's children are fixed in the
+         markup — the tempo block is the first four, the settings are the rest,
+         and the dashed rule between them has nothing to divide any more. */
+      #metro-card > :nth-child(-n+4),
+      #metro-card > #beat-dots { grid-column: 1; }
+      #metro-card > .metro-split { display: none; }
+      #metro-card > :nth-child(n+6) { grid-column: 2; }
+      #metro-card > #beat-dots { grid-column: 1; }
+      #metro-card .row + .row { margin-top: 0.3rem; }
+      #bpm-display { font-size: clamp(2.4rem, 13vh, 3.4rem); }
+      #bpm-slider { margin: 0.5rem 0 0.5rem; }
+      #beat-dots { margin: 0.35rem 0 0.4rem; }
+    }
+    /* Shorter again — an SE with a browser toolbar over it. The tempo is still
+       the biggest thing on the card; it is just no longer the only thing. */
+    @media (max-height: 640px) {
+      #metro-card { padding: 0.7rem 0.7rem 0.7rem; }
+      #bpm-display { font-size: clamp(2rem, 6vh, 2.9rem); }
+      #tempo-name { font-size: 0.78rem; }
+      #bpm-slider { margin: 0.4rem 0 0.35rem; }
+      .metro-split { margin: 0.4rem -0.4rem 0.35rem; }
+      #metro-card .row + .row { margin-top: 0.28rem; }
+      #metro-card .seg-btn { padding: 0.22rem 0.45rem; font-size: 0.73rem; }
+      #metro-card .ctl { padding: 0.4rem 0.8rem; }
+      #beat-dots { margin: 0.3rem 0 0.35rem; min-height: 0.8rem; }
+      #beat-dots .beat-dot { width: 0.6rem; height: 0.6rem; }
+      #metro-toggle { padding: 0.45rem 1.9rem; }
+    }
   </style>
 </head>
 <body>
