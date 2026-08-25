@@ -289,8 +289,13 @@ check('every notehead this take did not play is drawn too',
   `${shown.quiet} silent markers of ${shown.silent} unplayed heads, on pages ${shown.quietPages.join(', ')}`);
 check('and each is still big enough for a finger',
   shown.smallestQuiet >= 22, `smallest ${shown.smallestQuiet}px`);
+// The sentence ends there now. It used to go on — "Press one to hear what is
+// written there, synthesised" — and this asserted that second half too. It was
+// an instruction, and by the time it was removed it was also false: pressing a
+// notehead on a scanned page has done nothing at all since every tap on a page
+// started going to the bar under it. "I don't want it to explain stuff."
 check('the review SAYS the dashed ones were not played in this take',
-  /not played in this take/.test(shown.summary) && /synthesised/.test(shown.summary),
+  /not played in this take/.test(shown.summary),
   shown.summary.slice(-140).trim());
 
 // The whole review, before anything is pressed or played. This is the picture

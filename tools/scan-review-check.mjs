@@ -212,14 +212,29 @@ const timing = await page.evaluate(() => {
 check('the review reports timing against the page\'s own bars',
   timing.hasBars === true && timing.overclaims === false, timing.line.slice(-140));
 
-// --- clicking a note opens its close-up, and NOTHING else -------------------
+// --- pressing the page goes to the BAR, and the rings are not controls -------
 //
-// Two things have to be true of a press on a ring, and the second is the bug
-// that made the first useless: it opens that note's close-up graph, and it does
-// NOT open the full-screen score. score-tab.js wires a click on the whole stage
-// to the reader — the engraved noteheads escape that with stopPropagation and
-// the rings did not, so pressing a note opened its close-up and then threw a
-// music stand over the top of it.
+// THIS BLOCK USED TO ASSERT THE OPPOSITE, and it was right to fail. It checked
+// that pressing a ring opened that note's close-up graph and did not throw the
+// full-screen score over the top of it — a real bug, fixed at the time. Then
+// the contract changed, on purpose and on his instruction:
+//
+//   "I don't want to be able to press the note head. If you press the note
+//    head, I just want to start at the beginning of that bar… No going to
+//    individual notes, because I know that's not possible."
+//
+// A photograph gives the reader roughly one notehead where the paper has one,
+// but not reliably THE one, so a note-level control on a scan is a control
+// whose subject is the wrong note some of the time. A bar is a rectangle and
+// is not wrong. The rings became `<span>`s with `pointer-events: none` and the
+// bar layer went over them — so `readerOpen=true` here was the click falling
+// through a ring to the stage, which is exactly what is meant to happen when
+// you press somewhere that is not a bar.
+//
+// So the assertions are rewritten against the contract that exists, and the
+// old ones are named above rather than deleted quietly. What is checked now:
+// a bar press opens the close-up and does NOT open the reader, and a ring is
+// not something a finger can press at all.
 const picked = await page.evaluate(async () => {
   const { renderFreeReview } = await import('/src/ui/report.js');
   const { Recorder } = await import('/src/audio/recording.js');
@@ -232,14 +247,19 @@ const picked = await page.evaluate(async () => {
   renderFreeReview(document, notes, rec, { readings: window.__takeReadings ?? [], a4: 440 });
   await new Promise((r) => setTimeout(r, 400));
 
-  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
-  rings[7]?.click();
+  const ring = document.querySelector('#score-stage .scan-note');
+  const ringIsAControl = !ring ? 'no rings'
+    : `${ring.tagName}, pointer-events: ${getComputedStyle(ring).pointerEvents}`;
+
+  const bars = [...document.querySelectorAll('#score-stage .scan-bar')];
+  bars[3]?.click();
   await new Promise((r) => setTimeout(r, 800));
 
   const zoom = document.querySelector('#note-zoom');
   const reader = document.querySelector('#reader');
   return {
-    rings: rings.length,
+    bars: bars.length,
+    ringIsAControl,
     zoomOpen: !!zoom && zoom.hidden === false,
     zoomLabel: document.querySelector('#zoom-label')?.textContent ?? '',
     readerOpen: !!reader && !reader.hidden,
@@ -247,119 +267,152 @@ const picked = await page.evaluate(async () => {
   };
 });
 
-check('pressing a note opens that note\'s close-up graph',
+check('a ring on a scanned page is a mark, not a control',
+  /^SPAN, pointer-events: none$/.test(picked.ringIsAControl), picked.ringIsAControl);
+check('pressing a bar opens the close-up under the graph',
   picked.zoomOpen === true,
-  `#note-zoom open=${picked.zoomOpen}, label "${picked.zoomLabel}"`);
+  `${picked.bars} bars; #note-zoom open=${picked.zoomOpen}, label "${picked.zoomLabel}"`);
 check('and does NOT throw the full-screen score over the top of it',
   picked.readerOpen === false && picked.fullScreen === false,
   `reader=${picked.readerOpen} full-screen=${picked.fullScreen}`);
 
 
-// --- a note, chosen at random, says how far out it was -----------------------
+// --- every ring carries ITS OWN note's reading -------------------------------
 //
-// Not the first ring and not a chosen one: the point is that ANY note on the
-// page answers, so the check picks one it did not choose and compares what
-// the app says against what that note actually was. The reading has to be the
-// right note's reading, which is the part a positional pairing gets wrong
-// quietly.
+// The part a positional pairing gets wrong quietly: the marks are all there,
+// they are all the right colour, and they are one notehead out. This used to be
+// checked by pressing a ring and reading the box that opened; there is no such
+// press any more (see above), so it is checked where the reading now lives —
+// on the ring itself, which is what a pointer hovers and what a screen reader
+// announces.
+//
+// Four notes out of the middle of the take, deterministic so a failure can be
+// reproduced rather than hunted, each compared against what that note actually
+// was rather than against a number typed into this file.
 const random = await page.evaluate(async () => {
   const notes = window.__takeNotes ?? [];
   const rings = [...document.querySelectorAll('#score-stage .scan-note')];
-  // Deterministic "random": a fixed pick out of the middle of the take, so a
-  // failure can be reproduced rather than hunted.
-  const which = 23;
-  const trail = [];
+  // The app's own rule, imported rather than copied: `intonationHue` reads the
+  // tolerance the player set, so a threshold typed in here would be a second
+  // idea of "in tune" that drifts the moment somebody changes it.
+  const { intonationHue } = await import('/src/ui/chart-utils.js');
+  const rows = [];
   for (const i of [3, 11, 23, 40]) {
-    document.querySelectorAll('#score-stage .scan-note')[i]?.click();
-    await new Promise((r) => setTimeout(r, 500));
-    const b = document.querySelector('.scan-reading');
-    const w = Math.round(notes[i]?.cents ?? 0);
-    trail.push(`${i}→"${(b?.textContent ?? '').trim()}" (${w >= 0 ? '+' : ''}${w}¢)`);
+    const ring = rings[i];
+    const want = Math.round(notes[i]?.cents ?? 0);
+    rows.push({
+      i,
+      title: ring?.title ?? '',
+      label: ring?.getAttribute('aria-label') ?? '',
+      tone: ring?.dataset.tone ?? '',
+      wantCents: `${want > 0 ? '+' : ''}${want}¢`,
+      wantTone: intonationHue(want),
+    });
   }
-  rings[which]?.click();
-  await new Promise((r) => setTimeout(r, 700));
-  const box = document.querySelector('.scan-reading');
-  const want = Math.round(notes[which]?.cents ?? 0);
+  return { rings: rings.length, rows };
+});
+const readsRight = random.rows.filter((r) => r.title === r.wantCents);
+const colouredRight = random.rows.filter((r) => r.tone === r.wantTone);
+check('a note picked out of the middle of the take shows its own reading',
+  readsRight.length === random.rows.length,
+  random.rows.map((r) => `${r.i}→"${r.title}" (want ${r.wantCents})`).join(' | '));
+check('sharp or flat is said in colour too, not only in numbers',
+  colouredRight.length === random.rows.length,
+  random.rows.map((r) => `${r.i}→${r.tone || '""'} (want ${r.wantTone})`).join(' | '));
+check('and the ring says it out loud for a screen reader',
+  random.rows.every((r) => /cents/.test(r.label)),
+  random.rows.map((r) => `"${r.label}"`).join(' | '));
+
+// --- a take across the page break, and one longer than the part -------------
+//
+// Two shapes that are easy to get wrong and easy not to notice.
+//
+// WHAT THIS BLOCK USED TO ASSERT, and why it changed. It played 200 notes at a
+// part with 81 noteheads and required exactly 81 rings — a take longer than the
+// part CAPPED at the heads that exist, with the surplus named. `pairNotes` has
+// a confidence floor now (see `npm run scan:floor`), and 200 notes of a part
+// played two and a half times through does not clear it: two thirds of the take
+// cannot be where the marks say it is, so the pairing declines to place any of
+// it. Holding the marks back is the better answer — "the marks are held back
+// rather than put somewhere they might not belong" — and a check that demanded
+// the cap was demanding the app guess.
+//
+// So the surplus take now has to be REFUSED, and the refusal has to be said out
+// loud on the page. And the page-break case gets a take that can actually pair:
+// the whole part, both pages of it, played in order.
+const across = await page.evaluate(async () => {
+  const { annotateTake, renderScoreTab, clearSheet } = await import('/src/ui/score.js');
+  const { takeFromWritten } = await import('/src/fixtures/engraved-page.js');
+  clearSheet();
+  const written = window.__written ?? [];
+  const notes = takeFromWritten(written, {
+    from: 0, count: written.length, spacing: 0.3, sounding: 0.28, lead: 0,
+  });
+  await annotateTake(notes, {
+    readings: notes.map((n) => ({
+      time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05,
+      midi: n.midi, cents: n.cents,
+    })),
+    a4: 440,
+  });
+  await renderScoreTab();
+  await new Promise((r) => setTimeout(r, 900));
+  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
   return {
-    trail,
-    which,
-    shown: !!box && box.offsetParent !== null,
-    text: (box?.textContent ?? '').trim(),
-    wanted: Math.abs(want) <= 5 ? 'in tune' : `${Math.abs(want)}¢ ${want > 0 ? 'sharp' : 'flat'}`,
-    tone: box?.dataset.tone ?? '',
-    // The ring itself also carries it, for a pointer that can hover.
-    ringTitle: rings[which]?.title ?? '',
-    ringLabel: rings[which]?.getAttribute('aria-label') ?? '',
+    played: notes.length,
+    rings: rings.length,
+    pages: [...new Set(rings.map((r) => r.closest('.scan-page')?.dataset.page))].sort(),
   };
 });
+check('a take of the whole part is marked on both its pages',
+  across.pages.length === 2 && across.rings > 0,
+  `${across.rings} rings for ${across.played} notes, on pages ${across.pages.join(', ')}`);
 
-check('a note picked at random shows its reading on screen',
-  random.shown === true, `${random.trail.join(' | ')}`);
-check('and the cents it shows are that note\'s own',
-  random.text.includes(random.wanted),
-  `note ${random.which}: shows "${random.text}", should contain "${random.wanted}"`);
-check('sharp or flat is said in colour too, not only in numbers',
-  ['good', 'sharp', 'flat'].includes(random.tone), `state="${random.tone}"`);
-check('and the ring itself carries the reading for a pointer',
-  random.ringTitle.includes('¢') && /cents/.test(random.ringLabel),
-  `title "${random.ringTitle}", label "${random.ringLabel}"`);
-
-// --- a take that runs past the page, and one that runs past the part ---------
-// Two shapes that are easy to get wrong and easy not to notice: notes carrying
-// on over a page break, and a take with more notes in it than the part has
-// noteheads. The second one is the case that used to be silently truncated.
 const spread = await page.evaluate(async ({ scoreId }) => {
-  const { annotateTake, renderScoreTab } = await import('/src/ui/score.js');
-  const { clearSheet } = await import('/src/ui/score.js');
+  const { annotateTake, renderScoreTab, clearSheet } = await import('/src/ui/score.js');
+  clearSheet();
   // The part read from the top and then kept going: 80 noteheads exist and 200
-  // notes were played, so 120 of them cannot be on these pages. That is a real
-  // shape — a repeat taken, or playing on past the last page photographed —
-  // and it has to be capped and SAID rather than refused or invented.
-  // Played from what is WRITTEN, twice over and a bit — the take has to be of
-  // this music or the pairing refuses it for the right reason and this check
-  // proves nothing. window.__written is what the engraving printed.
+  // notes were played, so 120 of them cannot be on these pages.
   const written = window.__written ?? [];
   const many = Array.from({ length: 200 }, (_, i) => {
     const w = written[i % written.length];
     return {
       midi: w?.midi ?? 48,
       cents: (i % 7) * 5 - 15,
-      start: i * 0.1,
-      end: i * 0.1 + 0.09,
+      start: i * 0.3,
+      end: i * 0.3 + 0.28,
       frequency: 440 * 2 ** (((w?.midi ?? 48) - 69) / 12),
     };
   });
-  clearSheet?.();
-  await annotateTake(many, { readings: [], a4: 440 });
+  await annotateTake(many, {
+    readings: many.map((n) => ({
+      time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05,
+      midi: n.midi, cents: n.cents,
+    })),
+    a4: 440,
+  });
   await renderScoreTab();
   await new Promise((r) => setTimeout(r, 900));
-  const rings = [...document.querySelectorAll('#score-stage .scan-note')];
-  const pagesWithRings = new Set(rings.map((r) => r.closest('.scan-page')?.dataset.page));
-  // How many noteheads the page actually has, so the cap can be asserted
-  // against the reading rather than against a number typed into this file: a
-  // reader that finds one more head than was drawn is not a broken cap.
   const { loadScorePages } = await import('/src/store/db.js');
   const row = await loadScorePages(scoreId);
   const heads = (row?.layout ?? []).filter(Boolean)
     .reduce((sum, p) => sum + p.staves.reduce((n, st) => n + st.heads.length, 0), 0);
   return {
-    rings: rings.length,
+    rings: document.querySelectorAll('#score-stage .scan-note').length,
     heads,
-    pages: [...pagesWithRings].sort(),
-    said: document.querySelector('.scan-pairing')?.textContent ?? '',
+    // The page STAYS under the refusal — a take that could not be placed is not
+    // a reason to take away the music somebody just photographed.
+    stillDrawn: !!document.querySelector('#score-stage .scan-page canvas'),
+    said: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').trim(),
   };
 }, built);
 
-check('a take longer than the part is capped at the noteheads that exist',
-  spread.rings === spread.heads,
-  `${spread.rings} rings for 200 notes over ${spread.heads} noteheads`);
-check('and the notes that could not be placed are SAID, not dropped in silence',
+check('a take far longer than the part is refused, not half-marked',
+  spread.rings === 0, `${spread.rings} rings for 200 notes over ${spread.heads} noteheads`);
+check('and the refusal is SAID, over the page it still shows',
   /200/.test(spread.said) && new RegExp(`\\b${spread.heads}\\b`).test(spread.said)
-    && new RegExp(`\\b${200 - spread.heads}\\b`).test(spread.said),
-  spread.said.trim());
-check('the marks carry across the page break',
-  spread.pages.length === 2, `rings on pages ${spread.pages.join(', ')}`);
-
+    && spread.stillDrawn === true,
+  spread.said.slice(0, 150) || 'nothing was said');
 
 // --- the reported bug: a cover page, and the music on page two --------------
 //
