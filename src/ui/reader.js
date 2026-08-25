@@ -3937,13 +3937,7 @@ async function trimPage(pageNumber) {
   const start = at
     ? [[at.x, at.y], [at.x + at.w, at.y], [at.x + at.w, at.y + at.h], [at.x, at.y + at.h]]
     : null;
-  const chosen = await editCorners(blob, start, {
-    whole: 'Whole page',
-    reset: 'What it found',
-    keep: 'Trim it here',
-    hint: 'Drag the edges to where the music starts and stops. Nothing is cut from the file —'
-      + ' this is only how much of the page is shown.',
-  });
+  const chosen = await editCorners(blob, start, { keep: 'Trim it here' });
   if (!chosen) return;
   // The corners move independently, because the same editor squares up a
   // photograph taken at an angle. A page of a PDF is already square, so what is

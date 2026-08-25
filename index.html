@@ -2263,15 +2263,34 @@
       color: #fff; font-family: var(--num, inherit); font-size: 0.7rem;
       text-shadow: 0 1px 4px rgb(0 0 0 / 0.8);
     }
-    /* "The paper is not where you think it is" — one tap from the page it is
-       about, which is the only place that question ever comes up. */
+    /* THE WHOLE PICTURE OPENS THE EDGES. This used to be the button, a
+       thirty-pixel word in the corner of a thumbnail — "I should be able to
+       click anywhere on that bottom-left photo, not just where it says edges."
+       It is a label now; `.scan-open` is the target and it is the picture. */
+    /* Still being made into a page. It is a real picture of what was taken, so
+       it does not pulse or shimmer — it is not a placeholder for something
+       unknown, it is the photograph, a moment early. */
+    .scan-thumb.pending img { opacity: 0.72; }
+    .scan-open {
+      position: absolute; inset: 0;
+      border: 0; padding: 0; margin: 0;
+      background: none;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: box-shadow 120ms ease, transform 120ms ease;
+    }
+    .scan-open:active { transform: scale(0.96); box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.55); }
     .scan-edges {
       position: absolute; bottom: 0.2rem; right: 0.25rem;
       padding: 0.1rem 0.4rem; border-radius: 999px;
-      border: none; background: rgb(0 0 0 / 0.7); color: #fff;
+      background: rgb(0 0 0 / 0.7); color: #fff;
       font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.02em;
-      cursor: pointer;
+      pointer-events: none;     /* a label, not a target: see .scan-open */
     }
+    /* Above the picture's own button, so throwing a page away is still one
+       press and never the other thing. */
+    .scan-drop { z-index: 2; }
 
     /* ---- moving the edges of a page ----
        The photograph as taken, everything outside the outline dimmed, and a
@@ -2294,7 +2313,15 @@
       -webkit-touch-callout: none;
       -webkit-user-drag: none;
     }
-    .crop-stage { position: absolute; inset: 0 0 7.5rem; }
+    /* The stage's bottom is set from the foot's real height in ui/crop.js;
+       this is only what it starts at before anything has been measured.
+
+       AND A MARGIN ROUND THE PICTURE, because the handles sit ON the outline
+       and the outline is often the edge of the frame — a page held close enough
+       to fill it has its corners at 0,0 and 1,1. Without this the corner
+       handles are half off the screen and there is nothing left to put a finger
+       on. It is the radius of a handle plus a little. */
+    .crop-stage { position: absolute; inset: 16px 16px 4.5rem; }
     #crop-picture { width: 100%; height: 100%; object-fit: contain; }
     #crop-overlay {
       position: absolute;
@@ -2323,15 +2350,6 @@
       flex-direction: column;
       align-items: center;
       gap: 0.55rem;
-    }
-    .crop-hint {
-      margin: 0;
-      text-align: center;
-      color: rgb(255 255 255 / 0.85);
-      font-family: var(--ui);
-      font-size: 0.78rem;
-      padding: 0 1rem;
-      max-width: 34rem;
     }
     .crop-bar {
       display: flex;

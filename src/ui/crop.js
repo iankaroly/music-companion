@@ -197,31 +197,34 @@ function build() {
   overlay.addEventListener('pointerup', onUp);
   overlay.addEventListener('pointercancel', onUp);
 
+  // TWO BUTTONS AND NOTHING ELSE.
+  //
+  // There were four, and a sentence explaining the gesture. "there's a bunch of
+  // options with whole photo and writing that overlaps a bunch of things. I
+  // don't want that. I just want it to be huge. It doesn't need to tell you
+  // where you can trim it. There are no instructions. You can just trim it and
+  // then confirm it."
+  //
+  // He is right about the sentence: the handles are the instruction. Somebody
+  // looking at a photograph with a blue box and eight dots on it does not need
+  // to be told to drag them, and reading it costs the picture two lines of
+  // height on the one screen where the picture is the whole point.
+  //
+  // "Whole photo" and "What it found" are gone with it. Both were ways back
+  // from a bad drag, and Cancel is the way back now — it costs one more tap on
+  // the rare occasion somebody wants it, and it buys every other visit a screen
+  // with nothing on it but the page.
   const bar = el('div', 'crop-bar');
   const cancel = el('button', 'ctl');
   cancel.type = 'button';
   cancel.textContent = 'Cancel';
   cancel.addEventListener('click', () => finish(null));
-  const whole = el('button', 'ctl');
-  whole.type = 'button';
-  whole.id = 'crop-whole';
-  whole.textContent = 'Whole photo';
-  whole.addEventListener('click', () => { quad = WHOLE_FRAME.map((p) => [...p]); draw(); });
-  const reset = el('button', 'ctl');
-  reset.type = 'button';
-  reset.id = 'crop-reset';
-  reset.textContent = 'What it found';
-  reset.addEventListener('click', () => { quad = found.map((p) => [...p]); draw(); });
   const keep = el('button', 'ctl primary');
   keep.type = 'button';
   keep.id = 'crop-keep';
   keep.textContent = 'Use these edges';
   keep.addEventListener('click', () => finish(quad));
-  bar.append(cancel, whole, reset, keep);
-
-  const hint = el('p', 'crop-hint');
-  hint.id = 'crop-hint';
-  hint.textContent = 'Drag the corners onto the corners of the paper, or drag a line to move a whole edge.';
+  bar.append(cancel, keep);
 
   // THE HINT AND THE BUTTONS, STACKED RATHER THAN BOTH PINNED TO THE BOTTOM.
   //
@@ -232,7 +235,7 @@ function build() {
   // photo". LOOKED AT, at 390x844, which is the only way that kind of fault is
   // ever found.
   const foot = el('div', 'crop-foot');
-  foot.append(hint, bar);
+  foot.append(bar);
   root.append(stage, overlay, foot);
   document.body.append(root);
   // …and the picture gets whatever is left. Measured rather than guessed at,
@@ -249,7 +252,7 @@ function fitStage() {
   const stage = root?.querySelector('.crop-stage');
   if (!foot || !stage) return;
   const tall = Math.ceil(foot.getBoundingClientRect().height);
-  if (tall > 0) stage.style.bottom = `${tall + 12}px`;
+  if (tall > 0) stage.style.bottom = `${tall + 20}px`;
 }
 
 function finish(result) {
@@ -264,27 +267,19 @@ function finish(result) {
 
 // The photograph as taken, and where the paper was thought to be. Resolves with
 // the corners the player settled on, or null if they left it alone.
-// The words on the buttons.
+// The word on the one button that has one.
 //
 // This editor does two jobs. On a photograph it is finding the sheet of paper
 // in a picture of a room; on a page of a PDF it is trimming the white off
-// something already rectangular. The gestures are the same and the sentences
-// are not — "Whole photo" on a downloaded part is a button describing a
+// something already rectangular. The gesture is the same and the sentence is
+// not — "Use these edges" on a downloaded part is describing a crop of a
 // photograph that does not exist.
-const PHOTO_WORDS = {
-  whole: 'Whole photo',
-  reset: 'What it found',
-  keep: 'Use these edges',
-  hint: 'Drag the corners onto the corners of the paper, or drag a line to move a whole edge.',
-};
+const PHOTO_WORDS = { keep: 'Use these edges' };
 
 export async function editCorners(blob, corners = null, words = null) {
   build();
   const say = { ...PHOTO_WORDS, ...(words ?? {}) };
-  root.querySelector('#crop-whole').textContent = say.whole;
-  root.querySelector('#crop-reset').textContent = say.reset;
   root.querySelector('#crop-keep').textContent = say.keep;
-  root.querySelector('#crop-hint').textContent = say.hint;
   const image = await readableImage(blob);
   if (!image) return null;
   const { w, h } = sizeOfImage(image);

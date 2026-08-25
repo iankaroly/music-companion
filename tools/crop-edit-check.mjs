@@ -121,14 +121,13 @@ const drag = await page.evaluate(async () => {
   // assertion about its size passes against nothing.
   const overlayBox = overlay.getBoundingClientRect();
   const layerBox = document.querySelector('#crop').getBoundingClientRect();
-  // Does the sentence saying what to do land on top of the buttons? It did, as
-  // soon as four of them wrapped onto two rows at 390px.
-  const hintBox = document.querySelector('.crop-hint').getBoundingClientRect();
+  // The foot is two buttons and nothing else now — the sentence that used to
+  // print through them is gone, along with "Whole photo" and "What it found".
+  // What is left to check is that the picture is not underneath what remains.
   const barBox = document.querySelector('.crop-bar').getBoundingClientRect();
-  const overlaps = hintBox.bottom > barBox.top + 1 && hintBox.top < barBox.bottom;
-  // …and the picture is not underneath either of them.
   const picBox = document.querySelector('#crop-picture').getBoundingClientRect();
-  const clearsFoot = picBox.bottom <= hintBox.top + 1;
+  const overlaps = document.querySelectorAll('.crop-hint').length > 0;
+  const clearsFoot = picBox.bottom <= barBox.top + 1;
   document.querySelector('#crop').hidden = true;
   return {
     perMove: spent / 100,
@@ -168,8 +167,8 @@ check('…and that box is the whole layer, not an SVG\'s intrinsic 300x150',
     && drag.overlayBox[1] === drag.layerBox[1],
   `overlay ${drag.overlayBox.join('x')}, layer ${drag.layerBox.join('x')}`);
 
-check('the hint does not print through the buttons', drag.overlaps === false);
-check('…and the picture clears both of them', drag.clearsFoot === true);
+check('there is no instruction printed over the buttons', drag.overlaps === false);
+check('…and the picture clears the buttons', drag.clearsFoot === true);
 
 if (errors.length) {
   console.log('\nerrors on the page:');

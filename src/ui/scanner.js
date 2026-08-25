@@ -491,6 +491,15 @@ async function capture() {
   canvas.height = shot?.height ?? video.videoHeight;
   canvas.getContext('2d').drawImage(shot ?? video, 0, 0);
   shot?.close?.();
+  // The shutter has fired and there is a picture: it goes up NOW, and the page
+  // made out of it takes its place below. See addPending.
+  const slot = addPending(canvas);
+  root.classList.add('flash');
+  setTimeout(() => root.classList.remove('flash'), 180);
+  // A frame for the strip to actually paint before the work starts. Without it
+  // the whole of `capture` runs in one task and the placeholder appears at the
+  // same moment the real page would have.
+  await new Promise((paint) => requestAnimationFrame(() => requestAnimationFrame(paint)));
   // Where the paper was, on the frame actually taken. Kept with the shot, so
   // the edges can be moved afterwards without the corners having to be found
   // all over again from a picture the hand has since moved on from.
@@ -543,6 +552,7 @@ async function capture() {
     if (file) taken.push({ file, corners: cut, w: page.width, h: page.height });
   }
   if (!taken.length) {
+    slot?.remove();
     say('that shot did not come out — take it again');
     return;
   }
@@ -556,7 +566,7 @@ async function capture() {
   for (const { file, corners } of taken) {
     pages.push(file);
     shots.push({ raw, corners });
-    addThumb(file, pages.length - 1);
+    settleThumb(slot, file, pages.length - 1);
   }
   refreshCount();
   waiting = 0;
@@ -578,8 +588,6 @@ async function capture() {
   // point at it rather than to turn over.
   if (all.length > 1) say(`got it${size} — now point at the other page`);
   else say(`got it${size}${auto ? ' — turn the page' : ''}`);
-  root.classList.add('flash');
-  setTimeout(() => root.classList.remove('flash'), 180);
 }
 
 function refreshCount() {
@@ -613,16 +621,83 @@ function dropButton(file, thumbnail, index) {
   return drop;
 }
 
-// Tap the page to say where the paper really was. The badge is there because a
-// thumbnail that does something has to look like it does something.
-function edgesButton(file, thumbnail, index) {
-  const edges = document.createElement('button');
-  edges.type = 'button';
+// THE WHOLE THUMBNAIL OPENS THE EDGES, not a word in the corner of it.
+//
+// "when I click on it, I should be able to click anywhere on that bottom-left
+// photo, not just where it says edges". The badge was a 30-pixel target on a
+// picture the size of a thumbnail, which is a smaller thing to hit than the
+// eraser in the reader — and the picture beside it did nothing at all, which is
+// the one part of it a finger naturally goes for.
+//
+// The badge stays, as a label rather than as the target: a thumbnail that does
+// something has to look like it does something. The ✕ keeps its own press —
+// dropping a page and editing it are the two things here and one of them cannot
+// be undone, so it stops the event rather than sharing the wrapper's.
+function edgesBadge() {
+  const edges = document.createElement('span');
   edges.className = 'scan-edges';
   edges.textContent = 'Edges';
-  edges.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
-  edges.addEventListener('click', () => reshape(file, thumbnail));
+  edges.setAttribute('aria-hidden', 'true');
   return edges;
+}
+
+// THE PICTURE IS IN THE STRIP BEFORE ANY OF THE WORK ON IT.
+//
+// "as soon as I take the image, it is slow before it shows up in the bottom
+// left. That should be instant." It was behind all of it: find the paper on a
+// twelve-megapixel frame, square it up, divide the lighting out, encode a JPEG,
+// and decode that JPEG again to prove it came out. On a phone that is most of a
+// second with nothing on the screen to say the shutter did anything.
+//
+// None of that has to happen first. A shutter has fired and there IS a picture
+// — it is on the canvas — so a small copy of it goes up at once and the real
+// page takes its place when it is ready. What is deliberately NOT offered on
+// the placeholder is the ✕ and the edges: both act on a `File` that does not
+// exist yet, and a control that is there and does nothing is worse than one
+// that arrives a moment later.
+function addPending(canvas) {
+  const wrap = document.createElement('div');
+  wrap.className = 'scan-thumb pending';
+  const image = document.createElement('img');
+  // Drawn small rather than encoded from the full frame: this is a thumbnail
+  // 4.5rem tall and the point of it is that it costs nothing.
+  const small = document.createElement('canvas');
+  const wide = 240;
+  small.width = wide;
+  small.height = Math.max(1, Math.round(canvas.height * (wide / canvas.width)));
+  small.getContext('2d').drawImage(canvas, 0, 0, small.width, small.height);
+  image.src = small.toDataURL('image/jpeg', 0.7);
+  image.alt = '';
+  const label = document.createElement('span');
+  label.className = 'scan-number';
+  wrap.append(image, label);
+  strip.append(wrap);
+  strip.scrollLeft = strip.scrollWidth;
+  return wrap;
+}
+
+// …and the real page, into the slot its picture is already sitting in.
+function settleThumb(slot, file, index) {
+  if (!slot) { addThumb(file, index); return; }
+  const image = slot.querySelector('img');
+  const was = image?.src;
+  slot.replaceChildren();
+  slot.classList.remove('pending');
+  const shown = document.createElement('img');
+  shown.src = URL.createObjectURL(file);
+  shown.alt = '';
+  // The placeholder is only let go once the real one has arrived, so the strip
+  // never blinks empty.
+  shown.addEventListener('load', () => { if (was?.startsWith('blob:')) URL.revokeObjectURL(was); });
+  const label = document.createElement('span');
+  label.className = 'scan-number';
+  label.textContent = String(index + 1);
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'scan-open';
+  open.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
+  open.addEventListener('click', () => reshape(file, shown));
+  slot.append(shown, open, edgesBadge(), dropButton(file, shown, index), label);
 }
 
 function addThumb(file, index) {
@@ -630,11 +705,20 @@ function addThumb(file, index) {
   wrap.className = 'scan-thumb';
   const image = document.createElement('img');
   image.src = URL.createObjectURL(file);
-  image.alt = `Page ${index + 1}`;
+  image.alt = '';
   const label = document.createElement('span');
   label.className = 'scan-number';
   label.textContent = String(index + 1);
-  wrap.append(image, dropButton(file, image, index), edgesButton(file, image, index), label);
+  // The picture's own button, laid over the whole of it. A <button> inside a
+  // <button> is not a thing the DOM should be asked to hold, and the ✕ has to
+  // stay pressable — so this is a sibling underneath it rather than a wrapper
+  // around it, and the two targets never overlap.
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'scan-open';
+  open.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
+  open.addEventListener('click', () => reshape(file, image));
+  wrap.append(image, open, edgesBadge(), dropButton(file, image, index), label);
   strip.append(wrap);
   strip.scrollLeft = strip.scrollWidth;
 }
