@@ -177,6 +177,75 @@ check('and the picture still has most of the screen', editor.share > 0.75,
 check('a handle on the picture\'s own edge is still reachable',
   editor.edgeHandle === true, `nearest handle centre ${editor.handleInset}px from the screen edge`);
 
+// --- AND THE LOOK IS ACTUALLY BAKED INTO THE PAGE ---------------------------
+//
+// The four chips do two separate things and only one of them is visible in a
+// screenshot: they put a CSS filter on the `<img>` in the editor (a preview,
+// free), and they run `bakeLook` over the pixels of the finished page when you
+// confirm. A `LOOKS` entry with the right filter and a bake that never fires
+// looks identical in every picture and passes every other assertion here.
+//
+// So this asks the page itself. Grey and Ink both take the colour out, which is
+// a fact about the STORED pixels that nothing else can produce: after either of
+// them every pixel has R = G = B. The strip's thumbnail is made from the file
+// that was just written (`URL.createObjectURL(fresh)` in reshape), so it is the
+// page, not the preview.
+const confirmWith = async (look) => page.evaluate(async (which) => {
+  const root = document.querySelector('#crop');
+  if (!root || root.hidden) {
+    document.querySelector('.scan-thumb .scan-open')?.click();
+    for (let i = 0; i < 60 && document.querySelector('#crop')?.hidden !== false; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  document.querySelector(`.crop-look[data-look="${which}"]`)?.click();
+  await new Promise((r) => setTimeout(r, 150));
+  document.querySelector('#crop-keep')?.click();
+  // The page is straightened, baked, encoded and decoded again before the
+  // thumbnail changes; waited on the picture rather than on a fixed delay.
+  const img = document.querySelector('.scan-thumb img');
+  const was = img?.src ?? '';
+  for (let i = 0; i < 120; i += 1) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (img && img.src !== was && img.complete && img.naturalWidth) break;
+  }
+  await new Promise((r) => setTimeout(r, 250));
+  const opened = document.querySelector('#crop')?.hidden === false;
+  const chosen = (() => { try { return localStorage.getItem('scanLook'); } catch { return null; } })();
+  if (!img?.naturalWidth) return { read: false, opened, chosen };
+  const c = document.createElement('canvas');
+  c.width = Math.min(160, img.naturalWidth);
+  c.height = Math.max(1, Math.round((c.width * img.naturalHeight) / img.naturalWidth));
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+  const px = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+  let coloured = 0;
+  let total = 0;
+  let sum = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    total += 1;
+    sum += 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+    // JPEG chroma subsampling moves a grey pixel by a level or two; anything
+    // that was ever coloured is far past this.
+    if (Math.max(px[i], px[i + 1], px[i + 2]) - Math.min(px[i], px[i + 1], px[i + 2]) > 8) {
+      coloured += 1;
+    }
+  }
+  return { read: true, coloured: coloured / total, luma: Math.round(sum / total),
+    stored: chosen, stillOpen: opened, changed: img.src !== was };
+}, look);
+
+const asColour = await confirmWith('colour');
+const asGrey = await confirmWith('grey');
+check('confirming with Colour leaves the page in colour',
+  asColour.read === true && asColour.coloured > 0.02,
+  asColour.read ? `${Math.round(asColour.coloured * 100)}% of pixels carry colour` : 'the page could not be read back');
+check('…and confirming with Grey bakes the colour out of the stored page',
+  asGrey.read === true && asGrey.coloured < 0.005,
+  asGrey.read ? `${(asGrey.coloured * 100).toFixed(2)}% of pixels carry colour`
+    + ` (was ${Math.round(asColour.coloured * 100)}%);`
+    + ` the page was rewritten: ${asGrey.changed}` : 'the page could not be read back');
+
 if (errors.length) {
   console.log('\nerrors on the page:');
   for (const e of errors.slice(0, 5)) console.log(`  ${e}`);

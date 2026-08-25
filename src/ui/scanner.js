@@ -760,12 +760,35 @@ async function reshape(file, thumbnail) {
   shots[at] = { ...shot, corners: chosen.quad };
   URL.revokeObjectURL(thumbnail.src);
   thumbnail.src = URL.createObjectURL(fresh);
-  // The thumbnail's delete button closes over the OLD file, so it is rebuilt
-  // against the new one rather than left pointing at a page that is gone.
-  const drop = thumbnail.parentElement?.querySelector('.scan-drop');
-  const edges = thumbnail.parentElement?.querySelector('.scan-edges');
-  drop?.replaceWith(dropButton(fresh, thumbnail, at));
-  edges?.replaceWith(edgesButton(fresh, thumbnail, at));
+  // BOTH BUTTONS ON THE SLOT CLOSE OVER THE OLD FILE, so both are rebuilt.
+  //
+  // The ✕ was, and the one that opens the edges was not — and `reshape` finds
+  // its page with `pages.indexOf(file)`, so the second edit of the same page
+  // looked up a file that had already been replaced, got -1, and returned
+  // without doing anything at all. Editing the edges of a page twice in a row
+  // silently did nothing the second time. MEASURED by `scan:strip`, which now
+  // confirms twice with two different looks and reads the stored page back both
+  // times: the second read was the first page, unchanged.
+  //
+  // The word "Edges" is NOT rebuilt, and the line that rebuilt it was a crash:
+  // `edgesButton` became `edgesBadge` when the whole picture became the target,
+  // and this call site was missed. It threw a ReferenceError at the end of
+  // every single edges edit — after the page had been written and the thumbnail
+  // swapped, so what it broke was everything after it: the "edges changed"
+  // line, and the strip's own idea of what had happened. Nothing rebuilds it
+  // now because there is nothing in it to rebuild: the badge is a label with
+  // `pointer-events: none` and closes over nothing at all.
+  const slot = thumbnail.parentElement;
+  slot?.querySelector('.scan-drop')?.replaceWith(dropButton(fresh, thumbnail, at));
+  const open = slot?.querySelector('.scan-open');
+  if (open) {
+    const again = document.createElement('button');
+    again.type = 'button';
+    again.className = 'scan-open';
+    again.setAttribute('aria-label', `Change the edges of page ${at + 1}`);
+    again.addEventListener('click', () => reshape(fresh, thumbnail));
+    open.replaceWith(again);
+  }
   say('edges changed');
 }
 

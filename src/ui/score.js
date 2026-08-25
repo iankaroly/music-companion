@@ -160,6 +160,11 @@ async function adopt(row) {
 }
 
 // A scan that was chosen for recording but has no notation behind it yet.
+// `unpaired` — the scan that has no notation behind it. Nothing reads it any
+// more: its one reader was the `#score-pair` button's listener, which went with
+// the other three notation doors (see main.js). Kept as the one line it is,
+// rather than threaded back out of `chooseScore`, because the paired path is
+// still here and this is the variable it would be picked up by.
 let unpaired = null;
 
 async function chooseScore(id) {

@@ -428,13 +428,16 @@ async function openPdf(data, password = null, known = {}) {
   // rectangle. A page rendered at 460 across costs a fraction of one rendered
   // for the glass, and it is drawn instantly while the real one is built.
   const thumbs = thumbStore();
+  const gate = warmGate();
   let drewThumb = false;
   let warming = null;
   const warm = () => {
     if (warming) return warming;
     warming = (async () => {
+      await gate.first();
       for (let i = 0; i < doc.numPages; i += 1) {
         if (thumbs.has(i)) continue;
+        await gate.ready();
         await breathe();
         try {
           const page = await doc.getPage(i + 1);
@@ -553,6 +556,7 @@ async function openPdf(data, password = null, known = {}) {
       // The small render first, where the canvas is cold — see `warm` above.
       // Drawn WHOLE rather than cropped: measuring the crop means rendering the
       // page, which is the wait this exists to remove.
+      gate.drew();
       if (instant) {
         warm();
         const spare = thumbs.get(index);
@@ -671,6 +675,40 @@ const THUMB_PIXELS = 6_000_000;   // ≈24MB of RGBA, whatever the page count is
 // page that has been seen must never be replaced by a card saying it cannot
 // be), and standing in for a decode that has not HAPPENED yet. Same picture,
 // same store.
+// WHEN THE SMALL COPIES ARE MADE, which matters more than that they are.
+//
+// The obvious moment is the first draw — and that is the worst one available.
+// A part just scanned opens its reader at the same instant the READING PASS
+// starts, which decodes every page a second time through a reader of its own;
+// that window is exactly the one being complained about ("as soon as it loads
+// in"), and it is the window in which iOS starts taking pixels back out of
+// canvases that are still on screen. Adding twenty-odd megabytes of canvas to
+// it to make turning faster later would be paying for the fix out of the fault.
+//
+// So the pass waits: a spell after it is first asked for, and then it only ever
+// takes a page while nothing has been DRAWN for a moment. It does not need to
+// be finished before the score opens — only before a hand gets ahead of the
+// look-ahead, which is seconds later.
+const WARM_AFTER = 2500;   // ms after the first ask, before any of it runs
+const WARM_QUIET = 700;    // ms since the last draw, before taking another page
+
+function warmGate() {
+  let lastDraw = 0;
+  return {
+    drew() { lastDraw = Date.now(); },
+    async ready() {
+      for (let i = 0; i < 600; i += 1) {
+        if (Date.now() - lastDraw >= WARM_QUIET) return;
+        await new Promise((go) => { setTimeout(go, 120); });
+      }
+    },
+    async first() {
+      await new Promise((go) => { setTimeout(go, WARM_AFTER); });
+      await this.ready();
+    },
+  };
+}
+
 function thumbStore() {
   const held = new Map();
   let pixels = 0;
@@ -862,12 +900,15 @@ async function openImages(blobs, known = {}) {
   // it — and with a breath between pages, so this never holds up a turn or the
   // measuring pass running beside it. Started once, from the first draw, so a
   // score nobody opens costs nothing.
+  const gate = warmGate();
   let warming = null;
   const warm = () => {
     if (warming) return warming;
     warming = (async () => {
+      await gate.first();
       for (let i = 0; i < blobs.length; i += 1) {
         if (thumbs.has(i)) continue;
+        await gate.ready();
         await breathe();
         const blob = blobs[i];
         if (!blob) continue;
@@ -946,6 +987,7 @@ async function openImages(blobs, known = {}) {
       // decode the page to measure it — which is the wait — and a placeholder
       // showing a little more margin for a moment is not worth caching a crop
       // measured off a 460-pixel copy for the sharp draw to inherit.
+      gate.drew();
       if (instant && !ready.has(index)) {
         warm();
         const spare = thumbs.get(index);
