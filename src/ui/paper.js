@@ -599,6 +599,9 @@ async function openImages(blobs, known = {}) {
   // saved four times that.
   const BACKUP_KEEP = DECODED_PAGES + 2;
   const failures = { soft: 0, card: 0 };
+  // Whether the last thing drawn was the "could not be read" card. Read and
+  // cleared by `drewACard()`; see drawBand.
+  let drewCard = false;
   // Kept by LAST USE, not by when it was made. The first version of this threw
   // away the spare for page 1 as soon as pages 2 to 12 had been looked at,
   // which is exactly the part a reader does before coming back to page 1.
@@ -673,6 +676,18 @@ async function openImages(blobs, known = {}) {
       }
       if (!image) image = await readableImageSmall(blob, DECODE_MAX);
       if (!image) image = await readableImageSmall(blob, 700);
+      // …AND ONE MORE, AFTER LONG ENOUGH FOR THE MEMORY TO COME BACK.
+      //
+      // The four tries above happen inside about a fifth of a second, and what
+      // they are up against lasts longer than that: a phone that has just taken
+      // half a dozen photographs, straightened them and started reading the
+      // pages is short of memory for as long as that pass runs. A second is
+      // nothing to wait for a page that would otherwise be a card, and it is
+      // only ever waited when every quick way has already failed.
+      if (!image) {
+        await new Promise((wait) => setTimeout(wait, 900));
+        image = await readableImageSmall(blob, 700);
+      }
       if (!image) {
         cache.delete(index);
         // A PAGE THAT HAS BEEN SEEN IS NEVER REPLACED BY A CARD SAYING IT
@@ -746,6 +761,8 @@ async function openImages(blobs, known = {}) {
       return sizes.get(index);
     },
     measured() { return measuredSoFar(blobs.length, crops, sizes); },
+    /** Did the last draw put up a card instead of a page, and clear that. */
+    drewACard() { const was = drewCard; drewCard = false; return was; },
     // For the check that keeps the card off a page that has been read: how many
     // decodes fell back to a spare copy, and how many got as far as the card.
     trouble() { return { ...failures }; },
@@ -768,6 +785,14 @@ async function openImages(blobs, known = {}) {
     },
     async drawBand(index, canvas, rect, width, height, density = 1, { plain = false } = {}) {
       const page = await load(index);
+      // WHAT WAS DRAWN, said back. A card is a TEMPORARY state — see `load`,
+      // where a decode that fails is deliberately not remembered — and the
+      // caller is the only one who can put a real page in its place, by asking
+      // again. Without this it could not tell a page from a card, so the card
+      // stayed up until somebody turned a page or reopened the score: "it'll
+      // show the score for about 20 seconds, it'll then say Page 1 could not be
+      // read, and I have to go back to the menu and reopen the score."
+      if (page.missing) drewCard = true;
       const dpr = window.devicePixelRatio || 1;
       const crop = region(await cropFor(index), rect);
       const sx = crop.x * page.w;

@@ -111,6 +111,7 @@
     "settings:away": "node tools/settings-away-check.mjs",
     "crop:edit": "node tools/crop-edit-check.mjs",
     "scan:strip": "node tools/scan-strip-check.mjs",
+    "page:card": "node tools/page-card-check.mjs",
     "scan:frame": "node tools/scan-frame-probe.mjs"
   },
   "keywords": [],

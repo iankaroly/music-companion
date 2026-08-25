@@ -5389,6 +5389,11 @@ async function relayoutSameScore(id) {
 }
 
 const drawn = new Set();
+// How many times a page has come back as a card. Bounded, so a page that really
+// cannot be read settles on saying so instead of blinking for ever.
+const cardTries = new Map();
+// Counted so a check can see the card arrive and then go — see readerState.
+const cards = { drawn: 0, healed: 0 };
 // Pages being drawn right now.
 //
 // `drawn` only records pages that have FINISHED, so two things asking for the
@@ -5459,6 +5464,35 @@ async function drawOnePage(index, quick = false) {
     sayOnPage(canvas, saying(`Page ${slice.page + 1} could not be drawn`, err), across);
   }
   if (mine !== era) return;
+  // A CARD IS NOT AN ANSWER, IT IS A PAGE THAT HAS NOT ARRIVED YET.
+  //
+  // `load` in paper.js never remembers a failed decode — the cause is a phone
+  // short of memory while it straightens half a dozen photographs and reads
+  // them, and the memory comes back — but nothing ever asked again, so the card
+  // stayed on the music until the score was closed and reopened. "it'll show
+  // the score for about 20 seconds, it'll then say Page 1 could not be read,
+  // and I have to go back to the menu and reopen the score."
+  //
+  // So it asks again, three times, backing off. Bounded because a page that is
+  // genuinely unreadable must settle on saying so rather than blinking at
+  // somebody for ever, and slow because the thing being waited for is the
+  // reading pass finishing rather than a network.
+  if (paper.drewACard?.()) {
+    cards.drawn += 1;
+    const tries = (cardTries.get(index) ?? 0) + 1;
+    cardTries.set(index, tries);
+    if (tries <= 3) {
+      setTimeout(() => {
+        if (mine !== era) return;
+        drawn.delete(index);
+        rough.delete(index);
+        drawOnePage(index, false);
+      }, 900 * tries);
+    }
+  } else {
+    if (cardTries.has(index)) cards.healed += 1;
+    cardTries.delete(index);
+  }
   drawn.add(index);
   if (quick) rough.add(index);
   else rough.delete(index);
@@ -6329,6 +6363,12 @@ export function readerState() {
     barsKnown: bars?.size ?? 0,
     notesIndexed: view?.map?.size ?? 0,
     unmatched: view?.unmatched?.length ?? 0,
+    // How many times a page came back as the "could not be read" card, and how
+    // many of those the reader then put a real page over without anybody
+    // touching anything. The second number is the whole of the promise: a card
+    // is a page that has not arrived yet.
+    cardsDrawn: cards.drawn,
+    cardsHealed: cards.healed,
   };
 }
 
@@ -6373,6 +6413,9 @@ export function close() {
   // a score that is no longer open, and none of them may report back.
   era++;
   drawn.clear();
+  cardTries.clear();   // a different score's pages, and a different tally
+  cards.drawn = 0;
+  cards.healed = 0;
   beingDrawn.clear();
   slices = [];
   sheet.replaceChildren();
