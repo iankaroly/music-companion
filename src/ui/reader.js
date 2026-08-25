@@ -3239,9 +3239,24 @@ function toggleBrush() {
 // Under whichever bar is up, measured rather than guessed: on a phone the tool
 // bar wraps onto two rows, and a panel positioned from a constant would open
 // straight through it.
+// Hung under whichever bar is showing — measured off the LAYOUT, not off the
+// painted box.
+//
+// `getBoundingClientRect` reports where a thing is drawn, and while the bar is
+// coming down it is drawn wherever the transition has got to: `#reader.bare
+// #reader-top` holds it at `translateY(-100%)`, so a rect taken in that moment
+// says the bar ends at zero. Opening this sheet is what BRINGS the bar down
+// (`setChrome(true)` a line earlier), so the measurement was taken during the
+// 220ms it takes to arrive — and the sheet was placed at 8px, on top of the
+// close button, the page arrows, the page count and the record dot.
+//
+// `offsetTop` and `offsetHeight` are the untransformed answer and are what this
+// wants: where the bar WILL be, which is where it already is as far as layout
+// is concerned. MEASURED: sheet top 8px before, 66px after, against a bar that
+// ends at 58. Found by `npm run app:reach`.
 function hangBelowBar(panel) {
   const bar = tool ? el('reader-ink-bar') : el('reader-top');
-  const bottom = bar?.getBoundingClientRect().bottom ?? 0;
+  const bottom = bar ? bar.offsetTop + bar.offsetHeight : 0;
   panel.style.top = `${Math.round(bottom + 8)}px`;
 }
 

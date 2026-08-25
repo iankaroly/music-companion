@@ -335,6 +335,31 @@ npm run app:sweep        WALK THE WHOLE APP AND WRITE DOWN EVERYTHING IT THROWS.
                          render and never disconnected throws nothing and draws
                          nothing wrong until the screen changes size.
                          NO REAL CAMERA: the fake device only.
+npm run app:reach       EVERY CONTROL ON THE SCREEN CAN BE PRESSED. Three faults
+                         in this app have been the same fault and none of them
+                         threw anything or failed any check that existed at the
+                         time: a SENTENCE carrying the bar layer's class became
+                         a transparent sheet over the whole review; the word
+                         "Edges" took the tap meant for the picture under it;
+                         the shutter's flash had no `pointer-events: none`.
+                         Each was found by accident. This asks the question of
+                         every button, link and field on every screen.
+                         TWO RULES DO THE WORK and both were wrong first time.
+                         A control behind a sheet that covers the screen is
+                         meant to be out of reach — but written as "only look
+                         inside the top surface" that also hid a sheet sitting
+                         on its OWN parent's controls, which is what the flash
+                         and the options-sheet fault both are. And `hit.contains
+                         (el)` was allowed, to let a menu row sit over the
+                         button that opened it — which swallowed every case of
+                         an ancestor painting over its own child, and a
+                         full-screen `::after` is exactly that (elementFromPoint
+                         reports the element, never the pseudo).
+                         VERIFIED BY PUTTING BOTH FAULTS BACK: the first version
+                         passed with them in. The flash is held up by hand
+                         rather than raced — 180ms is not long enough to walk
+                         the screen, and a step that passes by arriving late is
+                         the failure this whole tool exists to avoid.
 npm run edge:fit         NOTHING RUNS OFF THE EDGE OF THE SCREEN, at five phone
                          widths from 320 to 430. It looks at the DOCUMENT rather
                          than at a list of suspects, because the next one of
