@@ -884,7 +884,6 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   // chart, which covers the borrow, a tab switch, a rotation and a window drag
   // with one mechanism instead of three.
   let builtAt = 0;
-  let watching = null;
 
   // Re-render at a new scale/mode, keeping the time at the viewport center
   // under the viewport center.
@@ -916,11 +915,19 @@ function showOverview(root, allNotes, recording, extras, selectNote, tileByNote)
   buildChart();
   builtAt = scroller?.clientWidth ?? 0;
 
-  watching?.disconnect();
+  // THE PREVIOUS ONE, not this one. `showOverview` runs on every render and
+  // nothing disconnects between takes — so a local `watching` starting at null
+  // meant every review left an observer on the same `#chart-scroll` and only
+  // the newest was ever reachable to disconnect. Beyond the wasted rebuilds,
+  // each stale observer's `rebuild` closes over the notes of the take it was
+  // made for, so a rotation after two takes could repaint the first one's chart
+  // last. Same fault as the two in the scanner: a handler outliving what it
+  // closed over.
+  chartWatch?.disconnect();
   if (scroller && typeof ResizeObserver === 'function') {
-    watching = new ResizeObserver(() => {
+    const watching = new ResizeObserver(() => {
       const now = scroller.clientWidth;
-      // Nothing to draw into yet, and no point redrawing for a pixel: the
+        // Nothing to draw into yet, and no point redrawing for a pixel: the
       // spacer this rebuild sets is what scrolls, and it does not change the
       // scroller's own width, so there is no loop to guard against beyond this.
       if (!now || Math.abs(now - builtAt) < 4) return;

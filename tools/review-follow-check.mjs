@@ -120,10 +120,15 @@ if (!barBox) { console.log('FAIL  no bar was reachable at the top of the review'
 await page.touchscreen.tap(barBox.x, barBox.y);
 const following = await page.evaluate(async () => {
   const { followState } = await import('/src/ui/score-tab.js');
-  // Back to the top of the review, WITHOUT a gesture: `scrollTo` fires neither
-  // a wheel nor a touchmove, so this is the app moving its own page and the
-  // follower still has the wheel. From here it has somewhere to scroll TO.
-  window.scrollTo({ top: 0, behavior: 'instant' });
+  // AWAY FROM THE MUSIC, WITHOUT A GESTURE: `scrollTo` fires neither a wheel
+  // nor a touchmove, so this is the app moving its own page and the follower
+  // still has the wheel. To the foot of the review rather than to the top —
+  // the music is at the TOP, so this is the position from which the follower
+  // has to bring it back, and it does not depend on how tall the page happens
+  // to be. (It did: this scrolled to the top and waited for the light to walk
+  // far enough down to leave the comfortable middle, which stopped happening
+  // the day the graph stopped being 900px wide and the page got shorter.)
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
   await new Promise((r) => setTimeout(r, 3500));
   return { ...followState(), y: Math.round(window.scrollY),
     play: document.querySelector('#clip-play')?.textContent };

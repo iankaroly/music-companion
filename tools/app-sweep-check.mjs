@@ -101,6 +101,18 @@ for (const state of STATES) {
   await page.evaluateOnNewDocument((remembered) => {
     localStorage.setItem('instrument', 'cello');
     for (const [k, v] of Object.entries(remembered)) localStorage.setItem(k, v);
+    // A LEDGER OF WATCHERS. A ResizeObserver made on every render and never
+    // disconnected is a handler that outlives what it closed over — the same
+    // fault as the two found in the scanner this week, and invisible to
+    // everything else here: it throws nothing and draws nothing wrong until the
+    // screen changes size, at which point the OLDEST one repaints last.
+    const Real = window.ResizeObserver;
+    if (!Real) return;
+    window.__watchers = new Set();
+    window.ResizeObserver = class extends Real {
+      observe(target, options) { window.__watchers.add(this); return super.observe(target, options); }
+      disconnect() { window.__watchers.delete(this); return super.disconnect(); }
+    };
   }, state.set);
 
   const at = async (name, run) => {
@@ -445,7 +457,60 @@ for (const state of STATES) {
         rings = Math.max(rings, document.querySelectorAll('.scan-note').length);
       }
       return { 'bars drawn over the pages': bars, 'rings marked on the notes': rings,
-        'notes in the take': notes.length };
+        'notes in the take': notes.length,
+        // COUNTED WHILE A REVIEW IS ON SCREEN, which is the only moment the
+        // number means anything: the graph's watcher is made by rendering one.
+        // Two takes were rendered in this step, so a second watcher here is one
+        // per render rather than one per screen. MEASURED against the version
+        // before this was fixed: three renders left three.
+        'resize watchers, after two reviews': window.__watchers?.size ?? 0 };
+    });
+  });
+
+  // SAVING, DISCARDING AND DELETING — the paths that change the list under the
+  // handler that is on it, which is exactly where the two scanner faults lived.
+  await at('a take saved, a take discarded, a piece deleted', async (p) => {
+    return p.evaluate(async () => {
+      const { listRecordings, listScores } = await import('/src/store/db.js');
+      const before = (await listRecordings()).length;
+      let saved = 0;
+      let discarded = 0;
+      for (const which of ['#score-save-take', '#score-discard-take']) {
+        const bar = document.querySelector('#score-save-bar');
+        if (bar) bar.hidden = false;
+        const btn = document.querySelector(which);
+        if (!btn) continue;
+        btn.click();
+        await new Promise((r) => setTimeout(r, 900));
+        if (which.includes('save')) saved += 1; else discarded += 1;
+      }
+      // …and a piece removed from the shelf, twice: the row that moves up into
+      // the gap has to be the row that gets deleted next.
+      document.querySelector('.tab-btn[data-tab="score"]')?.click();
+      await new Promise((r) => setTimeout(r, 600));
+      const wasScores = (await listScores()).length;
+      let deleted = 0;
+      for (let i = 0; i < 2; i += 1) {
+        const row = document.querySelector('#score-list li button:last-of-type');
+        row?.click();
+        await new Promise((r) => setTimeout(r, 400));
+        const kill = [...document.querySelectorAll('.pick-pop.menu .pick-row')]
+          .find((one) => /^delete/i.test(one.textContent.trim()));
+        kill?.click();
+        await new Promise((r) => setTimeout(r, 500));
+        const dialog = [...document.querySelectorAll('dialog[open]')].at(-1);
+        dialog?.querySelector('[value="delete"], .danger, [value="save"]')?.click();
+        if (dialog?.open) dialog.close('delete');
+        await new Promise((r) => setTimeout(r, 700));
+        document.querySelector('.pick-pop.menu')?.remove();
+      }
+      deleted = wasScores - (await listScores()).length;
+      return {
+        'takes before saving': before,
+        'a take saved': saved,
+        'a take discarded': discarded,
+        'pieces deleted, one after another': deleted,
+      };
     });
   });
 
@@ -560,10 +625,20 @@ const WANT = {
   'the shutter is off until the camera is': 1,
   'and a press in that window puts nothing up': 1,
   'scanner shutters pressed': 4, 'pages in the strip': 4,
+  'a take saved': 1, 'a take discarded': 1, 'pieces deleted, one after another': 2,
+  'resize watchers, after two reviews': 1,
   'a page deleted from the middle': 1, 'pages renumbered after the delete': 1,
   'edges edited after a delete': 2, 'a second delete took a page': 1,
 };
 const idle = Object.entries(WANT).filter(([what, least]) => (did[what] ?? 0) < least);
+// …and the other direction, for the one number that must not GROW. Five states,
+// one watcher each at most.
+const watchers = did['resize watchers, after two reviews'] ?? 0;
+const leaked = watchers > (ONLY ? 1 : STATES.length);
+if (leaked) {
+  console.log(`\nA WATCHER WAS LEFT BEHIND: ${watchers} live after`
+    + ` ${ONLY ? 1 : STATES.length} × two reviews, at most ${ONLY ? 1 : STATES.length} expected`);
+}
 if (idle.length) {
   console.log('\nSTEPS THAT DID NOTHING — the walk is not walking, whatever it reports:');
   for (const [what, least] of idle) console.log(`   ${what}: ${did[what] ?? 0}, wanted at least ${least}`);
@@ -579,4 +654,4 @@ if (!found.size) {
   console.log(`\n${found.size} DISTINCT ERRORS`);
 }
 await browser.close();
-process.exit(found.size || idle.length ? 1 : 0);
+process.exit(found.size || idle.length || leaked ? 1 : 0);
