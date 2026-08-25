@@ -157,7 +157,9 @@ describe('the moment a place in the piece was played', () => {
   });
 
   it('says how much of the map is known and how much is a guess', () => {
-    expect(sayMap([], bars)).toMatch(/tap the bar you are hearing/);
+    // A COUNT, not an instruction. The empty case used to read "play the take
+    // and tap the bar you are hearing"; the strip's own button says that.
+    expect(sayMap([], bars)).toBe('nothing marked yet');
     expect(sayMap([{ at: 0, time: 0 }], bars)).toMatch(/one place marked/);
     expect(sayMap([{ at: 0, time: 0 }, { at: 2, time: 8 }], bars))
       .toBe('2 places marked, 2.0 of 3 systems between them');

@@ -171,7 +171,10 @@ async function chooseScore(id) {
     el('score-remove').hidden = true;
     showReviewCard(false);
     scoreChanged?.();
-    status('MusicXML or .mxl — export one from MuseScore, or download it from IMSLP. Your playing is marked onto it when you stop.');
+    // Nothing chosen is nothing to say. The line here used to explain what a
+    // MusicXML file is and where to get one, under a row whose own button
+    // reads "Load score…".
+    status('');
     return;
   }
   const row = await loadScore(id);
@@ -200,8 +203,10 @@ async function chooseScore(id) {
         el('score-pair').hidden = false;
         el('score-remove').hidden = false;
         scoreChanged?.();
-        status(`${row.name} — record, then tap a bar to hear that moment of it.`
-          + ' Add its MusicXML too if you want wrong notes caught.');
+        // The NAME, and the one fact about this score that its name cannot
+        // carry: there is no notation behind it, which is why wrong notes will
+        // not be caught. Not a paragraph teaching the app.
+        status(`${row.name} — pages only, no notation`);
         return;
       }
       await adopt({ ...notation, id: row.id, name: row.name, paper: row });
@@ -211,7 +216,7 @@ async function chooseScore(id) {
     el('score-remove').hidden = false;
     showReviewCard(true);
     scoreChanged?.();
-    status(`${current.name} — ${current.notes.length} notes. Record, and it will be marked up when you stop.`);
+    status(`${current.name} — ${current.notes.length} notes`);
     // A take already on screen gets marked up straight away, so recording
     // first and choosing the piece afterwards works the same as the other way
     // round.

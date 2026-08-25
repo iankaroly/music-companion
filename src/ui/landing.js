@@ -119,9 +119,11 @@ export function renderLanding(root, notes, readings, a4, { onPickNote } = {}) {
 
   const hint = root.querySelector('#landing-hint');
   if (hint) {
-    hint.textContent = 'How each note arrived, before you corrected it — the part a'
-      + ' sustained reading can\'t show. Timing is measured to about a twentieth of a'
-      + ' second, so read these as bands rather than stopwatch figures.';
+    // THE PRECISION, and nothing else. The two sentences that used to open
+    // this — what landing is, and to tap a chip to hear one — described the
+    // panel to somebody already looking at it. What a reader genuinely cannot
+    // get from the figures is how far to trust them.
+    hint.textContent = 'measured to about a twentieth of a second';
   }
   return report;
 }

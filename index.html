@@ -1596,15 +1596,25 @@
       display: flex;
       align-items: center;
       gap: 0.15rem;
-      padding: max(0.4rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-left, 0px))
-               0.4rem max(0.5rem, env(safe-area-inset-right, 0px));
+      padding: max(0.6rem, env(safe-area-inset-top, 0px)) max(0.5rem, env(safe-area-inset-left, 0px))
+               0.6rem max(0.5rem, env(safe-area-inset-right, 0px));
       /* Tall enough to hold a 44-point target.
          The bar came to 41px on a phone, and the ink layer starts the pixel
          after it — so a hit area reaching for 44 was simply cut off by the
          page, and the three missing points went to the drawing surface rather
          than to the button. Three pixels of music is a cheap price for a tool
-         a bow hand can actually hit; the buttons themselves are unchanged. */
-      min-height: 46px;
+         a bow hand can actually hit; the buttons themselves are unchanged.
+
+         …AND THEN TALLER AGAIN. 46px is the smallest a bar holding a 44-point
+         target can be, which is a floor and was being used as a height: with
+         1.9rem buttons in it on a phone there was about a pixel of surface
+         above and below them, and the whole thing read as a hairline with
+         icons rather than as a title bar — "the menu bar in an opened score
+         should go down more, meaning thicker". 58px puts real material around
+         the row, which is also what makes the blur behind it legible as a
+         surface instead of a smudge. `hangBelowBar` measures the bar rather
+         than assuming its height, so the options sheet follows it down. */
+      min-height: 58px;
       background: rgb(var(--sf) / 0.94);
       -webkit-backdrop-filter: blur(26px) saturate(1.8);
       backdrop-filter: blur(26px) saturate(1.8);
@@ -2132,11 +2142,22 @@
     /* A phone has room for twelve controls in one bar only if they are small.
        On a tablet — where this is meant to be used — they are not. */
     @media (max-width: 560px) {
-      #reader-top { gap: 0.15rem; padding: 0.3rem 0.4rem; }
+      /* The phone rule sets `padding` outright, which also DROPS the
+         safe-area top inset the base rule asks for — on a notched phone that
+         pulled the row up under the status bar and made a bar that was
+         already at its floor look thinner still. Written the long way so the
+         inset survives being made compact. */
+      #reader-top {
+        gap: 0.15rem;
+        padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0.4rem 0.5rem 0.4rem;
+      }
       #reader-top .reader-tool { width: 1.9rem; height: 1.9rem; }
       #reader-title { max-width: 6.5rem; font-size: 0.78rem; }
       #reader-count { font-size: 0.7rem; }
-      #reader-ink-bar { gap: 0.2rem; padding: 0.3rem 0.35rem; }
+      #reader-ink-bar {
+        gap: 0.2rem;
+        padding: max(0.5rem, env(safe-area-inset-top, 0px)) 0.35rem 0.5rem 0.35rem;
+      }
       #reader-ink-bar .reader-tool { width: 1.85rem; height: 1.85rem; font-size: 0.85rem; }
       #reader-ink-bar .reader-swatch { width: 1.1rem; height: 1.1rem; }
     }
@@ -2975,7 +2996,6 @@
     #pause-rec.active { background: var(--off-soft); color: var(--off); }
     #pitch-chart { height: clamp(210px, 31vh, 290px); display: block; margin: 0 auto; }
     #clip-head { display: flex; align-items: center; gap: 0.7rem; margin-bottom: 0.6rem; }
-    #clip-label { color: var(--muted); font-family: var(--ui); font-weight: 500; font-size: 0.84rem; letter-spacing: 0.005em; }
     #chart-mode { margin-left: auto; display: inline-flex; background: var(--fill); border-radius: 999px; padding: 0.15rem; gap: 0.1rem; }
     #chart-mode button {
       border: none;
@@ -3079,7 +3099,6 @@
     /* Same button, quieter: restarting is the second thing you reach for. */
     #clip-restart { font-size: 1.1rem; box-shadow: 0 4px 12px rgba(109, 78, 246, 0.28); }
     #zoom-label { color: var(--ink); font-weight: 500; font-size: 0.85rem; }
-    #zoom-hint { color: var(--muted); font-size: 0.75rem; }
     #note-chart { width: 100%; height: 170px; display: block; }
 
     /* ---- passages ---- */
@@ -3142,6 +3161,7 @@
     #landing-verdict[data-verdict="mixed"] { background: var(--fill-2); color: var(--ink); }
     #landing-verdict[data-verdict="scooping"] { background: rgb(var(--on-surface) / 0.2); color: var(--ink); font-weight: 600; }
     #landing-summary { font-size: 0.95rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
+    #held-least-line { display: inline-flex; align-items: center; gap: 0.3rem; }
     #landing-hint { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
     #landing-bars { display: grid; gap: 0.6rem; }
     /* one row per interval size: how often notes of that reach spoke in tune */
@@ -3904,6 +3924,7 @@
       .ld-name { width: 5.4rem; }
       .ld-val { width: 4.9rem; font-size: 0.78rem; }
     }
+
   </style>
 </head>
 <body>
@@ -4185,7 +4206,11 @@
           <button id="score-pair" class="ctl" type="button" hidden>Add notation…</button>
           <button id="score-remove" class="ctl" type="button" hidden>Remove</button>
         </div>
-        <p id="score-hint" class="hint">MusicXML or .mxl — export one from MuseScore, or download it from IMSLP. Your playing is marked onto it when you stop.</p>
+        <!-- Empty, and it stays empty until something needs SAYING. It used to open
+             with "MusicXML or .mxl — export one from MuseScore…", which is a
+             sentence explaining a button that is already labelled "Load
+             score…". See status() in ui/score.js. -->
+        <p id="score-hint" class="hint"></p>
         <div id="score-sheet" hidden></div>
       </div>
       <div id="report" class="card">
@@ -4197,7 +4222,6 @@
           <div id="clip-head">
             <button id="clip-play" aria-label="Play or pause the whole take">▶</button>
             <button id="clip-restart" aria-label="Play from the beginning" title="back to the start">↺</button>
-            <span id="clip-label">play the whole take</span>
             <div id="chart-mode" role="group" aria-label="Graph style">
               <button data-mode="pitch" class="active">pitch</button>
               <button data-mode="wave">wave</button>
@@ -4208,7 +4232,6 @@
             <div id="zoom-head">
               <button id="zoom-play" aria-label="Play or pause this section">▶</button>
               <span id="zoom-label"></span>
-              <span id="zoom-hint">drag on the graph to move the playhead</span>
             </div>
             <canvas id="note-chart" role="img" aria-label="Pitch of the selected note in cents"></canvas>
           </div>
@@ -4241,6 +4264,20 @@
             </select>
             <button id="compare" hidden></button>
             <button id="any-drone" aria-haspopup="menu" aria-expanded="false">Drone</button>
+            <!-- ONLY THE NOTES THAT WERE HELD. A take of a piece is mostly
+                 passing notes, and the pitch you can actually judge is the one
+                 that stood still long enough to have a pitch — see
+                 applyHeldFilter in ui/report.js. -->
+            <label id="held-least-line">
+              <span class="mini-label">held</span>
+              <select id="held-least" aria-label="Show only notes held at least this long">
+                <option value="0" selected>any</option>
+                <option value="0.25">0.25s+</option>
+                <option value="0.5">0.5s+</option>
+                <option value="1">1s+</option>
+                <option value="2">2s+</option>
+              </select>
+            </label>
           </div>
           <div id="passages">
             <div id="passage-head">
@@ -4258,10 +4295,10 @@
             <p id="landing-summary"></p>
             <div id="landing-bars"></div>
             <div id="landing-worst"></div>
-            <p id="landing-hint">
-              How each note arrived, before you corrected it — the part a
-              sustained reading can't show. Tap one to hear it.
-            </p>
+            <!-- Not a description of the panel any more — see landing.js. What
+                 is left is the one thing the numbers themselves cannot say:
+                 how precise they are. -->
+            <p id="landing-hint"></p>
           </div>
         </div>
       </div>

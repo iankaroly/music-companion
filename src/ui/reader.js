@@ -3674,9 +3674,22 @@ function menuGroup(sheet, title) {
 // what is on screen — whether a take is loaded, how big the music is set.
 function buildMenu(sheet) {
   sheet.replaceChildren();
-  menuGroup(sheet, 'this score');
+  // WHAT A ROW SAYS UNDER ITS NAME, and what it does not.
+  //
+  // Every row here used to carry a sentence: "write on the page" under
+  // Annotate, "the click, on the page" under Metronome, "crop a page again, or
+  // straighten one that came out crooked" under the edges. Told once, that
+  // reads as help; told sixteen times down one sheet it reads as a machine
+  // explaining its own buttons — "I don't want text explaining stuff. It just
+  // makes it seem like AI and not good."
+  //
+  // So the line under a row is now only ever an ANSWER: how many jumps are
+  // taped to this score, what the bookmarks are called, what the file is
+  // called, what a row will do that its name cannot say on its own (the take
+  // that could not be paired). Nothing that merely restates the label.
+  menuGroup(sheet, 'score');
   menuRow(sheet, {
-    label: 'Annotate', glyph: '✎', detail: 'write on the page',
+    label: 'Annotate', glyph: '✎',
     onPick: () => setTool(lastInk),
   });
   // Only for a score read off a page: a part somebody exported from MuseScore
@@ -3685,12 +3698,11 @@ function buildMenu(sheet) {
     menuRow(sheet, {
       label: correcting ? 'Stop correcting' : 'Correct the notes',
       glyph: '♪',
-      detail: correcting ? 'leave the notes alone' : 'fix what the recogniser misread',
       onPick: () => setCorrecting(!correcting),
     });
   }
   menuRow(sheet, {
-    label: 'Clear this page', glyph: '⌧', detail: 'the marks on it, not the music',
+    label: 'Clear this page', glyph: '⌧',
     onPick: clearPage,
   });
   const canMark = isPaper() ? (!!take?.notes?.length && !!layout) : !!take?.aligned;
@@ -3699,125 +3711,103 @@ function buildMenu(sheet) {
   // "colour the notes by how they landed" is a promise this app cannot keep on
   // a page where it could not work out which notes those are, and a row that
   // opens onto a page with nothing on it reads as a bug rather than as a
-  // refusal. So the row stays — the sentence is worth showing — and it says
-  // what it will actually do.
+  // refusal. So the row stays — and it says what it will actually do, which is
+  // the one line on this sheet that is not the label said twice.
   const refused = isPaper() && canMark && !scanPairing().marks.length;
   if (canMark) {
-    menuGroup(sheet, 'this take');
+    menuGroup(sheet, 'take');
     menuRow(sheet, {
       label: refused
         ? (painted ? 'Hide why this take is not on the page' : 'Why this take is not on the page')
         : (painted ? 'Hide what you played' : 'Show what you played'),
       glyph: '◉',
-      detail: refused
-        ? (painted ? 'back to a clean page'
-          : 'it could not be paired with the notes on these pages')
-        : (painted ? 'back to a clean page' : 'colour the notes by how they landed'),
       onPick: () => togglePainted(),
     });
     menuRow(sheet, {
       label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? '❚❚' : '▶',
-      detail: 'the note being heard lights up',
       onPick: togglePlayback,
     });
   }
   {
-    menuGroup(sheet, 'reading');
+    menuGroup(sheet, 'size');
+    menuRow(sheet, { label: 'Bigger', glyph: '+', onPick: () => resize(ZOOM_STEP) });
+    menuRow(sheet, { label: 'Smaller', glyph: '−', onPick: () => resize(1 / ZOOM_STEP) });
+  }
+  if (isPaper()) {
+    menuGroup(sheet, 'pages');
+    // ONE ROW, NOT TWO. "There shouldn't be a 'trim a page and change the
+    // edges' option. It should just be 'change the edges'."
+    //
+    // They were two rows because they are two different jobs underneath: a
+    // photograph has corners to re-cut in the edges editor, and a PDF page is
+    // already a rectangle, so the only thing there is to say about one is where
+    // on it the music sits. That is a fact about the file, not a question for
+    // the player — so the row is one row, and it opens whichever of the two
+    // this score actually has.
     menuRow(sheet, {
-      label: 'Bigger', glyph: '+', detail: 'larger notes, more pages',
-      onPick: () => resize(ZOOM_STEP),
-    });
-    menuRow(sheet, {
-      label: 'Smaller', glyph: '−', detail: 'more music to a page',
-      onPick: () => resize(1 / ZOOM_STEP),
+      label: 'Change the edges…',
+      glyph: '⛶',
+      onPick: score?.source === 'pdf' ? openTrimMenu : openEdgesMenu,
     });
   }
   if (isPaper()) {
-    menuGroup(sheet, 'the pages themselves');
-    menuRow(sheet, {
-      label: 'Trim a page…',
-      glyph: '⌗',
-      detail: 'say where the music is, when too much white or too little shows',
-      onPick: openTrimMenu,
-    });
-    // Only a photograph has edges to find: a PDF page is already a rectangle,
-    // and there is no picture behind it to re-cut.
-    if (score?.source !== 'pdf') {
-      menuRow(sheet, {
-        label: 'Change the edges…',
-        glyph: '⛶',
-        detail: 'crop a page again, or straighten one that came out crooked',
-        onPick: openEdgesMenu,
-      });
-    }
-  }
-  if (isPaper()) {
-    menuGroup(sheet, 'what is behind it');
+    menuGroup(sheet, 'notation');
     menuRow(sheet, {
       label: score?.notationId != null ? 'Change the notation…' : 'Add notation for analysis…',
       glyph: '♪',
-      detail: score?.notationId != null
-        ? 'takes of this piece are read against it'
-        : 'so takes can be marked up on it',
       onPick: chooseNotation,
     });
   }
-  menuGroup(sheet, 'while you play');
+  menuGroup(sheet, 'play');
   // Both of these used to CLOSE the score and take you to a tab, which is a
   // metronome you use before you start playing and never again. They open on
   // the page now, over the foot of it, and the music stays where it is.
   menuRow(sheet, {
-    label: 'Metronome', glyph: '𝅘𝅥',
-    detail: aidsShowing() === 'metronome' ? 'put the click away' : 'the click, on the page',
+    label: aidsShowing() === 'metronome' ? 'Hide the metronome' : 'Metronome', glyph: '𝅘𝅥',
     onPick: () => {
       if (aidsShowing() === 'metronome') hideAids(); else showAids('metronome');
       closeMenu();
     },
   });
   menuRow(sheet, {
-    label: 'Tuner', glyph: '♪',
-    detail: aidsShowing() === 'tuner' ? 'put the tuner away' : 'tune without leaving the page',
+    label: aidsShowing() === 'tuner' ? 'Hide the tuner' : 'Tuner', glyph: '♪',
     onPick: () => {
       if (aidsShowing() === 'tuner') hideAids(); else showAids('tuner');
       closeMenu();
     },
   });
   menuRow(sheet, {
-    label: 'Record a take', glyph: '●', detail: 'against this piece',
+    label: 'Record a take', glyph: '●',
     onPick: () => { close(); document.querySelector('.tab-btn[data-tab="analyze"]')?.click(); },
   });
 
   menuGroup(sheet, 'places');
   menuRow(sheet, {
     label: 'Jumps', glyph: '↴',
-    detail: linksOf().length
-      ? `${linksOf().length} taped to this score`
-      : 'a repeat, a coda, a cut',
+    // An ANSWER, not an explanation: how many are taped to this score.
+    detail: linksOf().length ? `${linksOf().length} taped to this score` : '',
     onPick: openLinks,
   });
   menuRow(sheet, {
     label: 'Bookmarks', glyph: '⚑',
     detail: bookmarksOf().length
       ? bookmarksOf().map((m) => m.label).join(' · ').slice(0, 44)
-      : 'mark where you keep stopping',
+      : '',
     onPick: openBookmarks,
   });
   menuRow(sheet, {
     label: spread ? 'One page at a time' : 'Two pages side by side',
     glyph: '▥',
-    detail: spread ? 'the way a phone reads' : 'the way a tablet on a stand reads',
     onPick: toggleSpread,
   });
   menuRow(sheet, {
     label: night ? 'Light page' : 'Dark page',
     glyph: night ? '☀' : '☾',
-    detail: night ? 'back to black on white' : 'white on black, for a dark hall',
     onPick: toggleNight,
   });
-  menuGroup(sheet, 'this file');
+  menuGroup(sheet, 'file');
   menuRow(sheet, {
     label: 'Send a copy…', glyph: '⤴',
-    detail: isPaper() ? 'a PDF, with your marks on it' : 'the MusicXML file',
     onPick: openSend,
   });
   menuRow(sheet, {
@@ -3826,7 +3816,6 @@ function buildMenu(sheet) {
   });
   menuRow(sheet, {
     label: 'Delete this score', glyph: '␡', danger: true,
-    detail: 'the pages and everything written on them',
     onPick: deleteThisScore,
   });
   menuRow(sheet, { label: 'Close the score', glyph: '✕', onPick: close });

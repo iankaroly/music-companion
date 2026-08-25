@@ -320,8 +320,12 @@ export function barAtTime(bars, anchors, time) {
  */
 export function sayMap(anchors, bars) {
   const marks = tidyAnchors(anchors);
-  if (marks.length === 0) return 'play the take and tap the bar you are hearing';
-  if (marks.length === 1) return 'one place marked — mark a second further on and the rest follow';
+  // Both of these were instructions — "play the take and tap the bar you are
+  // hearing", "mark a second further on and the rest follow". They are counts
+  // now, for the same reason the rest of this sentence is a count: the strip
+  // beside it already has a button that says what marking is.
+  if (marks.length === 0) return 'nothing marked yet';
+  if (marks.length === 1) return 'one place marked';
   const widest = marks.slice(1).reduce((most, one, i) => Math.max(most, one.at - marks[i].at), 0);
   const systems = new Set((bars ?? []).map((b) => Math.floor(b.at))).size;
   const covered = marks.at(-1).at - marks[0].at;
