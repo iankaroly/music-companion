@@ -105,10 +105,26 @@ const tabs = initLiquidTabs({
       renderScoreTab().catch(() => {});
     }
     if (name === 'coach') renderCoach(document); // fresh habits every visit
-    // deferred a tick: the initial onShown fires while this module is still
-    // initializing, and beginCapture reads consts declared further down
+    // Deferred a tick, BOTH WAYS: the initial onShown fires while this module
+    // is still initializing, and both of these read bindings declared further
+    // down the file.
+    //
+    // Only the tuner half was deferred, and the other half threw — every time.
+    // `autoStopTuner` reads `scoreWantsEars`, a `let` about 330 lines below
+    // this one, so the branch taken for EVERY tab except the tuner ran inside
+    // its temporal dead zone and aborted the rest of main.js with "Cannot
+    // access 'scoreWantsEars' before initialization". Which is to say: the app
+    // finished starting up only for somebody whose last tab was the tuner.
+    // Everyone else got a shell — the tab bar, the markup, the CSS — with none
+    // of the wiring below this line, which is why the metronome's pickers came
+    // up as raw browser dropdowns and the saved tab did not always open.
+    //
+    // FOUND by looking — a screenshot taken for the metronome tab had the
+    // app's own error toast in the corner of it — and then measured properly:
+    // `npm run startup:tabs` opens on each tab in turn and requires zero page
+    // errors. Against the commit before this one it fails five of six.
     if (name === 'tuner') queueMicrotask(autoStartTuner); // the tuner just runs here
-    else autoStopTuner();
+    else queueMicrotask(autoStopTuner);
   },
 });
 const showTab = (name) => tabs.show(name);
@@ -1862,8 +1878,7 @@ async function refreshScoreTab() {
 document.querySelector('#score-load')?.addEventListener('click', (e) => {
   actionMenu(e.currentTarget, [
     {
-      label: 'Scan with the camera',
-      hint: 'Page after page, straightened as they come in',
+      label: 'Scan',
       onPick: () => scanPages(),
     },
     {
@@ -1871,22 +1886,18 @@ document.querySelector('#score-load')?.addEventListener('click', (e) => {
       //
       // The scanner works off the video the browser gives a web page, which is
       // a fraction of what the camera can take — Safari has no way to ask for a
-      // real still, so on that phone this is it. It was called "Photos already
-      // taken", which reads as the library and hid the one thing that gets the
-      // most notes off a photographed page: the camera app's own twelve
-      // megapixels, which the reader has four times as much to work with.
-      label: 'Photograph it (full size)',
-      hint: 'Opens the camera app — the sharpest pictures, and the most notes read',
+      // real still, so on that phone this is it. Which is why the two top rows
+      // read as two different things: "(full size)" is the whole difference
+      // between them, and is a NAME rather than a sentence about one.
+      label: 'Photograph (full size)',
       onPick: () => document.querySelector('#score-photos')?.click(),
     },
     {
       label: 'PDF',
-      hint: 'A part you printed or downloaded',
       onPick: () => document.querySelector('#score-pdf')?.click(),
     },
     {
       label: 'Music file',
-      hint: 'MusicXML or .mxl — the only kind you can record against',
       onPick: () => document.querySelector('#score-file')?.click(),
     },
   ]);
