@@ -100,7 +100,6 @@ const reopened = await page.evaluate(async (recId) => {
   return {
     reviewShown: review ? !review.hidden : null,
     summary: document.querySelector('#score-tab-summary')?.textContent ?? null,
-    gap: document.querySelector('.score-scan-gap')?.textContent ?? null,
     waiting: reviewIsWaiting(),
     // PRESENT is not the same as reachable, and the difference was the whole
     // bug: the button existed in the document the entire time, on a tab the
@@ -134,9 +133,27 @@ check('and it reports the pulse the player actually kept',
 check('and it does NOT claim a written-pitch verdict it cannot have',
   !!reopened.summary && !/wrong note|written pitch|the printed/i.test(reopened.summary),
   reopened.summary);
-check('the missing half is named rather than left as a hole',
-  /notation/i.test(reopened.gap ?? '') && /musicxml/i.test(reopened.gap ?? ''),
-  (reopened.gap ?? '(nothing said)').slice(0, 110));
+// THIS ASSERTION WAS DROPPED, AND THE DECISION BEHIND IT IS WORTH KEEPING.
+//
+// It used to read:
+//
+//   check('the missing half is named rather than left as a hole',
+//     /notation/i.test(gap) && /musicxml/i.test(gap), …)
+//
+// and it was looking for `scanGapNote()` in score.js — "Read from the sound:
+// intonation, how each note spoke, and your own pulse. Whether you played the
+// written note needs the notation —", with an "add its MusicXML" button beside
+// it. That function was deleted on 2026-08-24 in a174489, the commit that acted
+// on "get rid of the ad notation stuff": the MusicXML door came off all four
+// surfaces it was offered on, and the sentence went with it, because it existed
+// only to point at that door. The check was not updated, so from that commit on
+// it demanded a sentence the app had deliberately been made to stop saying.
+//
+// NOT REPLACED WITH A SENTENCE OF ITS OWN. The obvious repair is to have the
+// review say the missing half some other way — and that is re-opening a
+// decision he made, not fixing a check. What the review must not do is CLAIM
+// the verdict it cannot have, and that is asserted two lines above this and
+// still passes. That is the half worth guarding.
 check('the take is stamped, so it can be reopened like any other',
   reopened.waiting === true, `reviewIsWaiting=${reopened.waiting}`);
 // Asked from where the player is actually standing.
