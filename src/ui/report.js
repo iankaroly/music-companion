@@ -1244,21 +1244,125 @@ let heldLeast = Number(localStorage.getItem('heldLeast')) || 0;
 let applyHeldFilter = null;   // set by renderReport, called by the field
 let applyHeldToChart = null;  // …and the half of it that repaints the graph
 
+// A LADDER AND A FIELD, HOLDING ONE VALUE BETWEEN THEM.
+//
+// "the presets could be 0.5 / 0.75 / 1 / 1.5 / 2 seconds… as soon as you select
+// one of those options, it shows you the list of the notes that comply."
+//
+// This was a ladder once and became a field on request — "just make it so you
+// can put in the number that you want" — and the ladder is now back beside it
+// rather than instead of it. Both sentences are live: the rungs are what a
+// thumb reaches for on a stand, the field is for a number that is not on the
+// ladder. So there is ONE number, `heldLeast`, and two ways to write it — a
+// rung fills the field in, and a typed number lights the rung it matches or
+// none. Two controls that each remembered their own idea of the threshold
+// would disagree the first time somebody used both.
+function markPresets(root) {
+  for (const button of root.querySelectorAll('#held-presets button')) {
+    button.classList.toggle('active', Number(button.dataset.held) === heldLeast);
+    button.setAttribute('aria-pressed', String(Number(button.dataset.held) === heldLeast));
+  }
+}
+
 function wireHeldFilter(root) {
   const field = root.querySelector('#held-least');
   if (!field) return;
   // Empty means all of them, which is what the placeholder says.
   field.value = heldLeast > 0 ? String(heldLeast) : '';
+  const set = (seconds) => {
+    heldLeast = Math.max(0, seconds || 0);
+    localStorage.setItem('heldLeast', String(heldLeast));
+    markPresets(root);
+    applyHeldFilter?.();
+  };
   // ON EVERY KEYSTROKE, not on change: a number typed into a field and then
   // left alone — because you have gone back to looking at the graph, which is
   // the point — never fires `change` at all on iOS until the field is blurred.
-  const moved = () => {
-    heldLeast = Math.max(0, Number(field.value) || 0);
-    localStorage.setItem('heldLeast', String(heldLeast));
-    applyHeldFilter?.();
-  };
-  field.oninput = moved;
-  field.onchange = moved;
+  const typed = () => set(Number(field.value));
+  field.oninput = typed;
+  field.onchange = typed;
+  for (const button of root.querySelectorAll('#held-presets button')) {
+    button.onclick = () => {
+      const seconds = Number(button.dataset.held) || 0;
+      field.value = seconds > 0 ? String(seconds) : '';
+      set(seconds);
+    };
+  }
+  markPresets(root);
+}
+
+// THE NOTES THAT QUALIFIED, AS A WAY INTO THE GRAPH.
+//
+// "it shows those notes as buttons with how many seconds into the audio and
+// what note it is, and then you can click it and it'll take you to that part of
+// the graph."
+//
+// The grid above already holds every one of these as a tile, and this is not a
+// second copy of it: the grid is in the order the music is WRITTEN, and what
+// somebody wants after choosing "held a second or more" is the handful of long
+// notes in the order they were PLAYED, each with the moment it happened, so the
+// take can be walked through end to end. A tile says how far out of tune; a
+// button here says when.
+//
+// BUILT FROM `standing`, which is the same set that tints the graph and hides
+// the tiles — one decision, three places it shows. Not from the grid's own
+// `long`, which is `!d.played || …`: a degree nobody played passes that test on
+// purpose (it stays visible as a "missed" tile), and it has no start time and
+// no duration, so reading it here would put `NaN s` in front of a player on
+// every take against notation with a missed note in it.
+//
+// It presses the same door the tile does — `selectNote(note, null, { play })` —
+// so a note reached from this list opens the close-up, sounds, and lights up on
+// the trace exactly as one reached from the grid does. The graph is scrolled to
+// it as well: playback moves the playhead and the playhead pulls the view along
+// with it, but only once the audio has actually started, and a list whose whole
+// promise is "it'll take you to that part of the graph" cannot wait on a decode
+// to keep it.
+function buildHeldList(root, standing, tileByNote, selectNote) {
+  const list = root.querySelector('#held-list');
+  if (!list) return;
+  list.replaceChildren();
+  // Nothing to pick FROM when nothing is being filtered: at "any" this would be
+  // every note in the take, which is the grid, said worse.
+  if (!(heldLeast > 0)) { list.hidden = true; return; }
+  list.hidden = false;
+  const picked = [...standing].sort((a, b) => a.start - b.start);
+  if (!picked.length) {
+    // SAID, not left blank. An empty strip under a threshold somebody has just
+    // chosen reads as a control that did nothing.
+    const none = document.createElement('p');
+    none.id = 'held-empty';
+    none.textContent = `Nothing was held ${heldLeast}s or longer in this take.`;
+    list.append(none);
+    return;
+  }
+  for (const note of picked) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'held-jump';
+    button.dataset.state = intonationHue(note.cents);
+    const name = tileByNote.get(note)?.name ?? midiToName(note.midi) ?? '—';
+    const at = note.start;
+    const held = note.end - note.start;
+    const b = document.createElement('b');
+    b.textContent = name;
+    const when = document.createElement('span');
+    // One decimal: a take is seconds long and a hundredth of a second is not a
+    // place anybody is looking for.
+    when.textContent = `${at.toFixed(1)}s`;
+    button.append(b, when);
+    button.setAttribute('aria-label',
+      `${name} at ${at.toFixed(1)} seconds, held ${held.toFixed(1)} seconds.`
+      + ' Go to it on the graph and play it.');
+    button.title = `${at.toFixed(1)}s in · held ${held.toFixed(1)}s`;
+    button.addEventListener('click', () => {
+      for (const other of list.querySelectorAll('.held-jump')) other.classList.remove('on');
+      button.classList.add('on');
+      currentChart?.reveal?.(note.start);
+      selectNote(note, null, { play: true });
+    });
+    list.append(button);
+  }
 }
 
 export function renderReport(root, alignment, recording = null, extras = {}) {
@@ -1386,6 +1490,8 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     // …and the graph says the same thing. `null` rather than the whole set when
     // nothing is being filtered, so the chart can skip the lookup entirely.
     applyHeldToChart?.(heldLeast > 0 ? standing : null);
+    // …and the notes themselves, as a way in. See buildHeldList.
+    buildHeldList(root, standing, tileByNote, selectNote);
     // The spoken summary of the canvas has to agree with the picture, or a
     // screen reader is told about thirty notes while four are drawn.
     // COUNTED FROM WHAT THE CANVAS DRAWS, not from the grid. `shown` above
@@ -1464,6 +1570,11 @@ export function hideReport(root) {
   full = null;
   applyHeldFilter = null; // the tiles it hid have gone with the report
   applyHeldToChart = null; // …and so has the chart it was repainting
+  // …and the list of long notes, which is a list of THIS take's notes: left
+  // standing it would offer to take you to a moment in a recording that is no
+  // longer open, and `selectNote` would refuse it silently.
+  const held = root.querySelector('#held-list');
+  if (held) { held.replaceChildren(); held.hidden = true; }
   cursorReadout = null; // the box it wrote into belongs to a closed report
   selectAtMoment = null; // …and so do the notes it would have looked through
   selectedNote = null;

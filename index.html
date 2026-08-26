@@ -1273,6 +1273,46 @@
        borrowed transport all work without knowing which kind of score they
        are looking at. */
     .scan-score { display: grid; gap: 0.8rem; }
+    /* One page at a time — see scan-view.js. The attribute is enough on its
+       own, but the grid this sits in is the kind of place a display rule gets
+       added later and takes the hiding with it, so it is spelt out. */
+    .scan-page[hidden] { display: none; }
+    /* THE ARROWS. Under the page rather than over it: they are for between
+       looks at the music, and a control floating on top of a photograph of
+       music is a control covering music. */
+    .scan-pager {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1.1rem;
+    }
+    .scan-turn {
+      min-width: 44px;
+      min-height: 44px;
+      padding: 0 0.6rem;
+      border: 0;
+      border-radius: 0.6rem;
+      background: rgb(var(--primary-rgb) / 0.08);
+      color: var(--primary);
+      font: inherit;
+      font-size: 1.35rem;
+      line-height: 1;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 120ms ease, opacity 120ms ease;
+    }
+    .scan-turn:hover { background: rgb(var(--primary-rgb) / 0.14); }
+    .scan-turn:active { background: rgb(var(--primary-rgb) / 0.22); }
+    /* Kept in place rather than removed at the ends, so the page does not step
+       sideways on the first and last page. */
+    .scan-turn:disabled { opacity: 0.28; cursor: default; }
+    .scan-pager-at {
+      min-width: 5ch;
+      text-align: center;
+      font-size: 0.85rem;
+      font-variant-numeric: tabular-nums;
+      opacity: 0.75;
+    }
     .scan-page {
       position: relative;
       line-height: 0;                 /* no gap under the canvas */
@@ -1331,6 +1371,15 @@
        and not something anybody said they heard. A tap over one wins. */
     .scan-bar.found { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.45); }
     .scan-bar.found.marked { box-shadow: inset 0 0 0 2px rgb(var(--primary-rgb) / 0.85); }
+    /* WHERE THE PLAYING STARTED. A different claim from "this bar sounded at
+       that second" — it is the one end of the take rather than a point inside
+       it — so it is drawn as an edge on the left of the bar, where the music
+       begins, instead of a ring round the whole of it. */
+    .scan-bar.started {
+      box-shadow: inset 3px 0 0 0 rgb(var(--primary-rgb) / 0.95),
+                  inset 0 0 0 2px rgb(var(--primary-rgb) / 0.55);
+      background: rgb(var(--primary-rgb) / 0.10);
+    }
     .scan-bar.sounding { background: rgb(var(--primary-rgb) / 0.18); }
     .bar-sync-say { margin: 0; flex: 1 1 14ch; font-size: 0.85rem; opacity: 0.75; }
     .bar-sync-bar {
@@ -3336,7 +3385,22 @@
     #landing-verdict[data-verdict="mixed"] { background: var(--fill-2); color: var(--ink); }
     #landing-verdict[data-verdict="scooping"] { background: rgb(var(--on-surface) / 0.2); color: var(--ink); font-weight: 600; }
     #landing-summary { font-size: 0.95rem; line-height: 1.5; text-align: center; margin-bottom: 0.9rem; }
-    #held-least-line { display: inline-flex; align-items: center; gap: 0.3rem; }
+    /* ITS OWN ROW, and one line of it.
+       It sat in the flex row with Drone and the playback speeds, and at 390px
+       the ladder wrapped: four rungs, then a ragged second row of two under a
+       label that had itself broken across two lines. A row of choices that
+       reflows as you add one is a row that reads as debris. Full width, one
+       line, and it scrolls sideways in the rare case it still does not fit —
+       which is the same answer the note list under it gives. */
+    #held-least-line {
+      flex-basis: 100%;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.45rem;
+      padding-bottom: 0.1rem;
+    }
+    #held-least-line > .mini-label { white-space: nowrap; }
     #held-least {
       width: 4.2rem;
       font: inherit;
@@ -3354,6 +3418,94 @@
     #held-least::-webkit-outer-spin-button,
     #held-least::-webkit-inner-spin-button { appearance: none; margin: 0; }
     #held-least::placeholder { color: var(--muted); }
+    #held-own { display: inline-flex; align-items: center; gap: 0.3rem; flex: 0 0 auto; }
+    /* The ladder, shaped like the OTHER ladder on this row — the playback speeds
+       — because they are the same kind of control and a second look for the same
+       job is a second thing to learn. */
+    #held-presets {
+      display: inline-flex;
+      background: var(--fill);
+      border-radius: 999px;
+      padding: 0.2rem;
+      gap: 0.1rem;
+      /* The RUNGS never wrap — a ladder that reflows as you read it is debris.
+         The line they are on does, so on a phone the typed field drops to its
+         own row rather than being pushed off the edge where nothing says it is
+         there; and on a screen narrower than the ladder itself, the ladder is
+         the one thing that scrolls. */
+      flex: 0 1 auto;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      scrollbar-width: none;
+      max-width: 100%;
+    }
+    #held-presets::-webkit-scrollbar { display: none; }
+    #held-presets button {
+      border: none;
+      background: none;
+      border-radius: 999px;
+      font-family: var(--display);
+      font-size: 0.84rem;
+      font-weight: 500;
+      font-variant-numeric: tabular-nums;
+      padding: 0.4rem 0.7rem;
+      cursor: pointer;
+      color: var(--muted);
+      transition: transform 260ms var(--spring), background 150ms;
+    }
+    #held-presets button:hover { color: var(--ink); }
+    #held-presets button.active {
+      background: var(--surface-solid);
+      color: var(--primary);
+      box-shadow: 0 2px 8px rgb(var(--sh) / 0.16);
+    }
+    #held-presets button:active { transform: scale(0.96); }
+
+    /* THE NOTES THAT QUALIFIED. Coloured off `.degree`'s own palette, because
+       these ARE those tiles said a second way — the same note, the same
+       intonation, ordered by when it was played rather than by where it sits in
+       the music. A row that scrolls rather than a block that grows: at half a
+       second a busy take qualifies dozens of notes, and a list that pushes the
+       graph off the bottom of the screen is a list that has taken away the
+       thing it exists to point at. */
+    #held-list {
+      display: flex;
+      gap: 0.4rem;
+      overflow-x: auto;
+      padding: 0.7rem 0.1rem 0.3rem;
+      scrollbar-width: thin;
+      -webkit-overflow-scrolling: touch;
+    }
+    #held-list .held-jump {
+      flex: 0 0 auto;
+      border: 1px solid transparent;
+      background: rgb(var(--sf) / 0.65);
+      border-radius: 0.9rem;
+      padding: 0.4rem 0.6rem;
+      font-family: inherit;
+      font-size: 0.8rem;
+      text-align: center;
+      min-width: 3.6rem;
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      cursor: pointer;
+      transition: transform 100ms, box-shadow 100ms;
+    }
+    #held-list .held-jump b {
+      display: block;
+      font-family: var(--display);
+      font-weight: 500;
+      font-size: 0.98rem;
+    }
+    #held-list .held-jump[data-state="good"] { background: var(--good-soft); }
+    #held-list .held-jump[data-state="good"] b { color: var(--good); }
+    #held-list .held-jump[data-state="sharp"] { background: var(--sharp-soft); }
+    #held-list .held-jump[data-state="sharp"] b { color: var(--sharp); }
+    #held-list .held-jump[data-state="flat"] { background: var(--flat-soft); }
+    #held-list .held-jump[data-state="flat"] b { color: var(--flat); }
+    #held-list .held-jump:active { transform: scale(0.96); }
+    #held-list .held-jump.on { border-color: var(--ink); }
+    #held-empty { color: var(--muted); font-size: 0.82rem; padding: 0.7rem 0.1rem 0.3rem; }
     #landing-hint { color: var(--muted); font-size: 0.82rem; line-height: 1.45; margin-top: 0.6rem; text-align: center; }
     #landing-bars { display: grid; gap: 0.6rem; }
     /* one row per interval size: how often notes of that reach spoke in tune */
@@ -4519,14 +4671,41 @@
             <!-- TYPED, not chosen. It was a ladder of five — any / 0.25 / 0.5 /
                  1 / 2 — and "just make it so you can put in the number that you
                  want". A number field, in seconds, empty for all of them. -->
-            <label id="held-least-line">
+            <!-- …AND CHOSEN AS WELL, which is the other half of the same
+                 sentence rather than a reversal of it: "the presets could be
+                 0.5 / 0.75 / 1 / 1.5 / 2 seconds… as soon as you select one of
+                 those options, it shows you the list of the notes that comply".
+                 The ladder is back because it is what a thumb on a music stand
+                 can use, and the field STAYS because a number that is not on
+                 the ladder was asked for once already. They are one value: the
+                 ladder writes into the field, the field lights the rung it
+                 matches. See wireHeldFilter in ui/report.js. -->
+            <span id="held-least-line">
               <span class="mini-label">held at least</span>
-              <input id="held-least" type="number" inputmode="decimal"
-                     min="0" max="60" step="0.05" placeholder="any"
-                     aria-label="Show only notes held at least this many seconds">
-              <span class="mini-label" aria-hidden="true">s</span>
-            </label>
+              <span id="held-presets" role="group"
+                    aria-label="Show only notes held at least this long">
+                <button type="button" data-held="0" class="active">any</button>
+                <button type="button" data-held="0.5">0.5s</button>
+                <button type="button" data-held="0.75">0.75s</button>
+                <button type="button" data-held="1">1s</button>
+                <button type="button" data-held="1.5">1.5s</button>
+                <button type="button" data-held="2">2s</button>
+              </span>
+              <label id="held-own">
+                <input id="held-least" type="number" inputmode="decimal"
+                       min="0" max="60" step="0.05" placeholder="any"
+                       aria-label="Show only notes held at least this many seconds">
+                <span class="mini-label" aria-hidden="true">s</span>
+              </label>
+            </span>
           </div>
+          <!-- THE NOTES THAT QUALIFIED, IN THE ORDER THEY WERE PLAYED, each one
+               a way into the graph: "it shows those notes as buttons with how
+               many seconds into the audio and what note it is, and then you can
+               click it and it will take you to that part of the graph."
+               Built by applyHeldFilter, from the same set that tints the graph
+               and hides the tiles — one decision, three places it shows. -->
+          <div id="held-list" hidden></div>
           <div id="passages">
             <div id="passage-head">
               <span class="timing-title">passages</span>

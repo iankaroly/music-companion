@@ -308,7 +308,11 @@ check('…and moves the take to that bar',
 // a bug, but it is the other half of "I click the bar and it starts from that
 // bar", so what actually happens is measured rather than assumed.
 const unplaced = await page.evaluate(async () => {
-  const clear = document.querySelector('.bar-sync-bar .ctl:nth-child(2)');
+  // BY NAME, NOT BY POSITION. This was `.ctl:nth-child(2)`, which stopped being
+  // "Start again" the day a third button joined the strip — and then this step
+  // armed a different mode and left the take somewhere else, which showed up
+  // three assertions later as the graph having lost some of its colour.
+  const clear = document.querySelector('.bar-sync-bar [data-bar="clear"]');
   const btn = document.querySelector('#clip-play');
   if (btn.textContent === '❚❚') { btn.click(); await new Promise((r) => setTimeout(r, 400)); }
   clear?.click();
@@ -416,6 +420,140 @@ check('…and a filtered note pressed on the page still opens',
   held.pressed === 'opened', held.pressed);
 check('…and the field holds the number that was typed', held.typed === '0.5',
   `the field read "${held.typed}"`);
+
+// --- THE LADDER, AND THE NOTES IT PUTS UP ----------------------------------
+//
+// "the presets could be 0.5 / 0.75 / 1 / 1.5 / 2 seconds… as soon as you select
+// one of those options, it shows you the list of the notes that comply with
+// those standards. You can just click on one of them, and it'll take you to
+// that part of the graph."
+//
+// A SECOND TAKE, because the one above holds every note for 0.3s — every rung
+// of the ladder starts at half a second, so against that fixture all six of
+// them would only ever exercise the empty case. This one alternates 0.35s and
+// 1.4s and runs long enough that the graph has somewhere to scroll TO, which is
+// the half of the promise a highlight cannot prove.
+const jumps = await page.evaluate(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const notes = [];
+  let at = 0.4;
+  for (let i = 0; i < 24; i += 1) {
+    const held = i % 4 === 3 ? 1.4 : 0.35;   // one long note in every four
+    const midi = 55 + (i % 9);
+    notes.push({
+      start: at,
+      end: at + held,
+      midi,
+      name: null,
+      cents: (i % 3) * 9 - 9,
+      frequency: 440 * (2 ** ((midi - 69) / 12)),
+    });
+    at += held + 0.25;
+  }
+  const readings = notes.map((n) => ({
+    time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05, midi: n.midi, cents: n.cents,
+  }));
+  const seconds = Math.ceil(notes.at(-1).end) + 1;
+  const audio = new Float32Array(44100 * seconds);
+  for (let i = 0; i < audio.length; i++) audio[i] = Math.sin(i * 0.05) * 0.2;
+  const { Recorder } = await import('/src/audio/recording.js');
+  const rec = new Recorder(44100);
+  rec.push(audio);
+  const { renderFreeReview } = await import('/src/ui/report.js');
+  document.querySelector('.tab-btn[data-tab="analyze"]')?.click();
+  await wait(300);
+  renderFreeReview(document, notes, rec, { readings, a4: 440 });
+  await wait(700);
+
+  // WHAT A PRESS ON A LIST BUTTON STARTS, counted rather than assumed. A panel
+  // that opens is not a note that sounded, and this repo has shipped 35 passing
+  // assertions over a press that started nothing at all.
+  let started = 0;
+  const realStart = AudioBufferSourceNode.prototype.start;
+  AudioBufferSourceNode.prototype.start = function counted(...rest) {
+    started += 1;
+    return realStart.apply(this, rest);
+  };
+
+  const rung = (secs) => [...document.querySelectorAll('#held-presets button')]
+    .find((b) => b.dataset.held === String(secs));
+  const list = document.querySelector('#held-list');
+  const buttons = () => [...list.querySelectorAll('.held-jump')];
+
+  const out = { rungs: [...document.querySelectorAll('#held-presets button')].map((b) => b.textContent.trim()) };
+  out.listHiddenAtAny = list.hidden;
+
+  rung(1)?.click();
+  await wait(400);
+  out.field = document.querySelector('#held-least')?.value ?? null;
+  out.lit = [...document.querySelectorAll('#held-presets button.active')].map((b) => b.textContent.trim());
+  out.shown = buttons().length;
+  out.longNotes = notes.filter((n) => n.end - n.start >= 1).length;
+  // Every label carries BOTH: what the note is, and how far into the take.
+  //
+  // READ FROM THE TWO ELEMENTS, not from `textContent`. The name is a block <b>
+  // over the time, so on the glass they are two lines — and run together as one
+  // string "A#3" and "2.2s" become "A#32.2s", which a regex for a number reads
+  // as thirty-two point two seconds. That cost this check a round.
+  const partsOf = (b) => ({
+    name: b.querySelector('b')?.textContent?.trim() ?? '',
+    when: b.querySelector('span')?.textContent?.trim() ?? '',
+  });
+  out.labels = buttons().slice(0, 3).map((b) => {
+    const p = partsOf(b);
+    return `${p.name} at ${p.when}`;
+  });
+  out.allLabelled = buttons().every((b) => {
+    const p = partsOf(b);
+    return /^[A-G][#b]?-?\d$/.test(p.name) && /^\d+\.\ds$/.test(p.when);
+  });
+  // …and in the order they were played, which is the whole reason this is not
+  // the grid said twice.
+  out.times = buttons().map((b) => parseFloat(partsOf(b).when));
+  out.inOrder = out.times.every((t, i, all) => i === 0 || t >= all[i - 1]);
+
+  // THE JUMP. The last one in the list, because the graph is scrolled to the
+  // left when the take opens and a note near the start would be visible already
+  // — a check that presses one of those measures nothing.
+  const scroller = document.querySelector('#chart-scroll');
+  out.scrollBefore = scroller?.scrollLeft ?? null;
+  out.scrollable = (scroller?.scrollWidth ?? 0) - (scroller?.clientWidth ?? 0);
+  buttons().at(-1)?.click();
+  await wait(700);
+  out.scrollAfter = scroller?.scrollLeft ?? null;
+  out.opened = document.querySelector('#note-zoom')?.hidden === false;
+  out.sounded = started;
+  out.zoomSays = document.querySelector('#zoom-label')?.textContent ?? null;
+
+  rung(0)?.click();
+  await wait(400);
+  out.listHiddenAtAnyAgain = list.hidden;
+  AudioBufferSourceNode.prototype.start = realStart;
+  return out;
+});
+
+check('the ladder offers the five durations and a way back to all of them',
+  jumps.rungs?.join(' ') === 'any 0.5s 0.75s 1s 1.5s 2s', `“${jumps.rungs?.join(' ')}”`);
+check('choosing a rung puts up one button per note that qualified',
+  jumps.shown > 0 && jumps.shown === jumps.longNotes,
+  `${jumps.shown} buttons for ${jumps.longNotes} notes held 1s or longer`);
+check('…each one saying what the note is and how far into the take it is',
+  jumps.allLabelled === true, `first three: ${(jumps.labels ?? []).join(' | ')}`);
+check('…in the order they were played', jumps.inOrder === true,
+  (jumps.times ?? []).join(', '));
+check('…and the rung and the typed field agree on the number',
+  jumps.field === '1' && jumps.lit?.join(' ') === '1s',
+  `field "${jumps.field}", lit “${jumps.lit?.join(' ')}”`);
+// THE ASSERTION THE FEATURE IS FOR: "it'll take you to that part of the graph."
+check('pressing one scrolls the graph to that moment',
+  jumps.scrollable > 0 && jumps.scrollAfter > jumps.scrollBefore,
+  `${jumps.scrollBefore} → ${jumps.scrollAfter} of ${jumps.scrollable} scrollable`);
+check('…and opens that note and sounds it',
+  jumps.opened === true && jumps.sounded > 0,
+  `close-up ${jumps.opened ? 'open' : 'shut'}, ${jumps.sounded} source(s) started, “${jumps.zoomSays}”`);
+check('and “any” puts the list away again',
+  jumps.listHiddenAtAny === true && jumps.listHiddenAtAnyAgain === true,
+  `hidden at first ${jumps.listHiddenAtAny}, hidden again ${jumps.listHiddenAtAnyAgain}`);
 
 if (errors.length) {
   console.log('\nerrors on the page:');

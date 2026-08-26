@@ -353,7 +353,7 @@ export function renderOverviewChart(canvas, {
   pxPerSec = PX_PER_SEC, mode = 'pitch', wave = null, shown = null,
 }) {
   if (notes.length === 0) {
-    return { setPlayhead() {}, setHover() {}, setHighlight() {}, setShown() {} };
+    return { setPlayhead() {}, setHover() {}, setHighlight() {}, setShown() {}, reveal() {} };
   }
   // WHICH NOTES THE FILTER LEFT STANDING — a Set, or null for all of them.
   //
@@ -562,18 +562,30 @@ export function renderOverviewChart(canvas, {
     scroller.addEventListener('scroll', onScroll, { passive: true });
   }
 
+  // BRING A MOMENT INTO VIEW, if it is not already.
+  //
+  // Only when it is off the edge: scrolling a moment that is already on screen
+  // to a third of the way in is a jump for nothing, and on a take that fits
+  // there is nothing to scroll at all. Pulled out of `setPlayhead` because the
+  // held-for list asks for the same thing from outside — press a note in the
+  // list and the graph goes to it — and two copies of this arithmetic would be
+  // two answers to "is it visible".
+  const reveal = (t) => {
+    if (t === null || !scroller) return;
+    const px = contentX(t);
+    const view = scroller.clientWidth;
+    if (px < scroller.scrollLeft + PAD.left + 20 || px > scroller.scrollLeft + view - 60) {
+      scroller.scrollLeft = Math.max(0, px - view / 3);
+    }
+  };
+
   // Keep the sweeping playhead in view during playback.
   const basePlayhead = controller.setPlayhead;
   controller.setPlayhead = (t) => {
-    if (t !== null && scroller) {
-      const px = contentX(t);
-      const view = scroller.clientWidth;
-      if (px < scroller.scrollLeft + PAD.left + 20 || px > scroller.scrollLeft + view - 60) {
-        scroller.scrollLeft = Math.max(0, px - view / 3);
-      }
-    }
+    reveal(t);
     basePlayhead(t);
   };
+  controller.reveal = reveal;
 
   // The drag handle is a real DOM element floating over the drawn knob:
   // it declares touch-action none, so grabbing it always drags the cursor,

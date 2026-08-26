@@ -286,7 +286,34 @@ npm run review:taps      CAN A FINGER REACH THE REVIEW'S CONTROLS — the pixel
                          sustained N seconds or longer stay in the list) —
                          including that a filtered note is HIDDEN and not
                          removed, because `tileByNote` is how a notehead pressed
-                         on the page finds its tile. NO MICROPHONE.
+                         on the page finds its tile.
+                         AND THE LADDER UNDER THAT, which is the same picker
+                         asked for a second way: "the presets could be 0.5 /
+                         0.75 / 1 / 1.5 / 2 seconds… as soon as you select one of
+                         those options, it shows you the list of the notes that
+                         comply with those standards. You can just click on one
+                         of them, and it'll take you to that part of the graph."
+                         Six rungs and a typed field holding ONE number between
+                         them, and a strip of buttons under it — one per note
+                         that qualified, in the order they were PLAYED, each
+                         saying what the note is and how far into the take it
+                         is. The assertion the feature is for is the SCROLL:
+                         pressing one moves `#chart-scroll` to that moment
+                         (`controller.reveal` in pitch-chart.js, pulled out of
+                         `setPlayhead` so the list and the playhead share one
+                         answer to "is it visible"). It also counts the audio
+                         sources the press starts, because a panel that opens is
+                         not a note that sounded.
+                         IT NEEDS A TAKE OF ITS OWN and builds one: the fixture
+                         above holds every note for 0.3s, so against it all six
+                         rungs would only ever exercise the empty case. The
+                         second take alternates 0.35s and 1.4s and runs long
+                         enough that the graph has somewhere to scroll TO.
+                         READ THE TWO ELEMENTS, not `textContent`: the name is a
+                         block <b> over the time, so "A#3" and "2.2s" run
+                         together as "A#32.2s" and a regex for a number reads it
+                         as thirty-two seconds. That cost a round.
+                         NO MICROPHONE.
 npm run review:follow    WHO IS DRIVING THE SCROLL WHILE A TAKE PLAYS. The light
                          moves down the music and the page is pulled after it,
                          so a hand reaching PAST the music for the pause button
@@ -568,6 +595,21 @@ npm run scan:barsync     tap a bar, hear that moment — the real layer over rea
                          page elements, pressed the way a finger presses it.
 npm run scan:anchors     and that the marks survive the app being shut, to the
                          take that made them and to no other.
+npm run scan:start       "I started here" — one tap saying where the playing
+                         began, and the map run from that bar instead of from
+                         the top of the part. Prints the before as well as the
+                         after: what pressing a bar asks to hear when the take
+                         is spread over the whole page, and what it asks once
+                         the start is marked. Also the hole under it — a mark
+                         made before the take has ever been played back used to
+                         be written down as "second zero".
+npm run scan:pager       a part of several pages in the review, one page at a
+                         time. That the arrows turn it and stop at the ends,
+                         and — the half that matters — that a turn touches
+                         nothing the sound depends on: the same page elements,
+                         canvases and bar boxes survive it by IDENTITY, the
+                         follower is never unsubscribed, and the take is never
+                         asked to play again.
 npm run scan:book        the scanner on a book built out of REAL engraved pages
                          rather than drawn staves: a gutter, a lamp, an outer
                          edge curling. Says how much of the aimed page came back
