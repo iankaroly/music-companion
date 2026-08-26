@@ -9,6 +9,7 @@ import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder, setScoreFolder,
+  fileTakeUnderName,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
   listSetlists, saveSetlist, deleteSetlist, replacePages,
 } from './store/db.js';
@@ -816,7 +817,29 @@ startBtn.addEventListener('click', async () => {
 
 // One save, two doors into it. toScore attaches the take to the piece it was
 // read against, which is what puts it under that piece in the library.
-async function saveTake({ toScore = false } = {}) {
+//
+// AND IT IS ASKED WHAT TO CALL IT, where there is something to suggest.
+//
+// "when you record from the score and then save it, it just saves to the
+// library under that name or whatever name you want it." A take saved from a
+// piece used to arrive in the library with no name at all, so `libraryRow` drew
+// it as a date with the piece buried in the grey line underneath: nothing on
+// the shelf was called what he had just played, which is what "it's not going
+// anywhere" is describing. The piece's own name is already the right answer
+// nearly every time, so it is filled in and selected rather than asked for
+// blank, and Cancel backs out of the save entirely — the take is still on
+// screen and Save is still there.
+function saveTake({ toScore = false } = {}) {
+  if (!lastTake) return;
+  const suggested = scoreName();
+  if (!suggested) { keepTake({ toScore, name: null }); return; }
+  askTakeName(suggested, (name) => {
+    if (name === null) { saidOnTheBar('not saved — it is still here'); return; }
+    keepTake({ toScore, name: name || suggested });
+  });
+}
+
+async function keepTake({ toScore = false, name = null } = {}) {
   if (!lastTake) return;
   const { recorder, notes, readings, a4 } = lastTake;
   const piece = toScore ? scoreName() : null;
@@ -829,21 +852,28 @@ async function saveTake({ toScore = false } = {}) {
       notes,
       readings,
       a4,
+      name,
       scoreId: toScore ? currentScoreId() : null,
       // Note-by-note against the written pitch, so this take can be read again
       // tomorrow without re-aligning anything.
       scoreStats: toScore ? currentScoreStats() : null,
     });
+    // …and the second go at the same thing makes a folder of it. See
+    // fileTakeUnderName: one take is a row, two are a folder with both in.
+    const folderId = name ? await fileTakeUnderName(id, name).catch(() => null) : null;
     saveBar.hidden = true;
     lastTake = null;
     savedTakeId = toScore ? null : id; // still fileable under a piece if it wasn't
     refreshSaveLabel();
-    const news = piece ? `saved to ${piece}` : 'saved to library';
+    const where = name ? `saved as ${name}` : 'saved to library';
+    const news = folderId ? `${where} — it is in the ${name} folder now` : where;
     statusEl.textContent = news;
     // …and where it will still be readable in a second's time. The two lines
     // below rebuild the whole review and write the take's summary into
     // `#status`, so this is the only copy of the news that survives the press.
-    saidOnTheBar(toScore ? `saved to ${piece}` : 'saved to the library');
+    saidOnTheBar(folderId
+      ? `${where} — ${piece ? `${piece}, ` : ''}in a folder with the other takes`
+      : (toScore && piece ? `${where} — under ${piece}` : where));
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -940,14 +970,37 @@ let libraryFilter = '';
 const libraryEmpty = document.querySelector('#library-empty');
 const renameDialog = document.querySelector('#rename-dialog');
 const renameInput = document.querySelector('#rename-input');
+const renameTitle = document.querySelector('#rename-dialog h2');
 let renameId = null;
+// A name asked for something that is NOT a rename — the take about to be saved.
+// One dialog, two questions: the field, the keyboard and the two buttons are
+// the same in both, and a second dialog that looked identical would be a second
+// thing to keep in step.
+let renameThen = null;
 
 renameDialog.addEventListener('close', async () => {
-  if (renameDialog.returnValue !== 'save' || renameId === null) return;
-  await renameRecording(renameId, renameInput.value.trim());
+  const then = renameThen;
+  const id = renameId;
+  renameThen = null;
   renameId = null;
+  const name = renameInput.value.trim();
+  if (then) { then(renameDialog.returnValue === 'save' ? name : null); return; }
+  if (renameDialog.returnValue !== 'save' || id === null) return;
+  await renameRecording(id, name);
   refreshLibrary();
 });
+
+/** Ask what to call a take, with something already in the box. */
+function askTakeName(current, then) {
+  renameId = null;
+  renameThen = then;
+  if (renameTitle) renameTitle.textContent = 'Name this take';
+  renameInput.value = current ?? '';
+  renameDialog.showModal();
+  // Selected rather than merely present, so the piece's name is one keystroke
+  // from being replaced and one press from being kept.
+  renameInput.select?.();
+}
 
 function formatWhen(date) {
   return new Date(date).toLocaleString(undefined, {
@@ -1147,6 +1200,8 @@ function libraryRow(r, { from = 'library' } = {}) {
       label: 'Rename',
       onPick: () => {
         renameId = r.id;
+        renameThen = null;
+        if (renameTitle) renameTitle.textContent = 'Name this recording';
         renameInput.value = r.name ?? '';
         renameDialog.showModal();
       },

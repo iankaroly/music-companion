@@ -29,7 +29,7 @@
 import { showScore, indexNoteheads, paint } from './score-view.js';
 import { saying } from './why.js';
 import { followPlayback, takeIsPlaying, toggleTakePlayback } from './report.js';
-import { openPaper } from './paper.js';
+import { openPaper, keepSpare, dropSpares } from './paper.js';
 import { bandsOfPage } from './bands.js';
 import { headsOf, pairNotes } from './scan-view.js';
 import { parseScore } from '../analysis/musicxml.js';
@@ -4055,14 +4055,50 @@ async function changeEdges(pageNumber) {
   }
   const blob = await new Promise((resolve) => page.toBlob(resolve, 'image/jpeg', 0.9));
   if (!blob?.size) { say('that did not come out — try the edges again'); return; }
+  // HOW BIG THE PAGE IS, AND A SMALL COPY OF IT, TAKEN WHILE IT IS STILL HERE.
+  //
+  // Both come free: the page has just been drawn, so its size is the canvas's
+  // own and a 460-pixel copy of it is one drawImage. They are what stop the
+  // reader from ever having to say "page 1 could not be read" about a page it
+  // was handed complete — the size bounds the decode, the copy stands in if
+  // that decode is refused anyway. See replaceOnePage and keepSpare.
+  const size = { w: page.width, h: page.height };
+  keepSpare(score.id, pageNumber, page, size.w, size.h);
+  // …AND THEN GIVE THE PIXELS BACK, BEFORE ASKING FOR ANY MORE.
+  //
+  // A 2600-pixel page is around 36MB of canvas and the photograph it was cut
+  // from is three times that, and both were left alive here — held by this
+  // closure through the re-layout below, which decodes the whole part again.
+  // `trimPage` zeroes its canvas the moment it has the blob; this did not, and
+  // that is the memory the card was drawn out of. Zeroing a canvas is how the
+  // pixels are handed back at once rather than whenever the collector gets to
+  // it, which on the device that needs them is far too late.
+  page.width = 0;
+  page.height = 0;
+  image.close?.();
   const name = original.name ?? `page-${pageNumber + 1}.jpg`;
-  await replaceOnePage(score.id, pageNumber, new File([blob], name, { type: 'image/jpeg' }));
+  await replaceOnePage(score.id, pageNumber, new File([blob], name, { type: 'image/jpeg' }), size);
   say(fresh ? 'page changed' : 'page changed — cropped from the page, not the photograph');
   // Everything measured about that page is gone with it, so the reader is
   // rebuilt from the score as it now stands.
   drawn.clear();
   await render();
   showPage(Math.min(pageIndex, pageEls.length - 1));
+
+  // …and then the page is read again, quietly, exactly as trimming one does.
+  //
+  // Where the staves are was measured on the OLD picture, so replaceOnePage
+  // throws it away — rightly. But nothing ever put it back, and a page with no
+  // staves known cannot be cut into screenfuls: it is shown whole, one tall
+  // sheet shrunk to fit, with the music a fraction of the size it was. Changing
+  // the edges of a page and being given back a page you cannot read from is the
+  // other half of this complaint.
+  const id = score.id;
+  reading.delete(id);
+  import('./score.js')
+    .then(({ measurePages }) => measurePages(id, { standAside }))
+    .then(() => relayoutSameScore(id))
+    .catch(() => { reading.delete(id); /* still a page to play from */ });
 }
 
 // Behind a scan: the notation that says which note is which.
@@ -4385,6 +4421,10 @@ function buildMixer() {
 // running is a second thing to be wrong.
 
 let takeWatch = null;
+// Whether a take is running — read by `placeRecordButton`, which is called both
+// from here and from `setTool`, and which cannot ask take-control itself
+// (it is imported lazily, and placing a button cannot wait on a promise).
+let takingNow = false;
 
 function showTake(state) {
   const button = el('reader-record');
@@ -4395,6 +4435,8 @@ function showTake(state) {
   // dot vanish mid-take — the invariant is worth stating in the view too.
   button.hidden = !state.recording && !state.canRecord;
   button.classList.toggle('recording', !!state.recording);
+  // Read before the button is placed: which bar it belongs in depends on it.
+  takingNow = !!state.recording;
   // A VIEW, AND NOTHING ELSE. This used to pin the chrome open for the length
   // of a take (`root.classList.toggle('taking', …)` and `setChrome(true)`), and
   // it ran on every publish of the take clock — four times a second — so
@@ -4444,19 +4486,35 @@ async function toggleTakeHere() {
 // same reason: two of a control is two things to keep in step, and they do not
 // stay in step. Marking a fingering while a take runs is one of the two things
 // this reader is for; the stop goes where the hand already is.
+// WHILE A TAKE IS RUNNING, AND ONLY THEN.
+//
+// The note above is about a STOP, and that is the whole of what it argued for:
+// the ink bar hides `#reader-top`, so a take started before the pencil was
+// picked up had no visible way to stop. It does not argue for a RECORD button
+// on the ink bar, and putting one there was reading the invariant too widely —
+// "there shouldn't be a record button when I click on the pencil icon for all
+// the options to annotate. There shouldn't be a record icon in that little bar
+// thing. Only on the main one like it is."
+//
+// So the ink bar gets it only when there is something to stop. Not recording:
+// the button stays in the top bar, where it is the reading bar's control and
+// where it is out of sight for as long as the pencil is out. Recording: it
+// moves, exactly as before, and it is a square rather than a dot — the
+// invariant the old note defended is untouched, because it was only ever about
+// the stop. Marking a fingering mid-take still has the stop under the hand.
 function placeRecordButton() {
   const button = el('reader-record');
   if (!button || !root) return;
-  const drawing = root.classList.contains('drawing');
-  const home = drawing
+  const inking = root.classList.contains('drawing') && takingNow;
+  const home = inking
     ? root.querySelector('#reader-ink-bar')
     : root.querySelector('#reader-top .reader-bar-right');
   if (!home || button.parentElement === home) return;
   // On the ink bar it goes straight after the tick, which is the other control
   // there that is about leaving rather than about drawing.
-  const after = drawing ? el('reader-done') : null;
+  const after = inking ? el('reader-done') : null;
   if (after && after.parentElement === home) after.after(button);
-  else if (drawing) home.prepend(button);
+  else if (inking) home.prepend(button);
   else home.insertBefore(button, el('reader-annotate'));
 }
 
@@ -5279,8 +5337,12 @@ async function layOutPaper() {
   const payload = await loadScorePages(score.id);
   if (mine !== era) return null;
   layout = payload?.layout ?? null;
-  paper?.destroy?.();
-  paper = await openPaper(payload);
+  // The decoded pages go; the small copies of them stay with the score — see
+  // sparesFor in paper.js. A re-layout used to leave every page of the spread
+  // with nothing to fall back on at the exact moment memory was tightest, and
+  // that is where "page 1 could not be read" was drawn from.
+  paper?.destroy?.({ keepSpares: true });
+  paper = await openPaper(payload, { spares: score.id });
   if (mine !== era) return null;
   view = null;
   bars = new Map();
@@ -6519,7 +6581,11 @@ export function close() {
   soundingMark = -1;   // …and the lit ring on a scan, which is not an element
   view?.destroy?.();
   view = null;
-  paper?.destroy?.();
+  // On the way OUT the small copies go too: they are kept across a re-layout of
+  // the same score (see sparesFor in paper.js) and no further than that.
+  const wasReading = score?.id ?? null;
+  paper?.destroy?.({ keepSpares: false });
+  if (wasReading != null) dropSpares(wasReading);
   paper = null;
   pageEls = [];
   // Closing is a re-laying-out like any other: draws still in flight belong to

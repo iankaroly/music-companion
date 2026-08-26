@@ -514,7 +514,23 @@ export async function replacePages(scoreId, pages) {
 // the score is left alone, and only THAT page's measurements are forgotten —
 // where its staves are, where the music sits on it — because they are facts
 // about the picture that has just been replaced.
-export async function replaceOnePage(scoreId, index, file) {
+// HOW BIG THE NEW PAGE IS, WRITTEN DOWN RATHER THAN FORGOTTEN.
+//
+// `size` is the one measurement of a replaced page that is not a guess and not
+// a fact about the old picture: whoever calls this has just MADE the page, so
+// it knows the pixels it made. Nulling it was the bug behind "it says page 1
+// could not be read after I change the edges, and I have to reopen the score".
+//
+// paper.js decides how big to decode a page from exactly this number — see
+// DECODE_MAX and `big` in `load`. With no size on record it cannot know, so it
+// decodes the WHOLE 2600-pixel page, at the one moment there is least room for
+// it: the straightened canvas and the twelve-megapixel photograph it came from
+// are both still alive. iOS answers that with nothing, and the card goes up —
+// and every retry after it repeats the same unbounded decode, so the card
+// cannot heal until the score is closed and everything is finally let go.
+// Trimming a page never showed this because `setPageCrop` leaves the size
+// alone, which is the difference the complaint drew a circle round.
+export async function replaceOnePage(scoreId, index, file, size = null) {
   const db = await openDB();
   const row = await loadScorePages(scoreId);
   if (!row?.pages?.[index]) return null;
@@ -522,7 +538,13 @@ export async function replaceOnePage(scoreId, index, file) {
   next.pages = row.pages.map((page, i) => (i === index ? file : page));
   if (row.layout) next.layout = row.layout.map((page, i) => (i === index ? null : page));
   if (row.crops) next.crops = row.crops.map((crop, i) => (i === index ? null : crop));
-  if (row.sizes) next.sizes = row.sizes.map((size, i) => (i === index ? null : size));
+  const known = size?.w > 0 && size?.h > 0 ? { w: size.w, h: size.h } : null;
+  if (row.sizes || known) {
+    const sizes = Array.isArray(row.sizes) ? row.sizes.slice() : [];
+    while (sizes.length <= index) sizes.push(null);
+    sizes[index] = known;
+    next.sizes = sizes;
+  }
   await new Promise((resolve, reject) => {
     const tx = db.transaction(['score-pages'], 'readwrite');
     tx.objectStore('score-pages').put(next);
@@ -716,6 +738,7 @@ export async function listRecordingsForScore(scoreId) {
 
 export async function saveRecording({
   date, duration, sampleRate, audio, notes, readings, a4, scoreId = null, scoreStats = null,
+  name = null,
 }) {
   const db = await openDB();
   // Compressed before it ever reaches the store — see audio/codec.js for why
@@ -728,6 +751,14 @@ export async function saveRecording({
       duration,
       sampleRate,
       noteCount: notes.length,
+      // WHAT IT IS CALLED, WRITTEN AT THE SAVE.
+      //
+      // This used to be settable only by renaming a row afterwards, so a take
+      // saved from a piece arrived in the library called by its date and
+      // nothing else — "when you record from the score and then save it, it's
+      // not going anywhere". It was going somewhere; it was going in under a
+      // name nobody was looking for.
+      ...(name ? { name } : {}),
       noteStats: statsOf(notes),
       landingStats: landingStats(notes, readings, a4) ?? [],
       ...(scoreId === null ? {} : { scoreId }),
@@ -1055,6 +1086,64 @@ export async function setRecordingFolder(id, folderId) {
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
   });
+}
+
+// TWO TAKES OF THE SAME THING LIVE IN A FOLDER OF THAT THING.
+//
+// "if you save another take, then that one in the library turns into a folder
+// where it shows both the takes."
+//
+// A practice library is not a list of recordings, it is a handful of pieces
+// each with a dozen goes at them, and a flat list of forty rows all called
+// "Bach — Prelude" is the shape that makes the library useless at exactly the
+// point it starts being worth having. So the SECOND take of a name is what
+// makes the folder: one take stays a row, because a folder holding one thing is
+// a tap in the way of it.
+//
+// WHAT IS DELIBERATELY NOT DONE HERE. Takes already filed somewhere by hand are
+// left where they are — a folder made by the app must not undo a filing made by
+// a person — so only the loose ones are swept in. And the takes keep their own
+// name rather than being numbered: the row already carries the date it was
+// played, which is the thing that tells two goes at the same passage apart.
+//
+// THE DECISION, WITH NO DATABASE IN IT.
+//
+// Kept apart from the write below so it can be measured — the same split
+// `fillGaps` above is here for. It answers three things: which folder this take
+// belongs in, whether that folder has to be MADE first, and which other takes
+// are swept in with it.
+//
+// @returns {{ folder: number|null, create: string|null, move: Array }}
+export function whereTakeGoes({ takes = [], folders = [], id, name }) {
+  const nowhere = { folder: null, create: null, move: [] };
+  const wanted = String(name ?? '').trim();
+  if (!wanted || id == null) return nowhere;
+  const same = (a, b) => String(a ?? '').trim().localeCompare(
+    String(b ?? '').trim(), undefined, { sensitivity: 'base' }) === 0;
+  const mine = takes.find((t) => t.id === id);
+  const others = takes.filter((t) => t.id !== id && same(t.name, wanted));
+  if (!others.length) return nowhere;                       // the first: a row
+  if (mine?.folderId != null) return { folder: mine.folderId, create: null, move: [] };
+  // Where the others already are, if there is such a place: a folder of that
+  // name first, and failing that whatever folder they were put in.
+  const home = folders.find((f) => same(f.name, wanted))?.id
+    ?? others.find((t) => t.folderId != null)?.folderId
+    ?? null;
+  const loose = others.filter((t) => t.folderId == null).map((t) => t.id);
+  // Nothing to gather and nowhere to gather it: two takes of a name that were
+  // both filed by hand into two different folders. Leave them alone.
+  if (home == null && !loose.length) return nowhere;
+  return { folder: home, create: home == null ? wanted : null, move: [id, ...loose] };
+}
+
+// @returns the folder they are in now, or null if this take stays a row.
+export async function fileTakeUnderName(id, name) {
+  const [takes, folders] = await Promise.all([listRecordings(), listFolders()]);
+  const plan = whereTakeGoes({ takes, folders, id, name });
+  if (plan.folder == null && plan.create == null) return null;
+  const folderId = plan.folder ?? await createFolder(plan.create);
+  for (const take of plan.move) await setRecordingFolder(take, folderId);
+  return folderId;
 }
 
 // The same thing for a piece of music.

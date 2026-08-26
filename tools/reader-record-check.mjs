@@ -196,6 +196,27 @@ const report = await page.evaluate(async () => {
   out.readerOpenAfter = !document.querySelector('#reader')?.hidden;
   out.tabButtonAfter = document.querySelector('#start')?.textContent ?? null;
   out.offeredAgainAfter = seen();
+
+  // AND NOT IN THE ANNOTATE BAR WHEN THERE IS NOTHING TO STOP.
+  //
+  // "there shouldn't be a record button when I click on the pencil icon for all
+  // the options to annotate. There shouldn't be a record icon in that little
+  // bar thing. Only on the main one like it is."
+  //
+  // The rule above it — the stop is always under the hand — is about a take
+  // that is RUNNING, and it is untouched: the two assertions live side by side
+  // here on purpose, because the temptation is to satisfy one by breaking the
+  // other. Pencil out with a take running: the stop is in the ink bar and can
+  // be pressed. Pencil out with no take: nothing about recording is in that bar
+  // at all.
+  document.querySelector('#reader-annotate')?.click();
+  await new Promise((r) => setTimeout(r, 600));
+  out.drawingAgain = document.querySelector('#reader')?.classList.contains('drawing');
+  const idle = document.querySelector('#reader-record');
+  out.recordInTheInkBarIdle = !!document.querySelector('#reader-ink-bar #reader-record');
+  out.recordSeenIdleWhileDrawing = !!idle && seen();
+  document.querySelector('#reader-done')?.click();
+  await new Promise((r) => setTimeout(r, 300));
   return out;
 });
 
@@ -222,6 +243,8 @@ say('pressing it again stops the take', report.stoppedFromTheSameButton, 'true')
 say('the reader is open afterwards', report.readerOpenAfter, 'true');
 say('and the tab button has reset', report.tabButtonAfter, '"Record"');
 say('and it is offered again', report.offeredAgainAfter, 'true');
+say('the pencil bar has no record button', report.recordInTheInkBarIdle === false, 'true');
+say('…and nothing about recording shows there', report.recordSeenIdleWhileDrawing === false, 'true');
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
 
 const ok = report.hasButton && report.hiddenAtFirst === false
@@ -234,7 +257,10 @@ const ok = report.hasButton && report.hiddenAtFirst === false
   && report.drawingModeOn && report.stillVisibleWithThePencilOut
   && report.stopReachableWhileDrawing
   && report.stoppedFromTheSameButton && report.readerOpenAfter
-  && report.offeredAgainAfter;
+  && report.offeredAgainAfter
+  && report.drawingAgain
+  && report.recordInTheInkBarIdle === false
+  && report.recordSeenIdleWhileDrawing === false;
 console.log(ok
   ? '\nPASS — the bar gets out of the way, and the stop is always one tap back'
   : '\nFAIL');

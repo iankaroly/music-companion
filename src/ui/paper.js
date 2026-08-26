@@ -400,11 +400,14 @@ export function needsPassword(err) {
 
 // How many pages, and how to draw one. Both kinds answer the same two
 // questions, so the reader never asks which it is holding.
-export async function openPaper(payload) {
+// `spares`: the key this score's small copies are kept under, so a re-layout
+// keeps them — see sparesFor. Left off, the copies live and die with this
+// instance, which is what the measuring pass and the scanner's preview want.
+export async function openPaper(payload, { spares = null } = {}) {
   // What was measured when the pages came in, if it was: see saveScoreLayout.
   const known = { crops: payload?.crops ?? null, sizes: payload?.sizes ?? null };
   if (payload?.source === 'pdf' && payload.data) return openPdf(payload.data, payload.password, known);
-  if (payload?.pages?.length) return openImages(payload.pages, known);
+  if (payload?.pages?.length) return openImages(payload.pages, known, spares);
   throw new Error('there are no pages in that score');
 }
 
@@ -731,6 +734,18 @@ function thumbStore() {
     get: touch,
     has: (index) => held.has(index),
     count: () => held.size,
+    // One page's copy thrown away, because the page itself has changed. The
+    // only caller is a page somebody has just re-cropped: a spare of the OLD
+    // picture is worse than no spare at all — it would stand in for the new one
+    // and read as a crop that did nothing.
+    forget(index) {
+      const one = held.get(index);
+      if (!one) return;
+      held.delete(index);
+      pixels -= one.w * one.h;
+      one.el.width = 0;
+      one.el.height = 0;
+    },
     put(index, image, w, h) {
       if (held.has(index)) { touch(index); return; }
       try {
@@ -763,14 +778,83 @@ function thumbStore() {
   };
 }
 
-async function openImages(blobs, known = {}) {
+// --- SMALL COPIES THAT OUTLIVE A RE-LAYOUT ------------------------------------
+//
+// A card is only ever possible for a page with NO small copy to fall back on,
+// and until now every re-layout made that true of every page at once: the
+// reader destroys its paper and builds a new one — on a rotation, on a page
+// being recropped, and on the reading pass storing what it measured — and the
+// new one started with an empty store and decoded the whole visible spread
+// again from nothing. That is the twenty seconds the complaint measures, and
+// what is on screen while it happens is a page that HAS been read, being
+// replaced by a card saying it could not be.
+//
+// So the copies are keyed to the score rather than to the instance holding
+// them, and a re-layout hands them on. One score's worth is kept, bounded by
+// THUMB_PIXELS like any other store, and it goes when another score takes the
+// key or when the reader closes.
+//
+// OPT-IN, and deliberately: the measuring pass opens paper of its own over the
+// same payload, and it must not be able to drop the copies the reader is
+// reading from. Only a caller that passes a key shares them.
+const kept = { key: null, count: 0, store: null };
+
+// KEYED BY THE PAGE COUNT AS WELL AS BY THE SCORE, because a copy is held under
+// a page NUMBER and a number means something different once a page has been
+// thrown away or the order changed. Reordering and deleting are both done off
+// the shelf, which means the reader is shut and `dropSpares` has already run —
+// so this is a second lock on a door that should already be closed. A spare
+// standing in for the wrong page is worse than no spare: it is the last page
+// you looked at, drawn where this one should be, with nothing saying so.
+function sparesFor(key, count = 0) {
+  if (key == null) return thumbStore();
+  if (kept.key !== key || kept.count !== count) {
+    kept.store?.drop();
+    kept.key = key;
+    kept.count = count;
+    kept.store = thumbStore();
+  }
+  return kept.store;
+}
+
+/**
+ * A page somebody has just MADE, put straight into the store.
+ *
+ * The one case where a small copy costs nothing at all: the page is already a
+ * canvas in the caller's hand, so there is no decode to do and no memory to
+ * find. It is also the one case where a card would be least forgivable — the
+ * app was handed the pixels and then said it could not read them.
+ */
+export function keepSpare(key, index, image, w, h) {
+  if (key == null || !(w > 0) || !(h > 0)) return;
+  // The count is not passed: this is a page of the score already being read, so
+  // the store it belongs to is the one that is already open. Handing a 0 here
+  // would throw that store away and cost every other page its copy.
+  const store = key === kept.key ? kept.store : null;
+  if (!store) return;
+  store.forget(index);     // the old picture of that page is not the page now
+  store.put(index, image, w, h);
+}
+
+/** The copies of a score nobody is reading any more. */
+export function dropSpares(key) {
+  if (key != null && kept.key !== key) return;
+  kept.store?.drop();
+  kept.key = null;
+  kept.count = 0;
+  kept.store = null;
+}
+
+async function openImages(blobs, known = {}, key = null) {
   const cache = new Map();
   const crops = new Map();
   const sizes = new Map();
 
   // A small copy of each page — see thumbStore. It stands in both for a decode
-  // that failed and for one that has not happened yet.
-  const thumbs = thumbStore();
+  // that failed and for one that has not happened yet, and it is shared with
+  // whatever laid this score out before: see sparesFor.
+  const thumbs = sparesFor(key, blobs.length);
+  const shared = key != null;
   const failures = { soft: 0, card: 0 };
   // WHAT THE LAST DRAW PUT UP, said by the draw itself.
   //
@@ -1088,13 +1172,18 @@ async function openImages(blobs, known = {}) {
       if (!plain) brighten(context, canvas.width, canvas.height);
       return { thumb: false, card: !!page.missing };
     },
-    destroy() {
+    destroy({ keepSpares = true } = {}) {
       for (const promise of cache.values()) {
         Promise.resolve(promise).then((page) => page?.el?.close?.()).catch(() => {});
       }
       cache.clear();
       ready.clear();
-      thumbs.drop();
+      // THE DECODES GO AND THE SMALL COPIES STAY. They are the whole of what a
+      // page falls back to, they belong to the score rather than to this
+      // instance, and the commonest reason this runs is a re-layout that is
+      // about to ask for every one of them again. `dropSpares` is what actually
+      // lets them go, on the way out of the score.
+      if (!shared || !keepSpares) thumbs.drop();
     },
   };
 }

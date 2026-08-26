@@ -122,7 +122,9 @@
     "edge:fit": "node tools/edge-fit-check.mjs",
     "app:reach": "node tools/reach-check.mjs",
     "reader:card": "node tools/reader-card-check.mjs",
-    "read:stall": "node tools/read-stall-check.mjs"
+    "read:stall": "node tools/read-stall-check.mjs",
+    "edges:card": "node tools/edges-card-check.mjs",
+    "take:save": "node tools/take-save-check.mjs"
   },
   "keywords": [],
   "author": "",

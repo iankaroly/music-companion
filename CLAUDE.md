@@ -348,6 +348,74 @@ npm run reader:card      "PAGE 1 COULD NOT BE READ", TWENTY SECONDS IN, AND HOW
                          thing that was wrong (17 cards drawn, 15 counted, one
                          boolean for the whole score drained by whoever asked
                          first). NO MICROPHONE, NO CAMERA.
+                         WHAT IT ASSERTS IS NOW THE OPPOSITE. It used to require
+                         a card to be DRAWN and then to heal; the small copies
+                         of the pages outlive the re-layout now (`sparesFor` in
+                         paper.js), so a page that has been read is never
+                         replaced by a card at all, and the old setup assertion
+                         fails on a working build. It asserts NO CARD across the
+                         whole refusal window instead, which is the stronger
+                         statement. The healing path underneath is still real
+                         and is measured by `page:card`, which covers the one
+                         case a card is honest about: a page never decoded.
+npm run edges:card       THE SAME CARD, FROM THE OTHER DOOR: "after being in a
+                         score and then clicking change edges and cropping it,
+                         it will say page not read and i have to reopen it."
+                         TRIMMING a page never did this and CHANGING ITS EDGES
+                         always did, and the difference was one line of the
+                         database — `setPageCrop` leaves the page's SIZE alone
+                         and `replaceOnePage` nulled it. paper.js decides how
+                         big to decode a page from that number (DECODE_MAX and
+                         `big` in `load`), so with none on record it decoded the
+                         WHOLE 2600-pixel page at the one moment there is least
+                         room for it: the straightened canvas and the
+                         twelve-megapixel photograph it was cut from were both
+                         still alive, because nothing zeroed them. Every retry
+                         then repeated the same unbounded decode, which is the
+                         "I have to reopen it".
+                         It goes through the ⋯ menu, "Change the edges…", the
+                         page row and the tick, and arms twelve seconds of
+                         refused decodes ON THE RE-LAYOUT — not on the tick,
+                         because between them is a full-size decode of the
+                         PHOTOGRAPH the edges are cut from, and refusing that
+                         means the edit never happens and the check passes for
+                         the wrong reason (it did, first time round: it read the
+                         ORIGINAL page's size back and called it the new one).
+                         Four assertions, every one of which fails without the
+                         fix: the page really was replaced, the size is on
+                         record BEFORE the first decode of it (read at the
+                         re-layout, because the reader measures its own pages a
+                         moment later and a size read at the end is there
+                         either way), no card is ever drawn, and the page gets
+                         its layout back so it is still cut into screenfuls.
+                         NO MICROPHONE, NO CAMERA.
+npm run take:save        A TAKE RECORDED FROM THE MUSIC LANDS SOMEWHERE YOU CAN
+                         FIND IT. "when you record from the score and then save
+                         it, it just saves to the library under that name…if you
+                         save another take, then that one in the library turns
+                         into a folder where it shows both the takes, because
+                         right now when you save it, it's not going anywhere."
+                         It WAS going somewhere: `saveRecording` ignored every
+                         name it was handed, so a take saved from a piece
+                         arrived with none and `libraryRow` drew it as its DATE
+                         with the piece in the grey line underneath. Nothing on
+                         the shelf was called what he had just played.
+                         Two takes, through the doors he uses — the dot on the
+                         music, the save bar under the review, the name dialog
+                         with the piece already in it — and then the library is
+                         read BOTH ways, from the store and from the rows on the
+                         glass, because the rows are what he is looking at and
+                         the store is what is wrong if they disagree. The second
+                         lap reloads first: after a save the Score tab is
+                         showing the REVIEW, not the shelf, and a check that
+                         pressed the first button whose words contained the
+                         piece's name pressed "Add this take to…" and measured a
+                         lap that never happened.
+                         The decision it rests on is unit-tested apart from the
+                         database: `whereTakeGoes` in store/db.js, and
+                         tests/take-filing.test.js. NO MICROPHONE (the fake
+                         device plays real notes, because a take the segmenter
+                         finds nothing in is discarded before it can be saved).
 npm run app:sweep        WALK THE WHOLE APP AND WRITE DOWN EVERYTHING IT THROWS.
                          It asserts almost nothing: it works the app the way a
                          hand works it and reports what came out of the console.
@@ -472,6 +540,15 @@ npm run reader:record    RECORDING WITHOUT LEAVING THE MUSIC — the button in t
                          own hidden/box/opacity — none of which a button reports
                          about its PARENT — so it passed while the bar it sits
                          in was translated clean off the top of the screen.
+                         AND THE PENCIL BAR HAS NO RECORD BUTTON IN IT, which
+                         is the other half and pulls the opposite way — "there
+                         shouldn't be a record button when I click on the pencil
+                         icon… only on the main one like it is." The invariant
+                         above is about a STOP and is untouched: a take that is
+                         RUNNING still moves its button into the ink bar, where
+                         it is a square and can be pressed. The two assertions
+                         sit side by side here on purpose, because the tempting
+                         way to satisfy either one is to break the other.
                          NO MICROPHONE: getUserMedia is replaced before load.
 npm run scan:practice    THE SAME, ON A TAKE THAT PRACTISES — one system four
                          times, a run-in, the whole page, once more at the end.

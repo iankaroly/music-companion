@@ -13,6 +13,11 @@
 // stand in. After it, every page is decoded afresh with nothing to fall back
 // on, at the exact moment the reading pass has finished eating the memory.
 //
+// WHAT THIS NOW ASSERTS IS THE OPPOSITE OF WHAT IT USED TO, and the note at the
+// assertions says why: the small copies of the pages survive the re-layout now,
+// so a page that has been read is never replaced by a card at all. It used to
+// require the card to appear and then heal.
+//
 // TWO FAULTS KEPT IT ON THE GLASS, and this refuses both.
 //
 //  · `drewCard` was ONE boolean for the whole score, drained by whichever
@@ -198,18 +203,31 @@ const watched = await page.evaluate(async ({ scoreId, refuseMs }) => {
 check('the reading pass re-lays the score out, which is where the card comes from',
   watched.relayoutAt !== null,
   watched.relayoutAt === null ? 'no re-layout seen' : `${watched.relayoutAt}s after opening`);
-check('refusing every decode across it does put cards up',
-  watched.everCarded === true,
-  `${watched.refusals} decodes refused, ${watched.mostAtOnce} pages carded at once,`
-  + ` ${watched.cardsDrawn} drawn`);
-// THE ASSERTION. Everything above is the setup that makes this one mean
-// something: a card that was never drawn cannot prove it goes away.
-check('and every one of them is gone once the decodes work again',
-  watched.everCarded === true && watched.stillCarded.length === 0,
+// THE ASSERTION, AND IT IS THE OPPOSITE OF WHAT IT USED TO BE.
+//
+// This used to require a card to be DRAWN — "refusing every decode across the
+// re-layout does put cards up" — and then require it to heal, on the reasoning
+// that a card that was never drawn cannot prove it goes away. That was the
+// right shape while a card here was unavoidable, and it is not any more: the
+// small copies of the pages now outlive the re-layout (see sparesFor in
+// paper.js), so a page that HAS been read falls back to its own picture rather
+// than to a card, however hard the decoder refuses. The old setup assertion
+// fails today because the fault it was setting up no longer happens.
+//
+// So the guarantee is stated directly, and it is stronger: refuse every decoder
+// across the whole window and nothing on the glass ever says a page could not
+// be read. The healing path underneath is still real and still measured — at
+// the paper layer by `page:card`, which covers the one case a card is honest
+// about: a page that has never been decoded at all.
+check('refusing every decode across the re-layout puts NO card on a page that has been read',
+  watched.everCarded === false,
+  `${watched.refusals} decodes refused, ${watched.cardsDrawn} cards drawn,`
+  + ` worst ${watched.mostAtOnce} pages at once`);
+check('…and nothing is left carded once the decodes work again',
+  watched.stillCarded.length === 0,
   watched.stillCarded.length
     ? `still carded after ${watched.ranFor}s: pages ${watched.stillCarded.map((i) => i + 1).join(', ')}`
-    : `all healed — ${watched.cardsDrawn} drawn, ${watched.cardsHealed} healed,`
-      + ` over ${watched.ranFor}s`);
+    : `${watched.cardsDrawn} drawn, ${watched.cardsHealed} healed, over ${watched.ranFor}s`);
 
 if (errors.length) {
   console.log('\nerrors on the page:');
