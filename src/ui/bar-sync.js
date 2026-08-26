@@ -119,21 +119,84 @@ export function attachBarSync(container, {
   // would answer every press with a confident wrong second. Those are answered
   // from the goes instead (see `practising` below). See evenAnchors for why it
   // is two anchors rather than a division by the number of boxes.
-  let even = [];
-  try {
-    if (notes?.length && runs.length <= 1) even = evenAnchors(bars, notes);
-  } catch { even = []; }
+  //
+  // WHERE THE TAKE BEGINS, which is the argument evenAnchors now takes.
+  //
+  // ONE SOURCE, AND IT IS THE PLAYER. A bar somebody tapped to say "I started
+  // here" is somebody reporting what they did; failing that, the top of the
+  // page, which is what this did before any of it and is kept as the floor —
+  // a page that opens inert is the thing the spread exists to prevent.
+  //
+  // THE MATCHER WAS TRIED FOR THIS AND IS NOT GOOD ENOUGH, which is worth
+  // writing down because it is the obvious thing to reach for. `placeRuns`
+  // gives each go an `at` — its first sure anchor walked back by the number of
+  // notes played before it — and taking it as the start is exactly the shape of
+  // this fix. MEASURED, on the two-page fixture `npm run score:follow` builds,
+  // with a take that runs the whole part from the very first note: the run came
+  // back `at: 3` on a part of eight systems, off its own guessed anchors at
+  // systems 3, 4 and 5 for seconds 0.6, 5.1 and 10.05. The opening of the take
+  // placed three systems in. Spreading from there put bar 1 at second zero and
+  // lit nothing at all when it was pressed.
+  //
+  // What saves that map today is the even anchor at the top of the page: it
+  // pins the first note where it belongs and the wrong guesses bend the line
+  // only in the middle. Handing the same guesses the START as well removes the
+  // one thing holding them honest. Placing the entry point automatically is the
+  // aligner's job — a single subsequence alignment over the whole part with a
+  // free entry — and not something this matcher can be asked for.
+  const sounded = (notes ?? []).filter((one) => Number.isFinite(one?.start));
+  const firstStart = sounded.length ? Math.min(...sounded.map((one) => one.start)) : null;
+  /** The mark that says where the playing started, if one was made. */
+  const startMark = () => hand.find((one) => one?.start === true) ?? null;
+  const beganAt = () => {
+    const mine = startMark();
+    if (Number.isFinite(mine?.at)) return mine.at;
+    return null;
+  };
+  const spreadNow = () => {
+    try {
+      if (!notes?.length || runs.length > 1) return [];
+      // No `to`: where a take STOPPED has the same problem as where it began
+      // and no mark yet says it, so the end of the part stands.
+      return evenAnchors(bars, notes, { from: beganAt() });
+    } catch { return []; }
+  };
+  let even = spreadNow();
   // Everything the map runs on: the taps win, and see mergeAnchors for why they
   // win over the guesses BETWEEN them as well as the ones on top of them. The
   // even pair goes UNDER the shape guesses, so a system the matcher was sure
   // about overrules the straight line at that place and the ends stay pinned.
-  const anchorsNow = () => mergeAnchors(hand, [...even, ...guessed]);
+  const anchorsNow = () => {
+    // A START MARK CONTRADICTS EVERY GUESS ABOVE IT. Somebody saying they began
+    // at bar 9 is saying bars 1 to 8 were never played, so a system the matcher
+    // placed up there is placing music that is not in the take.
+    //
+    // It also breaks the map if it is left in. The anchors are sorted by PLACE
+    // and nothing makes their times climb with them, so a guess above the start
+    // carrying a second after the first note gives a line that runs backwards —
+    // and `placeAtTime` then searches on a sequence that is not in order at all.
+    const began = beganAt();
+    const found = Number.isFinite(began)
+      ? guessed.filter((one) => one.at >= began - 1e-9)
+      : guessed;
+    return mergeAnchors(hand, [...even, ...found]);
+  };
   let anchors = anchorsNow();
+  // The spread depends on the marks — a start mark moves where it begins — so
+  // the two are recomputed together and never one without the other.
+  const remap = () => { even = spreadNow(); anchors = anchorsNow(); };
   // Marking is the job only when nothing — tapped, guessed, spread, or worked
   // out from the goes — has produced an answer. A page the app has placed for
   // itself opens ready to play from.
   let marking = anchors.length < 2 && runs.length < 1;
   let heard = 0;                        // the moment the take is at, in seconds
+  // …and whether anything has ever been heard. `heard` starts at 0 and 0 is a
+  // real second, so a mark made before the take has been played back once used
+  // to be written down as "this bar sounded at second zero" — a wrong anchor,
+  // silently, and then a second one made the map and left marking mode. Nothing
+  // has been heard yet means the only moment there is to mark is the start.
+  let heardEver = false;
+  let starting = false;                 // the next tap says where the take began
   let lit = -1;
   const boxes = new Map();              // bar index -> the element drawn for it
 
@@ -162,6 +225,17 @@ export function attachBarSync(container, {
       onSay?.(line.textContent);
       return;
     }
+    // WHERE YOU STARTED, where that is the only thing marked. The map is then
+    // the spread run from that bar rather than from the top of the page, and
+    // which bar it was run from is the fact a player cannot see by looking.
+    const began = startMark();
+    if (began && hand.length === 1) {
+      const bar = bars.find((b) => Math.abs(b.at - began.at) < 1e-4);
+      const words = bar ? `started at bar ${bar.index + 1}` : 'started where you marked';
+      line.textContent = words;
+      onSay?.(words);
+      return;
+    }
     const found = guessed.length && !hand.length
       ? `found ${guessed.length} place${guessed.length === 1 ? '' : 's'} in this take by itself — `
       : '';
@@ -184,36 +258,61 @@ export function attachBarSync(container, {
   const mark = document.createElement('button');
   mark.type = 'button';
   mark.className = 'ctl';
+  // NAMED, so nothing has to count. A check reached "Start again" as
+  // `.ctl:nth-child(2)`, and putting a third button in the strip silently made
+  // that the new one — so the step that meant to clear the marks armed the
+  // start mode instead and the state it left behind was blamed on the graph.
+  mark.dataset.bar = 'where';
+  const started = document.createElement('button');
+  started.type = 'button';
+  started.className = 'ctl';
+  started.textContent = 'Started here';
+  started.dataset.bar = 'start';
+  // Nothing to pin a start to without a take: the mark is that bar and the
+  // second of the FIRST NOTE, and with no notes there is no such second.
+  started.hidden = firstStart === null;
   const showMode = () => {
     mark.textContent = marking ? 'Done marking' : 'Mark where you are';
     mark.setAttribute('aria-pressed', String(marking));
-    strip.classList.toggle('marking', marking);
-    for (const box of boxes.values()) box.classList.toggle('marking', marking);
+    started.setAttribute('aria-pressed', String(starting));
+    const asking = marking || starting;
+    strip.classList.toggle('marking', asking);
+    for (const box of boxes.values()) box.classList.toggle('marking', asking);
     say();
   };
+  started.addEventListener('click', () => {
+    starting = !starting;
+    // The two modes ask for different taps, so only one of them may be on.
+    if (starting) marking = false;
+    showMode();
+  });
   mark.addEventListener('click', () => {
     // Marking cannot be finished before there is a map: one anchor is not a
     // line, and leaving it would put the player in a mode where every tap
     // silently does nothing.
     if (marking && anchorsNow().length < 2) { say(); return; }
     marking = !marking;
+    // The two modes ask for different taps, so only one of them may be on.
+    if (marking) starting = false;
     showMode();
   });
   const clear = document.createElement('button');
   clear.type = 'button';
   clear.className = 'ctl';
+  clear.dataset.bar = 'clear';
   clear.textContent = 'Start again';
   clear.addEventListener('click', () => {
     // The taps go; what the app worked out for itself stays, because "start
     // again" is about the marks somebody made and not about the reading.
     hand = [];
-    anchors = anchorsNow();
+    starting = false;
+    remap();
     marking = anchors.length < 2;
-    for (const box of boxes.values()) box.classList.remove('marked');
+    paintMarks();
     onAnchors?.(hand);
     showMode();
   });
-  strip.append(mark, clear, line);
+  strip.append(mark, started, clear, line);
   container.prepend(strip);
 
   // --- a box over every bar -------------------------------------------------
@@ -254,7 +353,57 @@ export function attachBarSync(container, {
     }
   }
 
+  /** The marks, drawn from `hand` — the one place that knows what was marked. */
+  function paintMarks() {
+    for (const box of boxes.values()) box.classList.remove('marked', 'started');
+    for (const one of hand) {
+      if (!Number.isFinite(one?.at)) continue;
+      const bar = bars.find((b) => Math.abs(b.at - one.at) < 1e-4);
+      const box = bar ? boxes.get(bar.index) : null;
+      if (!box) continue;
+      box.classList.add('marked');
+      if (one.start === true) box.classList.add('started');
+    }
+  }
+
+  /**
+   * WHERE THE PLAYING STARTED, said by pointing at it.
+   *
+   * It needs no clock and no listening back: the second is the take's own first
+   * note, which is known the moment the recording stops. That is the whole
+   * difference from "mark where you are", which is a timing gesture — play the
+   * take, hear a bar, tap it — and cannot be performed at all until the take has
+   * been played back once.
+   *
+   * The mark is an ordinary hand anchor carrying a flag, so everything
+   * downstream — mergeAnchors, timeOfBar, the store — takes it as it already
+   * takes a tap, and it OUTRANKS the spread at the same place by being at the
+   * same place: mergeAnchors keeps only the guesses outside the hand span, and
+   * the spread's own start is run from this bar (see beganAt) so the two
+   * coincide and tidyAnchors keeps one of them.
+   */
+  function markStart(bar) {
+    if (firstStart === null) return;
+    hand = [
+      ...hand.filter((one) => one?.start !== true && Math.abs(one.at - bar.at) > 1e-4),
+      { at: bar.at, time: firstStart, start: true },
+    ];
+    starting = false;
+    remap();
+    paintMarks();
+    onAnchors?.(hand);
+    // One mark is a map now, because the spread supplies the other end.
+    if (anchors.length >= 2) marking = false;
+    showMode();
+  }
+
   function press(bar) {
+    // Asked for outright, or asked for by the only thing a tap can mean: with
+    // nothing heard yet there is no moment to pin a bar to except the first.
+    if (starting || (marking && !heardEver && firstStart !== null)) {
+      markStart(bar);
+      return;
+    }
     if (marking) {
       // WHERE YOU ARE NOW, said by tapping it. The moment recorded is the one
       // being HEARD rather than the one the clock is at — `follow` hands back
@@ -269,8 +418,8 @@ export function attachBarSync(container, {
       }
       hand = [...hand.filter((one) => Math.abs(one.at - bar.at) > 1e-4),
         { at: bar.at, time: heard }];
-      anchors = anchorsNow();
-      boxes.get(bar.index)?.classList.add('marked');
+      remap();
+      paintMarks();
       onAnchors?.(hand);
       // Two marks is a map; there is nothing to be gained by making somebody
       // press a button to find that out. One is enough where the app has
@@ -340,7 +489,7 @@ export function attachBarSync(container, {
 
   // --- the light that follows ------------------------------------------------
   const off = follow?.((note, time) => {
-    if (Number.isFinite(time)) heard = time;
+    if (Number.isFinite(time)) { heard = time; heardEver = true; }
     const now = barAtTime(bars, anchors, heard);
     if (now === lit) return;
     boxes.get(lit)?.classList.remove('sounding');
@@ -351,10 +500,12 @@ export function attachBarSync(container, {
   // A place somebody TAPPED and a place the app worked out are both anchors and
   // are not the same claim, so they do not look the same: a tap is somebody
   // saying what they heard, and a guess is the app saying what it thinks.
-  for (const one of hand) {
-    const bar = bars.find((b) => Math.abs(b.at - one.at) < 1e-4);
-    if (bar) boxes.get(bar.index)?.classList.add('marked');
-  }
+  //
+  // Painted from `hand` every time rather than added to as taps arrive, because
+  // a start mark MOVES — marking a different bar has to take the class off the
+  // old one, and a handler that only ever adds leaves two bars claiming to be
+  // where the take began.
+  paintMarks();
   for (const one of guessed) {
     const bar = bars.find((b) => Math.abs(b.at - one.at) < 1e-4);
     if (bar) boxes.get(bar.index)?.classList.add('found');

@@ -181,11 +181,31 @@ export function guessedAnchors(placements) {
  * not, so `bar-sync.js` only reaches for it where nothing better placed the
  * page — see the gate there. A tap overrules it anywhere.
  *
+ * SPREAD ACROSS THE MUSIC THAT WAS PLAYED, NOT ACROSS THE WHOLE PAGE.
+ *
+ * It used to pin `bars[0]` — the first bar of the first page — to the first
+ * note heard, always, and that is only true of somebody who started at the top.
+ * Start half way down and every bar above where you began is claimed to have
+ * been played in the seconds before you played anything, so the line from there
+ * to the first place the app DID recognise is compressed into almost no time
+ * and the light runs ahead of the music for the rest of the page. It is the
+ * mirror of the bug the comment in bar-sync.js already describes: that one had
+ * no anchor before the first sure system, this one had a wrong one.
+ *
+ * So where the take begins is an argument. `from` is a position in the piece,
+ * in systems, and its sources are ranked by how much they are worth: a bar
+ * somebody TAPPED to say "I started here" first, then the earliest system the
+ * shape-matcher placed, and only failing both the top of the page — which is
+ * the old behaviour, kept as the floor, because a page that opens inert is the
+ * thing this function exists to prevent.
+ *
  * @param {Array<object>} bars from `barsInReadingOrder`
  * @param {Array<object>} notes what was heard, each with `start` and `end`
+ * @param {object} [span] `{ from, to }` in systems — where the take begins and
+ *   ends on these pages. Either may be null for "as far as the page goes".
  * @returns {Array<object>} two anchors, or none when there is nothing to spread
  */
-export function evenAnchors(bars, notes) {
+export function evenAnchors(bars, notes, { from = null, to = null } = {}) {
   const sounded = (notes ?? []).filter((one) => Number.isFinite(one?.start));
   if (!bars?.length || sounded.length < 2) return [];
   const first = Math.min(...sounded.map((one) => one.start));
@@ -194,10 +214,12 @@ export function evenAnchors(bars, notes) {
   // every bar within a few tenths of every other and every seek in the wrong
   // place with an air of confidence.
   if (!(last - first > 1.5)) return [];
-  const from = bars[0].at;
-  const to = bars[bars.length - 1].to;
-  if (!(to > from)) return [];
-  return [{ at: from, time: first, even: true }, { at: to, time: last, even: true }];
+  const begins = Number.isFinite(from) ? from : bars[0].at;
+  const ends = Number.isFinite(to) ? to : bars[bars.length - 1].to;
+  // A span that does not run forwards is not a span. This catches a start mark
+  // put on the last bar of the part as well as the arithmetic.
+  if (!(ends > begins)) return [];
+  return [{ at: begins, time: first, even: true }, { at: ends, time: last, even: true }];
 }
 
 /**

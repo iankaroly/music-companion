@@ -575,7 +575,14 @@ export async function saveBarAnchors(scoreId, recordingId, anchors) {
   const row = await loadScorePages(scoreId);
   if (!row) return null;
   const kept = { ...(row.barAnchors ?? {}) };
-  if (anchors?.length) kept[recordingId] = anchors.map(({ at, time }) => ({ at, time }));
+  // `start` rides along with the two numbers: it is what says this mark is
+  // where the playing began rather than a bar somebody heard, and the spread is
+  // run from it (bar-map.js:evenAnchors). Dropped here, a marked start would
+  // work for one sitting and quietly become an ordinary anchor on reload.
+  if (anchors?.length) {
+    kept[recordingId] = anchors.map(({ at, time, start }) => (
+      start === true ? { at, time, start: true } : { at, time }));
+  }
   else delete kept[recordingId];
   await new Promise((resolve, reject) => {
     const tx = db.transaction(['score-pages'], 'readwrite');

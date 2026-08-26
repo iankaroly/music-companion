@@ -172,6 +172,12 @@ function keepInView(element) {
   if (!stage) return;
   const frame = { top: 0, bottom: window.innerHeight, height: window.innerHeight };
   const box = element.getBoundingClientRect();
+  // A mark on a page that is not the one being shown has no box at all — the
+  // scanned review now shows one page at a time (scan-view.js). Scrolling to it
+  // cannot work and must not be counted as following: `scrollIntoView` on a
+  // hidden element does nothing, so this used to tick `scrolls` up every frame
+  // the take spent on another page.
+  if (!box.width && !box.height) return;
   const margin = Math.min(120, frame.height * 0.25);
   if (box.top >= frame.top + margin && box.bottom <= frame.bottom - margin) return;
   scrolls += 1;

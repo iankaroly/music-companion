@@ -102,6 +102,8 @@
     "scan:book": "node tools/scan-book-check.mjs",
     "scan:barmap": "node tools/bar-map-check.mjs",
     "scan:barsync": "node tools/bar-sync-check.mjs",
+    "scan:start": "node tools/bar-start-check.mjs",
+    "scan:pager": "node tools/scan-pager-check.mjs",
     "scan:anchors": "node tools/bar-anchors-check.mjs",
     "scan:guess": "node tools/bar-guess-check.mjs",
     "scan:practice": "node tools/practice-runs-check.mjs",

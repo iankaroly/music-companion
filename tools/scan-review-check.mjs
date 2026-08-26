@@ -138,6 +138,7 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
   const readerEl = document.querySelector('#reader');
   const readerOpen = !!readerEl && !readerEl.hidden;
   const notes = [...document.querySelectorAll('#score-stage .scan-note')];
+  const onShownPage = notes.filter((n) => !n.closest('.scan-page')?.hidden);
   const dock = document.querySelector('#score-dock');
   return {
     readerOpen,
@@ -145,8 +146,11 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
     canvasWide: document.querySelector('#score-stage .scan-page canvas')?.width ?? 0,
     notes: notes.length,
     // A note has to be big enough to press with a finger.
-    smallest: notes.length
-      ? Math.round(Math.min(...notes.map((n) => n.getBoundingClientRect().width))) : 0,
+    // …on the page being SHOWN. The review turns pages now rather than
+    // stacking them (scan-view.js), and a mark on a page nobody is looking at
+    // has no box at all — measuring it says 0 and means nothing.
+    smallest: onShownPage.length
+      ? Math.round(Math.min(...onShownPage.map((n) => n.getBoundingClientRect().width))) : 0,
     tones: [...new Set(notes.map((n) => n.dataset.tone))].sort(),
     dockHas: dock ? [...dock.children].map((c) => c.id) : [],
     summary: document.querySelector('#score-tab-summary')?.textContent ?? '',

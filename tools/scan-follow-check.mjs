@@ -268,8 +268,13 @@ const shown = await page.evaluate(async () => {
     silent: view?.bridge?.silent?.length ?? 0,
     unheard: view?.bridge?.unheard?.length ?? 0,
     summary: document.querySelector('#score-tab-summary')?.textContent ?? '',
-    smallestQuiet: quiet.length
-      ? Math.round(Math.min(...quiet.map((n) => n.getBoundingClientRect().width))) : 0,
+    // …on the page being SHOWN. The review turns pages now rather than
+    // stacking them (scan-view.js), and a mark on a page nobody is looking at
+    // has no box at all — measuring it says 0 and means nothing.
+    smallestQuiet: quiet.some((n) => !n.closest('.scan-page')?.hidden)
+      ? Math.round(Math.min(...quiet
+        .filter((n) => !n.closest('.scan-page')?.hidden)
+        .map((n) => n.getBoundingClientRect().width))) : 0,
   };
 });
 

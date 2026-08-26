@@ -883,9 +883,15 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
   wrap.className = 'scan-score';
   container.replaceChildren(wrap);
 
-  // Only the pages that carry a mark. A take of eight notes against a
-  // twenty-page part is eight rings on page one, and nineteen blank
-  // photographs under them is not a review, it is a scroll.
+  // WHICH PAGE TO OPEN ON — which is all this is now.
+  //
+  // It used to be which pages to DRAW: only the ones carrying a mark, because a
+  // take of eight notes against a twenty-page part is eight rings on page one
+  // and nineteen blank photographs under them is not a review, it is a scroll.
+  // That argument is about the scroll, and there is no scroll any more — the
+  // pages are shown one at a time with an arrow either side (see below). So all
+  // of them are laid out and the take decides where you land, which is also
+  // what puts a tappable bar on the pages the take never reached.
   const wanted = refused
     ? [0]
     : [...new Set(pairing.marks.map((m) => m.page))].sort((a, b) => a - b);
@@ -939,19 +945,39 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
   // measured at all. `npm run edge:fit`.
   const room = container.clientWidth || 360;
   const across = Math.min(MAX_ACROSS, Math.max(240, room));
-  for (const page of wanted) {
+
+  // ONE PAGE AT A TIME, WITH AN ARROW EITHER SIDE.
+  //
+  // The pages used to run down the screen one after the next, so a two-page
+  // part was a scroll and a ten-page part was a scroll nobody reached the end
+  // of. They are laid out in the same order and only one is shown.
+  //
+  // WHY THEY ARE HIDDEN AND NOT REBUILT, which is the whole of "move to another
+  // page without the sound stopping". Turning a page here touches one attribute
+  // on two elements. Nothing is created, nothing is destroyed, no view is torn
+  // down and remounted — so the take carries on playing, the follower carries on
+  // following, and the bar layer another module hung over these pages
+  // (bar-sync.js finds them by `.scan-page`) keeps the very boxes it built.
+  // Rebuilding the pages on a turn would take the audio down with it, because
+  // `destroy` is what stops the tone and the paper.
+  //
+  // WHAT IS LAZY AND WHAT IS NOT. The picture is decoded on the first visit to
+  // its page, and the page after it is decoded as soon as you land, so the
+  // arrow answers instantly. The take's own rings go down eagerly, all pages at
+  // once — they are one per played note, so a take bounds them — and that keeps
+  // `byNote`/`byHead` complete from the start, which is what the playhead reads.
+  // The SILENT noteheads are per page and lazy: `bridge.silent` is every head
+  // nobody played across the whole part, which on a twenty-page part is
+  // thousands of marks nobody has looked at yet.
+  const total = Math.max(1, Number.isFinite(pages.count) ? pages.count : (layout?.length ?? 1));
+  const holders = [];
+  const quiets = [];
+  for (let index = 0; index < total; index += 1) {
     const holder = document.createElement('div');
     holder.className = 'scan-page';
-    holder.dataset.page = String(page);
+    holder.dataset.page = String(index);
     const canvas = document.createElement('canvas');
     holder.append(canvas);
-    wrap.append(holder);
-    try {
-      await pages.draw(page, canvas, across, across * 4);
-    } catch {
-      // A page that will not draw still gets its marks: the positions are
-      // known, and a ring over a blank rectangle is more use than nothing.
-    }
     // The picture is laid out at its own aspect; the marks are placed against
     // the SAME box, in fractions, so they cannot drift from it at any width.
     //
@@ -967,15 +993,12 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
     const box = document.createElement('div');
     box.className = 'scan-marks';
     holder.append(box);
-
-    quietNodes.push(...silentMarkers(
-      quiet,
-      heads,
-      [...quietWanted].filter((at) => heads[at]?.page === page),
-    ));
+    quiets.push(quiet);
+    holders.push(holder);
+    wrap.append(holder);
 
     for (const mark of pairing.marks) {
-      if (mark.page !== page) continue;
+      if (mark.page !== index) continue;
       // A mark and not a control — see the note on silentMarkers. Every tap on
       // a scanned page goes to the bar under it.
       const dot = document.createElement('span');
@@ -994,6 +1017,78 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
       nodes.push(dot);
     }
   }
+
+  const drew = new Set();
+  const quieted = new Set();
+  async function paint(index) {
+    const holder = holders[index];
+    if (!holder) return;
+    if (!quieted.has(index)) {
+      quieted.add(index);
+      quietNodes.push(...silentMarkers(
+        quiets[index],
+        heads,
+        [...quietWanted].filter((at) => heads[at]?.page === index),
+      ));
+    }
+    if (drew.has(index)) return;
+    drew.add(index);
+    try {
+      await pages.draw(index, holder.querySelector('canvas'), across, across * 4);
+    } catch {
+      // A page that will not draw still gets its marks: the positions are
+      // known, and a ring over a blank rectangle is more use than nothing.
+    }
+  }
+
+  let pager = null;
+  let counter = null;
+  let back = null;
+  let on = null;
+  let shown = -1;
+
+  function showPage(index) {
+    const next = Math.max(0, Math.min(total - 1, Math.trunc(index) || 0));
+    // Already here — including an arrow pressed at either end, which is why
+    // this is a no-op and not a wrap round to the other end of the part.
+    if (next === shown) return Promise.resolve(shown);
+    shown = next;
+    for (const [i, holder] of holders.entries()) holder.hidden = i !== shown;
+    if (counter) counter.textContent = `${shown + 1} / ${total}`;
+    if (back) back.disabled = shown === 0;
+    if (on) on.disabled = shown === total - 1;
+    // This one now, and the next one so the arrow answers without a decode.
+    const ready = paint(shown);
+    paint(shown + 1);
+    return ready;
+  }
+
+  if (total > 1) {
+    pager = document.createElement('div');
+    pager.className = 'scan-pager';
+    const turn = (glyph, label, go) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'scan-turn';
+      button.textContent = glyph;
+      button.setAttribute('aria-label', label);
+      // AND NOT ALSO A TAP ON THE SCORE — score-tab.js opens the full-screen
+      // reader on a click anywhere in the stage, so an arrow that did not stop
+      // its own click would turn the page and then throw the part over the top
+      // of it. The bar boxes do the same, for the same reason.
+      button.addEventListener('click', (event) => { event.stopPropagation(); go(); });
+      return button;
+    };
+    back = turn('‹', 'Previous page', () => showPage(shown - 1));
+    on = turn('›', 'Next page', () => showPage(shown + 1));
+    counter = document.createElement('span');
+    counter.className = 'scan-pager-at';
+    pager.append(back, counter, on);
+    wrap.append(pager);
+  }
+
+  // Landing where the take is, not at the front of the part.
+  await showPage(wanted[0] ?? 0);
 
   // The rings, by the notehead they are ON rather than by the note that was
   // played — which is what the playhead needs, because the bridge answers
@@ -1016,6 +1111,11 @@ export async function showScanScore(container, { payload, layout, notes } = {}) 
     pages: nodes,
     pairing,
     bridge,
+    // The part, page by page. `showPage` is how a check turns one and how
+    // anything else ever will; `page` is the one being looked at.
+    pageCount: total,
+    get page() { return shown; },
+    showPage,
     // How many unplayed noteheads were drawn. The review says this out loud —
     // "these are the notes on the page you did not play" is a fact about the
     // take, and a page with silent markers on it that nothing explains reads

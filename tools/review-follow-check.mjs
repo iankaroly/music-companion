@@ -175,24 +175,57 @@ check('…and the page stays where the hand left it',
   `parked at ${afterTouch.parked}, ended at ${afterTouch.y}`);
 
 // (3) A SEEK HANDS IT BACK. Pressing a bar is asking to be taken there.
-// From where the hand left the page — no scrolling of our own, or the scroll
-// this is about would have been given back by the app itself.
+//
+// A bar has to be ON THE SCREEN to be pressed with a finger, and after a drag
+// and its fling there may be none: the review shows ONE page of the part now
+// rather than stacking them (scan-view.js), so what lies below the music is
+// graphs and not more music. Where that happens the page is moved back to the
+// music WITHOUT A GESTURE — `scrollTo` fires neither a wheel nor a touchmove,
+// so the latch cannot see it — and the check below proves that rather than
+// assuming it: the scroll is still not the app's when the press is made, which
+// is the precondition the whole step rests on.
 const seekAt = await page.evaluate(async () => {
-  for (const bar of document.querySelectorAll('.scan-bar')) {
-    const b = bar.getBoundingClientRect();
-    const x = Math.round(b.left + b.width / 2);
-    const y = Math.round(b.top + b.height / 2);
-    if (y < 60 || y > window.innerHeight - 90) continue;
-    const hit = document.elementFromPoint(x, y);
-    if (hit === bar || bar.contains(hit)) return { x, y };
-  }
-  return null;
+  // THE LOWEST BAR ON THE SCREEN, not the first one found. Following a bar
+  // near the top means moving the page by nothing — the music after it is
+  // already in view — and the step would then be handed the scroll back and
+  // count no scrolls. The bar nearest the bottom is the one whose music runs
+  // off the screen, so following it has somewhere to go.
+  const reachable = () => {
+    let best = null;
+    for (const bar of document.querySelectorAll('.scan-bar')) {
+      const b = bar.getBoundingClientRect();
+      const x = Math.round(b.left + b.width / 2);
+      const y = Math.round(b.top + b.height / 2);
+      if (y < 60 || y > window.innerHeight - 90) continue;
+      const hit = document.elementFromPoint(x, y);
+      if (hit === bar || bar.contains(hit)) if (!best || y > best.y) best = { x, y };
+    }
+    return best;
+  };
+  const here = reachable();
+  if (here) return here;
+  const bars = [...document.querySelectorAll('.scan-page:not([hidden]) .scan-bar')];
+  const bar = bars.at(-1);
+  if (!bar) return null;
+  bar.scrollIntoView({ block: 'center', behavior: 'instant' });
+  await new Promise((r) => setTimeout(r, 200));
+  // LOW ON THE SCREEN, not in the middle of it. Centred, the follower has
+  // nothing to do — `keepInView` leaves a mark alone while it is comfortably
+  // inside the frame — so the step would press a bar, be handed the scroll
+  // back, and count zero scrolls because none was needed. Put where a mark is
+  // about to fall off the bottom, following it means moving the page.
+  const box = bar.getBoundingClientRect();
+  window.scrollBy(0, Math.round(box.top + box.height / 2 - (window.innerHeight - 110)));
+  await new Promise((r) => setTimeout(r, 400));
+  return reachable();
 });
 if (!seekAt) { console.log('FAIL  no bar was on screen where the hand left the page'); process.exit(1); }
 const seekBefore = await page.evaluate(async () => {
   const { followState } = await import('/src/ui/score-tab.js');
   return { ...followState(), y: Math.round(window.scrollY) };
 });
+check('moving the page without a gesture does NOT hand the scroll back',
+  seekBefore.ours === false, `the scroll is ${seekBefore.ours ? 'the app\'s' : 'still the hand\'s'}`);
 // TAPPED, not clicked — and a tap must not arm the latch, or this could only
 // ever pass by the press undoing what the press itself did.
 await page.touchscreen.tap(seekAt.x, seekAt.y);
