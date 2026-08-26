@@ -2983,6 +2983,26 @@ function betterOf(first, again) {
   return again && heads(again) >= heads(first) ? again : first;
 }
 
+// Run it to the end without stopping. This is what every tool and every corpus
+// check takes, and what `readPage` is.
+function readAt(source, naturalWidth, naturalHeight, width, judge) {
+  const steps = readSteps(source, naturalWidth, naturalHeight, width, judge);
+  let step = steps.next();
+  while (!step.done) step = steps.next();
+  return step.value;
+}
+
+// …and the same, handing the processor back wherever it yields.
+async function readAtGently(source, naturalWidth, naturalHeight, width, judge, pause) {
+  const steps = readSteps(source, naturalWidth, naturalHeight, width, judge);
+  let step = steps.next();
+  while (!step.done) {
+    if (pause) await pause();
+    step = steps.next();
+  }
+  return step.value;
+}
+
 export function readPage(source, naturalWidth, naturalHeight, { judge = true } = {}) {
   const first = readAt(source, naturalWidth, naturalHeight,
     Math.min(WORK_WIDTH, naturalWidth), judge);
@@ -2992,9 +3012,58 @@ export function readPage(source, naturalWidth, naturalHeight, { judge = true } =
   return betterOf(first, readAt(source, naturalWidth, naturalHeight, wanted, judge));
 }
 
+/**
+ * The same read, stopping between staves so a page turn can be heard.
+ *
+ * Same two reads, same choice between them, same arithmetic in the same order —
+ * it is the same generator body, driven differently. `readPage` above stays
+ * synchronous because sixty call sites across the tools take it that way, and
+ * those tools are what measure whether the reading is any good.
+ *
+ * `pause` should be CHEAP — a frame, a timer — and not a wait for the reader to
+ * go idle. Between pages the caller already stands aside properly; between
+ * staves the job is only to let a pending tap be dispatched, and a pass that
+ * parks for seconds at every stave would take an age to finish a long part.
+ */
+export async function readPageGently(
+  source, naturalWidth, naturalHeight, { judge = true, pause = null } = {},
+) {
+  const first = await readAtGently(source, naturalWidth, naturalHeight,
+    Math.min(WORK_WIDTH, naturalWidth), judge, pause);
+  if (!first) return first;
+  const wanted = worthReadingAgain(first, naturalWidth, naturalHeight);
+  if (!wanted) return first;
+  return betterOf(first,
+    await readAtGently(source, naturalWidth, naturalHeight, wanted, judge, pause));
+}
 
 
-function readAt(source, naturalWidth, naturalHeight, width, judge) {
+
+// ONE BODY, TWO DRIVERS.
+//
+// Reading a page is the heaviest arithmetic in this app and it has no yield in
+// it, so a page turn arriving while it runs waits the whole thing out. MEASURED
+// on eight dense pages at 6x throttle, by a timer asking to run every 50ms and
+// reporting how late it was: the main thread was unavailable for 6743ms at a
+// stretch, with eleven other blocks over a second.
+//
+// Most of that is one loop. Timed stage by stage on an eleven-system page:
+// 1864ms of 2371ms is the per-stave work — findBars and findHeads, eleven times
+// — against 110ms for the largest of everything else.
+//
+// So the loop yields — and so does every other stage boundary, which costs
+// nothing now the shape exists: at the second, larger read the page is 2400
+// across and toGray, boxBlur and the stave tracking are a few hundred
+// milliseconds each. Which means the read has to be able to stop and start,
+// and `readPage` has to stay SYNCHRONOUS anyway: sixty call sites across the
+// tools use it that way, and those tools are the corpus that measures whether
+// the reading is any good. A version of this for the app alone would leave the
+// path the app actually takes with no corpus behind it.
+//
+// A generator gives both from one body. Every line that computes anything is
+// shared by construction — the two drivers below differ only in whether they
+// pause where it yields.
+function* readSteps(source, naturalWidth, naturalHeight, width, judge) {
   const w = Math.max(1, Math.round(width));
   const h = Math.round(naturalHeight * (w / naturalWidth));
   const canvas = document.createElement('canvas');
@@ -3003,6 +3072,7 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
   canvas.getContext('2d', { willReadFrequently: true }).drawImage(source, 0, 0, w, h);
 
   const gray = toGray(canvas);
+  yield;
 
   // THE BLUR BOX IS A SHARE OF THE PAGE'S WIDTH, AND IT WAS MEASURED THIS ROUND
   // AND LEFT ALONE. The local threshold divides the page's own lighting out, and
@@ -3015,9 +3085,11 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
   // measured in staff spaces the box is right for the three pages and WRONG for
   // the size sweep, which is the failure the size sweep exists to catch.
   const background = boxBlur(gray, w, h, Math.max(4, Math.round(w / 36)));
+  yield;
   const ink = new Uint8Array(w * h);
   for (let i = 0; i < w * h; i++) ink[i] = gray[i] < background[i] - 16 ? 1 : 0;
 
+  yield;
   const { thickness, space, pitch } = pageScale(ink, w, h);
   if (!(space > 2 && space < 40)) return null;
 
@@ -3036,17 +3108,21 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
     }
     profiles.push(p);
   }
+  yield;
   const tracked = trackCombs(profiles.map((p) => combPeaks(p, pitch)), pitch);
   const staves = stavesToLines(fillMissedStaves(tracked, profiles, pitch), STRIPS);
   if (staves.length === 0) return null;
 
   // Heads are hunted on the cleaned page; bars stay on the raw one. A barline
   // is a full-height column and beam removal has no business nibbling at it.
+  yield;
   const body = beamMask(ink, w, h, space);
+  yield;
   // The beams, as their own layer: what beamMask took out. Finding them was
   // already done — this is only the difference between the page and the page
   // with the beams removed — and it is what says a quaver from a semiquaver.
   const beams = beamLayer(ink, body);
+  yield;
 
   // Bars and heads for every stave first, and the note values only afterwards.
   //
@@ -3097,7 +3173,12 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
   });
 
 
-  const found = staves.map((staff) => ({
+  // THE LONG POLE, and the one place this yields. Eleven staves at about 170ms
+  // each on a dense page at 6x throttle; the block a turn can land inside is one
+  // stave instead of the whole page.
+  const found = [];
+  for (const staff of staves) {
+    found.push({
     staff,
     bars: findBars(ink, w, h, staff, stripW, space),
     // Found by shape, then — outside the stave only — asked whether the ink it
@@ -3194,7 +3275,9 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
       const strip = Math.min(STRIPS - 1, Math.max(0, Math.floor((x / w) * STRIPS)));
       return staff.lines.map((line) => line.at[strip]);
     },
-  }));
+    });
+    yield;
+  }
 
   // ONE PIECE OF INK, REPORTED BY TWO STAVES — see dropDoubledHeads.
   dropDoubledHeads(found, w);
@@ -3225,7 +3308,9 @@ function readAt(source, naturalWidth, naturalHeight, width, judge) {
     }
   }
 
+  yield;
   const perStaff = readValues(ink, beams, w, h, found);
+  yield;
 
   // Where the staves start, decided for the PAGE and not for each system.
   //

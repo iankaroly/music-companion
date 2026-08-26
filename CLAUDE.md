@@ -314,6 +314,19 @@ npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
                          press the tab until it takes: the app restores the last
                          tab AFTER load, and a single click at a fixed delay
                          raced it and measured the tuner half the time.
+npm run read:stall       HOW LONG THE MAIN THREAD IS UNAVAILABLE while a part is
+                         being read, which is the number behind "it takes a
+                         while to load before i can tap through the pages". A
+                         timer that wants to run every 50ms, reporting how late
+                         it actually is: a block of work N ms long makes it N ms
+                         late, whatever else the machine is doing.
+                         MEAN TURN TIME IS THE WRONG MEASURE and an earlier
+                         attempt at this was reverted because of it — cold means
+                         ran 1344-2669ms on IDENTICAL code, so the noise swamped
+                         the change and nothing could be told from it. The size
+                         of the biggest uninterruptible block is what is
+                         actually being changed, and it is stable to about 5%
+                         run to run. NO MICROPHONE, NO CAMERA.
 npm run reader:card      "PAGE 1 COULD NOT BE READ", TWENTY SECONDS IN, AND HOW
                          IT GOES AWAY. The twenty seconds is not the reading
                          pass being slow: when it finishes it STORES what it

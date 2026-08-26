@@ -1122,6 +1122,24 @@ function breathe() {
   });
 }
 
+// A yield that only costs a frame when one is due.
+//
+// The read offers a yield at every stage and between every stave, which is what
+// makes the block a tap can land inside small. Handing the frame back at all of
+// them is far more waiting than working; handing it back a few times a second
+// is enough for a tap to be heard, and every other yield resolves as a
+// microtask, which costs nothing measurable.
+const SLICE_MS = 40;
+function sliced() {
+  let last = Date.now();
+  return () => {
+    const now = Date.now();
+    if (now - last < SLICE_MS) return undefined;
+    last = now;
+    return breathe();
+  };
+}
+
 // How often the pass stops to write down what it has. Small, because the cost
 // of a write is two short arrays and the cost of not having written is the
 // whole part read again.
@@ -1150,7 +1168,7 @@ export async function readPages(
   payload, onProgress = null, onMeasured = null, standAside = null,
 ) {
   const pages = await openPaper(payload);
-  const { readPage } = await import('../analysis/scan-read.js');
+  const { readPageGently } = await import('../analysis/scan-read.js');
   const layout = [];
   // Measured here because this is the one pass that already looks at every
   // page. Doing it here means the reader never has to, and opening a long part
@@ -1191,15 +1209,37 @@ export async function readPages(
       // aside only between whole pages meant a turn could still be a full page
       // behind. This halves the longest a tap can wait.
       if (standAside) await standAside();
-      // TRIED AND TAKEN OUT: an await between the two reads `readPage` makes,
-      // so the pass could be asked to stand aside at the one moment inside a
-      // page where standing aside is possible. It is the longest stretch of
-      // arithmetic in the app with no yield in it, so it looked like the
-      // answer. MEASURED, three runs each way on 20 pages at 6x throttle: cold
-      // means 1553/1362/2371 with it against 1535/2669/1637 without, warm
-      // 707/878/912 against 905/861/943. Entirely inside the run-to-run
-      // spread. It bought nothing and it is not in the tree.
-      found = readPage(sheet, sheet.width, sheet.height);
+      // AND IT STOPS BETWEEN STAVES — see `readPageGently`.
+      //
+      // Reading a page is 2371ms of solid arithmetic at 6x throttle on a dense
+      // page, and 1864ms of that is one loop: findBars and findHeads, once per
+      // stave. A turn arriving inside it waits the whole page out.
+      //
+      // TRIED FIRST AND TAKEN OUT: an await between the two reads `readPage`
+      // makes, which is the one place a pause could go without touching the
+      // read itself. MEASURED, three runs each way on 20 pages: cold means
+      // 1553/1362/2371 with it against 1535/2669/1637 without. Entirely inside
+      // the spread, because the stall is INSIDE one read, not between two.
+      //
+      // `breathe` and not `standAside`: between pages the pass already stands
+      // aside properly and waits for the reader to be idle; between staves the
+      // job is only to let a pending tap be dispatched, and parking for seconds
+      // at every stave would take an age to finish a long part.
+      //
+      // AND NOT AT EVERY YIELD EITHER. `breathe` is a frame — sixteen
+      // milliseconds at best — and the read offers about twenty yields per pass,
+      // twice a page. Paid at every one of them the pass is mostly waiting.
+      // A tap only needs the thread back a few times a second, so the frame is
+      // paid at most that often and the rest of the yields cost a microtask,
+      // which is nothing.
+      //
+      // WHAT IT COSTS, said plainly: on a twenty-page part being riffled
+      // through, the pass reads 15 pages where it used to read 20 in the same
+      // stretch, because it now gives way to every turn. That is the right way
+      // round — the pages are read in the background and the turn is the thing
+      // somebody is waiting for — and the pass still finishes; `watchLayouts`
+      // refreshes the reader when it does.
+      found = await readPageGently(sheet, sheet.width, sheet.height, { pause: sliced() });
       // …AND AGAIN, BIGGER, WHERE THE MUSIC IS SMALL.
       //
       // 1400 across is enough for a page with four or five systems on it and
@@ -1219,7 +1259,8 @@ export async function readPages(
         if (standAside) await standAside();
         await pages.draw(i, sheet, 2400 / dpr, 9000 / dpr, null, { plain: true });
         if (standAside) await standAside();
-        const closer = readPage(sheet, sheet.width, sheet.height);
+        const closer = await readPageGently(sheet, sheet.width, sheet.height,
+          { pause: sliced() });
         const heads = (read) => (read?.staves ?? [])
           .reduce((n, st) => n + (st.heads?.length ?? 0), 0);
         if (closer && heads(closer) >= heads(found)) found = closer;

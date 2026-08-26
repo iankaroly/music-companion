@@ -121,7 +121,8 @@
     "scan:lag": "node tools/scan-lag-check.mjs",
     "edge:fit": "node tools/edge-fit-check.mjs",
     "app:reach": "node tools/reach-check.mjs",
-    "reader:card": "node tools/reader-card-check.mjs"
+    "reader:card": "node tools/reader-card-check.mjs",
+    "read:stall": "node tools/read-stall-check.mjs"
   },
   "keywords": [],
   "author": "",
