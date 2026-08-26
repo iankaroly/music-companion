@@ -2955,6 +2955,10 @@ let turning = 0;
 // playing. A part measures itself in the rests.
 let lastUsed = 0;
 const IDLE_ENOUGH = 2500;
+// True from the first line of `openReader` until its first pages are on the
+// glass. Read by `standAside` — see the note there. (Not `opening`: that name
+// is already a local inside `openReader`, holding the "opening…" line.)
+let comingUp = false;
 
 function usedNow() {
   lastUsed = Date.now();
@@ -2968,7 +2972,17 @@ function usedNow() {
 // the pages the first time … it takes a while for the score to load" is made
 // of. See scanPages.
 export function standAside() {
-  const clear = () => (root?.hidden ?? true) || (turning <= 0 && Date.now() - lastUsed > IDLE_ENOUGH);
+  // `root.hidden` means "nobody is reading", and the pass may have the
+  // processor. It does NOT mean that while the reader is opening: the root is
+  // hidden for the whole of `openReader` and its first render, which on a part
+  // just scanned is precisely when the pass is started (score.js fires
+  // `measurePages` at import). So the pass ran at full speed through the render
+  // of the first page somebody was waiting to look at, and `readPage` has no
+  // yield inside it — once a page's read begins, a tap waits it out. MEASURED:
+  // 3.0-5.3s stalls with nothing else on the thread, and turns of 1433, 1506,
+  // 1540 and once 10632ms taken while the pass was mid-page.
+  const clear = () => !comingUp
+    && ((root?.hidden ?? true) || (turning <= 0 && Date.now() - lastUsed > IDLE_ENOUGH));
   if (clear()) return Promise.resolve();
   return new Promise((go) => {
     const look = setInterval(() => {
@@ -6345,6 +6359,15 @@ export async function openReader(row, {
   // Notation needs its XML; paper needs nothing but the row, because its pages
   // live in a store of their own.
   if (!row || (row.kind !== 'pages' && !row.xml)) return null;
+  // OPENING COUNTS AS BUSY. See `standAside`: it lets the reading pass run flat
+  // out whenever the reader is hidden, which is exactly what the reader is
+  // while it opens — so a part just scanned had the heaviest pass in the app
+  // racing the render of its own first page.
+  comingUp = true;
+  // …and never for longer than it can plausibly take. A reader whose open
+  // throws somewhere unguarded would otherwise hold the reading pass off for
+  // the life of the session.
+  setTimeout(() => { comingUp = false; }, 20000);
   build();
   // A scan opened before it has been read refreshes itself when it is — see
   // layoutArrived.
@@ -6410,6 +6433,7 @@ export async function openReader(row, {
     await render();
   } catch (err) {
     opening.remove();
+    comingUp = false;
     close();
     throw err;
   }
@@ -6418,6 +6442,9 @@ export async function openReader(row, {
   refreshBrushUI();
   refreshHistoryButtons();
   showPage(0);
+  // The first page is on the glass; the reading pass may have the processor
+  // back. Anything after this is the look-ahead, which already yields.
+  comingUp = false;
   refreshPlayButton();
   refreshLandButton();
   return view;

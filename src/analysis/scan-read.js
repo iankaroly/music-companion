@@ -2963,24 +2963,36 @@ const WORK_MOST = 2400;    // the widest the reader will work at, for memory
 const SPACE_WANT = 9;      // the staff space it is built for
 const SPACE_WORTH = 1.15;  // …and how much bigger a second look must be to run
 
-export function readPage(source, naturalWidth, naturalHeight, { judge = true } = {}) {
-  const first = readAt(source, naturalWidth, naturalHeight,
-    Math.min(WORK_WIDTH, naturalWidth), judge);
-  if (!first) return first;
+// WHETHER A SECOND, BIGGER READ IS WORTH TAKING, and how big.
+function worthReadingAgain(first, naturalWidth, naturalHeight) {
+  if (!first) return 0;
   const usedW = Math.min(WORK_WIDTH, naturalWidth);
   const usedH = Math.round(naturalHeight * (usedW / naturalWidth));
   const space = (first.space ?? 0) * usedH;
-  if (!(space > 0) || space >= SPACE_WANT) return first;
+  if (!(space > 0) || space >= SPACE_WANT) return 0;
   const wanted = Math.min(WORK_MOST, naturalWidth, Math.round(usedW * (SPACE_WANT / space)));
-  if (wanted < usedW * SPACE_WORTH) return first;
-  // A bigger read that finds LESS is not an improvement — it is a page whose
-  // extra pixels are noise — so the first answer stands unless the second one
-  // is at least as good.
-  const again = readAt(source, naturalWidth, naturalHeight, wanted, judge);
+  return wanted < usedW * SPACE_WORTH ? 0 : wanted;
+}
+
+// A bigger read that finds LESS is not an improvement — it is a page whose
+// extra pixels are noise — so the first answer stands unless the second one is
+// at least as good.
+function betterOf(first, again) {
   const heads = (read) => (read?.staves ?? [])
     .reduce((n, st) => n + (st.heads?.length ?? 0), 0);
   return again && heads(again) >= heads(first) ? again : first;
 }
+
+export function readPage(source, naturalWidth, naturalHeight, { judge = true } = {}) {
+  const first = readAt(source, naturalWidth, naturalHeight,
+    Math.min(WORK_WIDTH, naturalWidth), judge);
+  if (!first) return first;
+  const wanted = worthReadingAgain(first, naturalWidth, naturalHeight);
+  if (!wanted) return first;
+  return betterOf(first, readAt(source, naturalWidth, naturalHeight, wanted, judge));
+}
+
+
 
 function readAt(source, naturalWidth, naturalHeight, width, judge) {
   const w = Math.max(1, Math.round(width));

@@ -670,6 +670,10 @@ const DECODE_MAX = 1800;
 // and then keeps only what has been looked at most recently, which is the same
 // behaviour this had before for the ten pages it used to keep.
 const THUMB_WIDE = 460;
+// The least a stand-in may be made of, as a fraction of what the screen would
+// take. `own` above is normally the binding term — the copy's own resolution —
+// and this is the floor under it for a page shown very small.
+const ROUGH_ENOUGH = 0.5;
 const THUMB_PIXELS = 6_000_000;   // ≈24MB of RGBA, whatever the page count is
 
 // Small copies of pages, kept by LAST USE and bounded by total pixels.
@@ -1024,8 +1028,30 @@ async function openImages(blobs, known = {}) {
           const fit = Math.min(width / spare.w, height / spare.h);
           const w = Math.max(1, Math.round(spare.w * fit));
           const h = Math.max(1, Math.round(spare.h * fit));
+          // MADE OF THE COPY'S OWN PIXELS, not of nineteen times as many.
+          //
+          // This asked `sizeToBand` for a full-resolution canvas — the
+          // `density` argument never reaches this branch, it returns before the
+          // argument is used — and then brightened all of it. On a 20-page part
+          // at 6x throttle that is 2002x2732 = 5.47 MILLION pixels of unshadow
+          // (a Float32 grey pass, two box-blur passes, a percentile sample and
+          // a per-pixel rescale) spent on a picture whose real content is 460
+          // pixels across: 0.28M pixels of information, blown up 4.3x, and then
+          // ground over as though it were a photograph.
+          //
+          // And it sits on the critical path — these ARE the pixels the player
+          // is waiting for. MEASURED across eight taps: sixteen full-canvas
+          // brightens, eight of them this one; dropping just this one took the
+          // riffle from 14643ms to 11262ms and removed eight of the sixteen
+          // main-thread stalls.
+          //
+          // Not dropped, though — an unbrightened copy followed by a brightened
+          // sharp page is a visible jump in brightness. The canvas is cut to
+          // the copy's own resolution instead, so the brightening costs about a
+          // nineteenth and the page still comes up looking like the page.
+          const own = Math.min(1, spare.w / Math.max(1, w));
           const { context, pixels } = sizeToBand(canvas, w, h,
-            dpr * withinReach(w * dpr, h * dpr));
+            Math.max(own, dpr * withinReach(w * dpr, h * dpr) * ROUGH_ENOUGH));
           context.setTransform(pixels, 0, 0, pixels, 0, 0);
           context.drawImage(spare.el, 0, 0, w, h);
           if (!plain) brighten(context, canvas.width, canvas.height);
@@ -1165,6 +1191,14 @@ export async function readPages(
       // aside only between whole pages meant a turn could still be a full page
       // behind. This halves the longest a tap can wait.
       if (standAside) await standAside();
+      // TRIED AND TAKEN OUT: an await between the two reads `readPage` makes,
+      // so the pass could be asked to stand aside at the one moment inside a
+      // page where standing aside is possible. It is the longest stretch of
+      // arithmetic in the app with no yield in it, so it looked like the
+      // answer. MEASURED, three runs each way on 20 pages at 6x throttle: cold
+      // means 1553/1362/2371 with it against 1535/2669/1637 without, warm
+      // 707/878/912 against 905/861/943. Entirely inside the run-to-run
+      // spread. It bought nothing and it is not in the tree.
       found = readPage(sheet, sheet.width, sheet.height);
       // …AND AGAIN, BIGGER, WHERE THE MUSIC IS SMALL.
       //
