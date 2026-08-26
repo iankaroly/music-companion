@@ -262,6 +262,22 @@ if (first.failed) {
     check('with neither take left as a loose row beside it',
       after.rows.filter((r) => !r.folder).length === 0,
       `${after.rows.filter((r) => !r.folder).length} loose rows`);
+
+    // AND BOTH ARE STILL TAKES OF THE PIECE.
+    //
+    // The Library hides anything with a folder from its top level, which is the
+    // point of a folder. What must NOT change is which piece a take belongs to:
+    // everything that lists "the takes of this piece" — the shelf's own count,
+    // the piece's list on the Score tab for an engraved part, the coach — reads
+    // `scoreId`, and a folder that quietly detached them would empty all three
+    // as a side effect of the thing he asked for.
+    const attached = await page.evaluate(async () => {
+      const { listRecordings } = await import('/src/store/db.js');
+      const takes = await listRecordings();
+      return takes.filter((t) => t.scoreId != null).length;
+    });
+    check('and both are still takes of the piece they were played from',
+      attached === 2, `${attached} of 2 still carry the piece`);
   }
 }
 

@@ -831,7 +831,17 @@ startBtn.addEventListener('click', async () => {
 // screen and Save is still there.
 function saveTake({ toScore = false } = {}) {
   if (!lastTake) return;
-  const suggested = scoreName();
+  // ONLY THE DOOR THAT IS ABOUT A PIECE ASKS.
+  //
+  // The gate was `scoreName()` — is a piece open at all — and that is the wrong
+  // question, because the Record tab's "Save to library" is the same function
+  // and a piece can be open from an hour ago. Pressing it after a run of scales
+  // would have offered to call them the Bach, and then filed them in the Bach's
+  // folder on the second one. Its confirmation is the other hazard: `saidOnTheBar`
+  // writes to a line under the SCORE tab's save bar, so a Cancel from the Record
+  // tab would have said nothing anywhere at all — the button that does nothing
+  // when you click it, which this file warns about twice.
+  const suggested = toScore ? scoreName() : null;
   if (!suggested) { keepTake({ toScore, name: null }); return; }
   askTakeName(suggested, (name) => {
     if (name === null) { saidOnTheBar('not saved — it is still here'); return; }

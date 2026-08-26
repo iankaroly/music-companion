@@ -411,6 +411,12 @@ npm run take:save        A TAKE RECORDED FROM THE MUSIC LANDS SOMEWHERE YOU CAN
                          pressed the first button whose words contained the
                          piece's name pressed "Add this take to…" and measured a
                          lap that never happened.
+                         AND BOTH TAKES ARE STILL TAKES OF THE PIECE: a folder
+                         hides them from the library's top level, which is the
+                         point, and must not touch `scoreId` — the shelf's
+                         count, an engraved part's own take list and the coach
+                         all read that, and a folder that quietly detached them
+                         would empty all three as a side effect of the feature.
                          The decision it rests on is unit-tested apart from the
                          database: `whereTakeGoes` in store/db.js, and
                          tests/take-filing.test.js. NO MICROPHONE (the fake
