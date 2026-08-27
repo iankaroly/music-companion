@@ -217,10 +217,11 @@ const report = await page.evaluate(async () => {
     const sy = Math.floor(one.at + 1e-9);
     perSystem[sy] = (perSystem[sy] ?? 0) + 1;
   }
-  attachBarSync(third, {
+  let tellThird = null;
+  third.__barSync = attachBarSync(third, {
     layout: mixedLayout,
     play: () => true,
-    follow: () => () => {},
+    follow: (fn) => { tellThird = fn; return () => { tellThird = null; }; },
     notes: mixedTake,
   });
   const mixedBoxes = [...third.querySelectorAll('.scan-bar')];
@@ -228,7 +229,26 @@ const report = await page.evaluate(async () => {
   // A press inside one of them says what it is answering from.
   unsureBoxes[0]?.click();
   const saidOnPress = third.querySelector('.bar-sync-say')?.textContent ?? '';
+  // …AND THE MAP MEASURED AGAINST AN EAR. A mark says "this bar was sounding at
+  // this second", which is ground truth; the map's own answer at that bar is
+  // beside it, and the difference is the only measurement of this feature made
+  // on something other than a synthesised take. Here the "ear" is a number this
+  // check chooses, so what is proved is that the comparison is made and
+  // reported — not that the map is any good, which is scan:real's job.
+  const sync3 = third.__barSync;
+  const markStrip = third.querySelector('.bar-sync-bar');
+  const markBtn = markStrip?.querySelector('[data-bar="where"]');
+  const laterBoxes = [...third.querySelectorAll('.scan-bar')];
+  tellThird?.(null, 41.5);            // the moment being heard
+  markBtn?.click();                   // "Mark where you are"
+  laterBoxes[9]?.click();             // …and the bar it was heard at
+  const residuals = sync3?.residuals ?? [];
+  const saidAfterMark = third.querySelector('.bar-sync-say')?.textContent ?? '';
+
   const mixed = {
+    residuals: residuals.length,
+    residualOff: residuals[0]?.off ?? null,
+    saidAfterMark,
     placed: placements.filter((one) => one.sure).length,
     refused: placements.filter((one) => !one.sure).length,
     bars: mixedBoxes.length,
@@ -307,6 +327,12 @@ console.log(`  the path matched, per system: ${mixed.perSystem}`);
 check('a map with a gap in it marks the bars it is only running across',
   mixed.refused > 0 && mixed.unsure > 0 && mixed.unsure < mixed.bars,
   `${mixed.unsure} of ${mixed.bars} bars marked`);
+check('a mark by ear is scored against what the map said there',
+  mixed.residuals === 1 && Number.isFinite(mixed.residualOff),
+  `${mixed.residuals} residual(s), out by ${mixed.residualOff?.toFixed?.(2)}s`);
+check('…and the strip says how far out the map was',
+  /the map was [\d.]+s out/.test(mixed.saidAfterMark ?? ''),
+  JSON.stringify(mixed.saidAfterMark));
 check('…and a press in one says what it is answering from',
   /nothing was placed near it/.test(mixed.saidOnPress ?? ''),
   JSON.stringify(mixed.saidOnPress));

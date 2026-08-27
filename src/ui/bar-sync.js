@@ -245,6 +245,31 @@ export function attachBarSync(container, {
   // The spread depends on the marks — a start mark moves where it begins — so
   // the two are recomputed together and never one without the other.
   const remap = () => { even = spreadNow(); anchors = anchorsNow(); paintUnsure(); };
+
+  // THE MAP THE APP MADE ON ITS OWN, FROZEN BEFORE ANYBODY TOUCHED IT.
+  //
+  // Every number this feature has ever been judged by comes from `scan:guess`,
+  // and that tool SYNTHESISES the take from the noteheads the reader found —
+  // so the take really is that page, and nothing in it has a cello's bottom
+  // string, a double stop, an ornament, or a note the reader missed that the
+  // synthesiser never knew to drop. The one measurement nobody can make in a
+  // tool is how far out the map is on somebody's actual playing.
+  //
+  // But the player can make it, and does already: "mark where you are" is a
+  // person saying THIS BAR WAS SOUNDING AT THIS SECOND, which is ground truth
+  // from the only instrument that cannot be wrong about it. The map's own
+  // answer at that same bar is right there beside it. The two were never
+  // compared — a mark simply overrode the guess and the difference was thrown
+  // away — and that difference is the number.
+  //
+  // Snapshotted, and deliberately not `even` itself: `remap()` rebuilds `even`
+  // on every mark, because a start mark moves where the spread begins. Reading
+  // it at mark time would compare the map against a map the mark had already
+  // changed, and the residual would read smaller than it is. Nothing may wire
+  // `remap` into this.
+  const mapBefore = mergeAnchors([], [...even, ...guessed]);
+  // One entry a timing mark: what the map said, and what was heard.
+  const residuals = [];
   // Marking is the job only when nothing — tapped, guessed, spread, or worked
   // out from the goes — has produced an answer. A page the app has placed for
   // itself opens ready to play from.
@@ -311,10 +336,15 @@ export function attachBarSync(container, {
     // …and how much of the map is running across a system nothing placed. It
     // is a count, not an instruction: the bars it applies to are already drawn
     // differently, and this says how many there are to look for.
+    // HOW FAR OUT THE MAP WAS WHERE YOU MARKED IT — the only measurement of
+    // this feature that is made on real playing rather than on a synthesised
+    // take. Said as the fact it is, with no verdict attached: the player knows
+    // better than the app whether a third of a second matters in that music.
+    const said = residuals.length ? measured(residuals) : '';
     const blind = unplaced.length && anchors.length >= 2
       ? ` — ${unplaced.length} system${unplaced.length === 1 ? '' : 's'} nothing could place`
       : '';
-    line.textContent = `${found}${base}${blind}`;
+    line.textContent = `${found}${base}${blind}${said}`;
     onSay?.(line.textContent);
   };
 
@@ -432,6 +462,24 @@ export function attachBarSync(container, {
     }
   }
 
+  /**
+   * The map against the ear, in a phrase.
+   *
+   * The MEDIAN rather than the mean, because one mark made a beat late while
+   * you found the button should not be what the sentence is about — and the
+   * worst is carried too, because on a map built of straight lines between
+   * anchors the worst is where the interesting failure is.
+   */
+  function measured(list) {
+    const offs = list.map((one) => one.off).sort((a, b) => a - b);
+    const middle = offs[Math.floor(offs.length / 2)];
+    const worst = offs[offs.length - 1];
+    const round = (n) => (n < 0.1 ? n.toFixed(2) : n.toFixed(1));
+    if (offs.length === 1) return ` — the map was ${round(worst)}s out there`;
+    return ` — the map was ${round(middle)}s out where you marked`
+      + (worst > middle * 2 + 0.15 ? `, ${round(worst)}s at worst` : '');
+  }
+
   /** The marks, drawn from `hand` — the one place that knows what was marked. */
   function paintMarks() {
     for (const box of boxes.values()) box.classList.remove('marked', 'started');
@@ -494,6 +542,19 @@ export function attachBarSync(container, {
       if (mine) {
         mine.anchors = [...mine.anchors.filter((one) => Math.abs(one.at - bar.at) > 1e-4),
           { at: bar.at, time: heard }].sort((a, b) => a.at - b.at);
+      }
+      // HOW FAR OUT THE MAP WAS HERE, taken before the mark overrules it.
+      //
+      // Only for a heard mark. A "started here" mark's second is the take's own
+      // first note, which the app already knows without being told — comparing
+      // the map against it measures whether the map agrees about where the take
+      // BEGINS, which is a real thing and a different one from how far out it
+      // is in the middle. Mixing them makes the median mean nothing.
+      const saidByMap = timeOfBar(mapBefore, bar);
+      if (saidByMap !== null) {
+        residuals.push({
+          at: bar.at, bar: bar.index, said: saidByMap, heard, off: Math.abs(saidByMap - heard),
+        });
       }
       hand = [...hand.filter((one) => Math.abs(one.at - bar.at) > 1e-4),
         { at: bar.at, time: heard }];
@@ -601,6 +662,9 @@ export function attachBarSync(container, {
   return {
     bars,
     get anchors() { return [...anchors]; },
+    // What the map said against what was heard, one entry a timing mark. This
+    // is the app's only measurement of itself on real playing — see mapBefore.
+    get residuals() { return residuals.map((one) => ({ ...one })); },
     destroy() {
       off?.();
       strip.remove();

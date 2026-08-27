@@ -106,6 +106,8 @@
     "scan:pager": "node tools/scan-pager-check.mjs",
     "scan:anchors": "node tools/bar-anchors-check.mjs",
     "scan:guess": "node tools/bar-guess-check.mjs",
+    "scan:real": "node tools/real-take-check.mjs",
+    "take:fixture": "node tools/fixture-save-check.mjs",
     "scan:practice": "node tools/practice-runs-check.mjs",
     "reader:record": "node tools/reader-record-check.mjs",
     "reader:review": "node tools/reader-review-check.mjs",

@@ -6,6 +6,7 @@ import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder, MAX_SECONDS } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
 import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
+import { shareFile, fileName } from './ui/export.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder, setScoreFolder,
@@ -975,6 +976,57 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
 
+/**
+ * A take, the page it was played from, and the marks made by ear — as a file.
+ *
+ * Read `npm run scan:real` for what it is for. In short: the app measures its
+ * bar map against a synthesised take because that is the only take whose truth
+ * is known, and a synthesised take is the page played back at itself. A mark
+ * somebody made while listening is the one piece of ground truth about REAL
+ * playing that exists anywhere, and it is sitting in the store unused.
+ */
+async function saveFixture(r) {
+  try {
+    const data = await loadRecording(r.id);
+    if (!data) { say('that take could not be read back', 'bad'); return; }
+    const pages = r.scoreId != null ? await loadScorePages(r.scoreId).catch(() => null) : null;
+    const marks = pages?.barAnchors?.[r.id] ?? [];
+    const fixture = {
+      what: 'practice-partner bar-map fixture',
+      // The reading and the analysis both move; a fixture that does not say
+      // which app made it is a fixture nobody can interpret in a year.
+      made: new Date(r.date ?? Date.now()).toISOString(),
+      take: {
+        name: r.name ?? null,
+        seconds: r.duration ?? null,
+        // What the segmenter heard. `cents` rides along because a fixture that
+        // can only answer WHERE and never HOW WELL is half a fixture.
+        notes: (data.notes ?? []).map((n) => ({
+          midi: n.midi, start: n.start, end: n.end,
+          cents: Number.isFinite(n.cents) ? Math.round(n.cents * 10) / 10 : null,
+        })),
+      },
+      score: pages ? { name: r.scoreName ?? null, layout: pages.layout ?? null } : null,
+      // THE ONLY GROUND TRUTH IN THE FILE. `{ at, time }`: a place in the piece
+      // measured in systems, and the second somebody heard it at.
+      marks,
+    };
+    const blob = new Blob([JSON.stringify(fixture)], { type: 'application/json' });
+    const name = fileName(`${r.name || 'take'}-fixture`, 'json');
+    const how = await shareFile(blob, name);
+    if (how === 'cancelled') return;
+    // SAID, and it says what is IN it — a fixture with no marks in it can still
+    // be read but cannot be scored, and finding that out from the tool an hour
+    // later is finding it out too late.
+    say(marks.length
+      ? `${name} — ${fixture.take.notes.length} notes, ${marks.length} marks by ear`
+      : `${name} — ${fixture.take.notes.length} notes, and NO marks: `
+        + 'mark a few bars by ear on this take and save it again, or nothing can be scored');
+  } catch (err) {
+    say(saying('could not save that fixture', err), 'bad');
+  }
+}
+
 // A filename someone else can make sense of when it lands in their downloads.
 function takeFilename(name, when, extension) {
   const stamp = new Date(when).toISOString().slice(0, 16).replace(/[T:]/g, '-');
@@ -1285,6 +1337,29 @@ function libraryRow(r, { from = 'library' } = {}) {
             data.sampleRate ?? r.sampleRate, r.name ?? r.date, r.date);
         }
       },
+    },
+    // A TAKE THAT CAN BE MEASURED AGAINST, OFF THE DEVICE IT WAS PLAYED ON.
+    //
+    // Every number the bar map has ever been judged by comes from
+    // `npm run scan:guess`, which SYNTHESISES the take out of the noteheads the
+    // reader found — so the take really is that page, and nothing in it has a
+    // cello's bottom string, a double stop, an ornament, or a note the reader
+    // missed that the synthesiser never knew to drop. There is no corpus of
+    // real playing at all, and there cannot be one until a real take leaves a
+    // real phone.
+    //
+    // This is that door. The page as the reader read it, the notes as the
+    // segmenter heard them, and — the part that makes it worth anything — the
+    // marks somebody made BY EAR, which are ground truth from the only
+    // instrument that cannot be wrong about when a bar was sounding.
+    //
+    // NO AUDIO. The map is computed from notes and not from samples, and a
+    // take's samples are megabytes; `Download WAV` is next to this for when the
+    // pitch engine itself is the thing being measured, which is a different
+    // fixture. Nothing should add audio here for completeness.
+    {
+      label: 'Save as test fixture',
+      onPick: () => saveFixture(r),
     },
     {
       label: 'Delete',

@@ -595,6 +595,29 @@ npm run scan:barsync     tap a bar, hear that moment — the real layer over rea
                          page elements, pressed the way a finger presses it.
 npm run scan:anchors     and that the marks survive the app being shut, to the
                          take that made them and to no other.
+npm run scan:real        THE MAP AGAINST SOMEBODY'S EAR, on a take they really
+                         played. Everything else in this list is measured on a
+                         SYNTHESISED take — scan:guess builds one out of the
+                         noteheads the reader found, so the take is the page
+                         played back at itself and nothing in it has a cello's
+                         bottom string, a double stop or a note the reader
+                         missed. A mark made by ear while listening back is the
+                         only ground truth about real playing that exists, and
+                         the app has been storing them per take and throwing the
+                         comparison away. Needs a fixture:
+                         npm run scan:real -- <fixture.json>
+                         Scores all three maps — note by note, one anchor a
+                         system, the even spread — on the same marks, so they
+                         are comparable to the tenth of a second. No pass or
+                         fail: a third of a second matters in one piece and not
+                         another, and the player is who knows which.
+npm run take:fixture     the door a real measurement comes through: a scanned
+                         score, a take and marks into the store, then Library →
+                         ⋯ → "Save as test fixture" pressed for real and the
+                         file caught before it reaches the disk. That it holds
+                         the page, the notes, the marks — and NO audio, which
+                         would multiply it by a thousand and answer a different
+                         question (Download WAV is beside it for that one).
 npm run scan:start       "I started here" — one tap saying where the playing
                          began, and the map run from that bar instead of from
                          the top of the part. Prints the before as well as the

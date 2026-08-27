@@ -23,13 +23,18 @@
 //   npm run dev            (on 5199)
 //   npm run scan:guess -- <page.jpg> [--drop 0.1] [--wrong 0.05] [--seed 7]
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import puppeteer from 'puppeteer-core';
 
 const args = process.argv.slice(2);
 const flag = (name, fallback) => {
   const at = args.indexOf(`--${name}`);
   return at >= 0 ? Number(args[at + 1]) : fallback;
+};
+// `flag` reads a NUMBER — the ones above it are all numbers. A path is not.
+const words = (name, fallback) => {
+  const at = args.indexOf(`--${name}`);
+  return at >= 0 ? args[at + 1] : fallback;
 };
 const SOURCE = args.find((a) => !a.startsWith('--') && /\.(jpe?g|png)$/i.test(a));
 if (!SOURCE) {
@@ -239,6 +244,20 @@ const report = await page.evaluate(async (data, drop, wrong, seed) => {
       worst: oldWay.length ? oldWay[oldWay.length - 1] : null,
       answered: oldWay.length,
     },
+    // …AND THE SAME THING IN THE SHAPE THE APP EXPORTS, so `scan:real` can be
+    // exercised without a phone. The marks here are the TRUTH rather than
+    // somebody's ear, which makes this a test of the plumbing and not of the
+    // map — a real fixture comes off a real take and its marks are the
+    // measurement. See the header of tools/real-take-check.mjs.
+    fixture: {
+      what: 'practice-partner bar-map fixture',
+      made: new Date(0).toISOString(),
+      take: { name: 'synthesised', seconds: t, notes: played },
+      score: { name: 'synthesised', layout },
+      marks: systems.map((_, sy) => (trueTimeOfSystem[sy] === null
+        || trueTimeOfSystem[sy] === undefined
+        ? null : { at: sy, time: trueTimeOfSystem[sy] })).filter(Boolean),
+    },
     systems: systems.length,
     heads: systems.reduce((n, one) => n + one.length, 0),
     notes: played.length,
@@ -297,6 +316,12 @@ for (const one of report.detail) {
     + `  index said ${String(one.index).padStart(3)}  truly ${String(one.trueIndex).padStart(3)}`
     + (one.sure ? '' : `  | ITS GUESS was ${one.bestOff === null ? '—' : `${one.bestOff.toFixed(2)}s out`}`
       + ` (index ${one.bestAt})`));
+}
+const FIXTURE = words('fixture', null);
+if (FIXTURE && report.fixture) {
+  writeFileSync(FIXTURE, JSON.stringify(report.fixture));
+  console.log(`fixture written: ${FIXTURE} (marks are the TRUTH, not an ear —`
+    + ' it exercises scan:real, it does not measure the map)');
 }
 console.log('');
 const pathSaid = report.path?.placed
