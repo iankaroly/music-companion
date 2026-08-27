@@ -28,16 +28,59 @@
 import {
   barsInReadingOrder, barAtPoint, timeOfBar, barAtTime, sayMap,
   systemsOf, guessedAnchors, mergeAnchors, evenAnchors,
-  unplacedSystems, isGuessedAt,
+  unplacedSystems, isGuessedAt, headsInReadingOrder,
 } from '../analysis/bar-map.js';
 import { placeSystems } from '../analysis/scan-align.js';
+import { alignTake, anchorsFromPath } from '../analysis/take-align.js';
 import {
   placeRuns, goesAt, sayRuns, samePassage, compareGoes, sayComparison,
 } from '../analysis/practice-runs.js';
 
-/** The anchors the shape-matcher found, and the systems it could not place. */
-function guessFrom(layout, notes) {
+/**
+ * The anchors the app worked out for itself, and the stretches it could not.
+ *
+ * TWO ROUTES, AND THE NOTE-BY-NOTE ONE FIRST. `placeSystems` slides each system
+ * of the page along the take and keeps the ones it is sure of, which is one
+ * anchor a system at best — and between two of them `timeOfBar` draws a
+ * straight line, which assumes the tempo did not move. `alignTake` walks the
+ * whole take against the whole page in one monotone pass and gives an anchor a
+ * BAR, which is a short enough distance for that line to be an interpolation
+ * rather than an assumption.
+ *
+ * MEASURED, `npm run scan:guess` on the Scanned photograph over three seeds —
+ * press a bar, how far out is the audio:
+ *
+ *   seed   one anchor a system      note by note
+ *     7    median 0.78s worst 3.12s  median 0.23s worst 0.78s
+ *    11    median 0.41s worst 0.79s  median 0.25s worst 1.28s
+ *    23    median 0.71s worst 3.40s  median 0.26s worst 1.03s
+ *
+ * About half a note, where it was one to two, and the three-second answers are
+ * gone. The path matched 81–87% of the take and put down 26 or 27 anchors on a
+ * page where the system matcher managed nine or ten.
+ *
+ * The system route STAYS as the fallback, because the path refuses outright on
+ * a take it cannot follow and on a part too long to line up note by note (see
+ * MAX_CELLS), and on those the systems are still better than nothing.
+ */
+function guessFrom(layout, notes, bars) {
   const placements = placeSystems(systemsOf(layout), notes);
+  const heads = headsInReadingOrder(layout);
+  const path = alignTake(heads, notes);
+  const fromPath = path.placed ? anchorsFromPath(path.pairs, bars, heads) : [];
+  if (fromPath.length >= 2) {
+    // WHICH BARS ARE STILL A GUESS, on this route, and it is finer than the
+    // other one: a bar that earned an anchor is right to within the note the
+    // anchor sits on, and a bar that did not is interpolated between its
+    // neighbours. A take that skipped a passage, took a repeat differently, or
+    // played something the reader could not follow leaves exactly those bars
+    // behind — and they are marked one bar at a time rather than one system.
+    const earned = new Set(fromPath.map((one) => one.bar));
+    const unplaced = (bars ?? [])
+      .filter((bar) => !earned.has(bar.index))
+      .map((bar) => ({ at: (bar.at + bar.to) / 2, why: 'the take was not followed through this bar' }));
+    return { anchors: fromPath, unplaced };
+  }
   return { anchors: guessedAnchors(placements), unplaced: unplacedSystems(placements) };
 }
 
@@ -86,7 +129,7 @@ export function attachBarSync(container, {
     if (notes?.length) {
       const systems = systemsOf(layout);
       runs = placeRuns(systems, notes).filter((one) => one.sure);
-      ({ anchors: guessed, unplaced } = guessFrom(layout, notes));
+      ({ anchors: guessed, unplaced } = guessFrom(layout, notes, bars));
       // A GAP IS ONLY A GAP IN A MAP THAT HAS SOMETHING IN IT. Where the
       // matcher placed nothing at all — a page it could not read, a take too
       // short to compare — every system is "unplaced" and the map is the even

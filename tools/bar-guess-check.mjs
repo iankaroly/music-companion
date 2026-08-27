@@ -56,8 +56,10 @@ await page.goto(APP, { waitUntil: 'domcontentloaded' });
 
 const report = await page.evaluate(async (data, drop, wrong, seed) => {
   const { readPage } = await import('/src/analysis/scan-read.js');
-  const { systemsOf, barsInReadingOrder, guessedAnchors, timeOfBar } = await import('/src/analysis/bar-map.js');
+  const { systemsOf, barsInReadingOrder, guessedAnchors, timeOfBar,
+    headsInReadingOrder } = await import('/src/analysis/bar-map.js');
   const { placeSystems } = await import('/src/analysis/scan-align.js');
+  const { alignTake, anchorsFromPath } = await import('/src/analysis/take-align.js');
   const { readableImage, sizeOfImage } = await import('/src/ui/straighten.js');
 
   const bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0));
@@ -123,7 +125,18 @@ const report = await page.evaluate(async (data, drop, wrong, seed) => {
 
   // --- what the app makes of it ---------------------------------------------
   const placements = placeSystems(systems, played);
-  const anchors = guessedAnchors(placements);
+  const bySystem = guessedAnchors(placements);
+
+  // …AND THE SAME QUESTION OF THE NOTE-BY-NOTE PATH, which is the other way of
+  // getting anchors: one a BAR instead of one a system at best. Both maps are
+  // scored on the same presses so the two are comparable to the tenth of a
+  // second, which is the only way to know whether it is worth having.
+  const pageHeads = headsInReadingOrder(layout);
+  const began = performance.now();
+  const path = alignTake(pageHeads, played);
+  const tookMs = Math.round(performance.now() - began);
+  const byPath = path.placed ? anchorsFromPath(path.pairs, bars, pageHeads) : [];
+  const anchors = byPath.length >= 2 ? byPath : bySystem;
 
   // THE NUMBER THAT MATTERS: press a bar, and how far out is the audio? Asked
   // of the START of every system, where the truth is known.
@@ -135,6 +148,18 @@ const report = await page.evaluate(async (data, drop, wrong, seed) => {
     const got = timeOfBar(anchors, bar);
     errorsBySystem.push({ system: s, want, got, off: got === null ? null : Math.abs(got - want) });
   }
+  // The same presses against the map the system-matcher alone would have made,
+  // so the two routes are comparable on identical questions.
+  const oldWay = [];
+  for (const bar of bars.filter((one) => one.inSystem === 0)) {
+    const sy = Math.floor(bar.at + 1e-9);
+    const want = trueTimeOfSystem[sy];
+    if (want === null || want === undefined) continue;
+    const got = timeOfBar(bySystem, bar);
+    if (got !== null) oldWay.push(Math.abs(got - want));
+  }
+  oldWay.sort((a, b) => a - b);
+
   const answered = errorsBySystem.filter((one) => one.off !== null);
   const offs = answered.map((one) => one.off).sort((a, b) => a - b);
   const median = offs.length ? offs[Math.floor(offs.length / 2)] : null;
@@ -204,6 +229,16 @@ const report = await page.evaluate(async (data, drop, wrong, seed) => {
 
   return {
     read: true,
+    path: {
+      placed: path.placed, why: path.why, matched: path.matched ?? 0,
+      share: path.share ?? 0, anchors: byPath.length, using: byPath.length >= 2 ? 'path' : 'systems',
+      ms: tookMs, heads: pageHeads.length, notes: played.length,
+    },
+    oldWay: {
+      median: oldWay.length ? oldWay[Math.floor(oldWay.length / 2)] : null,
+      worst: oldWay.length ? oldWay[oldWay.length - 1] : null,
+      answered: oldWay.length,
+    },
     systems: systems.length,
     heads: systems.reduce((n, one) => n + one.length, 0),
     notes: played.length,
@@ -263,6 +298,15 @@ for (const one of report.detail) {
     + (one.sure ? '' : `  | ITS GUESS was ${one.bestOff === null ? '—' : `${one.bestOff.toFixed(2)}s out`}`
       + ` (index ${one.bestAt})`));
 }
+console.log('');
+const pathSaid = report.path?.placed
+  ? `placed, ${report.path.matched} notes matched (${Math.round(report.path.share * 100)}% of the take)`
+    + `, ${report.path.anchors} anchors`
+  : `refused — ${report.path?.why}`;
+console.log(`the note-by-note path   ${pathSaid}   [the map in use: ${report.path?.using}]`);
+console.log(`  ${report.path?.heads} noteheads x ${report.path?.notes} notes, found in ${report.path?.ms}ms`);
+console.log(`  one anchor a system   median ${report.oldWay?.median === null ? '—' : `${report.oldWay.median.toFixed(2)}s`}`
+  + `   worst ${report.oldWay?.worst === null ? '—' : `${report.oldWay.worst.toFixed(2)}s`}`);
 console.log('');
 console.log('PRESS A BAR — how far out is the audio?');
 console.log(`  between the anchors   ${report.inside.of} systems`

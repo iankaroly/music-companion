@@ -115,6 +115,51 @@ export function barsInReadingOrder(layout) {
 }
 
 /**
+ * Every notehead on the scan, in reading order, IN THE MAP'S OWN COORDINATE.
+ *
+ * `systemsOf` groups heads by system and stops there, which is all the shape
+ * matcher needs — it places a whole system at a time. An alignment that walks
+ * note by note needs to know where each head sits in the piece, and it has to
+ * be the same `at` a BAR gets or the anchors it produces cannot be interpolated
+ * between the bars they land in.
+ *
+ * So the geometry is the one `barsInReadingOrder` uses, written once: the
+ * system's music runs from its first notehead to its last with EDGE_PAD either
+ * side, and a head's place across that span is its fraction of the system.
+ */
+export function headsInReadingOrder(layout) {
+  const out = [];
+  let system = 0;
+  (layout ?? []).forEach((page, pageIndex) => {
+    if (!page?.staves?.length) return;
+    page.staves.forEach((stave) => {
+      const heads = [...(stave.heads ?? [])].sort((a, b) => (a.x ?? 0) - (b.x ?? 0));
+      const bars = stave.bars ?? [];
+      if (!heads.length && bars.length < 2) return;      // the same skip as above
+      const xs = heads.map((head) => head.x).filter((x) => Number.isFinite(x));
+      if (xs.length) {
+        const pad = (stave.space ?? 0.01) * EDGE_PAD;
+        const from = Math.max(0, Math.min(...xs) - pad);
+        const to = Math.min(1, Math.max(...xs) + pad);
+        const across = to - from || 1;
+        for (const head of heads) {
+          if (!Number.isFinite(head?.x)) continue;
+          out.push({
+            page: pageIndex,
+            system,
+            step: head.step,
+            x: head.x,
+            at: system + (head.x - from) / across,
+          });
+        }
+      }
+      system += 1;
+    });
+  });
+  return out;
+}
+
+/**
  * The noteheads of each system, in reading order — the shape a take is placed
  * against. One entry a system, in the same order `barsInReadingOrder` counts
  * them, so a placement's system number is a position in the map.

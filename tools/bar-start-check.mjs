@@ -209,6 +209,14 @@ const report = await page.evaluate(async () => {
   const { placeSystems } = await import('/src/analysis/scan-align.js');
   const { systemsOf } = await import('/src/analysis/bar-map.js');
   const placements = placeSystems(systemsOf(mixedLayout), mixedTake);
+  const { alignTake } = await import('/src/analysis/take-align.js');
+  const { headsInReadingOrder } = await import('/src/analysis/bar-map.js');
+  const probe = alignTake(headsInReadingOrder(mixedLayout), mixedTake);
+  const perSystem = {};
+  for (const one of probe.pairs ?? []) {
+    const sy = Math.floor(one.at + 1e-9);
+    perSystem[sy] = (perSystem[sy] ?? 0) + 1;
+  }
   attachBarSync(third, {
     layout: mixedLayout,
     play: () => true,
@@ -226,6 +234,7 @@ const report = await page.evaluate(async () => {
     bars: mixedBoxes.length,
     unsure: unsureBoxes.length,
     saidOnPress,
+    perSystem: JSON.stringify(perSystem),
     strip: third.querySelector('.bar-sync-say')?.textContent ?? '',
   };
 
@@ -294,6 +303,7 @@ check('the strip says which bar it was run from', /started at bar 9/.test(report
 const mixed = report.mixed ?? {};
 console.log('');
 console.log(`a page the matcher places in part: ${mixed.placed} systems placed, ${mixed.refused} refused`);
+console.log(`  the path matched, per system: ${mixed.perSystem}`);
 check('a map with a gap in it marks the bars it is only running across',
   mixed.refused > 0 && mixed.unsure > 0 && mixed.unsure < mixed.bars,
   `${mixed.unsure} of ${mixed.bars} bars marked`);

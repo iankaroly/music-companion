@@ -218,8 +218,16 @@ const transport = await page.evaluate(async () => {
   const playing = document.querySelector('#clip-play')?.textContent;
   const zoomOpen = document.querySelector('#note-zoom')?.hidden === false;
   const btn = document.querySelector('#clip-play');
+  // SCROLLED TO AND PRESSED IN THE SAME BREATH. `scrollIntoView` is instant, so
+  // the only thing a wait here buys is a chance for the FOLLOWER to scroll the
+  // page out from under the button again — it is chasing the sounding notehead
+  // while the take plays, which is its job. Measured when the bar map got
+  // accurate enough to follow properly: the button was centred, the music moved
+  // the page, and 300ms later `elementFromPoint` reported "nothing at 10,832"
+  // because the button had gone below the fold. One frame is enough for the
+  // scroll to land and is what a finger does.
   btn.scrollIntoView({ block: 'center' });
-  await new Promise((r) => setTimeout(r, 300));
+  await new Promise((r) => requestAnimationFrame(() => r()));
   const b = btn.getBoundingClientRect();
   const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
   const reached = hit === btn || btn.contains(hit);
@@ -365,9 +373,17 @@ const held = await page.evaluate(async () => {
     field.dispatchEvent(new Event('input', { bubbles: true }));
     await new Promise((r) => setTimeout(r, 350));
   };
+  const chart = document.querySelector('#chart-scroll');
   await type('');
   const all = shown();
   const allTint = tinted();
+  // WHERE THE GRAPH WAS LOOKING when the first count was taken. `tinted` reads
+  // the canvas, and the canvas draws the window of the take the graph is
+  // scrolled to — so a press between the two counts that seeks the playhead
+  // moves the window and the two numbers stop being about the filter at all.
+  // This assertion is about the filter. The scroll is put back before the
+  // second count so that it is.
+  const wasScrolled = chart?.scrollLeft ?? 0;
   // The fixture holds every note for 0.3s, so 0.25 keeps them all and 0.5 none.
   await type('0.25');
   const quarter = shown();
@@ -386,6 +402,16 @@ const held = await page.evaluate(async () => {
     await new Promise((r) => setTimeout(r, 500));
     pressed = document.querySelector('#note-zoom')?.hidden === false ? 'opened' : 'stayed shut';
   } catch (err) { pressed = `threw ${err.message}`; }
+  // …AND THE TAKE STOPPED BEFORE THE SECOND COUNT. The press above starts it
+  // again, and a running take scrolls the graph to follow the playhead — so
+  // putting the scroll back while it plays only holds until the next frame.
+  // Stop it, then put it back, then count.
+  const transportNow = document.querySelector('#clip-play');
+  if (transportNow?.textContent === '❚❚') {
+    transportNow.click();
+    await new Promise((r) => setTimeout(r, 400));
+  }
+  if (chart) { chart.scrollLeft = wasScrolled; await new Promise((r) => setTimeout(r, 250)); }
   await type('');
   const backTint = tinted();
   return {
