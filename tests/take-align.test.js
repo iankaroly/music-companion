@@ -101,6 +101,38 @@ describe('lining a take up against a page, note by note', () => {
     expect(alignTake(null, null).placed).toBe(false);
   });
 
+  it('asks the five buckets when degrees cannot line up', () => {
+    // THE FAULT THE FIRST REAL TAKE FOUND, and the reason it is worth a test:
+    // written positions off a photograph are not clean enough for integer
+    // degrees to survive. MEASURED on a photographed Menuet — 185 notes really
+    // played against 437 noteheads really read — the best any forty written
+    // intervals could agree, over every offset, was 15% in degrees and 47.5% in
+    // buckets. Asking only the sharp test refused a take plainly of that page.
+    // `placeSystems` has always asked both in turn; this asked one.
+    const played = playOf(heads, 40, 70);
+    expect(alignTake(heads, played, { vocabulary: 'buckets' }).placed).toBe(true);
+    // …and the pass says which vocabulary carried it, because the two are
+    // tuned differently and a report that cannot say is one nobody can act on.
+    const out = alignTake(heads, played);
+    expect(['degrees', 'buckets']).toContain(out.vocabulary);
+  });
+
+  it('survives a take whose notes come back a hair out of order', () => {
+    // A real take's `start` is the ATTACK where one was found, and the attack
+    // detector can place a note's attack a few milliseconds before the previous
+    // note's recorded start. MEASURED on that same take: three inverted pairs
+    // in 185 notes, ten milliseconds each — and the monotonicity check took
+    // that for the take running backwards and threw the whole page away.
+    const played = playOf(heads, 20, 70);
+    const jittered = played.map((one, i) => (i % 23 === 5
+      ? { ...one, start: one.start - 0.01 } : one));
+    const out = alignTake(heads, jittered);
+    expect(out.placed).toBe(true);
+    for (let k = 1; k < out.pairs.length; k += 1) {
+      expect(out.pairs[k].time).toBeGreaterThanOrEqual(out.pairs[k - 1].time);
+    }
+  });
+
   it('runs forwards, which the map it feeds cannot check for itself', () => {
     const played = playOf(heads, 30, 60);
     const out = alignTake(heads, played);

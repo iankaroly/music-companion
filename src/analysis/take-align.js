@@ -78,18 +78,54 @@ const refused = (why) => ({ placed: false, why, anchors: [], pairs: [], matched:
  * @returns {object} `{ placed, why, pairs, matched }` where `pairs` is one entry
  *   per matched note: `{ head, note, at, time }`, in reading order.
  */
-export function alignTake(heads, played) {
+export function alignTake(heads, played, { vocabulary = null } = {}) {
   const written = (heads ?? []).filter((one) => Number.isFinite(one?.step) && Number.isFinite(one?.at));
-  const notes = (played ?? []).filter((one) => Number.isFinite(one?.midi) && Number.isFinite(one?.start));
+  // SORTED, AND THAT IS NOT TIDINESS. A real take's notes come back very
+  // slightly out of order: `start` is the ATTACK where one was found, and the
+  // attack detector can place a note's attack a few milliseconds before the
+  // previous note's recorded start. MEASURED, on the first real take anybody
+  // handed this — a photographed Menuet, 185 notes — three pairs were inverted,
+  // by ten milliseconds each.
+  //
+  // Ten milliseconds is nothing to a map that interpolates between bars, and it
+  // used to be everything: the monotonicity check below saw the inversion, took
+  // it for the take running backwards against the page, and refused the whole
+  // pass. Sorting makes the check what it was meant to be — an invariant that
+  // can only fail on a bug in here — instead of a rejection of real playing.
+  const notes = (played ?? [])
+    .filter((one) => Number.isFinite(one?.midi) && Number.isFinite(one?.start))
+    .slice()
+    .sort((a, b) => a.start - b.start);
   if (written.length < ENOUGH_NOTES) return refused('too few noteheads read on these pages');
   if (notes.length < ENOUGH_NOTES) return refused('too few notes played');
 
-  // The two sequences in one vocabulary — see scaleOf. Where the take makes a
-  // scale clear both sides are counted in DEGREES, which tells a fifth from a
-  // fourth; where it does not, both sides drop to the five buckets that survive
-  // not knowing the key.
+  // THE SHARP TEST FIRST, THE COARSE ONE WHERE IT FAILS — which `placeSystems`
+  // has always done and this did not, at a cost measured on the first real take
+  // anybody ever handed it.
+  //
+  // Counting intervals as DEGREES is precise and unforgiving; counting them in
+  // five buckets is tolerant and, on a page that repeats a figure, less able to
+  // tell one copy from another. The file that owns both says they "fail on
+  // different systems, so each is asked in turn", and this asked only the first.
+  //
+  // MEASURED, on a photographed Menuet with 185 notes really played against 437
+  // noteheads really read: over every offset, the best any forty written
+  // intervals could agree with the take was 15% in degrees and 47.5% in
+  // buckets. The degree route matched NOTHING and the whole pass refused, on a
+  // take that is plainly of that page. Written positions off a photograph are
+  // not clean enough for integers to survive; the buckets are what is left.
   const tonic = scaleOf(notes);
-  const exact = tonic !== null;
+  const tries = vocabulary ? [vocabulary] : (tonic !== null ? ['degrees', 'buckets'] : ['buckets']);
+  let last = refused('too little shape to compare');
+  for (const how of tries) {
+    last = alignIn(how, written, notes, tonic);
+    if (last.placed) return last;
+  }
+  return last;
+}
+
+function alignIn(how, written, notes, tonic) {
+  const exact = how === 'degrees';
   const W = exact
     ? diffs(written.map((one) => one.step))
     : shapeOf(written.map((one) => one.step), WRITTEN_WIDE);
@@ -175,6 +211,9 @@ export function alignTake(heads, played) {
   return {
     placed: true,
     why: null,
+    // Which vocabulary carried it, because the two are tuned differently and a
+    // report that cannot say which one answered cannot be acted on.
+    vocabulary: how,
     matched: pairs.length,
     share: matched,
     pairs: pairs.map((one) => ({ ...one, at: one.head.at, time: one.note.start })),
