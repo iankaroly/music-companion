@@ -603,6 +603,15 @@ npm run scan:start       "I started here" — one tap saying where the playing
                          the start is marked. Also the hole under it — a mark
                          made before the take has ever been played back used to
                          be written down as "second zero".
+npm run take:score       a take played off the music, from the save through to
+                         opening it again. That saving on the Record tab files
+                         it under the piece with no second decision, that a take
+                         recorded from the Record tab with a piece merely OPEN
+                         is not filed under it, that reopening lands on the
+                         Score tab with the music up rather than on an
+                         instruction to go and look at it, and that the analysis
+                         there is the whole analysis — the held-for list, the
+                         passages and the landing, not just the graph.
 npm run scan:pager       a part of several pages in the review, one page at a
                          time. That the arrows turn it and stop at the ends,
                          and — the half that matters — that a turn touches

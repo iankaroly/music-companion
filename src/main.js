@@ -76,6 +76,20 @@ const clearRecNote = () => say('');
 
 let capture = null;       // active mic session
 let lastTake = null;      // finished recording awaiting save/discard
+// WHERE THE TAKE WAS STARTED, remembered until it is saved or thrown away.
+//
+// "when I record on a score and then I save it" is a claim about the DOOR the
+// recording came through, not about what happens to be chosen. A piece can be
+// open from an hour ago — this file already says so about the name the save
+// offers — so gating on "is a score loaded" would file a run of scales under
+// the Bach because the Bach was still on the Score tab. The reader's dot is on
+// the music itself, and pressing it is somebody saying what they are playing.
+//
+// Declared HERE, beside the take it belongs to, rather than beside the function
+// that sets it: `let` at module scope is in its temporal dead zone until the
+// line runs, and a reader four hundred lines above that would abort the module
+// on load. That has happened in this file once already.
+let takeCameFromTheMusic = false;
 // The take just saved to the library, until it is filed under a piece or
 // another take replaces it — so "save it" and "file it under the Bach" can be
 // done in either order.
@@ -555,6 +569,10 @@ scoreSaveTake?.addEventListener('click', async () => {
 function clearTake() {
   clearRecNote(); // whatever went wrong last time is not about this take
   lastTake = null;
+  // …and the door it came through goes with it. `startTakeNow` calls this
+  // before it opens the microphone, so a take begun from the Record tab cannot
+  // inherit the last one's answer.
+  takeCameFromTheMusic = false;
   savedTakeId = null; // a new take on screen; the last one is the library's now
   saidOnTheBar(null);  // last take's news, about a take that is going away
   refreshSaveLabel();
@@ -759,6 +777,10 @@ async function startTakeNow({ from = 'analyze' } = {}) {
   prepareCapture();
   stopEverything();
   clearTake();
+  // AFTER `clearTake`, which resets it. Set before that line it would be wiped
+  // by the very call that is meant to forget the LAST take, and every take
+  // would look as though it came from the Record tab.
+  takeCameFromTheMusic = from === 'reader';
   startBtn.disabled = true;
   takeStateChanged({ busy: true });
   say('asking for the microphone…');
@@ -852,7 +874,22 @@ function saveTake({ toScore = false } = {}) {
 async function keepTake({ toScore = false, name = null } = {}) {
   if (!lastTake) return;
   const { recorder, notes, readings, a4 } = lastTake;
-  const piece = toScore ? scoreName() : null;
+  // WHERE IT GOES IS NOT A SECOND DECISION ANY MORE.
+  //
+  // "when I record on a score and then I save it, it should just save to the
+  // library" — and the piece it was played from goes with it. Filing the take
+  // under the score used to happen only if you pressed the OTHER save, the one
+  // at the foot of the Score tab, so a take played off the page in front of
+  // you was kept with no piece attached at all. Reopening it tomorrow found a
+  // recording of nothing in particular, on a tab with no music on it.
+  //
+  // There is nothing to ask. A score is open or it is not, and if it is, that
+  // is the score the playing was against. `toScore` stays as an argument
+  // because the Score tab's own button still passes it, and it now means the
+  // same thing this does rather than something extra.
+  const scoreId = currentScoreId();
+  const filed = (toScore || takeCameFromTheMusic) && scoreId !== null;
+  const piece = filed ? scoreName() : null;
   try {
     const id = await saveRecording({
       date: Date.now(),
@@ -863,17 +900,21 @@ async function keepTake({ toScore = false, name = null } = {}) {
       readings,
       a4,
       name,
-      scoreId: toScore ? currentScoreId() : null,
+      scoreId: filed ? scoreId : null,
       // Note-by-note against the written pitch, so this take can be read again
       // tomorrow without re-aligning anything.
-      scoreStats: toScore ? currentScoreStats() : null,
+      scoreStats: filed ? currentScoreStats() : null,
     });
     // …and the second go at the same thing makes a folder of it. See
     // fileTakeUnderName: one take is a row, two are a folder with both in.
     const folderId = name ? await fileTakeUnderName(id, name).catch(() => null) : null;
     saveBar.hidden = true;
     lastTake = null;
-    savedTakeId = toScore ? null : id; // still fileable under a piece if it wasn't
+    takeCameFromTheMusic = false;
+    // Null once it is filed, because `refreshSaveLabel` reads this to decide
+    // whether to offer "Add this take to <piece>" — and offering to add a take
+    // that is already under the piece is the bar asking for something it has.
+    savedTakeId = filed ? null : id; // still fileable under a piece if it wasn't
     refreshSaveLabel();
     const where = name ? `saved as ${name}` : 'saved to library';
     const news = folderId ? `${where} — it is in the ${name} folder now` : where;
@@ -883,7 +924,7 @@ async function keepTake({ toScore = false, name = null } = {}) {
     // `#status`, so this is the only copy of the news that survives the press.
     saidOnTheBar(folderId
       ? `${where} — ${piece ? `${piece}, ` : ''}in a folder with the other takes`
-      : (toScore && piece ? `${where} — under ${piece}` : where));
+      : (piece ? `${where} — under ${piece}` : where));
     // Re-render the same review now that the take has an id, so passages can
     // be marked without reopening it from the library. The score card needs
     // the id for the same reason: without it, choosing a score for the take
@@ -891,7 +932,7 @@ async function keepTake({ toScore = false, name = null } = {}) {
     // and the attachment would be lost until it was reopened.
     renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
     annotateTake(notes, { readings, a4, recordingId: id })
-      .then(() => (toScore ? takeSaved(id) : null))
+      .then(() => (filed ? takeSaved(id) : null))
       .catch(() => {});
     refreshLibrary();
   } catch (err) {
@@ -1036,7 +1077,18 @@ async function openRecording(r, { from = 'library' } = {}) {
   // note and reading times still line up.
   const rec = new Recorder(data.sampleRate ?? r.sampleRate);
   rec.push(data.samples ?? new Float32Array(data.audio));
-  showTab(from === 'score' ? 'score' : 'analyze');
+  // A TAKE PLAYED OFF A SCORE OPENS ON THE SCORE.
+  //
+  // "if it was recorded on the score, instead of it saying 'see it on the
+  // score', it should automatically show this score like it did after I
+  // finished recording it." It landed on the Record tab and put a button there
+  // that took you to the page — an instruction, on the wrong screen, to reach
+  // the thing you had just asked for. The take knows which piece it was played
+  // from; going there is the answer to opening it.
+  //
+  // A take with no score attached still opens where it always did: there is no
+  // page to show, and the Score tab would be a shelf.
+  showTab(from === 'score' || r.scoreId != null ? 'score' : 'analyze');
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });

@@ -190,6 +190,13 @@ check('they are coloured by how the note landed',
 check('the transport and the zoomed graph are under it',
   review.dockHas.includes('playback-controls') && review.dockHas.includes('note-zoom'),
   `dock: ${review.dockHas.join(', ')}`);
+// …AND THE THREE PANELS UNDER THEM. The held-for picker sat here with nothing
+// to show — the buttons it builds live in #held-list, which stayed behind on
+// the Record tab — and marking a passage and the landing figures were simply
+// not on this screen. See BORROWED in score-tab.js.
+check('…and so are the held list, the passages and the landing',
+  ['held-list', 'passages', 'landing'].every((id) => review.dockHas.includes(id)),
+  `missing: ${['held-list', 'passages', 'landing'].filter((id) => !review.dockHas.includes(id)).join(', ') || 'none'}`);
 
 
 // --- the timing, against the bars the page actually has ----------------------
@@ -261,6 +268,28 @@ const picked = await page.evaluate(async () => {
 
   const zoom = document.querySelector('#note-zoom');
   const reader = document.querySelector('#reader');
+  const state = () => ({
+    readerOpen: !!document.querySelector('#reader') && !document.querySelector('#reader').hidden,
+    fullScreen: document.documentElement.hasAttribute('data-score-full'),
+  });
+  // …AND NOR DOES THE STRIP ABOVE THE PAGE. The bar boxes have stopped their
+  // own click since they were built; the buttons that arm marking sat in the
+  // same stage and never did, so pressing "Mark where you are" armed the mode
+  // and then threw the part full screen over the page you were about to mark
+  // on. Pressed with a real hit test, not `.click()`, because what is being
+  // asked is what a finger reaches.
+  const strip = [...document.querySelectorAll('#score-stage .bar-sync-bar button')];
+  const pressed = [];
+  for (const button of strip) {
+    if (button.hidden) continue;
+    const b = button.getBoundingClientRect();
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    if (hit !== button && !button.contains(hit)) { pressed.push(`${button.textContent}: covered`); continue; }
+    hit.click();
+    await new Promise((r) => setTimeout(r, 350));
+    const after = state();
+    pressed.push(`${button.textContent}: reader=${after.readerOpen} full=${after.fullScreen}`);
+  }
   return {
     bars: bars.length,
     ringIsAControl,
@@ -268,6 +297,9 @@ const picked = await page.evaluate(async () => {
     zoomLabel: document.querySelector('#zoom-label')?.textContent ?? '',
     readerOpen: !!reader && !reader.hidden,
     fullScreen: document.documentElement.hasAttribute('data-score-full'),
+    strip: strip.map((b) => b.textContent),
+    pressed,
+    ...state(),
   };
 });
 
@@ -279,6 +311,12 @@ check('pressing a bar opens the close-up under the graph',
 check('and does NOT throw the full-screen score over the top of it',
   picked.readerOpen === false && picked.fullScreen === false,
   `reader=${picked.readerOpen} full-screen=${picked.fullScreen}`);
+check('nor does pressing the marking buttons above the page',
+  picked.pressed.length > 0 && picked.pressed.every((line) => /reader=false full=false$/.test(line)),
+  picked.pressed.join(' | ') || 'no buttons found');
+check('and the strip is down to the two marks',
+  picked.strip.join(', ') === 'Mark where you are, Started here',
+  picked.strip.join(', '));
 
 
 // --- every ring carries ITS OWN note's reading -------------------------------
@@ -503,6 +541,39 @@ check('the take is found on the page it was actually played from',
 check('and NOT dumped onto the cover page',
   (cover.onPages['0'] ?? 0) === 0,
   `${cover.onPages['0'] ?? 0} rings on the cover (was all of them)`);
+
+// AND THE RECORD TAB GETS ITS REVIEW BACK IN ONE PIECE.
+//
+// The whole of #playback is borrowed by this tab now, and `returnPanel` puts
+// each panel back before the sibling it remembers — a sibling that is also
+// borrowed is not there to go before, so every one lands by `append` and the
+// order is only right because the borrow list is already in it. Get that list
+// out of order and the Record tab comes back with its graph under its passages
+// and nothing anywhere says so.
+//
+// Driven through the two calls themselves rather than through a tab press: the
+// tab machinery borrows again on its own schedule, so a press and a wait reads
+// whichever side of that race the clock landed on. What is being asked is the
+// round trip, and these are the round trip.
+const handedBack = await page.evaluate(async () => {
+  const { borrowPanel, returnPanel } = await import('/src/ui/score-tab.js');
+  borrowPanel();
+  const dockedNow = [...(document.querySelector('#score-dock')?.children ?? [])].map((c) => c.id);
+  returnPanel();
+  const panel = document.querySelector('#playback');
+  return {
+    docked: dockedNow,
+    order: panel ? [...panel.children].map((c) => c.id) : [],
+    dock: [...(document.querySelector('#score-dock')?.children ?? [])].map((c) => c.id),
+  };
+});
+const INORDER = 'clip-head,chart-scroll,note-zoom,playback-controls,held-list,passages,landing';
+check('the borrow takes the whole review',
+  handedBack.docked.join(',') === INORDER, handedBack.docked.join(', ') || 'nothing docked');
+check('…and handing it back puts it in its own order',
+  handedBack.order.join(',') === INORDER, handedBack.order.join(', ') || 'nothing came back');
+check('…and leaves nothing behind in the dock',
+  handedBack.dock.length === 0, handedBack.dock.join(', ') || 'empty');
 
 if (errors.length) {
   console.log('\nerrors on the page:');

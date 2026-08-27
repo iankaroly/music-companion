@@ -353,7 +353,10 @@ export function initControls(root) {
   // left every other picker in the app as a raw browser widget.
   // Its options arrive from IndexedDB after this runs, and change again on
   // every upload — the observer inside menu() is what keeps the list honest.
-  pick('#score-pick', { search: true });
+  // `#score-pick` was picked here. The Record tab's "playing from" row is gone
+  // (see index.html) and the search it grew was for that pop-over; the shelf on
+  // the Score tab has its own.
+
   pick('#score-target');
   seg('#count-in', { format: (o) => o.value === '0' ? 'none' : `${o.value} bar${o.value === '1' ? '' : 's'}` });
   seg('#beats-per-bar', { format: (o) => o.value });

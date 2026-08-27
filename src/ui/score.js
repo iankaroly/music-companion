@@ -70,6 +70,19 @@ const NO_SCORE = 'none';
 
 function el(id) { return document.querySelector(`#${id}`); }
 
+// GUARDED, BECAUSE THE BUTTON IS GONE FROM THE RECORD TAB.
+//
+// "get rid of the playing from, and then the option to play from load score and
+// remove". `#score-remove` went with the row it sat in, and four sites here set
+// its `hidden` outright — `chooseScore` touches one on every path it takes, so
+// an unguarded read threw on choosing a score at all and took the Score tab
+// down with it. The element may come back somewhere else; what must not come
+// back is a lookup that assumes it.
+function hideRemove(hide) {
+  const remove = el('score-remove');
+  if (remove) remove.hidden = hide;
+}
+
 function status(message, tone = '') {
   // Said twice, in the two places a player can be standing when a score is
   // loaded. #score-hint is in the Record tab's card; #score-tab-hint sits in
@@ -86,6 +99,22 @@ function status(message, tone = '') {
   // And once more into the app's aria-live region, for a screen reader.
   const line = document.querySelector('#status');
   if (line) line.textContent = message;
+  showScoreCard();
+}
+
+// The Record tab's score card, shown only when it holds something.
+//
+// It used to hold the picker row, so it always had a reason to be there. With
+// the row gone what is left is a line the app says when something went wrong
+// and the button through to a page a take was just marked onto — and neither
+// is there most of the time. An empty rounded box under the Record button is a
+// control that is not a control.
+function showScoreCard() {
+  const card = el('score-card');
+  if (!card) return;
+  const said = (el('score-hint')?.textContent ?? '').trim();
+  const sheet = el('score-sheet');
+  card.hidden = !said && (!sheet || sheet.hidden);
 }
 
 // The one line of feedback the Score tab has, for jobs that live elsewhere in
@@ -107,8 +136,24 @@ export function scoreName() {
 // tab shows one thing at a time, so leaving the review by its ← would otherwise
 // strand the take: it is not saved yet, so no row in the shelf leads back to
 // it, and with it goes the button that would have saved it.
+// …AND IT STOPS WAITING ONCE IT IS KEPT.
+//
+// "when I record on a score and then I save it, it should just save to the
+// library and not to the take you just played in the score tab." That row IS
+// "The take you just played" — `pendingReviewRow` in main.js — and the comment
+// above is exactly why it exists: a take not yet saved has no row of its own,
+// so leaving the review by its ← would strand it. Once it is kept under this
+// piece it HAS a row, with its name and its date on it, and the shelf was
+// showing the same take twice: once as itself and once as "the take you just
+// played", which is the one you would press.
+//
+// Declared above the function that reads it: a `let` at module scope is in its
+// temporal dead zone until its line runs, and this file is imported by main.js
+// at startup.
+let keptHere = false;
+
 export function reviewIsWaiting() {
-  return !!ready && !!current;
+  return !!ready && !!current && !keptHere;
 }
 
 export function showTakeReview() {
@@ -139,7 +184,8 @@ async function refreshPicker(selectedId = null) {
   // The custom pop-over menus mirror the native select; this is how the rest
   // of the app tells them their options changed without firing 'change'.
   pick.dispatchEvent(new CustomEvent('refresh-label'));
-  el('score-remove').hidden = !selectedId;
+  const remove = el('score-remove');
+  if (remove) remove.hidden = !selectedId;
 }
 
 // Parse once when the score is chosen, not once per take.
@@ -172,7 +218,7 @@ async function chooseScore(id) {
   unpaired = null;
   if (!id) {
     current = null;
-    el('score-remove').hidden = true;
+    hideRemove(true);
     showReviewCard(false);
     scoreChanged?.();
     // Nothing chosen is nothing to say. The line here used to explain what a
@@ -204,7 +250,7 @@ async function chooseScore(id) {
         current = { ...row, paper: row, notes: [], plain: true };
         unpaired = row;
         showReviewCard(false);
-        el('score-remove').hidden = false;
+        hideRemove(false);
         scoreChanged?.();
         // Just the name. "Get rid of the little grey text that says 'scan
         // score, pages only, no notation', like those types of texts." The
@@ -218,7 +264,7 @@ async function chooseScore(id) {
     } else {
       await adopt(row);
     }
-    el('score-remove').hidden = false;
+    hideRemove(false);
     showReviewCard(true);
     scoreChanged?.();
     status(`${current.name} — ${current.notes.length} notes`);
@@ -653,6 +699,7 @@ function resetSheet() {
     sheet.replaceChildren();
     sheet.hidden = true;
   }
+  showScoreCard();
   el('score-summary')?.remove();
   el('score-legend')?.remove();
   clearScoreTab();
@@ -661,6 +708,7 @@ function resetSheet() {
 // Used when the take itself goes away, not merely its page.
 export function clearSheet() {
   pending = null;
+  keptHere = false;
   resetSheet();
 }
 
@@ -675,6 +723,7 @@ export function currentScoreStats() {
 // in the library, under the piece, rather than in a list under the score.
 export async function takeSaved(recordingId) {
   if (pending) pending.recordingId = recordingId;
+  keptHere = true;
 }
 
 // Choose a score without anyone touching the picker — how a take reopened from
@@ -875,6 +924,7 @@ function showScanReview(analysis) {
     sheet.replaceChildren(reviewButton(), fullScreenLink());
     sheet.hidden = false;
   }
+  showScoreCard();
 
   const tempo = el('score-tempo-row');
   if (tempo) tempo.hidden = true;    // there is no written tempo to play against
@@ -904,6 +954,8 @@ function fullScreenLink() {
 // Called on Stop, and when a saved take is reopened.
 export async function annotateTake(notes, { readings = null, a4 = 440, recordingId = null } = {}) {
   pending = { notes, readings, a4, recordingId };
+  // A take arriving is a take nobody has kept, whatever the last one was.
+  keptHere = false;
   if (!current) return null;
   // A scan on its own: there is nothing to line the take up AGAINST, so nothing
   // is aligned. The take is remembered, and the reader draws what the audio
@@ -944,6 +996,7 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
 
   resetSheet();
   sheet.hidden = false;
+  showScoreCard();
   status(`lining ${current.name} up with what you played…`);
 
   // A SCORE THE RECOGNISER READ IS NOT A SCORE SOMEBODY TYPESET.
@@ -1712,18 +1765,25 @@ export function initScoreCard({
   el('score-review-back')?.addEventListener('click', () => showBrowser());
   onPick = onPickNote ?? null;
   openTab = onOpenScoreTab ?? null;
+  // THE RECORD TAB'S ROW HAS GONE — "get rid of the playing from, and then the
+  // option to play from load score and remove" — and with it the picker, the
+  // Load button and the Remove button. What is NOT gone is `#score-file`: the
+  // Score tab's own ＋ Score menu opens it, and it is what reads a part off the
+  // disk. So the guard is on the file input alone. It used to read
+  // `if (!pick || !add || !file) return`, which with two of the three deleted
+  // would have returned before wiring the file input, the PDF input and the
+  // Remove button below — the whole of loading a score, silently.
   const pick = el('score-pick');
-  const add = el('score-add');
   const file = el('score-file');
   const remove = el('score-remove');
-  if (!pick || !add || !file) return;
+  if (!file) return;
 
-  pick.addEventListener('change', () => {
+  pick?.addEventListener('change', () => {
     const id = pick.value && pick.value !== NO_SCORE ? Number(pick.value) : null;
     chooseScore(id).catch((err) => status(err.message, 'bad'));
   });
 
-  add.addEventListener('click', () => file.click());
+  el('score-add')?.addEventListener('click', () => file.click());
 
   // ONE PICKER, THREE KINDS OF FILE. A run of photographs is a part and has to
   // arrive together — `addPaper` takes them as pages of one score — while a
@@ -1758,7 +1818,7 @@ export function initScoreCard({
   // The `#score-pair` button's listener lived here, and the button with it.
   // See main.js for why all four notation doors went.
 
-  remove.addEventListener('click', async () => {
+  remove?.addEventListener('click', async () => {
     if (!current) return;
     const id = current.id;
     current = null;

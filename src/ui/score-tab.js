@@ -54,7 +54,31 @@ export function showBrowser() {
 // as well." A bar you press moves the playhead; without the graph here there
 // was nothing for it to move on, and the two halves of one take lived on two
 // screens.
-const BORROWED = ['clip-head', 'chart-scroll', 'note-zoom', 'playback-controls'];
+//
+// AND THE THREE PANELS UNDER THE CONTROLS, which is the whole of `#playback`
+// now rather than the top half of it. They were left behind on no argument at
+// all — the list simply stopped at the controls — and what that cost was two
+// features that exist and are invisible from here:
+//
+//   #held-list  "when I click Held at least and it's a certain amount of
+//               seconds, it shows the boxes with those notes underneath like
+//               it does when it's just on the record tab". The picker itself
+//               lives in #playback-controls and came over; the buttons it
+//               builds did not, so choosing a duration on a score filtered the
+//               graph and produced nothing to press.
+//   #passages   "make sure it also shows the mark passage landing thing".
+//   #landing
+//
+// The order here is the order they sit in the Record tab, and it has to be:
+// `returnPanel` puts each one back before the sibling it remembers, and a
+// sibling that is ALSO borrowed is no longer in the panel to go before — so
+// every one of them lands by `append` instead, and append only rebuilds the
+// original order if this list is already in it. These seven are all of
+// #playback's children, so borrowing empties it and returning refills it.
+const BORROWED = [
+  'clip-head', 'chart-scroll', 'note-zoom', 'playback-controls',
+  'held-list', 'passages', 'landing',
+];
 
 export function borrowPanel() {
   const dock = el('score-dock');

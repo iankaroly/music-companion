@@ -126,7 +126,8 @@
     "reader:card": "node tools/reader-card-check.mjs",
     "read:stall": "node tools/read-stall-check.mjs",
     "edges:card": "node tools/edges-card-check.mjs",
-    "take:save": "node tools/take-save-check.mjs"
+    "take:save": "node tools/take-save-check.mjs",
+    "take:score": "node tools/take-score-check.mjs"
   },
   "keywords": [],
   "author": "",

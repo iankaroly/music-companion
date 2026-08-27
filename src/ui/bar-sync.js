@@ -296,23 +296,20 @@ export function attachBarSync(container, {
     if (marking) starting = false;
     showMode();
   });
-  const clear = document.createElement('button');
-  clear.type = 'button';
-  clear.className = 'ctl';
-  clear.dataset.bar = 'clear';
-  clear.textContent = 'Start again';
-  clear.addEventListener('click', () => {
-    // The taps go; what the app worked out for itself stays, because "start
-    // again" is about the marks somebody made and not about the reading.
-    hand = [];
-    starting = false;
-    remap();
-    marking = anchors.length < 2;
-    paintMarks();
-    onAnchors?.(hand);
-    showMode();
-  });
-  strip.append(mark, started, clear, line);
+  // NO "START AGAIN". It threw every mark away at once, which is a thing you
+  // want about once and a thing you can hit by accident any time — and neither
+  // mark needs it to be corrected: marking a bar again replaces the anchor at
+  // that place, and marking a different bar as the start replaces the start.
+  // Two buttons that each undo themselves do not need a third that undoes both.
+  strip.append(mark, started, line);
+  // AND NOT ALSO A TAP ON THE MUSIC. `score-tab.js:initScoreFullScreen` opens
+  // the full-screen reader on a click anywhere in the stage, and this strip is
+  // inside it — so pressing "Mark where you are" armed the mode and then threw
+  // the part over the top of the page you were about to mark on. The bar boxes
+  // have stopped their own click since they were built, for the same reason;
+  // the strip never did. One listener on the strip covers every control in it,
+  // including any added later.
+  strip.addEventListener('click', (event) => event.stopPropagation());
   container.prepend(strip);
 
   // --- a box over every bar -------------------------------------------------

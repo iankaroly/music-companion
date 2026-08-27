@@ -2407,7 +2407,7 @@
       font-size: 0.7rem; line-height: 1; cursor: pointer;
     }
     .scan-number {
-      position: absolute; bottom: 0.2rem; left: 0.3rem;
+      position: absolute; top: 0.2rem; left: 0.3rem;
       color: #fff; font-family: var(--num, inherit); font-size: 0.7rem;
       text-shadow: 0 1px 4px rgb(0 0 0 / 0.8);
     }
@@ -2429,11 +2429,25 @@
       transition: box-shadow 120ms ease, transform 120ms ease;
     }
     .scan-open:active { transform: scale(0.96); box-shadow: 0 0 0 3px rgb(var(--primary-rgb) / 0.55); }
+    /* A CAPTION ALONG THE BOTTOM, not a pill that nearly fits.
+       A scanned page is portrait, so at this height the thumbnail is about
+       fifty pixels across — and "Edges" in a rounded pill with padding is
+       about fifty pixels wide. The word therefore ran the full width of the
+       picture with its own background pressed against the letters on both
+       sides, and it sat on top of the page number in the same corner. Two
+       things crowding one another in fifty pixels reads as one smudge.
+       So it is the bottom edge of the picture instead: the width is the
+       thumbnail's, which it was going to take anyway, the letters are given
+       air with tracking rather than squeezed by padding, and the number has
+       moved to the opposite corner so nothing is under anything. */
     .scan-edges {
-      position: absolute; bottom: 0.2rem; right: 0.25rem;
-      padding: 0.1rem 0.4rem; border-radius: 999px;
-      background: rgb(0 0 0 / 0.7); color: #fff;
-      font-family: var(--ui); font-size: 0.62rem; letter-spacing: 0.02em;
+      position: absolute; left: 2px; right: 2px; bottom: 2px;
+      padding: 0.16rem 0.2rem;
+      border-radius: 0 0 0.4rem 0.4rem;
+      background: rgb(0 0 0 / 0.66); color: #fff;
+      font-family: var(--ui); font-size: 0.6rem; font-weight: 600;
+      letter-spacing: 0.1em; text-transform: uppercase;
+      text-align: center; line-height: 1.25;
       pointer-events: none;     /* a label, not a target: see .scan-open */
     }
     /* Above the picture's own button, so throwing a page away is still one
@@ -4594,22 +4608,19 @@
              under the button you pressed, rather than floating over the app. -->
         <p id="rec-note" class="hint"></p>
       </div>
-      <div id="score-card" class="card">
-        <div class="row score-row">
-          <span class="mini-label">playing from</span>
-          <select id="score-pick" aria-label="Score to play from">
-            <!-- A real choice, not a placeholder: controls.js keeps
-                 empty-valued rows out of the pop-over, and going back to
-                 no score has to be reachable. -->
-            <option value="none" selected>no score</option>
-          </select>
-          <button id="score-add" class="ctl" type="button">Load score…</button>
-          <button id="score-remove" class="ctl" type="button" hidden>Remove</button>
-        </div>
-        <!-- Empty, and it stays empty until something needs SAYING. It used to open
-             with "MusicXML or .mxl — export one from MuseScore…", which is a
-             sentence explaining a button that is already labelled "Load
-             score…". See status() in ui/score.js. -->
+      <!-- NO PICKER HERE ANY MORE. "get rid of the playing from, and then the
+           option to play from load score and remove" — the row held a "playing
+           from" select, a "Load score…" button and a "Remove" button, and all
+           three are the Score tab's job: that is where the parts live, where
+           one is opened, and where you press Record with the music in front of
+           you. Two places to choose a piece is one more than there is a piece.
+
+           The card stays for what is left of it — the one line the app says
+           about a score, and the way through to the page a take was just
+           marked onto — and hides itself when it has neither, so the Record tab
+           is not an empty box under the button. See showScoreCard in
+           ui/score.js. -->
+      <div id="score-card" class="card" hidden>
         <p id="score-hint" class="hint"></p>
         <div id="score-sheet" hidden></div>
       </div>

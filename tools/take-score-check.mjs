@@ -1,0 +1,322 @@
+// A TAKE PLAYED OFF THE MUSIC BELONGS TO THE MUSIC — from the save right
+// through to opening it again a week later.
+//
+// Two things used to go wrong between those, and they are the same thing seen
+// from either end:
+//
+//   THE SAVE. Filing a take under the piece was a SECOND decision, made with a
+//   second button at the foot of the Score tab. "when I record on a score and
+//   then I save it, it should just save to the library" — so pressing Save on
+//   the Record tab kept the recording with no piece attached at all, and the
+//   one thing the app knew for certain about it was thrown away.
+//
+//   THE REOPENING. That take then opened on the Record tab, which put up a
+//   button reading "See it on the score →": an instruction, on the wrong
+//   screen, to reach the thing you had just asked for. "it should automatically
+//   show this score like it did after I finished recording it."
+//
+// AND THE HAZARD THE FIX WALKS PAST. A piece can be open from an hour ago, so
+// "a score is loaded" is the wrong question — a run of scales recorded from the
+// Record tab while the Bach is still on screen must NOT be filed under the
+// Bach. What is asked instead is which door the take came through: the dot on
+// the music, or the button on the Record tab. Both are driven here.
+//
+// NO MICROPHONE IS EVER OPENED — `getUserMedia` is replaced before the app
+// loads, and the fake device plays real separated notes, because a take the
+// segmenter finds nothing in is discarded and never reaches a save.
+//
+//   npm run dev            (on 5199)
+//   npm run take:score
+//
+import puppeteer from 'puppeteer-core';
+import { readFile } from 'node:fs/promises';
+
+const APP = process.env.APP ?? 'http://localhost:5199';
+const SHELL = process.env.CHROME_SHELL
+  ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
+    + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
+const PIECE = 'Elgar — Salut d’Amour';
+
+const results = [];
+const check = (name, pass, detail = '') => {
+  results.push({ name, pass, detail });
+  console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`);
+};
+
+const browser = await puppeteer.launch({
+  executablePath: SHELL,
+  headless: true,
+  args: ['--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+});
+const page = await browser.newPage();
+await page.setViewport({ width: 900, height: 1000, deviceScaleFactor: 2 });
+const errors = [];
+page.on('pageerror', (e) => errors.push(String(e)));
+
+// The fake microphone, as `take:save` builds it: a cello-ish tone rather than a
+// sine (YIN wants a harmonic series) and a fresh stream every time, because the
+// app stops the tracks when a take ends and this records twice.
+await page.evaluateOnNewDocument(() => {
+  const ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const fake = ctx.createMediaStreamDestination();
+  const level = ctx.createGain();
+  level.gain.value = 0;
+  const partials = [1, 2, 3, 4].map((n) => {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    g.gain.value = 0.6 / n;
+    osc.connect(g).connect(level);
+    osc.start();
+    return { osc, n };
+  });
+  level.connect(fake);
+  window.__playNotes = async (midi, each = 0.4) => {
+    await ctx.resume();
+    const now = ctx.currentTime + 0.1;
+    midi.forEach((m, i) => {
+      const at = now + i * each;
+      const hz = 440 * (2 ** ((m - 69) / 12));
+      for (const { osc, n } of partials) osc.frequency.setValueAtTime(hz * n, at);
+      level.gain.setValueAtTime(0.0001, at);
+      level.gain.exponentialRampToValueAtTime(0.8, at + 0.03);
+      level.gain.setValueAtTime(0.8, at + each * 0.72);
+      level.gain.exponentialRampToValueAtTime(0.0001, at + each * 0.84);
+    });
+    return midi.length * each + 0.4;
+  };
+  navigator.mediaDevices.getUserMedia = async () => {
+    await ctx.resume();
+    const out = ctx.createMediaStreamDestination();
+    level.connect(out);
+    return out.stream;
+  };
+});
+
+await page.goto(APP, { waitUntil: 'domcontentloaded' });
+await new Promise((r) => setTimeout(r, 1400));
+
+const font = (await readFile(new URL('./fonts/Bravura.otf', import.meta.url))).toString('base64');
+const made = await page.evaluate(async ({ base64, piece }) => {
+  [...document.querySelectorAll('button')]
+    .find((b) => /start playing/i.test(b.textContent ?? ''))?.click();
+  await new Promise((r) => setTimeout(r, 500));
+  try {
+    const { engravePart } = await import('/src/fixtures/engraved-page.js');
+    const built = await engravePart({ base64, name: piece, pages: 1 });
+    return { id: built.scoreId, midi: built.written.map((w) => w.midi).filter((m) => m != null) };
+  } catch (err) { return { error: String(err) }; }
+}, { base64: font, piece: PIECE });
+
+if (made.error) {
+  check('a piece to play from', false, made.error);
+  await browser.close();
+  process.exit(1);
+}
+await page.reload({ waitUntil: 'domcontentloaded' });
+await new Promise((r) => setTimeout(r, 1600));
+
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// --- (1) recorded from the music, saved with the Record tab's own button -----
+const fromTheMusic = await page.evaluate(async ({ notes, piece }) => {
+  const hold = (ms) => new Promise((r) => setTimeout(r, ms));
+  [...document.querySelectorAll('button')]
+    .find((b) => /start playing/i.test(b.textContent ?? ''))?.click();
+  await hold(400);
+  const nav = document.querySelector('nav[role="tablist"]');
+  const toTab = (name) => [...nav.querySelectorAll('button')]
+    .find((b) => new RegExp(name, 'i').test(b.textContent ?? ''))?.click();
+  toTab('score');
+  await hold(1200);
+  const row = [...document.querySelectorAll('#score-list .lib-open')]
+    .find((b) => (b.textContent ?? '').includes(piece));
+  if (!row) return { failed: 'the piece is not on the shelf' };
+  row.click();
+  await hold(3000);
+  const reader = document.querySelector('#reader');
+  if (!reader || reader.hidden) return { failed: 'the piece did not open' };
+  const dot = document.querySelector('#reader-record');
+  if (!dot || dot.hidden) return { failed: 'no record button on the music' };
+  dot.click();
+  for (let i = 0; i < 200 && !dot.classList.contains('recording'); i += 1) await hold(100);
+  if (!dot.classList.contains('recording')) return { failed: 'the take never started' };
+  const seconds = await window.__playNotes(notes.slice(0, 8), 0.4);
+  await hold(seconds * 1000 + 600);
+  dot.click();
+  await hold(6000);
+
+  // THE RECORD TAB'S OWN SAVE, which is the one the sentence is about. Not the
+  // save bar at the foot of the Score tab — that one always filed the take
+  // under the piece and would prove nothing.
+  toTab('record');
+  await hold(900);
+  const save = document.querySelector('#save-rec');
+  const offered = !!save && !save.closest('[hidden]');
+  if (!offered) return { failed: 'the Record tab offered no way to save the take' };
+  save.click();
+  await hold(2500);
+  const { listRecordings } = await import('/src/store/db.js');
+  const takes = await listRecordings();
+  // …AND WHAT THE PIECE'S OWN SHELF SHOWS AFTERWARDS. "not to the take you just
+  // played in the score tab": that row is `pendingReviewRow`, and it exists so
+  // a take with no row of its own is not stranded behind the review. Once the
+  // take is kept the shelf has its real row, and both were being drawn.
+  toTab('score');
+  await hold(1500);
+  const shelf = [...document.querySelectorAll('#score-list .lib-name')].map((n) => n.textContent);
+  return {
+    takes: takes.length,
+    scoreIds: takes.map((t) => t.scoreId ?? null),
+    shelf,
+    said: document.querySelector('#status')?.textContent ?? '',
+  };
+}, { notes: made.midi, piece: PIECE });
+
+if (fromTheMusic.failed) {
+  check('a take recorded from the music', false, fromTheMusic.failed);
+} else {
+  check('a take recorded from the music and saved on the Record tab is kept',
+    fromTheMusic.takes === 1, `${fromTheMusic.takes} in the library`);
+  check('…and it carries the piece it was played from, with no second decision',
+    fromTheMusic.scoreIds[0] === made.id,
+    `scoreId ${fromTheMusic.scoreIds[0]} (the piece is ${made.id})`);
+  check('…and the Score tab stops offering it as "the take you just played"',
+    !fromTheMusic.shelf.some((row) => /the take you just played/i.test(row ?? '')),
+    fromTheMusic.shelf.join(' | ') || 'the shelf is empty');
+}
+
+// --- (2) …and a take from the Record tab, with the piece still open ---------
+const fromTheTab = await page.evaluate(async ({ notes }) => {
+  const hold = (ms) => new Promise((r) => setTimeout(r, ms));
+  const nav = document.querySelector('nav[role="tablist"]');
+  [...nav.querySelectorAll('button')].find((b) => /record/i.test(b.textContent ?? ''))?.click();
+  await hold(800);
+  const start = document.querySelector('#start');
+  if (!start) return { failed: 'no Record button' };
+  const open = (await import('/src/ui/score.js')).currentScoreId();
+  start.click();
+  for (let i = 0; i < 200 && start.textContent === 'Record'; i += 1) await hold(100);
+  if (start.textContent === 'Record') return { failed: 'the take never started' };
+  const seconds = await window.__playNotes(notes.slice(0, 6), 0.4);
+  await hold(seconds * 1000 + 600);
+  start.click();
+  await hold(5000);
+  const save = document.querySelector('#save-rec');
+  if (!save || save.closest('[hidden]')) return { failed: 'nothing offered to save it' };
+  save.click();
+  await hold(2500);
+  const { listRecordings } = await import('/src/store/db.js');
+  const takes = await listRecordings();
+  return { openScore: open, takes: takes.length, scoreIds: takes.map((t) => t.scoreId ?? null) };
+}, { notes: [55, 57, 59, 60, 62, 64] });
+
+if (fromTheTab.failed) {
+  check('a second take, from the Record tab', false, fromTheTab.failed);
+} else {
+  check('a second take, recorded from the Record tab, is kept too',
+    fromTheTab.takes === 2, `${fromTheTab.takes} in the library`);
+  // The piece was still open — that is the point of the assertion.
+  check('…and is NOT filed under the piece that happened to be open',
+    fromTheTab.openScore !== null && fromTheTab.scoreIds.filter((id) => id === made.id).length === 1,
+    `the ${PIECE} was open (${fromTheTab.openScore}); scoreIds now ${JSON.stringify(fromTheTab.scoreIds)}`);
+}
+
+// --- (3) opening the score-backed take again -------------------------------
+const reopened = await page.evaluate(async ({ piece }) => {
+  const hold = (ms) => new Promise((r) => setTimeout(r, ms));
+  const nav = document.querySelector('nav[role="tablist"]');
+  [...nav.querySelectorAll('button')].find((b) => /library/i.test(b.textContent ?? ''))?.click();
+  await hold(1400);
+  // The row for the take that carries the piece: the library says which piece
+  // a take came from in its own line, so that is what is looked for.
+  const rows = [...document.querySelectorAll('#library .lib-open, #lib-list .lib-open')];
+  const wanted = rows.find((b) => (b.textContent ?? '').includes(piece));
+  if (!wanted) {
+    return { failed: 'no library row mentions the piece', why: rows.map((r) => r.textContent).join(' | ') };
+  }
+  wanted.click();
+  await hold(4000);
+  const active = document.querySelector('.tab-panel.active')?.id ?? null;
+  const stage = document.querySelector('#score-stage');
+  return {
+    tab: active,
+    pages: document.querySelectorAll('#score-stage .scan-page, #score-stage svg').length,
+    stageHasMusic: !!stage && stage.children.length > 0,
+    // ON THE SCREEN, not in the document. The button still exists — it is the
+    // Record tab's way through for somebody who is standing there — and what
+    // was asked for is not to be SENT to the score but taken to it. So what is
+    // checked is whether a player looking at this take is being offered an
+    // instruction: `offsetParent` is null for anything inside a hidden card or
+    // an inactive tab panel.
+    seeItOnTheScore: [...document.querySelectorAll('button')]
+      .filter((b) => /see it on the score/i.test(b.textContent ?? ''))
+      .some((b) => b.offsetParent !== null),
+  };
+}, { piece: PIECE });
+
+if (reopened.failed) {
+  check('the take opens again from the library', false, `${reopened.failed}: ${reopened.why ?? ''}`);
+} else {
+  check('opening it again lands on the Score tab, not the Record tab',
+    reopened.tab === 'tab-score', `landed on ${reopened.tab}`);
+  check('…with the music on the screen',
+    reopened.stageHasMusic && reopened.pages > 0,
+    `${reopened.pages} page(s) in the stage`);
+  check('…and nothing on the screen telling you to go and look at it',
+    reopened.seeItOnTheScore === false,
+    reopened.seeItOnTheScore ? '“See it on the score →” is still being offered' : 'no such button');
+}
+
+// --- (4) …and the analysis on the score is the whole analysis --------------
+//
+// "when I click Held at least and it's a certain amount of seconds, it shows
+// the boxes with those notes underneath like it does when it's just on the
+// record tab", and "it also shows the mark passage landing thing". The picker
+// was on this screen and the buttons it builds were not: `#held-list`,
+// `#passages` and `#landing` stayed behind on the Record tab, so choosing a
+// duration here filtered the graph and produced nothing to press.
+const analysis = await page.evaluate(async () => {
+  const hold = (ms) => new Promise((r) => setTimeout(r, ms));
+  const seen = (node) => !!node && node.offsetParent !== null;
+  const dock = document.querySelector('#score-dock');
+  // TYPED, at a threshold this fixture can meet. The ladder's lowest rung is
+  // 0.5s and the fake instrument plays each note for about three tenths, so
+  // every preset would correctly answer "0 of 13" and prove nothing about the
+  // list. The field and the ladder are one value — see wireHeldFilter — so
+  // this drives the same filter the rungs do.
+  const field = document.querySelector('#held-least');
+  const before = document.querySelectorAll('#held-list button').length;
+  if (field) {
+    field.value = '0.15';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  await hold(700);
+  return {
+    pickerOnScreen: seen(document.querySelector('#held-least-line')),
+    passagesOnScreen: seen(document.querySelector('#mark-passage')),
+    landingOnScreen: seen(document.querySelector('#landing')),
+    inTheDock: ['held-list', 'passages', 'landing']
+      .filter((id) => dock?.contains(document.querySelector(`#${id}`))),
+    before,
+    after: document.querySelectorAll('#held-list button').length,
+    listOnScreen: seen(document.querySelector('#held-list')),
+    said: document.querySelector('#notes-summary')?.textContent ?? '',
+  };
+});
+
+check('the held-for picker, the passages and the landing are all on this screen',
+  analysis.pickerOnScreen && analysis.passagesOnScreen && analysis.landingOnScreen,
+  `picker=${analysis.pickerOnScreen} passages=${analysis.passagesOnScreen}`
+  + ` landing=${analysis.landingOnScreen}`);
+check('…because the score borrows them, rather than the Record tab keeping them',
+  analysis.inTheDock.length === 3, analysis.inTheDock.join(', ') || 'none of them');
+check('choosing a duration here puts up the notes that qualified',
+  analysis.after > 0 && analysis.listOnScreen,
+  `${analysis.before} buttons before, ${analysis.after} after — “${analysis.said}”`);
+
+check('nothing was thrown', errors.length === 0, errors.slice(0, 3).join(' | '));
+
+await browser.close();
+const failed = results.filter((r) => !r.pass);
+console.log(failed.length ? `\n${failed.length} FAILED` : '\nALL PASS');
+process.exit(failed.length ? 1 : 0);

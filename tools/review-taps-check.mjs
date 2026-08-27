@@ -300,31 +300,26 @@ check('…and moves the take to that bar',
   !!midPlay.second?.note && midPlay.second.note !== midPlay.first?.note,
   `“${midPlay.first?.note ?? ''}” → “${midPlay.second?.note ?? ''}”`);
 
-// AND THE SAME PRESS ON A TAKE THE APP COULD NOT PLACE.
+// THE PRESS ON A TAKE THE APP COULD NOT PLACE used to be measured here, by
+// pressing "Start again" to throw the marks away and leave the layer with no
+// map. That button is gone — marking a bar again replaces the anchor at that
+// place and marking another bar replaces the start, so nothing needed a third
+// control that undid both — and with it went the only way to reach that state
+// from this fixture, whose take the app places for itself.
 //
-// The bar layer has two modes. With a map, a press is a seek. Without one —
-// fewer than two anchors, which is where a take the reader could not place
-// starts — a press MARKS where you are instead, and plays nothing. That is not
-// a bug, but it is the other half of "I click the bar and it starts from that
-// bar", so what actually happens is measured rather than assumed.
-const unplaced = await page.evaluate(async () => {
-  // BY NAME, NOT BY POSITION. This was `.ctl:nth-child(2)`, which stopped being
-  // "Start again" the day a third button joined the strip — and then this step
-  // armed a different mode and left the take somewhere else, which showed up
-  // three assertions later as the graph having lost some of its colour.
-  const clear = document.querySelector('.bar-sync-bar [data-bar="clear"]');
+// The coverage did not go with it: `npm run scan:barsync` mounts the layer with
+// no take at all, which IS the unplaced state, and drives the whole gesture
+// from there — starts in marking mode, two marks make the map, and a third
+// press then plays the second the map says. What this file could add to that
+// was the transport, and the transport is asserted three checks above.
+//
+// The take is left paused, which is where the block below expects it: the
+// graph is sampled either side of a filter and a playhead moving between the
+// samples is a difference nobody asked about.
+await page.evaluate(async () => {
   const btn = document.querySelector('#clip-play');
   if (btn.textContent === '❚❚') { btn.click(); await new Promise((r) => setTimeout(r, 400)); }
-  clear?.click();
-  await new Promise((r) => setTimeout(r, 300));
-  const said = document.querySelector('.bar-sync-say')?.textContent ?? '';
-  const bars = [...document.querySelectorAll('.scan-bar')];
-  bars[5]?.click();
-  await new Promise((r) => setTimeout(r, 600));
-  return { said, play: btn.textContent, marked: !!bars[5]?.classList.contains('marked') };
 });
-console.log(`      (unplaced take: said “${unplaced.said}”, `
-  + `press left the transport at ${unplaced.play}, marked=${unplaced.marked})`);
 
 // ONLY THE NOTES THAT WERE HELD.
 //

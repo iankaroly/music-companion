@@ -137,30 +137,18 @@ check('the library has a search box', lib.showing === true);
 check('…and it finds a take by name', lib.found?.length === 1 && lib.back === lib.before,
   `${lib.before} takes → [${lib.found?.join(', ')}] → ${lib.back}`);
 
-// --- "playing from" ---------------------------------------------------------
-await toTab('analyze');
-const picker = await page.evaluate(async () => {
-  document.querySelector('#score-card .pick-btn')?.click();
-  await new Promise((r) => setTimeout(r, 400));
-  const find = document.querySelector('.pick-pop .pick-find');
-  const rows = () => [...document.querySelectorAll('.pick-pop .pick-row')].filter((r) => !r.hidden);
-  const before = rows().length;
-  if (!find) return { has: false, before };
-  find.value = 'bach';
-  find.dispatchEvent(new Event('input', { bubbles: true }));
-  await new Promise((r) => setTimeout(r, 250));
-  const left = rows().map((r) => r.textContent.trim());
-  // …and a small list must NOT get one: the same function draws these.
-  document.querySelector('.pick-pop')?.remove();
-  const small = document.querySelector('#ref-interval');
-  return { has: true, before, left, smallOptions: small ? small.options.length : null };
-});
-check('the "playing from" list has a search field, however short the list',
-  picker.has === true, `${picker.before} rows in the list`);
-check('…and typing narrows it to what you asked for',
-  picker.left?.length === 2 && picker.left.every((one) => /bach/i.test(one)),
-  `[${picker.left?.join(', ')}]`);
-
+// THE "PLAYING FROM" LIST WAS SEARCHED HERE, and there is no such list any
+// more: "get rid of the playing from, and then the option to play from load
+// score and remove". The picker, the Load button and the Remove button have
+// gone from the Record tab — a piece is chosen on the Score tab, which is where
+// the parts live and where you press Record with the music in front of you —
+// and the search this asserted was for that pop-over.
+//
+// The two halves it proved are both still proved elsewhere. That a LONG list
+// gets a search field is the shelf and the library, both checked above, both on
+// their own boxes rather than on `menu()`'s. That a SHORT one does not is the
+// gate below, which is the same function drawing a different picker.
+//
 // The other half of the gate, measured rather than reasoned about.
 await toTab('tuner');
 const small = await page.evaluate(async () => {
