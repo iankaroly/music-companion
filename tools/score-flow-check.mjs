@@ -72,15 +72,17 @@ const read = await page.waitForFunction(async () => {
 
 console.log('imported:', JSON.stringify(read));
 
-// --- 2. it is offered as something to play from ------------------------------
-const picker = await page.evaluate(() => {
-  const sel = document.querySelector('#score-pick');
-  return {
-    options: [...(sel?.options ?? [])].map((o) => ({ value: o.value, label: o.textContent })),
-    value: sel?.value ?? null,
-  };
-});
-console.log('score picker:', JSON.stringify(picker));
+// --- 2. it is on the shelf, which is where a piece is chosen ------------------
+//
+// This read `#score-pick`, the Record tab's "playing from" row. That row is
+// gone — a piece is opened from the Score tab's shelf now, and recording
+// happens on the music itself — so what is asked is whether the part arrived
+// somewhere a player can reach it.
+const shelf = await page.evaluate(() => ({
+  rows: [...document.querySelectorAll('#score-list .lib-name')].map((n) => n.textContent),
+  picker: !!document.querySelector('#score-pick'),
+}));
+console.log('score shelf:', JSON.stringify(shelf));
 
 // --- 3. select it, and play something at it ----------------------------------
 const marked = await page.evaluate(async (scoreId) => {

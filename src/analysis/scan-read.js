@@ -2064,54 +2064,52 @@ const STEM_CUT = 0.95;
 // too few solid heads to measure falls back to it — so this can only ever
 // tighten and never loosen.
 //
-// SWEPT. `scan:bars-believed` (32 engraved studies), `scan:import` (the three
-// photographed pages), `scan:align` (2672 played notes over 128 takes), and the
-// synthetic minims of `score:heads`:
+// SWEPT, and the first sweep had a hole in it at exactly the value that wins.
+// `scan:bars-believed` (32 engraved studies), `scan:import` (the three
+// photographed pages), `scan:align` (2672 played notes over 128 takes),
+// `scan:steps` on the Scanned photograph, `score:pdf` (a real PDF with exactly
+// 80 heads drawn on it), and the synthetic pages of `score:heads`:
 //
-//   share   circles on   bars      import   align: right head /   Scanned
-//           nothing      believed  recall   wrong / squeaks       step RIGHT
-//    off      67          52/200    53.4%   97.5% / 43 / 38       277  92.3%
-//    0.35     67          52/200    53.4%   97.5% / 43 / 38       —
-//    0.40     19          99/200    53.4%   98.9% / 18 / 12       273  92.2%
-//    0.45     19          99/200    53.4%   98.9% / 18 / 12       273  92.2%
-//    0.50     19          99/200    53.4%   98.9% / 18 / 12       265  92.0%
-//    0.65     18          99/200    53.4%   98.9% / 18 / 12       —
-//    0.80     18          99/200    53.4%   98.9% / 18 / 12       —
+//   share   circles on   bars      import   align: right /   Scanned steps   score:  score:heads
+//           nothing      believed  recall   wrong / squeak   found / right   pdf     phantoms / minims
+//    off      67          52/200    53.4%   97.5 / 43 / 38   446 / 277 92.3  136/80   25 / 50
+//    0.35     67          52/200    53.4%   97.5 / 43 / 38   —               —        25 / 50
+//    0.40     19          99/200    53.4%   98.9 / 18 / 12   441 / 273 92.2  —        25 / 50
+//    0.45     19          99/200    53.4%   98.9 / 18 / 12   441 / 273 92.2   91/80    0 / 50
+//    0.50     19          99/200    53.4%   98.9 / 18 / 12   424 / 265 92.0   80/80    0 / 40
+//    0.65     18          99/200    53.4%   98.9 / 18 / 12   —               —        —
+//    0.80     18          99/200    53.4%   98.9 / 18 / 12   —               —        0 / 30
 //
-// The whole of the corpus gain arrives between 0.35 and 0.40 and does not move
-// again. 0.80 starts taking real minims off the synthetic pages for nothing.
+// The whole of the corpus gain arrives between 0.35 and 0.40 and never moves
+// again: bars believed, phantoms on the engraved pages, import recall and the
+// pairing are the same at 0.40, 0.45, 0.50, 0.65 and 0.80. What moves after
+// that is only what it TAKES.
 //
-// 0.5 AND NOT 0.4 IS A TRADE AND IS NOT COVERED BY THE RULE, so it is written
-// here as what it is rather than argued into being free.
+// 0.45 IS THE LAST VALUE THAT COSTS NOTHING IT DOES NOT HAVE TO. It is the
+// first that clears the synthetic pages — the bare-stem crotchets and the
+// clutter page, which are the only fixture in the repo that isolates this
+// failure mode, everything else having beams and blur mixed in — and it still
+// keeps all fifty of the synthetic minims and all 441 circles on the
+// photograph. 0.50 clears the same pages and takes twelve marks off the
+// Scanned photograph (277 right steps at rest, 273 here, 265 there) and ten of
+// the fifty minims with them, for nothing the corpus can see.
 //
-// 0.4 buys the whole corpus gain and costs less. What it does not do is finish
-// the job this was written for: the crotchet and clutter pages of `score:heads`
-// still come back with 25 circles on nothing at 0.4 and with none at 0.5. Those
-// pages draw a bare stem three spaces long with nothing on the end of it, and
-// they are the only fixture in the repo that isolates this failure mode — every
-// other page has beams, clutter, ledger lines and a photograph's blur mixed
-// into it, so nothing else can say whether the test refuses a bare stem or
-// merely refuses most things. Keeping that fixture honest is what the extra
-// tenth is spent on.
+// WHAT 0.45 STILL COSTS, because it is not free either. `score:pdf` draws a real
+// PDF with exactly 80 noteheads on it: the reader found 136 of them before any
+// of this, finds 91 at 0.45, and finds exactly 80 at 0.50. Eleven circles on
+// nothing, on one synthetic page, against twelve marks on a page a player
+// actually photographed — and the priority in CLAUDE.md is explicit that a
+// missing note breaks the alignment a take depends on while an extra circle is
+// cosmetic. `scan:bars` loses one system of 72 that had every bar right and
+// none invented, 66 to 65, at every value that fires. Rule 2 allows three
+// tenths of recall on a page: 0.50 spends all of it on the Scanned photograph
+// (92.3% to 92.0%) and 0.45 spends one tenth (92.3% to 92.2%).
 //
-// WHAT IT SPENDS. `npm run scan:steps` on the Scanned photograph: 446 circles
-// become 424 and the marks that read the right STEP fall from 277 to 265 —
-// 92.3% to 92.0%. Twelve marks, on a page a user actually photographed, and
-// rule 2's whole allowance for one page is three tenths. At 0.4 it is 273 and
-// 92.2%, so eight of those twelve are bought back by the lower value. Bach and
-// Mozart are identical to the mark at both (325 found / 229 right, 341 / 210),
-// `scan:import` recall is byte-identical on all three pages at every value
-// swept, `scan:clef` does not move (18 of 26 changes, debt 129), and `scan:bars`
-// loses one system of 72 that had every bar right and none invented — 66 to 65,
-// mean recall 100% either way.
-//
-// The file's own priority says a missing note breaks an alignment and an extra
-// circle is cosmetic, and by that priority 0.4 is the better number. It is not
-// chosen because the pages those twelve marks are traded for are the only ones
-// that can catch this test failing, and a test nothing checks is a test that
-// rots. `scan:align`, which is the pairing a player actually sees, does not
-// move between the two. If a photographed page ever needs the twelve marks
-// back, 0.4 is one edit away and this table is why.
+// THE HOLE IN THE FIRST SWEEP, recorded because it is the reason a worse value
+// shipped first. `score:heads` was run at 0.40 and at 0.50 and not at 0.45, so
+// the table read "0.40 leaves the phantoms, 0.50 clears them" and the twelve
+// marks looked like the price of clearing them. They were the price of
+// overshooting by half a tenth.
 //
 // WHAT IT BUYS, and BARS BELIEVED is the row CLAUDE.md calls the number that
 // matters: 52 of 200 becomes 99 of 200, every one of the 99 still exactly one
@@ -2122,7 +2120,8 @@ const STEM_CUT = 0.95;
 // circles and 0 real notes, so what is being thrown away is its entire output
 // there and none of anybody else's.
 //
-// WHAT IT COSTS, which on the corpus is nothing measurable. `scan:import` is
+// WHAT IT COSTS THE CORPUS, which is nothing measurable — the page-by-page
+// price is the paragraph above. `scan:import` is
 // byte-identical at every value swept — 53.4%, 565 of 1059, Mozart 81.1% and
 // Scanned 72.6% — so the 37 notes the stem pass rescues on the photographed
 // page are all still rescued: their bodies are heads and heads are wide.
@@ -2133,10 +2132,12 @@ const STEM_CUT = 0.95;
 // to 18, unmarked from 24 to 12, and takes ringing a squeak nobody wrote from
 // 38 of 64 to 12 of 64.
 //
-// The other place it shows is the synthetic minims of `score:heads`, where ten
-// of the fifty are found by the stem pass rather than the shape pass and go with
-// it. Those pages draw a ring with a bare stem and nothing else; on every real
-// page in the corpus the shape pass finds the hollow heads itself.
+// The synthetic minims of `score:heads` are worth watching and are NOT paid
+// for here: ten of the fifty are found by the stem pass rather than the shape
+// pass, so they go the moment the floor rises past their bodies, which happens
+// at 0.50 and not at 0.45. Those pages draw a ring with a bare stem and nothing
+// else; on every real page in the corpus the shape pass finds the hollow heads
+// itself, which is why nothing else in the sweep moves when they do.
 //
 // AND THE CLASSIFIER WAS TRIED FIRST, because the note above `stemHeads` says
 // that is where this belongs. The two-judge gate is applied to the shape pass
@@ -2148,7 +2149,7 @@ const STEM_CUT = 0.95;
 // go, which is what a judge trained mostly on drawn pages does with a patch of
 // bare stem. That experiment is written down because the file predicted the
 // opposite, and because it is the reason a geometric test earns its place here.
-const STEM_BODY_SHARE = 0.5;
+const STEM_BODY_SHARE = 0.45;
 
 function stemHeads(ink, w, h, staff, space, gray, background, taken, headWide = 0) {
   // In staff spaces, and never below the absolute floor.
