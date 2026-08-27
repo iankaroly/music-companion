@@ -2105,6 +2105,17 @@ const STEM_CUT = 0.95;
 // tenths of recall on a page: 0.50 spends all of it on the Scanned photograph
 // (92.3% to 92.0%) and 0.45 spends one tenth (92.3% to 92.2%).
 //
+// AND ONE MORE, MEASURED AFTER THE FACT AND WRITTEN DOWN LATE. `npm run
+// scan:floor` asks whether a take is even the piece it is being read against,
+// and the wrong takes that survive its floor go from 42 of 128 to 44 with this
+// on. Two more. It is the mechanism the note above STEM_BODY already names
+// from the other direction — a take marks more of itself once the phantom
+// circles are gone, so its agreement score rises — and the corpus it is
+// measured on is scales and arpeggios in the same key, which that note also
+// explains are blind by construction. It was not measured when this shipped,
+// which is the actual fault here: the first version of this block said every
+// corpus number was better or identical, and this one was neither.
+//
 // THE HOLE IN THE FIRST SWEEP, recorded because it is the reason a worse value
 // shipped first. `score:heads` was run at 0.40 and at 0.50 and not at 0.45, so
 // the table read "0.40 leaves the phantoms, 0.50 clears them" and the twelve

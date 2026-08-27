@@ -383,16 +383,75 @@ function atAConsistentPlace(placements, systems) {
   for (const one of points) {
     if (Math.abs(one.y - (intercept + slope * one.x)) > room) drop.add(one.system);
   }
-  if (!drop.size || drop.size === points.length) return placements;
-  return placements.map((one) => (drop.has(one.system)
-    ? {
-      ...one,
-      at: -1,
-      time: null,
-      sure: false,
-      why: 'it would begin sooner than the music before it could have been played',
+  if (drop.size === points.length) return placements;
+
+  // …AND THE LINE CAN RESCUE AS WELL AS DROP, which it never did.
+  //
+  // A system refused for MARGIN is one that "looks the same as somewhere else
+  // in the take" — the shape matched two places and neither won. That is a
+  // statement about the shape and about nothing else, and the line knows the
+  // one thing the shape cannot: how much music comes before this system. Only
+  // one of those two places has the right amount of playing in front of it.
+  //
+  // MEASURED, `npm run scan:guess` on the Scanned photograph across three
+  // seeds, printing what each refusal threw away — a column added for this,
+  // because nothing could see it before:
+  //
+  //   seed  system  score  margin   its own guess was
+  //     11     4     0.78   0.10     0.41s out      RIGHT, and refusing it cost 5.05s
+  //     11     7     0.78   0.10     0.79s out      RIGHT, and refusing it cost 3.20s
+  //      7     7     0.63   0.07     3.12s out      middling
+  //      7     9     0.77   0.10   113.28s out      WRONG, and refusing it saved the map
+  //     23     1     0.77   0.04    69.48s out      WRONG, and refusing it saved the map
+  //
+  // Read the middle two columns: 0.78/0.10 is right to four tenths of a second
+  // and 0.77/0.10 is wrong by nearly two minutes. NO THRESHOLD ON SCORE OR
+  // MARGIN CAN SEPARATE THOSE — they are the same numbers — which is why
+  // loosening the gate was tried on paper and abandoned here rather than
+  // shipped and reverted later.
+  //
+  // The line separates them without effort. System 9 of seed 7 has 360
+  // noteheads printed before it and guessed note 53; system 1 of seed 23 has 33
+  // before it and guessed note 192. Both are absurd against a line the
+  // confident placements already agree on, and both are absurd by hundreds of
+  // notes rather than by tens. The two right ones sit on it.
+  //
+  // So a refusal whose OWN guess falls within the same `room` the drop test
+  // uses is taken back. It is the same measurement, the same tolerance and the
+  // same line — pointed the other way.
+  const rescued = new Set();
+  if (sure.length >= 3) {
+    for (const one of placements) {
+      if (one.sure || !Number.isFinite(one.bestAt) || one.bestAt < 0) continue;
+      const x = before[one.system] ?? 0;
+      if (Math.abs(one.bestAt - (intercept + slope * x)) <= room) rescued.add(one.system);
     }
-    : one));
+  }
+  if (!drop.size && !rescued.size) return placements;
+  return placements.map((one) => {
+    if (drop.has(one.system)) {
+      return {
+        ...one,
+        at: -1,
+        time: null,
+        sure: false,
+        why: 'it would begin sooner than the music before it could have been played',
+      };
+    }
+    if (rescued.has(one.system)) {
+      return {
+        ...one,
+        at: one.bestAt,
+        time: one.bestTime ?? null,
+        sure: true,
+        why: '',
+        // Which witness put it there, so a report can tell a system the shape
+        // was sure of from one the page's own arithmetic vouched for.
+        rescued: true,
+      };
+    }
+    return one;
+  });
 }
 
 export function placeSystems(systems, played, { ends = true } = {}) {
@@ -461,6 +520,17 @@ export function placeSystems(systems, played, { ends = true } = {}) {
       score: best.score,
       margin,
       sure,
+      // WHAT THE REFUSAL THREW AWAY, kept rather than dropped.
+      //
+      // A system that fails the gate still HAS a best guess, and until now it
+      // died on this line — so nothing downstream could ask the one question
+      // that decides whether the gate is set right: was the guess any good?
+      // `npm run scan:guess` can print "refused, and its guess would have been
+      // out by 0.4s" now, which is the column that says whether a refusal is
+      // protecting the map or costing it. It is also what `atAConsistentPlace`
+      // reads to rescue one — see there.
+      bestAt: best.at,
+      bestTime: played[best.at]?.start ?? null,
       why: sure ? '' : (best.score < 0.62
         ? 'what was played does not follow the shape of this system'
         : 'this system looks the same as somewhere else in the take'),

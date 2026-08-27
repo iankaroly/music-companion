@@ -217,6 +217,13 @@ const report = await page.evaluate(async (data, drop, wrong, seed) => {
         want: seen?.want ?? null, got: seen?.got ?? null, off: seen?.off ?? null,
         placedAt: one.time, index: one.at, trueIndex: trueIndexOfSystem[one.system],
         before: headsBefore[one.system],
+        // WHAT A REFUSAL THREW AWAY. A system that fails the gate still has a
+        // best guess (see bestAt in scan-align.js), and whether that guess was
+        // any good is the only thing that says whether the gate is set right.
+        bestAt: one.bestAt ?? null,
+        bestOff: (one.bestTime === null || one.bestTime === undefined
+          || seen?.want === null || seen?.want === undefined)
+          ? null : Math.abs(one.bestTime - seen.want),
       };
     }),
     answered: answered.length,
@@ -252,7 +259,9 @@ for (const one of report.detail) {
     + `  said ${said}  truly ${one.want === null ? '  —  ' : `${one.want.toFixed(1)}s`}`
     + `  out by ${off}`
     + `   | heads before ${String(one.before).padStart(3)}`
-    + `  index said ${String(one.index).padStart(3)}  truly ${String(one.trueIndex).padStart(3)}`);
+    + `  index said ${String(one.index).padStart(3)}  truly ${String(one.trueIndex).padStart(3)}`
+    + (one.sure ? '' : `  | ITS GUESS was ${one.bestOff === null ? '—' : `${one.bestOff.toFixed(2)}s out`}`
+      + ` (index ${one.bestAt})`));
 }
 console.log('');
 console.log('PRESS A BAR — how far out is the audio?');

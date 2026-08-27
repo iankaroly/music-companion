@@ -28,15 +28,17 @@
 import {
   barsInReadingOrder, barAtPoint, timeOfBar, barAtTime, sayMap,
   systemsOf, guessedAnchors, mergeAnchors, evenAnchors,
+  unplacedSystems, isGuessedAt,
 } from '../analysis/bar-map.js';
 import { placeSystems } from '../analysis/scan-align.js';
 import {
   placeRuns, goesAt, sayRuns, samePassage, compareGoes, sayComparison,
 } from '../analysis/practice-runs.js';
 
-/** The anchors the shape-matcher found, if it found any. */
+/** The anchors the shape-matcher found, and the systems it could not place. */
 function guessFrom(layout, notes) {
-  return guessedAnchors(placeSystems(systemsOf(layout), notes));
+  const placements = placeSystems(systemsOf(layout), notes);
+  return { anchors: guessedAnchors(placements), unplaced: unplacedSystems(placements) };
 }
 
 /**
@@ -67,6 +69,14 @@ export function attachBarSync(container, {
   // system a thirteenth out. Systems it cannot place contribute nothing and the
   // map runs straight across them, which is what it did before any of this.
   let guessed = [];
+  // THE STRETCHES THE MAP IS ONLY RUNNING ACROSS.
+  //
+  // Every large error a bar press makes is in one of these — measured, see
+  // unplacedSystems in bar-map.js — and the app has always known which they
+  // were and thrown the list away at `guessedAnchors`. Kept now, so the bars
+  // inside one can look different from the bars an anchor vouches for, and so
+  // a press in one can say what it is answering from.
+  let unplaced = [];
   // THE GOES THIS TAKE IS MADE OF. A practice recording is not one pass down the
   // page: it is a dozen partial ones, and a bar played six times has six
   // answers. Where there is more than one go, every press is answered from the
@@ -76,9 +86,16 @@ export function attachBarSync(container, {
     if (notes?.length) {
       const systems = systemsOf(layout);
       runs = placeRuns(systems, notes).filter((one) => one.sure);
-      guessed = guessFrom(layout, notes);
+      ({ anchors: guessed, unplaced } = guessFrom(layout, notes));
+      // A GAP IS ONLY A GAP IN A MAP THAT HAS SOMETHING IN IT. Where the
+      // matcher placed nothing at all — a page it could not read, a take too
+      // short to compare — every system is "unplaced" and the map is the even
+      // spread from end to end. The strip already says that in one sentence,
+      // and tinting every bar on the page as a guess adds nothing to it except
+      // noise on the one screen that is supposed to be music.
+      if (!guessed.length) unplaced = [];
     }
-  } catch { guessed = []; runs = []; }
+  } catch { guessed = []; unplaced = []; runs = []; }
   const practising = runs.length > 1;
   // The goes that are the same music, compared with each other — worked out
   // once, because it is the same answer however many times a bar is pressed.
@@ -184,7 +201,7 @@ export function attachBarSync(container, {
   let anchors = anchorsNow();
   // The spread depends on the marks — a start mark moves where it begins — so
   // the two are recomputed together and never one without the other.
-  const remap = () => { even = spreadNow(); anchors = anchorsNow(); };
+  const remap = () => { even = spreadNow(); anchors = anchorsNow(); paintUnsure(); };
   // Marking is the job only when nothing — tapped, guessed, spread, or worked
   // out from the goes — has produced an answer. A page the app has placed for
   // itself opens ready to play from.
@@ -248,7 +265,13 @@ export function attachBarSync(container, {
       onSay?.(words);
       return;
     }
-    line.textContent = `${found}${base}`;
+    // …and how much of the map is running across a system nothing placed. It
+    // is a count, not an instruction: the bars it applies to are already drawn
+    // differently, and this says how many there are to look for.
+    const blind = unplaced.length && anchors.length >= 2
+      ? ` — ${unplaced.length} system${unplaced.length === 1 ? '' : 's'} nothing could place`
+      : '';
+    line.textContent = `${found}${base}${blind}`;
     onSay?.(line.textContent);
   };
 
@@ -347,6 +370,22 @@ export function attachBarSync(container, {
       });
       layer.append(box);
       boxes.set(bar.index, box);
+    }
+  }
+
+  /**
+   * The bars the map is only running ACROSS, drawn so you can see them.
+   *
+   * Not a warning and not a refusal — a press still plays, and it still plays
+   * the map's best answer. What it is is the difference between a control that
+   * is sometimes wrong and a control that is sometimes wrong AND says which
+   * times, which is the whole of why one is usable and the other is not.
+   */
+  function paintUnsure() {
+    for (const bar of bars) {
+      const box = boxes.get(bar.index);
+      if (!box) continue;
+      box.classList.toggle('unsure', isGuessedAt(anchors, unplaced, bar.at));
     }
   }
 
@@ -481,6 +520,12 @@ export function attachBarSync(container, {
     }
     const at = timeOfBar(anchors, bar);
     if (at === null) { marking = true; showMode(); return; }
+    // SAID ON THE PRESS, not only on the page. The bar is already tinted, but
+    // the tint is something you have to have noticed; this is the answer to
+    // "why did that not start where I pointed", at the moment it happens.
+    if (isGuessedAt(anchors, unplaced, bar.at)) {
+      line.textContent = `bar ${bar.index + 1} — nothing was placed near it, so this second is worked out`;
+    } else say();
     play?.(at);
   }
 
@@ -503,6 +548,7 @@ export function attachBarSync(container, {
   // old one, and a handler that only ever adds leaves two bars claiming to be
   // where the take began.
   paintMarks();
+  paintUnsure();
   for (const one of guessed) {
     const bar = bars.find((b) => Math.abs(b.at - one.at) < 1e-4);
     if (bar) boxes.get(bar.index)?.classList.add('found');

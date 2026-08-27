@@ -152,6 +152,53 @@ export function guessedAnchors(placements) {
 }
 
 /**
+ * THE SYSTEMS NOBODY COULD PLACE, as positions in the piece.
+ *
+ * WHY THIS IS WORTH CARRYING, when the map is perfectly able to run straight
+ * across them. Because that is where every large error is, and the app already
+ * knows which ones they are — it just threw the list away.
+ *
+ * MEASURED, `npm run scan:guess` on the Scanned photograph. Between the anchors
+ * a bar press lands a median of 0.78s from the truth, which is about one note
+ * of a forty-note system. The worst answer on the page was 3.91s, and it was on
+ * a system the matcher had explicitly refused; the next worst, 3.40s on another
+ * seed, likewise. The errors are not spread evenly over the page. They are
+ * stacked on the handful of stretches the app declined to place, and it can say
+ * so in advance rather than playing a confident wrong second.
+ *
+ * A press is still answered with sound — that rule does not move. What changes
+ * is that the strip can name the gap, and the bars inside it can look different
+ * from the ones an anchor vouches for.
+ */
+export function unplacedSystems(placements) {
+  return (placements ?? [])
+    .filter((one) => one && one.sure === false && Number.isFinite(one.system))
+    .map((one) => ({ at: one.system, why: one.why || 'this system could not be placed' }));
+}
+
+/**
+ * Is this place in the piece inside a stretch the map is only guessing across?
+ *
+ * True when an unplaced system sits between the anchors either side of it — the
+ * map interpolates over the gap, and nothing measured the middle of it.
+ */
+export function isGuessedAt(anchors, unplaced, at) {
+  if (!Number.isFinite(at) || !unplaced?.length) return false;
+  const marks = tidyAnchors(anchors);
+  if (marks.length < 2) return false;
+  // The anchors either side of this place. Outside them the map extrapolates,
+  // which is a different and already-named problem — see reachTheEnds.
+  let below = null;
+  let above = null;
+  for (const one of marks) {
+    if (one.at <= at + 1e-9) below = one.at;
+    if (one.at >= at - 1e-9 && above === null) above = one.at;
+  }
+  if (below === null || above === null) return false;
+  return unplaced.some((one) => one.at >= below - 1e-9 && one.at <= above + 1e-9);
+}
+
+/**
  * THE WHOLE TAKE, SPREAD EVENLY ACROSS THE PAGE — the map that needs no taps
  * and no reading, and the one a player asked for in so many words:
  *

@@ -157,6 +157,78 @@ const report = await page.evaluate(async () => {
   const blindMark = second.anchors.find((a) => Math.abs(a.at - 4) < 1e-6) ?? null;
   const blindStarted = other.querySelectorAll('.scan-bar.started').length;
 
+  // --- and the stretches the map is only running across ---------------------
+  //
+  // "why would someone want to click on a bar and have the audio playing not be
+  // from that bar" — measured with `npm run scan:guess`: between the anchors a
+  // press lands about one note out, and the worst answers on the page are all
+  // on systems the matcher refused. So the bars in such a stretch are drawn
+  // differently and a press in one says what it is answering from.
+  //
+  // A page with real staff positions on it, so the matcher places some systems
+  // and refuses others — the mixed case, which the fixtures above cannot make
+  // because their heads carry no `step` at all and nothing is ever placed.
+  const MAJOR = [0, 2, 4, 5, 7, 9, 11];
+  const toMidi = (st) => 48 + 12 * Math.floor(st / 7) + MAJOR[((st % 7) + 7) % 7];
+  let walk = 0;
+  let seed = 5;
+  const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff);
+  const mixedStaves = [];
+  const mixedSteps = [];
+  for (let sys = 0; sys < 6; sys += 1) {
+    const heads = [];
+    for (let i = 0; i < 24; i += 1) {
+      walk += Math.round((rnd() - 0.5) * 5);
+      walk = Math.max(-4, Math.min(12, walk));
+      heads.push({ step: walk, x: 0.08 + (i / 24) * 0.84, y: 0.1 + sys * 0.15 });
+      mixedSteps.push(walk);
+    }
+    mixedStaves.push({
+      top: 0.06 + sys * 0.15, bottom: 0.06 + sys * 0.15 + 0.1, space: 0.012,
+      bars: [0.35, 0.65], heads,
+    });
+  }
+  const mixedLayout = [{ staves: mixedStaves }];
+  // …AND THE TAKE SKIPS TWO SYSTEMS, which is what practising looks like: the
+  // page has six, the playing covers 0, 1, 4 and 5, and nothing in the middle
+  // can be found because nothing in the middle was played. That is the mixed
+  // map this is for — anchors either side of a stretch with nothing in it.
+  const mixedTake = mixedSteps
+    .map((st, i) => ({ st, i }))
+    .filter(({ i }) => i < 48 || i >= 96)
+    .map(({ st }, n) => ({ midi: toMidi(st), start: n * 0.5, end: n * 0.5 + 0.4 }));
+
+  const third = document.createElement('div');
+  third.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;overflow:hidden;';
+  const holder3 = document.createElement('div');
+  holder3.className = 'scan-page';
+  holder3.dataset.page = '0';
+  holder3.style.cssText = 'position:relative;width:360px;height:900px;';
+  third.append(holder3);
+  document.body.append(third);
+  const { placeSystems } = await import('/src/analysis/scan-align.js');
+  const { systemsOf } = await import('/src/analysis/bar-map.js');
+  const placements = placeSystems(systemsOf(mixedLayout), mixedTake);
+  attachBarSync(third, {
+    layout: mixedLayout,
+    play: () => true,
+    follow: () => () => {},
+    notes: mixedTake,
+  });
+  const mixedBoxes = [...third.querySelectorAll('.scan-bar')];
+  const unsureBoxes = mixedBoxes.filter((b) => b.classList.contains('unsure'));
+  // A press inside one of them says what it is answering from.
+  unsureBoxes[0]?.click();
+  const saidOnPress = third.querySelector('.bar-sync-say')?.textContent ?? '';
+  const mixed = {
+    placed: placements.filter((one) => one.sure).length,
+    refused: placements.filter((one) => !one.sure).length,
+    bars: mixedBoxes.length,
+    unsure: unsureBoxes.length,
+    saidOnPress,
+    strip: third.querySelector('.bar-sync-say')?.textContent ?? '',
+  };
+
   const shot = host.getBoundingClientRect();
   return {
     built: true,
@@ -171,6 +243,7 @@ const report = await page.evaluate(async () => {
     blindMarkTime: blindMark ? blindMark.time : null,
     blindStarted,
     said,
+    mixed,
     where: { x: shot.x, y: shot.y, width: shot.width, height: shot.height },
   };
 });
@@ -218,6 +291,16 @@ check('a mark made before the take was played back pins the first note, not zero
 check('…and it is taken as a start', report.blindStarted === 1, `${report.blindStarted}`);
 check('the strip says which bar it was run from', /started at bar 9/.test(report.said),
   JSON.stringify(report.said));
+const mixed = report.mixed ?? {};
+console.log('');
+console.log(`a page the matcher places in part: ${mixed.placed} systems placed, ${mixed.refused} refused`);
+check('a map with a gap in it marks the bars it is only running across',
+  mixed.refused > 0 && mixed.unsure > 0 && mixed.unsure < mixed.bars,
+  `${mixed.unsure} of ${mixed.bars} bars marked`);
+check('…and a press in one says what it is answering from',
+  /nothing was placed near it/.test(mixed.saidOnPress ?? ''),
+  JSON.stringify(mixed.saidOnPress));
+
 check('nothing was thrown', errors.length === 0, errors.join(' | '));
 
 console.log(`\npicture: ${path.join(OUT, 'started.png')}`);

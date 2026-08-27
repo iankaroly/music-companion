@@ -1367,6 +1367,13 @@
        choosing one, and a target you cannot see is not one. */
     .scan-bar.marking { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.4); }
     .scan-bar.marked { box-shadow: inset 0 0 0 2px rgb(var(--primary-rgb) / 0.85); }
+    /* A BAR THE MAP IS ONLY RUNNING ACROSS — see unplacedSystems in bar-map.js.
+       Every large error a press makes is in one of these, so they are drawn
+       differently from the bars an anchor vouches for: a faint wash, no
+       outline, nothing that reads as a warning. It is still a control and it
+       still plays; it is just not one the app is standing behind. */
+    .scan-bar.unsure { background: rgb(var(--sh) / 0.07); }
+    .scan-bar.unsure:hover { background: rgb(var(--primary-rgb) / 0.10); }
     /* A place the app found for itself: dashed, because it is the app's claim
        and not something anybody said they heard. A tap over one wins. */
     .scan-bar.found { box-shadow: inset 0 0 0 1.5px rgb(var(--primary-rgb) / 0.45); }
