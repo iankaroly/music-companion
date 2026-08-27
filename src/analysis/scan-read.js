@@ -1856,8 +1856,20 @@ export function headProbe(ink, w, h, space, gray, background, x, y) {
 // 9.6px staff space a head and a line-crossing are four pixels apart and three,
 // and no bound separates them. `scan:import`, which reads the same three pages
 // at the 6px space a phone actually delivers, is byte-identical with this in
-// and out — 51.4%, 544 of 1059. THE TEST CANNOT HURT A PHONE SCAN BECAUSE AT
-// THAT SIZE IT DOES NOT FIRE.
+// and out — 51.4%, 544 of 1059.
+//
+// THIS FLOOR IS NO LONGER THE ONLY ONE, and the sentence that used to end this
+// paragraph — "THE TEST CANNOT HURT A PHONE SCAN BECAUSE AT THAT SIZE IT DOES
+// NOT FIRE" — is no longer true and was only ever half the story. An absolute
+// number in staff spaces cannot be right at both ends of the scale: 0.15 is
+// inert at a 6px space, and at a 12px space a STEM binarises to two pixels,
+// which is 0.17 spaces, which is OVER it. So the test passed a bare stem on a
+// clean page while doing nothing at all on a photograph. See STEM_BODY_SHARE,
+// which puts a second floor on top of this one taken from the width this page's
+// own heads measure; that one DOES fire at a phone scale, and recall survives
+// there because the heads the stem pass rescues on a photograph are heads and
+// heads are wide. This constant stays underneath it as the fallback for a page
+// with too few solid heads to measure.
 //
 // WHERE IT DOES ITS WORK IS CLEAN PAPER, which is what a PDF import produces
 // and what every synthetic corpus here is made of. `scan:bars-believed`, the
@@ -2032,7 +2044,115 @@ const STEM_CUT = 0.95;
 // Above this the run has gone through more than one object and both of its ends
 // may be real noteheads — see the note in stemHeads on `oneStem`.
 
-function stemHeads(ink, w, h, staff, space, gray, background, taken) {
+// HOW MUCH OF A HEAD'S OWN WIDTH A STEM-END PROPOSAL HAS TO SHOW.
+//
+// STEM_BODY is an absolute floor in staff spaces and its own note says what is
+// wrong with it: "0.15 is nearly inert on a photograph: at a 9.6px staff space
+// a head and a line-crossing are four pixels apart and three, and no bound
+// separates them." That is true, and it is also true the other way round — at
+// a 12px space a STEM binarises to two pixels, which is 0.17 spaces, which is
+// over the floor. So the test passes a bare stem on a clean page and fails to
+// fire at all on a photograph: the one absolute number cannot be right at both
+// ends, which is the argument HEAD_WIDE_FLOOR already makes about head widths
+// a few hundred lines below.
+//
+// The page has hundreds of heads on it and `findHeads` has already measured how
+// wide they are, for exactly this reason. A share of that is a floor that means
+// the same thing at every scale: a notehead is a filled ellipse a space and a
+// bit across, a stem is a fifth of a space, and half a head's width is nowhere
+// near either boundary. The absolute floor STAYS underneath it — a page with
+// too few solid heads to measure falls back to it — so this can only ever
+// tighten and never loosen.
+//
+// SWEPT. `scan:bars-believed` (32 engraved studies), `scan:import` (the three
+// photographed pages), `scan:align` (2672 played notes over 128 takes), and the
+// synthetic minims of `score:heads`:
+//
+//   share   circles on   bars      import   align: right head /   Scanned
+//           nothing      believed  recall   wrong / squeaks       step RIGHT
+//    off      67          52/200    53.4%   97.5% / 43 / 38       277  92.3%
+//    0.35     67          52/200    53.4%   97.5% / 43 / 38       —
+//    0.40     19          99/200    53.4%   98.9% / 18 / 12       273  92.2%
+//    0.45     19          99/200    53.4%   98.9% / 18 / 12       273  92.2%
+//    0.50     19          99/200    53.4%   98.9% / 18 / 12       265  92.0%
+//    0.65     18          99/200    53.4%   98.9% / 18 / 12       —
+//    0.80     18          99/200    53.4%   98.9% / 18 / 12       —
+//
+// The whole of the corpus gain arrives between 0.35 and 0.40 and does not move
+// again. 0.80 starts taking real minims off the synthetic pages for nothing.
+//
+// 0.5 AND NOT 0.4 IS A TRADE AND IS NOT COVERED BY THE RULE, so it is written
+// here as what it is rather than argued into being free.
+//
+// 0.4 buys the whole corpus gain and costs less. What it does not do is finish
+// the job this was written for: the crotchet and clutter pages of `score:heads`
+// still come back with 25 circles on nothing at 0.4 and with none at 0.5. Those
+// pages draw a bare stem three spaces long with nothing on the end of it, and
+// they are the only fixture in the repo that isolates this failure mode — every
+// other page has beams, clutter, ledger lines and a photograph's blur mixed
+// into it, so nothing else can say whether the test refuses a bare stem or
+// merely refuses most things. Keeping that fixture honest is what the extra
+// tenth is spent on.
+//
+// WHAT IT SPENDS. `npm run scan:steps` on the Scanned photograph: 446 circles
+// become 424 and the marks that read the right STEP fall from 277 to 265 —
+// 92.3% to 92.0%. Twelve marks, on a page a user actually photographed, and
+// rule 2's whole allowance for one page is three tenths. At 0.4 it is 273 and
+// 92.2%, so eight of those twelve are bought back by the lower value. Bach and
+// Mozart are identical to the mark at both (325 found / 229 right, 341 / 210),
+// `scan:import` recall is byte-identical on all three pages at every value
+// swept, `scan:clef` does not move (18 of 26 changes, debt 129), and `scan:bars`
+// loses one system of 72 that had every bar right and none invented — 66 to 65,
+// mean recall 100% either way.
+//
+// The file's own priority says a missing note breaks an alignment and an extra
+// circle is cosmetic, and by that priority 0.4 is the better number. It is not
+// chosen because the pages those twelve marks are traded for are the only ones
+// that can catch this test failing, and a test nothing checks is a test that
+// rots. `scan:align`, which is the pairing a player actually sees, does not
+// move between the two. If a photographed page ever needs the twelve marks
+// back, 0.4 is one edit away and this table is why.
+//
+// WHAT IT BUYS, and BARS BELIEVED is the row CLAUDE.md calls the number that
+// matters: 52 of 200 becomes 99 of 200, every one of the 99 still exactly one
+// printed bar with none wrong, and the values inside a believed bar go from
+// 187 of 187 to 363 of 363. Twenty of the 32 pages now have values believed at
+// all, against eleven. The phantom circles fall from 67 to 19 while all 692
+// printed heads are still found — the stem pass on these pages proposed 67
+// circles and 0 real notes, so what is being thrown away is its entire output
+// there and none of anybody else's.
+//
+// WHAT IT COSTS, which on the corpus is nothing measurable. `scan:import` is
+// byte-identical at every value swept — 53.4%, 565 of 1059, Mozart 81.1% and
+// Scanned 72.6% — so the 37 notes the stem pass rescues on the photographed
+// page are all still rescued: their bodies are heads and heads are wide.
+// `scan:corpus` holds its 89% photo mean and its 91% few mean, and two of its
+// pages get PRECISION back (few3 37 circles for 36 notes becomes 36, few6faint
+// 74 for 72 becomes 72). `scan:align` improves on every column: 97.5% of played
+// notes on the right head becomes 98.9%, notes on the WRONG head fall from 43
+// to 18, unmarked from 24 to 12, and takes ringing a squeak nobody wrote from
+// 38 of 64 to 12 of 64.
+//
+// The other place it shows is the synthetic minims of `score:heads`, where ten
+// of the fifty are found by the stem pass rather than the shape pass and go with
+// it. Those pages draw a ring with a bare stem and nothing else; on every real
+// page in the corpus the shape pass finds the hollow heads itself.
+//
+// AND THE CLASSIFIER WAS TRIED FIRST, because the note above `stemHeads` says
+// that is where this belongs. The two-judge gate is applied to the shape pass
+// and stops there, so the one pass that produces every phantom is the one pass
+// the better judge never sees — which looked like the whole answer. Asking
+// `headScoreMlp` as a veto on stem-end proposals at the same 0.15 the shape
+// pass uses: the 25 circles on the crotchet page stayed at 25, and ten of the
+// fifty real minims went. It removes what should be kept and keeps what should
+// go, which is what a judge trained mostly on drawn pages does with a patch of
+// bare stem. That experiment is written down because the file predicted the
+// opposite, and because it is the reason a geometric test earns its place here.
+const STEM_BODY_SHARE = 0.5;
+
+function stemHeads(ink, w, h, staff, space, gray, background, taken, headWide = 0) {
+  // In staff spaces, and never below the absolute floor.
+  const bodyFloor = Math.max(STEM_BODY, (headWide / space) * STEM_BODY_SHARE);
   const found = [];
   const stripW = w / staff.lines[0].at.length;
   const tall = Math.round(space * STEM_TALL);
@@ -2156,6 +2276,25 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
       // belongs with the classifier — see the engraved-corpus work, where one
       // hidden layer over twenty thousand patches reads nine points of held-out
       // precision above the logistic fit — and not in a sixth geometric veto.
+      //
+      // THAT CONCLUSION HAS BEEN TESTED AND IS WRONG, and both halves of it
+      // were. The classifier route was tried exactly as this paragraph
+      // prescribes — the MLP asked as a veto on stem-end proposals, at the same
+      // 0.15 the shape pass vetoes on — and it removed NONE of the 25 circles on
+      // a page of bare crotchet stems while taking ten of the fifty real minims
+      // beside them. And geometry did fix it: see STEM_BODY_SHARE, which cut the
+      // engraved corpus's phantoms from 67 to 19 and nearly doubled the bars
+      // that add up, with recall on all three photographed pages byte-identical.
+      //
+      // WHAT SEPARATES IT FROM THE FIVE ABOVE, since it is a sixth veto and they
+      // were all reverted. Every one of those asked about THE STEM — which end
+      // already has a head, how far down it the proposal fell, how long the run
+      // was — and surrendered a real note printed at the far end of a shared
+      // column of ink. STEM_BODY_SHARE asks what `bodyAcross` already asks, and
+      // `bodyAcross` is the one test of this kind that survived: is the
+      // CANDIDATE'S OWN INK as wide as a notehead on this page? Nothing about
+      // the stem enters it, so nothing it refuses can be a head at the far end
+      // of one.
       for (const [at, side] of [[y, 1], [end, -1]]) {
         if (beamAt(at)) continue;
         // This end already has its head. See the note on `owned` above.
@@ -2174,7 +2313,7 @@ function stemHeads(ink, w, h, staff, space, gray, background, taken) {
         // …and it has to be a notehead rather than the place this stem crosses a
         // staff line. See STEM_BODY.
         if (best && best.score >= STEM_CUT
-          && bodyAcross(ink, w, h, staff, stripW, space, best.x, best.y) >= STEM_BODY) {
+          && bodyAcross(ink, w, h, staff, stripW, space, best.x, best.y) >= bodyFloor) {
           found.push(best);
         }
       }
@@ -2522,7 +2661,10 @@ function findHeads(ink, w, h, staff, space, gray, background, judge = true) {
   // judged by the same classifier. Only when the judge is on: with it off this
   // would accept everything a stem points at, and the one caller that turns it
   // off is the trainer, which wants the scan's own candidates and nothing else.
-  if (judge && HEAD_JUDGE) kept.push(...stemHeads(ink, w, h, staff, space, gray, background, kept));
+  if (judge && HEAD_JUDGE) {
+    // `floor` is what this page's own solid heads measure — see HEAD_WIDE above.
+    kept.push(...stemHeads(ink, w, h, staff, space, gray, background, kept, floor));
+  }
 
   // AND THEN CENTRED ON THE INK, because what is kept above is a PIXEL and not
   // a notehead.
