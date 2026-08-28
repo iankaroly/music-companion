@@ -241,12 +241,24 @@ function fullScreenButton() {
 
 export function initScoreFullScreen(handler = null) {
   if (handler) onExpand = handler;
-  const stage = el('score-stage');
-  if (!stage || stage.dataset.wired === 'yes') return;
-  stage.dataset.wired = 'yes';
-  // A tap anywhere on the page opens it. Noteheads stop the event
-  // (score-view.js), so choosing a note still just chooses a note.
-  stage.addEventListener('click', () => onExpand?.());
+  // A TAP ON THE MUSIC DOES NOT OPEN THE STAND ANY MORE.
+  //
+  // There was a listener here for a click anywhere in the stage, and everything
+  // that had something better to do with a tap had to stop the event getting to
+  // it: the noteheads on an engraved score, the bar boxes on a photograph, and
+  // — a fault this cost, found by pressing them — the strip of marking buttons
+  // above the page. Anything added later had to know to do the same, and the
+  // failure when it did not was the part being thrown full screen over the
+  // thing you had just pressed.
+  //
+  // "when I click on the top of the score in the analysis section it opens it
+  // which i dont want". The top of a page is margin: no notehead, no bar, no
+  // control — so it fell through to the stage and opened the stand, which is
+  // the one place the old listener still had any effect and the one place
+  // nobody wants it. The ⤢ beside the summary is how the stand opens, which is
+  // also what the earlier round of this decided: "instead of it opening into a
+  // full-screen score, it should just go to that bar. The ⤢ button is still the
+  // way to the stand."
 }
 
 // noteheadFor: played note → the SVG element drawn for it.

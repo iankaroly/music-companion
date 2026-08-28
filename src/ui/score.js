@@ -152,6 +152,10 @@ export function scoreName() {
 // at startup.
 let keptHere = false;
 
+// The last refusal the Score tab made, for a tool to read. See where it is set.
+let lastRefusal = null;
+export function lastScoreRefusal() { return lastRefusal ? { ...lastRefusal } : null; }
+
 export function reviewIsWaiting() {
   return !!ready && !!current && !keptHere;
 }
@@ -1189,12 +1193,44 @@ async function renderScanTab() {
   }
 
   if (!view || !view.pairing?.marks?.length) {
-    // Two different silences, and they want two different sentences: no
-    // noteheads at all means the pages have not been read, and noteheads but
-    // no marks means the take could not be found among them.
-    const note = view?.pairing && view.pairing.heads > 0
-      ? scanUnplacedNote(view.pairing)
-      : scanUnreadNote(payload);
+    // NOTHING IS SAID WHERE THE PAGE IS ON THE SCREEN.
+    //
+    // A paragraph used to be laid over the music here — "where this take sits
+    // on these pages could not be worked out, what was played does not match
+    // the notes on these pages, so nothing is ringed" — and it has to go for two
+    // reasons, the second of which is the important one.
+    //
+    // It is grey prose over a photograph of music, which is the thing this app
+    // has been asked to stop doing more than once.
+    //
+    // AND IT IS NO LONGER TRUE. It is the NOTE-level pairing refusing: no
+    // rings, because the aligner could not say which notehead each played note
+    // landed on. Where the take sits on the page is a different question and
+    // take-align.js answers it — MEASURED, on the photographed Menuet that
+    // produced this very sentence, 136 of 185 notes matched and the take was
+    // placed at systems 6 to 10, which is where it was played. So the bars
+    // under that paragraph worked while the paragraph said nothing could be
+    // worked out.
+    //
+    // What is left is the case where the page was never read at all, which is
+    // not a refusal but an absence, and it is only ever shown where there is no
+    // music on the screen to cover.
+    const unread = !(view?.pairing && view.pairing.heads > 0);
+    const note = unread ? scanUnreadNote(payload) : null;
+    // WHICH REFUSAL THIS WAS, kept where a tool can read it.
+    //
+    // `renderScoreTab` returns null for both of them, so nothing downstream can
+    // tell "the pages have not been read" from "the take could not be placed on
+    // them" — and the paragraph that used to be laid over the music was the only
+    // thing that could. It is gone; the reason is not. This is not shown
+    // anywhere: the player sees the state (a page with no rings and bars that
+    // still work, or no page at all), and `npm run score:pdf` reads this.
+    lastRefusal = {
+      kind: unread ? 'the pages have not been read' : 'the take could not be placed on them',
+      why: view?.pairing?.why ?? null,
+      heads: view?.pairing?.heads ?? 0,
+      played: view?.pairing?.played ?? 0,
+    };
     // …AND THE MUSIC STAYS ON THE SCREEN UNDER IT, where the view managed to
     // draw any. A refusal is about where the notes were PLAYED; it is not a
     // reason to take away the page somebody just photographed, and replacing
@@ -1202,11 +1238,12 @@ async function renderScanTab() {
     // was drawn the sentence is all there is, and the view is torn down.
     const drawn = page.querySelector('.scan-page canvas');
     if (drawn) {
-      stage.prepend(note);
-    } else {
-      stage.replaceChildren(note);
-      view?.destroy?.();
+      // The page stays, the bars stay, and the missing rings say the rest.
+      view = null;
+      return null;
     }
+    stage.replaceChildren(note ?? scanUnreadNote(payload));
+    view?.destroy?.();
     view = null;
     return null;
   }
@@ -1461,38 +1498,6 @@ async function renderScanTab() {
 // title page, and with a drone and a close-up behind each one that is not a
 // slightly-wrong picture — it is a lot of confident false statements about
 // particular notes.
-function scanUnplacedNote(pairing) {
-  const note = document.createElement('p');
-  note.className = 'score-scan-gap';
-  // …AND THE EVIDENCE FOR THE REFUSAL, WHERE THERE IS ANY.
-  //
-  // "what was played does not match the notes on these pages" is a strong thing
-  // to tell somebody about their own playing, and until this round the app
-  // could not say it at all — the pairing believed a wrong piece and reported
-  // "26 notes played onto 50 noteheads, in the order you played them". Now that
-  // pairNotes has a confidence floor it CAN say it, and a flat assertion with no
-  // number behind it is the same failure in the other direction: unarguable.
-  // So where the refusal came from the floor, the count it was read off is
-  // quoted. MEASURED, npm run scan:floor: two octaves of D major over the Bach
-  // photograph score 14 of 24, and the floor is 0.70 — which is the sentence
-  // below, filled in.
-  //
-  // `exactAgreement` is null (never 0) when too few marks were judgeable, and
-  // that refusal has its own `why` and gets no number, because there was none.
-  const judged = Number.isFinite(pairing?.judged) ? pairing.judged : null;
-  const agreed = Number.isFinite(pairing?.exactAgreement) && judged
-    ? Math.round(pairing.exactAgreement * judged)
-    : null;
-  const evidence = agreed === null
-    ? ''
-    : ` Of the ${judged} notes it could compare against a notehead it had priced,`
-      + ` ${agreed} were the pitch printed there.`;
-  note.textContent = `${pairing.played} notes played, and ${pairing.heads} noteheads`
-    + ` read off the pages — but ${pairing.why}.${evidence}`
-    + ' The marks are held back rather than put somewhere they might not belong.';
-  return note;
-}
-
 // Why there is nothing to press, and what to do about it.
 function scanUnreadNote(payload) {
   const read = (payload?.layout ?? []).filter(Boolean).length;

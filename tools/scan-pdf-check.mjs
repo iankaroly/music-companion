@@ -178,6 +178,9 @@ const review = await page.evaluate(async ({ scoreId, recId }) => {
     // and makes every scanned refusal look like a missing MusicXML.
     gap: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').trim().slice(0, 160),
     stage: (document.querySelector('#score-stage')?.textContent ?? '').trim().slice(0, 160),
+    // The reason, from where score.js keeps it rather than from a paragraph
+    // over the music — see lastScoreRefusal.
+    refusal: (await import('/src/ui/score.js')).lastScoreRefusal(),
   };
 }, built);
 console.log(`      pairing: placed=${review.placed} readPitch=${review.readPitch}`
@@ -202,9 +205,20 @@ check('the PDF page is drawn in the review', review.pagesShown >= 1 && review.ca
 // no readable clef gets no rings, and says why.
 check('and NOT ONE ring on it, because nothing here can be priced', review.rings === 0,
   `${review.rings} rings`);
-check('and the refusal says which of the two things went wrong',
-  /clef|does not follow the shape|could not be found|too few notes/.test(review.gap ?? ''),
-  review.gap ? review.gap.slice(0, 120) : '(no refusal note)');
+// WHICH OF THE TWO WENT WRONG IS ASKED OF THE PAIRING, not of a paragraph.
+//
+// This read the sentence the app laid over the music, and that paragraph is
+// gone — grey prose over a photograph, and about the NOTE-level pairing while
+// claiming to be about where the take sits on the page, which take-align.js
+// answers separately and often answers well. The refusal itself is unchanged
+// and still carries its reason; it is read from `pairing.why` now, which is
+// where it was always computed and is not a thing a player has to read.
+check('and the refusal still names which of the two things went wrong',
+  /could not be placed|have not been read/.test(review.refusal?.kind ?? ''),
+  `${review.refusal?.kind ?? '(no reason kept)'}`
+  + `${review.refusal?.why ? ` — ${review.refusal.why}` : ''}`);
+check('…and nothing is laid over the music to say it', (review.gap ?? '') === '',
+  review.gap ? review.gap.slice(0, 120) : 'nothing over the page');
 
 if (errors.length) {
   console.log('\nerrors on the page:');

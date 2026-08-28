@@ -877,15 +877,24 @@ const wrong = await page.evaluate(async () => {
     // review's own "add its MusicXML" note first, and the check then passed or
     // failed on a sentence from the other half of the page.
     gap: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    refusal: (await import('/src/ui/score.js')).lastScoreRefusal(),
   };
 });
 check('a take of a different piece is REFUSED rather than drawn',
   wrong.marks === 0 && wrong.rings === 0 && wrong.quiet === 0,
   `placed=${wrong.placed}, ${wrong.marks} marks, ${wrong.rings} rings, ${wrong.quiet} silent`);
-check('and the page says so, with the count the refusal was read off',
-  /does not match the notes on these pages/.test(wrong.gap)
-    && /were the pitch printed there/.test(wrong.gap),
-  wrong.gap.slice(0, 190));
+// THE REFUSAL IS SHOWN, NOT SAID. A paragraph used to be laid over the music
+// here — "what was played does not match the notes on these pages, so nothing
+// is ringed" — and it is gone: grey prose on the one screen that is supposed to
+// be music, and about the NOTE-level pairing while claiming to be about where
+// the take sits on the page, which take-align.js answers separately and often
+// answers well. The reason is kept where a tool can read it rather than where a
+// player has to (score.js:lastScoreRefusal); what the page shows is the state.
+check('and the page says nothing over the music about it',
+  wrong.gap === '', wrong.gap.slice(0, 190) || 'nothing written over the page');
+check('…while the reason is still kept, for anything that needs it',
+  /could not be placed|have not been read/.test(wrong.refusal?.kind ?? ''),
+  `${wrong.refusal?.kind ?? '(none)'}${wrong.refusal?.why ? ` — ${wrong.refusal.why}` : ''}`);
 
 // A page with no clef on it: nothing can be priced, the contour route refuses,
 // and the review has to SAY so rather than draw anything.
@@ -928,11 +937,14 @@ const unread = await page.evaluate(async () => {
     // carries a `.score-scan-gap` of its own ("Read from the sound: …") and
     // asking for that one made this check pass on the wrong sentence.
     said: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').trim().slice(0, 220),
+    refusal: (await import('/src/ui/score.js')).lastScoreRefusal(),
   };
 });
-check('a page whose clef could not be read marks NOTHING and says why',
-  unread.rings === 0 && unread.quiet === 0 && /held back|have not been read|no noteheads/.test(unread.said),
-  `${unread.rings} rings, ${unread.quiet} silent — "${unread.said.slice(0, 150)}"`);
+check('a page whose clef could not be read marks NOTHING, and the reason is kept',
+  unread.rings === 0 && unread.quiet === 0
+    && /could not be placed|have not been read/.test(unread.refusal?.kind ?? ''),
+  `${unread.rings} rings, ${unread.quiet} silent — ${unread.refusal?.kind ?? '(no reason)'}`
+  + `${unread.refusal?.why ? ` — ${unread.refusal.why}` : ''}`);
 
 // --- and with no take open at all --------------------------------------------
 //

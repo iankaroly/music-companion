@@ -290,9 +290,57 @@ const picked = await page.evaluate(async () => {
     const after = state();
     pressed.push(`${button.textContent}: reader=${after.readerOpen} full=${after.fullScreen}`);
   }
+  // …AND THE TOP OF THE PAGE, WHICH IS MARGIN AND NOT MUSIC.
+  //
+  // "when I click on the top of the score in the analysis section it opens it
+  // which i dont want." A page's top margin has no notehead, no bar and no
+  // control on it, so a press there used to fall through to the stage — which
+  // had a listener for a click anywhere in it — and threw the part full screen.
+  // Everything with something better to do with a tap had to stop the event
+  // reaching that listener, and margin has nothing better to do.
+  const sheet = document.querySelector('#score-stage .scan-page');
+  const box = sheet?.getBoundingClientRect();
+  let marginHit = 'no page';
+  if (box) {
+    sheet.scrollIntoView({ block: 'start' });
+    await new Promise((r) => requestAnimationFrame(() => r()));
+    const now = sheet.getBoundingClientRect();
+    const x = Math.round(now.left + now.width / 2);
+    // A row of the paper that NO bar box covers — the top of a page is only
+    // margin where the first stave does not reach it, and on some pages it
+    // does. Walking down finds the first row that is genuinely between things,
+    // which is what a finger lands on when it misses.
+    const boxes = [...document.querySelectorAll('#score-stage .scan-bar')]
+      .map((b) => b.getBoundingClientRect());
+    let y = null;
+    for (let dy = 2; dy < Math.min(now.height, 400); dy += 3) {
+      const at = now.top + dy;
+      if (at < 4 || at > window.innerHeight - 4) continue;
+      if (boxes.some((b) => at >= b.top && at <= b.bottom)) continue;
+      y = Math.round(at);
+      break;
+    }
+    if (y === null) {
+      marginHit = 'no bare row on this page';
+    } else {
+      const on = document.elementFromPoint(x, y);
+      marginHit = on ? `${on.tagName}.${(on.className || '-').toString().split(' ')[0]}` : 'nothing';
+      on?.click();
+      await new Promise((r) => setTimeout(r, 500));
+    }
+  }
+  // …AND THE STAGE ITSELF, which is where the listener was. A page whose staves
+  // tile it has no bare row to press, so this is the part that cannot pass
+  // vacuously: the element that used to open the stand on any click, clicked.
+  document.querySelector('#score-stage')?.click();
+  await new Promise((r) => setTimeout(r, 500));
+  const readerAfterMargin = state();
+
   return {
     bars: bars.length,
     ringIsAControl,
+    marginHit,
+    readerAfterMargin,
     zoomOpen: !!zoom && zoom.hidden === false,
     zoomLabel: document.querySelector('#zoom-label')?.textContent ?? '',
     readerOpen: !!reader && !reader.hidden,
@@ -311,6 +359,11 @@ check('pressing a bar opens the close-up under the graph',
 check('and does NOT throw the full-screen score over the top of it',
   picked.readerOpen === false && picked.fullScreen === false,
   `reader=${picked.readerOpen} full-screen=${picked.fullScreen}`);
+check('pressing the top of the page does NOT throw it full screen',
+  picked.readerAfterMargin?.readerOpen === false
+    && picked.readerAfterMargin?.fullScreen === false,
+  `landed on ${picked.marginHit}; reader=${picked.readerAfterMargin?.readerOpen}`
+  + ` full=${picked.readerAfterMargin?.fullScreen}`);
 check('nor does pressing the marking buttons above the page',
   picked.pressed.length > 0 && picked.pressed.every((line) => /reader=false full=false$/.test(line)),
   picked.pressed.join(' | ') || 'no buttons found');
@@ -446,15 +499,30 @@ const spread = await page.evaluate(async ({ scoreId }) => {
     // a reason to take away the music somebody just photographed.
     stillDrawn: !!document.querySelector('#score-stage .scan-page canvas'),
     said: (document.querySelector('#score-stage .score-scan-gap')?.textContent ?? '').trim(),
+    // …and the bars are still there to press, which is the half of the review
+    // that does not go through a single notehead.
+    bars: document.querySelectorAll('#score-stage .scan-bar').length,
   };
 }, built);
 
 check('a take far longer than the part is refused, not half-marked',
   spread.rings === 0, `${spread.rings} rings for 200 notes over ${spread.heads} noteheads`);
-check('and the refusal is SAID, over the page it still shows',
-  /200/.test(spread.said) && new RegExp(`\\b${spread.heads}\\b`).test(spread.said)
-    && spread.stillDrawn === true,
-  spread.said.slice(0, 150) || 'nothing was said');
+// THE REFUSAL IS SHOWN AND NOT SAID, which is the other way round from how this
+// read before. A paragraph used to be laid over the music — "what was played
+// does not match the notes on these pages, so nothing is ringed" — and it was
+// removed for two reasons. It is grey prose over a photograph of music. And it
+// is about the NOTE-level pairing while claiming to be about the take's place
+// on the page, which take-align.js answers separately and often answers well:
+// on the photographed Menuet that produced that very sentence, 136 of 185 notes
+// matched and the take was placed at the systems it was played from.
+//
+// So what is asserted is the state a player can see: the page is still there,
+// nothing is ringed, and the bars are still pressable.
+check('the refusal leaves the page up, unringed, with its bars still pressable',
+  spread.stillDrawn === true && spread.rings === 0 && spread.bars > 0,
+  `page drawn=${spread.stillDrawn}, ${spread.rings} rings, ${spread.bars} bars`);
+check('…and says nothing over the music about it',
+  spread.said === '', spread.said.slice(0, 120) || 'nothing said');
 
 // --- the reported bug: a cover page, and the music on page two --------------
 //
