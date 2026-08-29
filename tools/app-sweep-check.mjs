@@ -615,12 +615,19 @@ for (const state of STATES) {
 console.log(`\nwalked ${walked.length} steps across ${ONLY ? 1 : STATES.length} remembered states`);
 console.log('what the walk actually did:');
 for (const [what, n] of Object.entries(did)) console.log(`   ${String(n).padStart(5)}  ${what}`);
+// Syncing the audio to the bars is on hold for this release — BAR_SYNC in
+// ui/score.js — so the review draws no bar boxes and the step that counts them
+// legitimately counts none. Read off the source rather than hard-coded, so this
+// expectation comes back on its own the day the switch moves.
+const BARS_ON = !/const BAR_SYNC = false/.test(
+  await readFile(new URL('../src/ui/score.js', import.meta.url), 'utf8'));
+
 // A step that stops working has to fail rather than go quiet.
 const WANT = {
   'tabs opened': 10, 'settings sheets opened': 2, 'pieces on the shelf': 2,
   'folders made': 2, 'takes in the library': 2, 'takes opened': 2,
   'pages turned': 8, 'strokes drawn': 2, 'options rows built': 8,
-  'bars drawn over the pages': 4, 'rings marked on the notes': 4,
+  'bars drawn over the pages': BARS_ON ? 4 : 0, 'rings marked on the notes': 4,
   'folders opened and left': 2, '⋯ menus opened': 2, 'notes in the take': 40,
   'the shutter is off until the camera is': 1,
   'and a press in that window puts nothing up': 1,

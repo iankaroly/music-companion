@@ -1268,14 +1268,30 @@ async function renderScanTab() {
     // reason to take away the page somebody just photographed, and replacing
     // the whole stage with one sentence is what it used to do. Where nothing
     // was drawn the sentence is all there is, and the view is torn down.
+    // AN ABSENCE IS NOT A REFUSAL, and only one of them is silent.
+    //
+    // "the take could not be placed on these pages" is a refusal: the page is
+    // there, the bars are there, and the missing rings say the rest without a
+    // paragraph over the music.
+    //
+    // "the pages have not been read yet" is not. The reading happens in the
+    // background while a score is open and idle, so it FIXES ITSELF — and
+    // somebody who is not told sits looking at a photograph with nothing on it,
+    // waiting for something that only arrives if they leave it alone. That
+    // sentence has to be said, and it has to be said over the picture, because
+    // a freshly scanned page is exactly the case where the picture is there and
+    // the reading is not. Missing that is what `score:fresh` caught.
     const drawn = page.querySelector('.scan-page canvas');
-    if (drawn) {
-      // The page stays, the bars stay, and the missing rings say the rest.
+    if (drawn && !unread) {
       view = null;
       return null;
     }
-    stage.replaceChildren(note ?? scanUnreadNote(payload));
-    view?.destroy?.();
+    const say = note ?? scanUnreadNote(payload);
+    if (drawn) stage.prepend(say);
+    else {
+      stage.replaceChildren(say);
+      view?.destroy?.();
+    }
     view = null;
     return null;
   }
