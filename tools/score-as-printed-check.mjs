@@ -24,7 +24,13 @@ const arg = (name, fallback) => {
   return at === -1 ? fallback : process.argv[at + 1];
 };
 const APP = arg('app', 'http://localhost:5199');
-const XML = arg('xml', `${process.env.HOME}/.claude/jobs/6a5cd90a/tmp/out-cp1.pdf.musicxml`);
+// KEPT IN THE REPO, not in a scratch directory. This default pointed at
+// `~/.claude/jobs/6a5cd90a/tmp/…` — a working directory from the afternoon it
+// was written — and it has been passing on borrowed time ever since: the sister
+// tool `score:coverage` pointed at a file in the SAME directory that has since
+// been deleted, and died on a raw ENOENT stack. The file is small and it is the
+// thing being measured against, so it lives beside the check now.
+const XML = arg('xml', new URL('../test/fixtures/printed-part.musicxml', import.meta.url).pathname);
 const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';

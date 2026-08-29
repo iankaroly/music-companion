@@ -21,14 +21,39 @@ const arg = (name, fallback) => {
   return at === -1 ? fallback : process.argv[at + 1];
 };
 const APP = arg('app', 'http://localhost:5199');
-const IMAGE = arg('image', `${process.env.HOME}/.claude/jobs/6a5cd90a/tmp/shot-1.jpg`);
-const XML = arg('xml', `${process.env.HOME}/.claude/jobs/6a5cd90a/tmp/fin-p3200.jpg.musicxml`);
+// NO DEFAULTS. These pointed at a scratch directory inside a Claude job from the
+// afternoon this was written — `~/.claude/jobs/6a5cd90a/tmp/…` — so running
+// `npm run score:coverage` with no arguments read a path that stopped existing
+// the moment that job ended and died on a raw ENOENT stack. A tool that needs
+// two files should say which two, the way every other tool here that needs one
+// does (`scan:guess`, `scan:real`, `scan:res`, `scan:ledger`).
+const IMAGE = arg('image', null);
+const XML = arg('xml', null);
+if (!IMAGE || !XML) {
+  console.error('usage: npm run score:coverage -- --image <page.jpg> --xml <read.musicxml>');
+  console.error('  the photograph of a page, and the MusicXML something read off it —');
+  console.error('  this counts the noteheads in one against the notes in the other.');
+  process.exit(2);
+}
 const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 
-const image = readFileSync(IMAGE).toString('base64');
-const xml = readFileSync(XML, 'utf8');
+// …AND SAID PLAINLY WHEN ONE OF THEM IS NOT THERE. `readFileSync` throws a
+// stack that names `node:fs` before it names the file, which is the least
+// useful place for a person to start reading.
+const read = (what, where) => {
+  try {
+    return readFileSync(where);
+  } catch (err) {
+    console.error(`could not read the ${what}: ${where}`);
+    console.error(`  ${err.code === 'ENOENT' ? 'there is no such file' : err.message}`);
+    process.exit(1);
+  }
+  return null;
+};
+const image = read('page image', IMAGE).toString('base64');
+const xml = read('MusicXML', XML).toString('utf8');
 
 const browser = await puppeteer.launch({ executablePath: SHELL, headless: true, args: ['--no-sandbox'] });
 const page = await browser.newPage();
