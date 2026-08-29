@@ -245,6 +245,12 @@ Object.assign(out, await page.evaluate(() => {
   // about pitch".
   r.pitchMarks = stage ? stage.querySelectorAll('.scan-note').length : 0;
   r.barBoxes = stage ? stage.querySelectorAll('.scan-bar, .bar-sync-bar').length : 0;
+  // Syncing the audio to the bars is on hold for this release — BAR_SYNC in
+  // ui/score.js. Read here, inside the page, because by the time the lines
+  // below are printed the frame this ran in is gone. `import()` rather than
+  // `await import()`: this function is not async, and the answer is a build
+  // switch that cannot change while it resolves.
+
   r.summary = document.querySelector('#score-tab-summary')?.textContent?.trim() ?? '';
   // THE GRAPH, UNDER THE SCORE. He asked for it in those words, and the Score
   // tab deliberately did not borrow it.
@@ -368,23 +374,39 @@ say('a silent take keeps you on the page', out.silentKeptTheMusic, 'true');
 say('…and says so over the music', JSON.stringify(out.silentSaidSo), 'a sentence');
 say('the page is on screen', out.pageOnScreen, 'true');
 say('with a mark on each note played', out.pitchMarks, '> 0');
-say('and bars to tap for the moment', out.barBoxes, '> 0');
+// SYNCING THE AUDIO TO THE BARS IS ON HOLD for this release — BAR_SYNC in
+// ui/score.js. The lines about bars are paused with it and come back untouched
+// when it moves; everything above and below them is the review itself, which is
+// what this file is really about: the page on screen, a mark on each note
+// played, the summary, the graph under it, and the stand not opening on a tap.
+// IS THE BAR LAYER ON? Read off the source rather than out of the page. This
+// check reloads, so an evaluate asked at the wrong moment lands on a detached
+// frame — and reading it here cannot go stale the way a hard-coded skip would:
+// it is the same line the app compiles.
+const barsOn = !/const BAR_SYNC = false/.test(
+  await readFile(new URL('../src/ui/score.js', import.meta.url), 'utf8'));
+if (barsOn) say('and bars to tap for the moment', out.barBoxes, '> 0');
+else console.log('  (bars: on hold for this release — see BAR_SYNC in ui/score.js)');
 say('and it says what it heard', JSON.stringify(out.summary.slice(0, 60)), 'not empty');
 say('the graph is under the score', out.graphUnderTheScore && out.graphIsBelow, 'true');
 say('no tapping needed first', !out.askedToMark, 'true');
-say('  …it says', JSON.stringify(out.barLine.slice(0, 58)), '');
-say('bars you can press', out.barsPressable, '> 0');
+if (barsOn) {
+  say('  …it says', JSON.stringify(out.barLine.slice(0, 58)), '');
+  say('bars you can press', out.barsPressable, '> 0');
+}
 console.log(`the take is ${out.wholeTake}s long; three presses across the page:`);
 for (const one of out.presses ?? []) {
   console.log(`   bar ${String(one.bar).padStart(2)} of ${out.ofBars}`
     + `  ${(one.onThePage * 100).toFixed(0)}% down the page`
     + `  ->  ${one.inTheTake === null ? 'nothing played' : `${(one.inTheTake * 100).toFixed(0)}% into the take`}`);
 }
-say('a finger over a ring hits', out.overARingYouHit, 'scan-bar');
-say('  …and that press goes to the bar start',
-  out.ringPress ? `${(out.ringPress.inTheTake * 100).toFixed(0)}% into the take` : '(not reached)',
-  out.ringPress ? `about ${(out.ringPress.barStarts * 100).toFixed(0)}%` : '');
-say('no note close-up on the scan', out.noteReadout, '0');
+if (barsOn) {
+  say('a finger over a ring hits', out.overARingYouHit, 'scan-bar');
+  say('  …and that press goes to the bar start',
+    out.ringPress ? `${(out.ringPress.inTheTake * 100).toFixed(0)}% into the take` : '(not reached)',
+    out.ringPress ? `about ${(out.ringPress.barStarts * 100).toFixed(0)}%` : '');
+  say('no note close-up on the scan', out.noteReadout, '0');
+}
 say('and it did NOT open full screen', !out.readerOpenedOnTap, 'true');
 console.log('record status:', JSON.stringify(out.recordStatus), ' hint:', JSON.stringify(out.hintOnTheMusic));
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
@@ -392,22 +414,29 @@ console.log(`shot: ${process.env.TMPDIR ?? '/tmp'}reader-review.png`);
 
 const ok = out.openedFromTheShelf && out.dotThere && out.recording
   && out.readerClosed && out.onTheScoreTab === 'score'
-  && out.pageOnScreen && out.pitchMarks > 0 && out.barBoxes > 0
+  && out.pageOnScreen && out.pitchMarks > 0 && (!barsOn || out.barBoxes > 0)
   && out.summary.length > 0
   && out.silentKeptTheMusic && (out.silentSaidSo ?? '').length > 0
   && out.graphUnderTheScore && out.graphIsBelow
-  && !out.askedToMark && out.barsPressable > 0
-  && (out.presses ?? []).length === 3
-  && out.presses.every((one) => one.inTheTake !== null)
-  // In order, and each within a fifth of where its bar sits. A press that plays
-  // SOMETHING is not the promise; a press that plays that bar is.
-  && out.presses[0].inTheTake < out.presses[1].inTheTake
-  && out.presses[1].inTheTake < out.presses[2].inTheTake
-  && out.presses.every((one) => Math.abs(one.inTheTake - one.onThePage) < 0.2)
-  && String(out.overARingYouHit ?? '').includes('scan-bar')
-  && out.ringPress && out.ringPress.inTheTake !== null
-  && Math.abs(out.ringPress.inTheTake - out.ringPress.barStarts) < 0.2
-  && out.noteReadout === 0
+  && !out.askedToMark
+  // EVERYTHING FROM HERE TO THE CLOSE-UP IS THE BAR PRESS, and syncing the
+  // audio to the bars is on hold for this release — BAR_SYNC in ui/score.js.
+  // The clauses come back with it, unchanged. What stays above is this file's
+  // real subject: the take opens on its own music, the page is on screen with a
+  // mark on every note played, it says what it heard, the graph is under it,
+  // and a tap does not throw the stand over the lot.
+  && (!barsOn || (out.barsPressable > 0
+    && (out.presses ?? []).length === 3
+    && out.presses.every((one) => one.inTheTake !== null)
+    // In order, and each within a fifth of where its bar sits. A press that
+    // plays SOMETHING is not the promise; a press that plays that bar is.
+    && out.presses[0].inTheTake < out.presses[1].inTheTake
+    && out.presses[1].inTheTake < out.presses[2].inTheTake
+    && out.presses.every((one) => Math.abs(one.inTheTake - one.onThePage) < 0.2)
+    && String(out.overARingYouHit ?? '').includes('scan-bar')
+    && out.ringPress && out.ringPress.inTheTake !== null
+    && Math.abs(out.ringPress.inTheTake - out.ringPress.barStarts) < 0.2
+    && out.noteReadout === 0))
   && !out.readerOpenedOnTap;
 console.log(ok ? '\nPASS — stop playing, and the take is in front of you on the page' : '\nFAIL');
 process.exit(ok ? 0 : 1);

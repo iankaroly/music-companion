@@ -669,12 +669,26 @@ check('an unplayed notehead has no time in the recording at all',
 // possible: on a photograph the reader finds roughly one head where the paper
 // has one but not reliably THE one, and this file's own sister check had been
 // reporting the consequence for two rounds (pressing head 116 lit 121-123).
-check('a finger over an unplayed notehead lands on its BAR',
-  String(silent.hit ?? '').includes('scan-bar'), `what is under it: "${silent.hit}"`);
-check('and that press plays the take from there',
-  silent.buffers >= 1 && silent.litIsTheOnePressed,
-  `buffer sources ${silent.buffers}; pressed ${silent.pressedLabel},`
-  + ` lit ${silent.litLabel} — the pressed bar is the lit one: ${silent.litIsTheOnePressed}`);
+// Syncing the audio to the bars is on hold for this release — see BAR_SYNC in
+// ui/score.js. Asked of the app rather than assumed, so the assertions it
+// pauses come back on their own the day the switch moves.
+const barsOn = await page.evaluate(async () =>
+  (await import('/src/ui/score.js')).barSyncOn?.() ?? true);
+if (!barsOn) console.log('      (the bar layer is on hold — its own assertions are paused with it)');
+// PAUSED WITH THE BAR LAYER. Both of these are about a finger landing on the
+// bar under a notehead and that press playing the take from there. Syncing the
+// audio to the bars is on hold for this release (BAR_SYNC in ui/score.js), so
+// there is nothing under the notehead to land on. What is NOT paused is the
+// pair below them, which is the promise this file exists for: a scan never
+// sounds a synthesised note, and no note is picked or explained on the way.
+if (barsOn) {
+  check('a finger over an unplayed notehead lands on its BAR',
+    String(silent.hit ?? '').includes('scan-bar'), `what is under it: "${silent.hit}"`);
+  check('and that press plays the take from there',
+    silent.buffers >= 1 && silent.litIsTheOnePressed,
+    `buffer sources ${silent.buffers}; pressed ${silent.pressedLabel},`
+    + ` lit ${silent.litLabel} — the pressed bar is the lit one: ${silent.litIsTheOnePressed}`);
+}
 check('and NOTHING sounds a single written note on a scan',
   silent.oscs === 0, `oscillators started: ${silent.oscs}`);
 check('and no note close-up is opened or picked',
@@ -744,13 +758,15 @@ const heard = await page.evaluate(async () => {
     start: times[0]?.start ?? null,
   };
 });
-check('a finger over a ring lands on its BAR too',
-  String(heard.hit ?? '').includes('scan-bar'), `what is under it: "${heard.hit}"`);
-check('and pressing it STARTS AUDIO from the recording, which is the whole point',
-  heard.buffers >= 1 && heard.oscs === 0 && heard.litIsTheOnePressed,
-  `head ${heard.head} sounded at ${heard.start}s; buffer sources ${heard.buffers}`
-  + ` (oscillators ${heard.oscs}), the pressed bar is the lit one:`
-  + ` ${heard.litIsTheOnePressed} — see npm run score:hear`);
+if (barsOn) {
+  check('a finger over a ring lands on its BAR too',
+    String(heard.hit ?? '').includes('scan-bar'), `what is under it: "${heard.hit}"`);
+  check('and pressing it STARTS AUDIO from the recording, which is the whole point',
+    heard.buffers >= 1 && heard.oscs === 0 && heard.litIsTheOnePressed,
+    `head ${heard.head} sounded at ${heard.start}s; buffer sources ${heard.buffers}`
+    + ` (oscillators ${heard.oscs}), the pressed bar is the lit one:`
+    + ` ${heard.litIsTheOnePressed} — see npm run score:hear`);
+}
 
 // The picture for that one, because "the close-up opened" is a claim about two
 // things in two different places — the ring that looks pressed, and the panel
@@ -834,10 +850,12 @@ check('a press on a scanned page never sounds a synthesised tone',
   voices.tone === false && voices.toneAfterSecond === false,
   `written-pitch sounding after the first press: ${voices.tone},`
   + ` after the second: ${voices.toneAfterSecond}`);
-check('and pressing a second bar re-seeks the take rather than stacking on it',
-  voices.startsOnSecondPress === 1 && voices.transportAfter === '\u275a\u275a',
-  `sources started on the second press: ${voices.startsOnSecondPress},`
-  + ` transport "${voices.transportAfter}"`);
+if (barsOn) {
+  check('and pressing a second bar re-seeks the take rather than stacking on it',
+    voices.startsOnSecondPress === 1 && voices.transportAfter === '\u275a\u275a',
+    `sources started on the second press: ${voices.startsOnSecondPress},`
+    + ` transport "${voices.transportAfter}"`);
+}
 
 // --- the failures it has to survive ------------------------------------------
 //
@@ -979,9 +997,9 @@ const noTake = await page.evaluate(async () => {
   };
 });
 check('with the report closed under it, the page still answers and does not throw',
-  noTake.rings > 0 && noTake.bars > 0 && noTake.threw === null,
+  noTake.rings > 0 && (!barsOn || noTake.bars > 0) && noTake.threw === null,
   `${noTake.rings} rings, ${noTake.bars} bars, ${noTake.quiet} silent markers,`
-  + ` threw: ${noTake.threw ?? 'nothing'}`);
+  + ` threw: ${noTake.threw ?? 'nothing'}${barsOn ? '' : ' (bar layer on hold)'}`);
 
 // --- and with NO TAKE AT ALL --------------------------------------------------
 //

@@ -114,6 +114,7 @@ if (made.error) {
 }
 await page.reload({ waitUntil: 'domcontentloaded' });
 await new Promise((r) => setTimeout(r, 1600));
+await page.evaluate((id) => { window.__fixtureScoreId = id; }, made.id);
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -193,7 +194,13 @@ const fromTheTab = await page.evaluate(async ({ notes }) => {
   await hold(800);
   const start = document.querySelector('#start');
   if (!start) return { failed: 'no Record button' };
-  const open = (await import('/src/ui/score.js')).currentScoreId();
+  // THE PIECE, OPENED ON PURPOSE. This read whatever happened to be left over
+  // from the lap above, and what the hazard needs is a piece that IS open when
+  // a take is recorded from the Record tab — leaving that to leftover state
+  // makes the test say nothing on the day the leftover changes.
+  const { selectScore, currentScoreId } = await import('/src/ui/score.js');
+  await selectScore(window.__fixtureScoreId ?? null);
+  const open = currentScoreId();
   start.click();
   for (let i = 0; i < 200 && start.textContent === 'Record'; i += 1) await hold(100);
   if (start.textContent === 'Record') return { failed: 'the take never started' };
@@ -242,6 +249,7 @@ const reopened = await page.evaluate(async ({ piece }) => {
     tab: active,
     pages: document.querySelectorAll('#score-stage .scan-page, #score-stage svg').length,
     stageHasMusic: !!stage && stage.children.length > 0,
+    reviewShowing: document.querySelector('#playback')?.hidden === false,
     // ON THE SCREEN, not in the document. The button still exists — it is the
     // Record tab's way through for somebody who is standing there — and what
     // was asked for is not to be SENT to the score but taken to it. So what is
@@ -257,14 +265,20 @@ const reopened = await page.evaluate(async ({ piece }) => {
 if (reopened.failed) {
   check('the take opens again from the library', false, `${reopened.failed}: ${reopened.why ?? ''}`);
 } else {
-  check('opening it again lands on the Score tab, not the Record tab',
-    reopened.tab === 'tab-score', `landed on ${reopened.tab}`);
-  check('…with the music on the screen',
-    reopened.stageHasMusic && reopened.pages > 0,
-    `${reopened.pages} page(s) in the stage`);
-  check('…and nothing on the screen telling you to go and look at it',
-    reopened.seeItOnTheScore === false,
-    reopened.seeItOnTheScore ? '“See it on the score →” is still being offered' : 'no such button');
+  // A TAKE OPENS WHERE ITS REVIEW IS, AND THAT IS THE RECORD TAB AGAIN.
+  //
+  // It used to land on the Score tab, from the round that made a take open on
+  // its own music. Syncing the audio to the bars is on hold for this release
+  // (BAR_SYNC in ui/score.js), that page has nothing to press, and a take
+  // belongs to the library side: "when you record on a score and open it, it
+  // opens in the library tab instead of the score tab". The Record tab rather
+  // than the Library tab because the Library is a list and `renderFreeReview`
+  // draws into `#report`, which is not in it.
+  check('opening it again lands on the Record tab, where the review is',
+    reopened.tab === 'tab-analyze', `landed on ${reopened.tab}`);
+  check('…with the review up under it',
+    reopened.reviewShowing === true,
+    `#playback showing=${reopened.reviewShowing}`);
 }
 
 // --- (4) …and the analysis on the score is the whole analysis --------------
@@ -308,8 +322,16 @@ check('the held-for picker, the passages and the landing are all on this screen'
   analysis.pickerOnScreen && analysis.passagesOnScreen && analysis.landingOnScreen,
   `picker=${analysis.pickerOnScreen} passages=${analysis.passagesOnScreen}`
   + ` landing=${analysis.landingOnScreen}`);
-check('…because the score borrows them, rather than the Record tab keeping them',
-  analysis.inTheDock.length === 3, analysis.inTheDock.join(', ') || 'none of them');
+// WHICH TAB HOLDS THEM depends on which one you are standing on, and a take now
+// opens on the Record tab — where these three live in the first place. The
+// borrow is the SCORE tab's, and `score:review` is where it is held down: it
+// checks the dock takes all seven panels and hands them back in their own
+// order. What matters here is that the picker, the passages and the landing are
+// on the screen with the take, which the assertion above measures.
+check('…and they are the Record tab’s own, not a copy',
+  analysis.inTheDock.length === 0 || analysis.inTheDock.length === 3,
+  analysis.inTheDock.length ? `in the score dock: ${analysis.inTheDock.join(', ')}`
+    : 'on the Record tab, where they live');
 check('choosing a duration here puts up the notes that qualified',
   analysis.after > 0 && analysis.listOnScreen,
   `${analysis.before} buttons before, ${analysis.after} after — “${analysis.said}”`);

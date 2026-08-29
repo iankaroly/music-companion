@@ -103,6 +103,28 @@ await page.evaluate(() => {
   document.querySelector('#welcome-card')?.remove();
 });
 
+// PAUSED WITH THE FEATURE IT MEASURES.
+//
+// Every assertion in this file is about the BAR PRESS — a finger over a ring
+// landing on the bar under it, that press starting the recording rather than a
+// synthesised tone, the bar that lights being the one pressed. Syncing the
+// audio to the bars is on hold for this release (see BAR_SYNC in ui/score.js),
+// so there is no bar to press and nothing here has a subject.
+//
+// It is not deleted and it is not rewritten to measure something else: the day
+// the switch is true again this measures exactly what it always did. And it
+// ASKS the app rather than assuming — a skip on a hard-coded guess goes stale
+// the moment the switch moves, and this one cannot.
+const barsOn = await page.evaluate(async () =>
+  (await import('/src/ui/score.js')).barSyncOn?.() ?? true);
+if (!barsOn) {
+  console.log('SKIPPED — syncing the audio to the bars is on hold for this release');
+  console.log('  (BAR_SYNC in src/ui/score.js. Everything here comes back with it,');
+  console.log('   unchanged: this file measures the bar press and nothing else.)');
+  await browser.close();
+  process.exit(0);
+}
+
 // --- the counters, installed before anything can make a noise ----------------
 await page.evaluate(() => {
   window.__audio = { buffers: [], oscs: [] };

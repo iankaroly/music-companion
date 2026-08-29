@@ -82,17 +82,23 @@ const built = await page.evaluate(async ({ b64 }) => {
   document.querySelector('.tab-btn[data-tab="score"]')?.click();
   await new Promise((r) => setTimeout(r, 400));
   await annotateTake(notes, { readings, a4: 440 });
-  for (let i = 0; i < 40 && !document.querySelectorAll('.scan-bar').length; i++) {
+  for (let i = 0; i < 40 && !document.querySelectorAll('#score-stage .scan-page canvas').length; i++) {
     await new Promise((r) => setTimeout(r, 500));
   }
   return {
-    bars: document.querySelectorAll('.scan-bar').length,
+    pages: document.querySelectorAll('#score-stage .scan-page').length,
     tall: document.body.scrollHeight,
     seconds,
   };
 }, { b64: font });
+// THE PAGE, NOT THE BARS. This waited for `.scan-bar` and counted them, and the
+// bar layer is on hold for this release — see BAR_SYNC in ui/score.js. What
+// this check is actually about is the FOLLOWER and the scroll latch, which are
+// the audio review's and are untouched by that; the bars were only ever how it
+// got the take started and how it seeked. Both are done with the transport and
+// the graph now, which is what a player has on this screen either way.
 check('the review is up and taller than the screen',
-  built.bars > 0 && built.tall > 844, `${built.bars} bars, page ${built.tall}px tall`);
+  built.pages > 0 && built.tall > 844, `${built.pages} pages, page ${built.tall}px tall`);
 
 // (1) PLAYING FROM THE TOP: the follower moves the page.
 //
@@ -101,23 +107,23 @@ check('the review is up and taller than the screen',
 // click starts the take without ever exercising the thing under test, and step
 // (1) passes with the latch untouched. `page.touchscreen.tap` sends the real
 // sequence.
-// A bar brought on screen and then TAPPED — pointerdown, pointerup, click, the
-// sequence a finger sends. A bare `.click()` starts the take without ever
-// exercising the latch, so this step would pass with the thing under test
-// untouched.
-const barBox = await page.evaluate(async () => {
-  const bar = document.querySelectorAll('.scan-bar')[1];
-  if (!bar) return null;
-  bar.scrollIntoView({ block: 'center', behavior: 'instant' });
-  await new Promise((r) => setTimeout(r, 350));
-  const b = bar.getBoundingClientRect();
+// The transport, brought on screen and then TAPPED — pointerdown, pointerup,
+// click, the sequence a finger sends. It was a bar; the bars are on hold, and
+// what the tap is for is starting the take with a real gesture, which this does
+// exactly as well.
+const startBox = await page.evaluate(async () => {
+  const btn = document.querySelector('#clip-play');
+  if (!btn) return null;
+  btn.scrollIntoView({ block: 'center', behavior: 'instant' });
+  await new Promise((r) => requestAnimationFrame(() => r()));
+  const b = btn.getBoundingClientRect();
   const x = Math.round(b.left + b.width / 2);
   const y = Math.round(b.top + b.height / 2);
   const hit = document.elementFromPoint(x, y);
-  return (hit === bar || bar.contains(hit)) ? { x, y } : null;
+  return (hit === btn || btn.contains(hit)) ? { x, y } : null;
 });
-if (!barBox) { console.log('FAIL  no bar was reachable at the top of the review'); process.exit(1); }
-await page.touchscreen.tap(barBox.x, barBox.y);
+if (!startBox) { console.log('FAIL  the transport was not reachable in the review'); process.exit(1); }
+await page.touchscreen.tap(startBox.x, startBox.y);
 const following = await page.evaluate(async () => {
   const { followState } = await import('/src/ui/score-tab.js');
   // AWAY FROM THE MUSIC, WITHOUT A GESTURE: `scrollTo` fires neither a wheel
@@ -184,42 +190,40 @@ check('…and the page stays where the hand left it',
 // so the latch cannot see it — and the check below proves that rather than
 // assuming it: the scroll is still not the app's when the press is made, which
 // is the precondition the whole step rests on.
+// THE GRAPH IS THE SEEK NOW. This aimed at the lowest bar on the screen — the
+// bars are on hold, and a bar was only ever one way to ask for a different
+// second. A tap on the trace is the other, it is a finger on a real target, and
+// `review:taps` holds down that it seeks and keeps playing.
+//
+// FAR ALONG THE TRACE, and for the same reason the bar was the LOWEST one on
+// screen rather than the first: seeking to a moment whose music is already in
+// view gives the follower nothing to do, `keepInView` leaves a mark alone while
+// it is comfortably inside the frame, and the step would be handed the scroll
+// back and count no scrolls at all.
 const seekAt = await page.evaluate(async () => {
-  // THE LOWEST BAR ON THE SCREEN, not the first one found. Following a bar
-  // near the top means moving the page by nothing — the music after it is
-  // already in view — and the step would then be handed the scroll back and
-  // count no scrolls. The bar nearest the bottom is the one whose music runs
-  // off the screen, so following it has somewhere to go.
-  const reachable = () => {
-    let best = null;
-    for (const bar of document.querySelectorAll('.scan-bar')) {
-      const b = bar.getBoundingClientRect();
-      const x = Math.round(b.left + b.width / 2);
-      const y = Math.round(b.top + b.height / 2);
-      if (y < 60 || y > window.innerHeight - 90) continue;
-      const hit = document.elementFromPoint(x, y);
-      if (hit === bar || bar.contains(hit)) if (!best || y > best.y) best = { x, y };
-    }
-    return best;
-  };
-  const here = reachable();
-  if (here) return here;
-  const bars = [...document.querySelectorAll('.scan-page:not([hidden]) .scan-bar')];
-  const bar = bars.at(-1);
-  if (!bar) return null;
-  bar.scrollIntoView({ block: 'center', behavior: 'instant' });
-  await new Promise((r) => setTimeout(r, 200));
-  // LOW ON THE SCREEN, not in the middle of it. Centred, the follower has
-  // nothing to do — `keepInView` leaves a mark alone while it is comfortably
-  // inside the frame — so the step would press a bar, be handed the scroll
-  // back, and count zero scrolls because none was needed. Put where a mark is
-  // about to fall off the bottom, following it means moving the page.
-  const box = bar.getBoundingClientRect();
-  window.scrollBy(0, Math.round(box.top + box.height / 2 - (window.innerHeight - 110)));
-  await new Promise((r) => setTimeout(r, 400));
-  return reachable();
+  const chart = document.querySelector('#pitch-chart');
+  const strip = document.querySelector('#chart-scroll');
+  if (!chart) return null;
+  // THE FAR END OF THE TAKE. The graph is a window on the recording, so a tap
+  // in the middle of it asks for a second near the one being played — whose
+  // notehead is already on the screen, which gives the follower nothing to do.
+  // Winding the strip to its end first and tapping the right of it asks for the
+  // last of the music, which is at the bottom of the last page.
+  //
+  // Winding it is not a gesture on the PAGE, so the latch stays with the hand,
+  // which is the precondition the check above has just proved.
+  if (strip) { strip.scrollLeft = strip.scrollWidth; await new Promise((r) => setTimeout(r, 250)); }
+  chart.scrollIntoView({ block: 'center', behavior: 'instant' });
+  await new Promise((r) => requestAnimationFrame(() => r()));
+  const b = chart.getBoundingClientRect();
+  if (b.width < 20 || b.height < 20) return null;
+  const x = Math.round(b.left + b.width * 0.92);
+  const y = Math.round(b.top + b.height / 2);
+  if (y < 60 || y > window.innerHeight - 90) return null;
+  const hit = document.elementFromPoint(x, y);
+  return (hit === chart || chart.contains(hit)) ? { x, y } : null;
 });
-if (!seekAt) { console.log('FAIL  no bar was on screen where the hand left the page'); process.exit(1); }
+if (!seekAt) { console.log('FAIL  the graph was not reachable where the hand left the page'); process.exit(1); }
 const seekBefore = await page.evaluate(async () => {
   const { followState } = await import('/src/ui/score-tab.js');
   return { ...followState(), y: Math.round(window.scrollY) };
@@ -235,7 +239,7 @@ const afterSeek = await page.evaluate(async (was) => {
   const after = followState();
   return { ours: after.ours, scrollsGained: after.scrolls - was, y: Math.round(window.scrollY) };
 }, seekBefore.scrolls);
-check('pressing a bar hands the scroll back and it follows again',
+check('a seek hands the scroll back and it follows again',
   afterSeek.ours === true && afterSeek.scrollsGained > 0,
   `${afterSeek.scrollsGained} scrolls after the press, y ${seekBefore.y} → ${afterSeek.y}`);
 

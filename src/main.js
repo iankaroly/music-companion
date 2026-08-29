@@ -1129,18 +1129,20 @@ async function openRecording(r, { from = 'library' } = {}) {
   // note and reading times still line up.
   const rec = new Recorder(data.sampleRate ?? r.sampleRate);
   rec.push(data.samples ?? new Float32Array(data.audio));
-  // A TAKE PLAYED OFF A SCORE OPENS ON THE SCORE.
+  // A TAKE OPENS WHERE ITS REVIEW IS, WHICH IS THE RECORD TAB.
   //
-  // "if it was recorded on the score, instead of it saying 'see it on the
-  // score', it should automatically show this score like it did after I
-  // finished recording it." It landed on the Record tab and put a button there
-  // that took you to the page — an instruction, on the wrong screen, to reach
-  // the thing you had just asked for. The take knows which piece it was played
-  // from; going there is the answer to opening it.
+  // It used to jump to the Score tab for anything with a piece attached, from
+  // the round that made a take open on its own music. With the audio sync on
+  // hold (see BAR_SYNC in ui/score.js) that page has nothing to press, and a
+  // take belongs to the library side again: "when you record on a score and open
+  // it, it opens in the library tab instead of the score tab, and when you save
+  // the take it saves just to the library".
   //
-  // A take with no score attached still opens where it always did: there is no
-  // page to show, and the Score tab would be a shelf.
-  showTab(from === 'score' || r.scoreId != null ? 'score' : 'analyze');
+  // The Record tab, not the Library tab, because the Library is a list and the
+  // review is not in it — `renderFreeReview` draws into `#report`, which lives
+  // there. Landing on the Library would leave somebody looking at the row they
+  // just pressed.
+  showTab(from === 'score' ? 'score' : 'analyze');
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });
@@ -1985,9 +1987,15 @@ async function refreshScoreTab() {
     }
 
     scoreList.replaceChildren();
-    // The take you have just played is not in the database yet, so nothing else
-    // in this list can lead back to it.
-    if (reviewIsWaiting() && !inSet && !showingSets) scoreList.append(pendingReviewRow());
+    // "THE TAKE YOU JUST PLAYED" IS NOT ON THE SHELF ANY MORE.
+    //
+    // It was a row for a take that had not been saved yet, on the theory that
+    // nothing else in this list could lead back to it. "when you save the take
+    // it saves just to the library and doesnt say the take you just played in
+    // the score section" — a take belongs to the library, and the shelf is a
+    // shelf of pieces. `pendingReviewRow` and `reviewIsWaiting` are kept for the
+    // day the score review is a place a take lives again; see BAR_SYNC.
+    void pendingReviewRow;
     if (inSet) {
       const items = (set.items ?? []).filter((id) => scoreNames.has(id));
       for (const [position, id] of items.entries()) {

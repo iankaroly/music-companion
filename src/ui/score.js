@@ -123,6 +123,36 @@ export function scoreStatus(message, tone = '') {
   status(message, tone);
 }
 
+// SYNCING THE AUDIO TO THE BARS IS ON HOLD, AND THIS IS THE ONE SWITCH.
+//
+// "i want to put the score reader with audio sync on hold for now. my plan is to
+// release the app without it and integrate it later on. please remove it for
+// now, and save it for the future."
+//
+// So nothing is deleted. `bar-sync.js` and `take-align.js` are whole,
+// `bar-map.js` is whole, and every tool and test that measures them still runs
+// and still passes — `scan:barsync`, `scan:start`, `scan:pager`, `scan:guess`,
+// `scan:real` and `take:fixture` all mount the layer themselves rather than
+// waiting for the review to do it, which is what makes turning this back on one
+// line rather than an excavation.
+//
+// WHAT GOES DARK WITH IT, said here because it is easy to miss: the bar boxes
+// and the tap-to-hear-that-moment, the marking strip, the faint wash over
+// stretches the map is only guessing across, and — the one worth naming — the
+// line that reported how far out the map was where you marked it. That was the
+// app's only measurement of itself on real playing, and it is unreachable until
+// this is true again.
+//
+// WHAT STAYS: the pages, turned with the arrows, and everything under them.
+const BAR_SYNC = false;
+
+// …and asked, so a check can pause the assertions that are ABOUT the bars while
+// keeping the ones that merely used a bar press to seek. A tool that skips on a
+// hard-coded guess goes stale the moment the switch moves; one that asks does
+// not, and the day BAR_SYNC is true again every one of them comes back on its
+// own without anybody remembering to re-enable it.
+export function barSyncOn() { return BAR_SYNC; }
+
 export function currentScoreId() {
   return current?.id ?? null;
 }
@@ -1163,7 +1193,9 @@ async function renderScanTab() {
   // show: a page whose clef was misread places no marks at all, and a
   // photograph with a sentence under it is the whole of what a player used to
   // get from one.
-  try {
+  //
+  // …AND IT IS OFF, ON PURPOSE, FOR THIS RELEASE. See BAR_SYNC.
+  if (BAR_SYNC) try {
     const { attachBarSync } = await import('./bar-sync.js');
     const { playTakeFrom, followPlayback } = await import('./report.js');
     const { saveBarAnchors } = await import('../store/db.js');

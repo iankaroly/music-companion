@@ -111,9 +111,20 @@ const built = await page.evaluate(async ({ b64 }) => {
     summary: (document.querySelector('#score-tab-summary')?.textContent ?? '').slice(0, 120),
   };
 }, { b64: font });
-check('the review is up, with the pages barred and the graph under them',
-  built.reviewShowing && built.playbackShowing && built.bars > 0,
-  `${built.bars} bars on ${built.pages} pages`);
+// IS THE BAR LAYER ON AT ALL? Syncing the audio to the bars is on hold for this
+// release (BAR_SYNC in ui/score.js), and the assertions below split cleanly in
+// two: the ones whose SUBJECT is a bar press are paused with it, and the ones
+// that merely used a bar press to seek are done with the transport and the
+// graph, which is what a player has on this screen either way. Asked of the app
+// rather than assumed, so every one of them comes back on its own the day the
+// switch moves.
+const barsOn = await page.evaluate(async () =>
+  (await import('/src/ui/score.js')).barSyncOn?.() ?? true);
+if (!barsOn) console.log('      (the bar layer is on hold — its own assertions are paused with it)');
+check('the review is up, with the pages and the graph under them',
+  built.reviewShowing && built.playbackShowing && built.pages > 0
+    && (!barsOn || built.bars > 0),
+  `${built.pages} pages, ${built.bars} bars${barsOn ? '' : ' (bar layer on hold)'}`);
 
 // The save bar belongs to a take being kept, which this one is not — it was
 // built rather than recorded — so it is put up by hand. What is under test is
@@ -211,9 +222,16 @@ for (const sel of CONTROLS) {
 
 // And then the thing the taps are FOR.
 const transport = await page.evaluate(async () => {
+  // STARTED FROM THE TRANSPORT. It was a bar press, and the bar layer is on
+  // hold — what the rest of this block is about is the transport and the
+  // close-up under the graph, and both are reached the same way whichever
+  // gesture started the take.
   const bar = document.querySelectorAll('.scan-bar')[3];
-  if (!bar) return { pressed: 'no bars' };
-  bar.click();
+  if (bar) bar.click();
+  else {
+    const { playTakeFrom } = await import('/src/ui/report.js');
+    playTakeFrom(4);
+  }
   await new Promise((r) => setTimeout(r, 800));
   const playing = document.querySelector('#clip-play')?.textContent;
   const zoomOpen = document.querySelector('#note-zoom')?.hidden === false;
@@ -235,14 +253,20 @@ const transport = await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 700));
   return { pressed: 'yes', playing, zoomOpen, reached, afterPause: btn.textContent };
 });
-check('a bar press starts the take', transport.playing === '❚❚', `button read ${transport.playing}`);
+check('the take starts, and the transport says so', transport.playing === '❚❚',
+  `button read ${transport.playing}`);
 // The LIGHT that runs along the bars is deliberately not asserted here: it is
 // driven from inside the playback tick on requestAnimationFrame, and rAF does
 // not run in the headless shell — the transport starts, the audio object
 // exists, and no frame ever arrives. `npm run score:follow` is where that is
 // measured, in a harness built to drive frames.
-check('a bar press opens the close-up under the graph', transport.zoomOpen === true,
-  transport.zoomOpen ? '' : '#note-zoom stayed hidden');
+// The close-up under the graph opens on the note a seek lands on — which was a
+// bar press and is now the take being played from a second. Paused where its
+// subject is: with no bar layer there is no press to open it.
+if (barsOn) {
+  check('a bar press opens the close-up under the graph', transport.zoomOpen === true,
+    transport.zoomOpen ? '' : '#note-zoom stayed hidden');
+}
 check("and the graph's own button stops it",
   transport.reached === true && transport.afterPause === '▶',
   `${transport.reached ? 'reached' : 'BLOCKED'}, button read ${transport.afterPause}`);
@@ -301,12 +325,18 @@ const midPlay = await page.evaluate(async () => {
   const second = { play: btn.textContent, note: document.querySelector('#zoom-label')?.textContent };
   return { first, second };
 });
+// PAUSED WITH THE BAR LAYER. Both of these are about pressing a bar while the
+// take runs — that it seeks rather than stopping, and that the close-up follows
+// it to the new second. There is no bar to press while BAR_SYNC is false, and
+// they come back with it.
+if (barsOn) {
 check('a bar pressed while the take is running keeps it running',
   midPlay.first?.play === '❚❚' && midPlay.second?.play === '❚❚',
   `${midPlay.first?.play ?? `only ${midPlay.bars} bars`} → ${midPlay.second?.play ?? ''}`);
 check('…and moves the take to that bar',
   !!midPlay.second?.note && midPlay.second.note !== midPlay.first?.note,
   `“${midPlay.first?.note ?? ''}” → “${midPlay.second?.note ?? ''}”`);
+}
 
 // THE PRESS ON A TAKE THE APP COULD NOT PLACE used to be measured here, by
 // pressing "Start again" to throw the marks away and leave the layer with no
