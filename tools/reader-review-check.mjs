@@ -40,6 +40,18 @@ const browser = await puppeteer.launch({
   executablePath: SHELL,
   headless: true,
   args: ['--no-sandbox', '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream'],
+  // A LONG EVALUATE NEEDS A LONG PROTOCOL TIMEOUT, and puppeteer's default is
+  // three minutes. This check records a real take through the fake microphone
+  // and waits for the analysis inside one call: MEASURED, 36s end to end on a
+  // quiet machine — and about five times that with the rest of the suite and a
+  // second browser competing for the CPU, which is over the default and comes
+  // back as `Runtime.callFunctionOn timed out`. A loaded machine then reads as
+  // a broken app, which cost three false alarms in one sitting.
+  //
+  // It does not make anything faster; it stops the wait being mistaken for a
+  // fault. `press-hear-check.mjs`, which records the same way, has had this
+  // since it was written — these three were simply missed.
+  protocolTimeout: 240000,
 });
 const page = await browser.newPage();
 await page.setViewport({ width: 900, height: 1000, deviceScaleFactor: 2 });
