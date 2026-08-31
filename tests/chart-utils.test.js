@@ -1,6 +1,7 @@
 import { describe, test, expect, afterEach } from 'vitest';
 import {
   findNoteAt, intonationStatus, setIntonationTolerance, intonationTolerance,
+  cursorReading,
 } from '../src/ui/chart-utils.js';
 
 const notes = [
@@ -53,5 +54,46 @@ describe('intonationStatus', () => {
     expect(intonationTolerance()).toBe(8);
     setIntonationTolerance(NaN);
     expect(intonationTolerance()).toBe(8);
+  });
+});
+
+// WHAT THE READOUT SAYS UNDER THE CURSOR.
+//
+// The complaint: "I'll click a note that's green, and when I go through slowly
+// over the note in the zoomed in graph, it will show blue or red over certain
+// parts, while the line still shows green." Every frame was being rounded to
+// its own nearest semitone, so the moments of a note that stray past 50¢ — an
+// attack arriving from below, the far side of a vibrato swing, any note sitting
+// well sharp — were renamed to the neighbouring note and reported as a big
+// deviation of the opposite sign.
+describe('the reading under the cursor', () => {
+  // A5 is midi 81. A note decided as A5 but sitting 40¢ sharp: its vibrato
+  // crosses 50¢, and those moments are what used to flip.
+  const note = { midi: 81, start: 1, end: 2, cents: 40 };
+
+  test('measures against the note the cursor is in, not the nearest semitone', () => {
+    const strayed = 81 + 0.62;                       // 62¢ above A5, past the line
+    const { midi, cents } = cursorReading(strayed, note);
+    expect(midi).toBe(81);                           // still A5
+    expect(cents).toBeCloseTo(62, 0);                // still sharp, and by more
+  });
+
+  test('keeps the sign, which is the part that was flipping', () => {
+    // Rounded on its own this frame is A#5 at -38¢ — the opposite direction
+    // from the note it belongs to, which is what turned a green note blue.
+    const strayed = 81 + 0.62;
+    expect(cursorReading(strayed).cents).toBeCloseTo(-38, 0);
+    expect(cursorReading(strayed, note).cents).toBeGreaterThan(0);
+  });
+
+  test('is unchanged in the middle of a note, where it was always right', () => {
+    expect(cursorReading(81.1, note).cents).toBeCloseTo(10, 0);
+    expect(cursorReading(80.9, note).cents).toBeCloseTo(-10, 0);
+  });
+
+  test('falls back to the nearest semitone outside any note', () => {
+    const { midi, cents } = cursorReading(80.9, null);
+    expect(midi).toBe(81);
+    expect(cents).toBeCloseTo(-10, 0);
   });
 });

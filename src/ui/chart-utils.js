@@ -18,6 +18,26 @@ export function findNoteAt(notes, time, tolerance = 0.15) {
   return bestDistance <= tolerance ? best : null;
 }
 
+/**
+ * What the readout under the cursor should say at a moment.
+ *
+ * AGAINST THE NOTE THE CURSOR IS IN, where it is in one. A note is decided once
+ * from the median of its frames, and a note is not a flat line: an attack
+ * arrives from below, vibrato crosses the centre about ten times a second, and
+ * a note sitting 40¢ sharp has moments past 50. Rounding each frame to its own
+ * nearest semitone renames those moments to the neighbouring note and reports
+ * them as a large deviation of the OPPOSITE sign — which is why scrubbing a
+ * perfectly good note showed it flashing blue and red while the line drawn over
+ * it stayed green.
+ *
+ * Outside a note — between two, or in the run-in before the first — there is
+ * nothing to be inside of, and the nearest semitone is the honest answer.
+ */
+export function cursorReading(midiFloat, note = null) {
+  const midi = note && Number.isFinite(note.midi) ? note.midi : Math.round(midiFloat);
+  return { midi, cents: (midiFloat - midi) * 100 };
+}
+
 // good: in tune · off: audibly off · bad: badly off.
 //
 // The "in tune" edge is a judgement call, not a fact — 8¢ is about where a

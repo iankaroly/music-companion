@@ -3,7 +3,8 @@ import { saying } from './why.js';
 import { buildEmphasizedClip, findComparisonNote, findSameNotes } from '../audio/clips.js';
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
-import { intonationStatus, intonationHue, findNoteAt } from './chart-utils.js';
+import { intonationStatus, intonationHue, findNoteAt, cursorReading } from './chart-utils.js';
+import { tuningOffset, sayTuningOffset } from '../analysis/tuning-offset.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
 import { renderLanding, hideLanding } from './landing.js';
@@ -1040,8 +1041,27 @@ function showPlayback(root, tile, note, name, allNotes, recording, extras, tileB
     const f = readingFreqAt(t);
     if (!f) return;
     const mf = 69 + 12 * Math.log2(f / a4);
-    const m = Math.round(mf);
-    const cents = (mf - m) * 100;
+    // AGAINST THE NOTE THE CURSOR IS IN, not against whatever this one frame
+    // rounds to on its own.
+    //
+    // "I'll click a note that's green, and when I go through slowly over the
+    // note in the zoomed in graph, it will show blue or red over certain
+    // parts, while the line still shows green."
+    //
+    // It rounded every frame to its own nearest semitone. A note is decided
+    // once, from the MEDIAN of its frames — but a note is not a flat line: an
+    // attack arrives from below, vibrato crosses the centre ten times a second,
+    // and a note sitting 40¢ sharp has moments past 50. Every one of those
+    // moments was being renamed to the neighbouring note and reported as a
+    // large deviation of the OPPOSITE sign, so scrubbing a perfectly good note
+    // showed it going blue and red while the line over it stayed green.
+    //
+    // The line is right and was already deliberate — see renderNoteChart: "the
+    // whole note wears one colour". This is the readout catching up with it.
+    // Inside a note the deviation is measured from that note; outside one —
+    // between notes, in the run-in — there is nothing to be inside, and the
+    // nearest semitone is the honest answer there.
+    const { midi: m, cents } = cursorReading(mf, findNoteAt(allNotes, t, 0));
     selected.dataset.state = intonationHue(cents);
     cursorName.textContent = midiToName(m);
     cursorCents.textContent = centsLabel(cents);
@@ -1483,9 +1503,17 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
     }
     const summary = root.querySelector('#notes-summary');
     if (summary) {
-      summary.textContent = heldLeast > 0 && shown !== degrees.length
+      // …AND WHERE THE INSTRUMENT ITSELF WAS, on the takes where that is the
+      // thing worth knowing. See analysis/tuning-offset.js: naming a pitch
+      // means rounding it, so an instrument half a semitone off has every name
+      // on this screen moved together while each one's cents look immaculate.
+      // Nothing else here can say that, and it is almost never said — steady
+      // playing, well off the app's A, is the only case that reaches it.
+      const off = sayTuningOffset(tuningOffset(allNotes), extras.a4 ?? 440);
+      summary.textContent = (heldLeast > 0 && shown !== degrees.length
         ? `${shown} of ${degrees.length} notes, held ${heldLeast}s or longer`
-        : `${allNotes.length} notes`;
+        : `${allNotes.length} notes`)
+        + (off ? ` — ${off}` : '');
     }
     // …and the graph says the same thing. `null` rather than the whole set when
     // nothing is being filtered, so the chart can skip the lookup entirely.
