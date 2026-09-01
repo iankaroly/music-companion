@@ -503,13 +503,27 @@ check('a page whose pairing refuses draws NO rings at all',
     && (refusal.answer.headIndices?.length ?? 0) === 0,
   `placed=${refusal.answer?.placed}, ${refusal.answer?.headIndices?.length ?? '-'} rings,`
   + ` ${refusal.answer?.heads ?? 0} noteheads found`);
-check('and it SAYS why, in ink on the page, rather than leaving a blank one',
-  !!refusal.answer?.why && refusal.answer.why.length > 20 && refusal.panel > 2000,
+// THIS CONTRACT WAS REVERSED, on 2026-09-01 and on instruction: "get rid of the
+// thing on the score that says where this take sits on these pages could not be
+// worked out". It used to require the opposite of both of these — a paragraph
+// painted where the rings would have been, and a menu row offering to show it.
+//
+// It is the same removal score.js already made for the review, and the reason
+// written there applies word for word: it is grey prose over a photograph of
+// music, and it is NOT TRUE. This is the note-level pairing refusing; WHERE the
+// take sits is a different question take-align.js answers, and on the
+// photographed Menuet that produced this very sentence it placed the take at
+// systems 6 to 10, which is where it was played.
+check('a refused pairing says nothing over the music',
+  refusal.panel < 500,
   `${refusal.panel} panel pixels of ${refusal.inkPixels} on the ink layer`);
-check('and the menu row does not promise colours it cannot draw',
-  refusal.rowThere && !/how they landed/.test(refusal.promise)
-    && !/what you played/.test(refusal.promise) && /not on the page/.test(refusal.promise),
-  refusal.rowThere ? `"${refusal.promise}"` : 'no "what you played" row in the menu at all');
+// …AND NO CONTROL OFFERS TO SHOW IT. The row was honest while there was a
+// paragraph for it to open; with that gone it would promise a reason and then
+// leave the page exactly as blank, which is the shape of every "button that
+// does nothing" fault in this app.
+check('and no menu row offers to explain what is no longer drawn',
+  !refusal.rowThere,
+  refusal.rowThere ? `still offering "${refusal.promise}"` : 'no such row');
 check('the refusal does not fall back to counting from the top of the page',
   (refusal.answer?.headIndices?.length ?? 0) === 0,
   `${refusal.answer?.headIndices?.length ?? '-'} rings on a take that could not be placed`);

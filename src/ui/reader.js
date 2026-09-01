@@ -3766,13 +3766,19 @@ function buildMenu(sheet) {
   const refused = isPaper() && canMark && !scanPairing().marks.length;
   if (canMark) {
     menuGroup(sheet, 'take');
-    menuRow(sheet, {
-      label: refused
-        ? (painted ? 'Hide why this take is not on the page' : 'Why this take is not on the page')
-        : (painted ? 'Hide what you played' : 'Show what you played'),
-      glyph: 'paint',
-      onPick: () => togglePainted(),
-    });
+    // AND ON A REFUSAL THERE IS NO ROW AT ALL. It used to say "Why this take is
+    // not on the page", which was honest while a paragraph was painted for it
+    // to open — that paragraph is gone, so the row would now promise a reason
+    // and show a page exactly as blank as before. A control that does nothing
+    // reads as a bug; nothing at all reads as a take that could not be placed,
+    // which is what happened. Play is untouched: the audio is still there.
+    if (!refused) {
+      menuRow(sheet, {
+        label: painted ? 'Hide what you played' : 'Show what you played',
+        glyph: 'paint',
+        onPick: () => togglePainted(),
+      });
+    }
     menuRow(sheet, {
       label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? 'pause' : 'play',
       onPick: togglePlayback,
@@ -6187,60 +6193,25 @@ export function paperPairing() {
   };
 }
 
-// A refusal, written where the rings would have been.
-//
-// It is drawn onto the page rather than said in the status line, and that is
-// not decoration: `say()` is cleared by half a dozen other things (finishLink
-// calls say('')), and the one sentence explaining why a marked take shows no
-// marks would go with it. A page that is blank for a reason has to carry the
-// reason.
-function drawScanRefusal(ctx, why) {
-  const dpr = window.devicePixelRatio || 1;
-  const w = ctx.canvas.width / dpr;
-  const h = ctx.canvas.height / dpr;
-  const size = Math.max(13, Math.min(19, Math.round(w / 46)));
-  ctx.save();
-  ctx.font = `400 ${size}px system-ui, -apple-system, sans-serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  const words = why.split(' ');
-  const lines = [];
-  let line = '';
-  for (const word of words) {
-    const next = line ? `${line} ${word}` : word;
-    if (ctx.measureText(next).width > w * 0.62 && line) { lines.push(line); line = word; }
-    else line = next;
-  }
-  if (line) lines.push(line);
-  const pad = size;
-  const boxW = Math.min(w * 0.72, Math.max(...lines.map((l) => ctx.measureText(l).width)) + pad * 2);
-  const boxH = lines.length * size * 1.45 + pad;
-  // AT THE FOOT OF THE SCREEN, and that was found by looking rather than
-  // decided. Drawn at the top it sat squarely across the first system of a page
-  // somebody is trying to play from — see the shot this check writes — and a
-  // reader that covers the music to explain itself is worse than the bug. The
-  // foot of the screen is where the reader's own hint already lives.
-  const top = Math.max(size * 2.4, h - boxH - size * 3.2);
-  ctx.fillStyle = 'rgba(28, 26, 34, 0.86)';
-  ctx.beginPath();
-  ctx.roundRect((w - boxW) / 2, top, boxW, boxH, size * 0.6);
-  ctx.fill();
-  ctx.fillStyle = '#f2f0ea';
-  lines.forEach((one, i) => {
-    ctx.fillText(one, w / 2, top + pad / 2 + size * 0.72 + i * size * 1.45);
-  });
-  ctx.restore();
-}
-
 function drawScanMarks(ctx) {
   if (!isPaper() || !take?.notes?.length || !layout) return;
   const state = scanPairing();
   // RULE 3 arriving at the one place a player would otherwise never find out.
   // No rings, and the reason where the rings would have been.
-  if (!state.marks.length) {
-    if (state.why) drawScanRefusal(ctx, state.why);
-    return;
-  }
+  // NOTHING IS SAID WHERE THE PAGE IS ON THE SCREEN, which is the same
+  // decision score.js already took for the review and the reasoning there
+  // applies here word for word: it is grey prose over a photograph of music,
+  // and it is no longer true. This is the NOTE-level pairing refusing — the
+  // aligner could not say which notehead each played note landed on — and
+  // WHERE the take sits is a different question that take-align.js answers.
+  // MEASURED on the photographed Menuet that produced this very sentence: 136
+  // of 185 notes matched and the take was placed at systems 6 to 10, which is
+  // where it was played. The paragraph said nothing could be worked out while
+  // the bars underneath it worked.
+  //
+  // So a refusal is no rings, and no paragraph. `state.why` is still carried,
+  // because it is what tells the menu there is nothing to paint.
+  if (!state.marks.length) return;
   const colours = { good: '--good', sharp: '--sharp', flat: '--flat' };
   const style = getComputedStyle(document.documentElement);
   for (const [i, head] of state.marks.entries()) {
