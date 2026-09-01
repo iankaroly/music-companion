@@ -80,5 +80,18 @@ export default defineConfig({
     // every one of them as a failed suite, which turns a green run red for no
     // reason anybody can act on.
     exclude: ['node_modules/**', 'dist/**', 'server/**', 'ios/**'],
+    // A HEADROOM SETTING, NOT A PATIENCE ONE.
+    //
+    // The heaviest tests here synthesise seconds of audio and run the real
+    // detector over it. MEASURED, the slowest — onset.test.js on a quiet
+    // recording — takes 694/701/712ms on an idle machine, and 6058ms with the
+    // browser bench running beside it: the same work, 8.6x the wall clock,
+    // because vitest runs its files in parallel and the DSP is all CPU.
+    //
+    // Against the 5s default that is a suite which goes red when the machine is
+    // busy and green when it is not, which is the worst kind of test: it costs
+    // a real investigation every time, and it teaches you to disbelieve it.
+    // Nothing here should take twenty seconds, so a hang is still caught.
+    testTimeout: 20000,
   },
 });

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  Practice Partner collects nothing and sends nothing.
+
+	  This is not a claim made to fill in a form: there is no fetch,
+	  XMLHttpRequest, sendBeacon or WebSocket anywhere in the app's source, so
+	  it makes no network requests of any kind after it has loaded. Recordings,
+	  scanned pages and everything derived from them are held in IndexedDB on
+	  the device that made them and are never sent anywhere. There is no
+	  account, no analytics and no third-party SDK.
+
+	  The app's own native code is 99 lines across three files and uses none of
+	  the required-reason APIs; the one bundled framework, Capacitor, ships its
+	  own manifest declaring the same.
+	-->
+	<key>NSPrivacyTracking</key>
+	<false/>
+	<key>NSPrivacyTrackingDomains</key>
+	<array/>
+	<key>NSPrivacyCollectedDataTypes</key>
+	<array/>
+	<key>NSPrivacyAccessedAPITypes</key>
+	<array/>
+</dict>
+</plist>

@@ -79,3 +79,23 @@ export function why(err, fallback = 'something went wrong') {
 export function saying(doing, err) {
   return `${doing} — ${why(err, 'no reason given')}`;
 }
+
+/**
+ * What to say when a device was REFUSED rather than broken.
+ *
+ * A refusal is not an error, it is an answer, and it is the one failure in this
+ * app where the PLAYER is the fix — so it needs the way back rather than the
+ * browser's word for it. `why()` above prefers a thrown message over its own
+ * name, and the message browsers throw here is "Permission denied": true, and
+ * no use at all to somebody who has just pressed the app's one big button and
+ * been told "mic unavailable — Permission denied".
+ *
+ * `thing` is what was refused, `again` is the press that retries it. Anything
+ * that is not a refusal falls through to `saying`, because a camera that is
+ * broken and a camera that was refused are not the same news.
+ */
+export function sayingRefused({ thing, again }, err, doing) {
+  if (err?.name !== 'NotAllowedError') return saying(doing, err);
+  return `the ${thing} was not allowed — turn it on for this app in your`
+    + ` browser or phone settings, then ${again}`;
+}

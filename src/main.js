@@ -1,5 +1,5 @@
 import { startCapture, micIsHeld, prepareCapture, ensureMic } from './audio/capture.js';
-import { saying } from './ui/why.js';
+import { saying, sayingRefused } from './ui/why.js';
 import { taught, teach, pressOf, pressName, forgetPedal } from './ui/pedal.js';
 import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
@@ -821,10 +821,8 @@ async function startTakeNow({ from = 'analyze' } = {}) {
     // was "mic unavailable — Permission denied", which says what happened and
     // nothing about what to do. This is the ONLY path that gets its own
     // sentence, because it is the only one where the player is the fix.
-    say(err?.name === 'NotAllowedError'
-      ? 'the microphone was not allowed — turn it on for this app in your'
-        + ' browser or phone settings, then press Record again'
-      : saying('mic unavailable', err), 'bad');
+    say(sayingRefused(
+      { thing: 'microphone', again: 'press Record again' }, err, 'mic unavailable'), 'bad');
     takeStateChanged({ recording: false, busy: false });
     return false;
   } finally {
@@ -2712,7 +2710,30 @@ const BUILD = typeof __BUILD__ === 'string' ? __BUILD__ : 'dev';
 const buildLine = document.querySelector('#set-build');
 if (buildLine) buildLine.textContent = `Build ${BUILD}`;
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+// https anywhere, or http on localhost, and never the dev server.
+//
+// Service workers are allowed on http://localhost as well as on https, and the
+// old `location.protocol === 'https:'` excluded exactly one thing: any way to
+// run the app as it ships and watch the worker do its job. The worker's own
+// header promises "the cached app shell keeps the whole tool working offline in
+// the practice room", and nothing could check that, because nothing that could
+// serve the built app could also register the worker. `app:offline` drives it
+// now, against `vite preview`.
+//
+// THE TWO EXCLUSIONS ARE THE POINT, and both are deliberate rather than
+// incidental to a tidier condition:
+//
+//   the dev server — a worker caching Vite's module graph is how an editor and
+//     a browser end up disagreeing about what the code says, a stale-module
+//     fault this repo has already paid for once.
+//   the native app — Capacitor serves iOS from capacitor://localhost, so a
+//     bare `isSecureContext` (or a bare hostname test) would switch a worker on
+//     inside the shipped app, where there has never been one and where the app
+//     bundle is already local. That is not a change to make as a side effect of
+//     making something testable.
+const swAllowed = location.protocol === 'https:'
+  || (location.protocol === 'http:' && location.hostname === 'localhost');
+if ('serviceWorker' in navigator && swAllowed && !import.meta.env.DEV) {
   // Registered under the build, so every deploy is a DIFFERENT worker script.
   // Registering the same URL forever meant a home-screen app had nothing to
   // notice: the worker it installed on the day it was added is the worker it

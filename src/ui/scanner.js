@@ -47,7 +47,7 @@
 import {
   coverageOf, quadsMoved, aimedPage,
 } from '../analysis/page-edges.js';
-import { saying } from './why.js';
+import { sayingRefused } from './why.js';
 import {
   straightenCanvas, readableImage, sizeOfImage, papersIn, paperRunsOffTheFrame,
   besideOf as besidesOf, LOOK_AT,
@@ -1077,7 +1077,11 @@ export async function openScanner() {
     });
   } catch (err) {
     finish(null);
-    throw new Error(saying('the camera would not open', err));
+    // THE SAME ANSWER AS A REFUSED MICROPHONE, and for the same reason: this
+    // used to read "the camera would not open — Permission denied", which is
+    // the browser's word for it and tells nobody what to do next.
+    throw new Error(sayingRefused(
+      { thing: 'camera', again: 'try scanning again' }, err, 'the camera would not open'));
   }
   video.srcObject = stream;
   await video.play().catch(() => {});
