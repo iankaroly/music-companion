@@ -1199,6 +1199,24 @@
     }
     #score-tab-summary > * { min-width: 0; max-width: 100%; }
     #score-tab-summary > .scan-pairing { flex: 1 0 100%; }
+
+    /* A READING MEASURE, ONCE THE SCREEN IS BIGGER THAN A PHONE.
+       The app ships for iPad as well as iPhone, and a phone layout on a tablet
+       does not break — it STRANDS. `npm run ipad:fit` measured these sentences
+       running 942px on a 13" portrait and 1069px on an 11" landscape, which is
+       past the width at which an eye reliably finds the start of the next line.
+       Nothing here changes on a phone: the cap is behind a width query, so
+       every size `edge:fit` measures is untouched, byte for byte.
+       The summary is given more room than the hints because it is a ROW — the
+       ⤢ that opens the music sits beside the first sentence — and squeezing it
+       to a prose measure only makes it wrap more. */
+    @media (min-width: 700px) {
+      #score-card .hint, #rec-note, #score-hint, #score-tab-hint {
+        max-width: 62ch;
+        margin-inline: auto;
+      }
+      #score-tab-summary { max-width: 46rem; margin-inline: auto; }
+    }
     /* The half of the analysis a photograph cannot do, said next to the thing
        that would fix it. Quiet — it is a footnote on a take that mostly worked,
        not a warning about one that did not. */

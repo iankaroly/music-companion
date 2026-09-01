@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy — Practice Partner</title>
+<meta name="description" content="Practice Partner collects nothing and sends nothing. Everything you record stays on your device." />
+<style>
+  :root {
+    color-scheme: light dark;
+    --ink: #1b1a22; --muted: #5b5866; --ground: #faf9fd; --card: #ffffff;
+    --line: #e6e3ef; --accent: #5b4b8a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --ink: #ecebf2; --muted: #a5a1b4; --ground: #14131a; --card: #1c1b24; --line: #2c2a36; --accent: #b3a4e0; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 4rem; background: var(--ground); color: var(--ink);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  main { max-width: 62ch; margin: 0 auto; }
+  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 0.4rem; letter-spacing: -0.02em; }
+  h2 { font-size: 1.05rem; margin: 2.2rem 0 0.5rem; letter-spacing: -0.01em; }
+  .lead { color: var(--muted); margin: 0 0 2rem; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 1.1rem 1.25rem; margin: 1.5rem 0;
+  }
+  .card p:first-child { margin-top: 0; }
+  .card p:last-child { margin-bottom: 0; }
+  strong { font-weight: 650; }
+  ul { padding-left: 1.15rem; }
+  li { margin: 0.35rem 0; }
+  a { color: var(--accent); }
+  footer { margin-top: 3rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Privacy</h1>
+  <p class="lead">Practice Partner · last updated 1 September 2026</p>
+
+  <div class="card">
+    <p><strong>Practice Partner collects nothing and sends nothing.</strong> There is no
+    account, no server, no analytics and no third-party code in it. After the app has
+    loaded it makes no network requests at all.</p>
+  </div>
+
+  <h2>What the app stores, and where</h2>
+  <p>Everything the app makes — your recordings, the analysis of them, the pages of music
+  you photograph or import, your instrument, and your settings — is written to storage on
+  the device you are using, and stays there. None of it is uploaded, backed up to us,
+  shared, or seen by anyone else. We have no way to see it, because it never leaves your
+  device and there is nowhere for it to go.</p>
+
+  <h2>The microphone</h2>
+  <p>The app asks for the microphone so it can hear you play. The audio is analysed on the
+  device to work out the pitch and timing of each note, and a recording is kept only if you
+  choose to save that take. Audio is never transmitted anywhere. If you refuse the
+  microphone, everything else in the app still works.</p>
+
+  <h2>The camera</h2>
+  <p>The app asks for the camera only when you photograph a page of music. Those pages are
+  stored on your device and read on your device. They are never uploaded. Earlier versions
+  of this app sent photographed pages to an outside service to be turned into notation;
+  that was removed, and nothing replaced it.</p>
+
+  <h2>What we do not do</h2>
+  <ul>
+    <li>No accounts, logins, or email addresses.</li>
+    <li>No analytics, telemetry, crash reporting, or usage measurement.</li>
+    <li>No advertising and no advertising identifiers.</li>
+    <li>No tracking, and no sharing of anything with anyone.</li>
+    <li>No third-party SDKs that collect data.</li>
+  </ul>
+
+  <h2>Deleting your data</h2>
+  <p>Takes and scores can be deleted inside the app at any time. Deleting the app removes
+  everything it stored along with it. Because nothing is held anywhere else, that is the
+  whole of it — there is no copy elsewhere to request or erase.</p>
+
+  <h2>Children</h2>
+  <p>The app is suitable for any age and collects no personal information from anyone,
+  including children.</p>
+
+  <h2>Changes</h2>
+  <p>If this policy ever changes, the date at the top of this page changes with it. If a
+  future version of the app ever sends anything anywhere, it will say so here first, and
+  in the app.</p>
+
+  <h2>Contact</h2>
+  <p>Questions about this policy can be raised at
+  <a href="https://github.com/iankaroly/music-companion/issues">the app's issue tracker</a>.</p>
+
+  <footer>Practice Partner is open source. The claims on this page can be checked against
+  the code at <a href="https://github.com/iankaroly/music-companion">github.com/iankaroly/music-companion</a>.</footer>
+</main>
+</body>
+</html>
