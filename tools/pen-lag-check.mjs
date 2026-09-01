@@ -142,7 +142,7 @@ async function oneStroke(tool) {
   // behaves. Whether it worked is not assumed: the stroke's own point count is
   // read back afterwards, and a run that did not draw says so instead of
   // reporting a small number as if it were good news.
-  const drawnMs = await page.evaluate(async ({ w, h, moves }) => {
+  const drawn = await page.evaluate(async ({ w, h, moves }) => {
     const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     const at = (x, y, type, extra = {}) => {
       const target = document.elementFromPoint(x, y) ?? document.querySelector('#reader');
@@ -159,9 +159,12 @@ async function oneStroke(tool) {
       at(w * (0.12 + 0.75 * f), h * (0.45 + 0.12 * Math.sin(f * 12)), 'pointermove');
       await sleep(8);
     }
+    const lifted = performance.now() - window.__t0;
     at(w * 0.87, h * 0.45, 'pointerup');
-    return Math.round(performance.now() - t0);
+    return { ms: Math.round(performance.now() - t0), lift: lifted };
   }, { w: size.width, h: size.height, moves: MOVES });
+  const drawnMs = drawn.ms;
+  const lift = drawn.lift;
   // Saves are debounced (`scheduleSave`), and reading the store 300ms after the
   // pen lifts read the PREVIOUS stroke back — which looked exactly like a nib
   // that had refused to draw, and cost two rounds chasing it.
@@ -178,7 +181,7 @@ async function oneStroke(tool) {
     const all = await loadAnnotations('pen-lag').catch(() => []);
     return all.at(-1)?.points?.length ?? 0;
   });
-  return { late, drawnMs, drew };
+  return { late, drawnMs, drew, lift };
 }
 
 const median = (xs) => {
@@ -187,46 +190,71 @@ const median = (xs) => {
   return s[Math.floor(s.length / 2)];
 };
 
-// A WARM-UP STROKE THAT IS THROWN AWAY. The first press after the pencil is
-// picked lands while the ink bar is still arriving and the first paint is still
-// compiling its paths, and the run measured a nib that had not started yet — the
-// first tool through here reported 0 points of 320. Every tool is now measured
-// in the same state as every other.
-await page.evaluate(() => document.querySelector('#reader-annotate')?.click());
-await wait(600);
-await page.evaluate(async ({ w, h }) => {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const at = (x, y, type) => (document.elementFromPoint(x, y) ?? document.querySelector('#reader'))
-    ?.dispatchEvent(new PointerEvent(type, {
-      pointerId: 990, pointerType: 'pen', isPrimary: true, bubbles: true, cancelable: true,
-      clientX: x, clientY: y, pressure: type === 'pointerup' ? 0 : 0.6,
-      buttons: type === 'pointerup' ? 0 : 1,
-    }));
-  at(w * 0.2, h * 0.7, 'pointerdown');
-  for (let i = 0; i < 12; i += 1) { at(w * (0.2 + i * 0.01), h * 0.7, 'pointermove'); await sleep(8); }
-  at(w * 0.32, h * 0.7, 'pointerup');
-}, { w: size.width, h: size.height });
-await wait(500);
+// HOW MANY MARKS ARE ALREADY ON THE PAGE, which is the condition the first
+// version of this could not see. It measured a page with nothing on it and
+// reported that the ink path keeps up comfortably — true, and about the one
+// page nobody has been annotating.
+//
+// THE HYPOTHESIS: `dryStamp` includes `strokes.length`, so the moment a stroke
+// is finished the whole dry layer is thrown away and every mark on the page is
+// placed against its bar and re-rasterised to rebuild it. That is a cost paid
+// at every PEN LIFT and it grows with the number of marks already there — which
+// is exactly the shape of "it gets slower the more I annotate".
+const seedStrokes = (n) => {
+  const out = [];
+  for (let i = 0; i < n; i += 1) {
+    const bar = 1 + (i % 36);
+    const points = [];
+    for (let k = 0; k < 24; k += 1) {
+      points.push({ m: bar, u: 0.1 + k * 0.03, v: 0.3 + 0.25 * Math.sin(k / 3 + i) });
+    }
+    out.push({
+      tool: 'pen', layer: 0, colour: '#1c1b22', width: 0.28,
+      overlay: false, nib: 'ballpoint', points,
+    });
+  }
+  return out;
+};
+
+async function withMarks(count) {
+  await page.evaluate(async ({ x, seeded }) => {
+    const { openReader, close } = await import('/src/ui/reader.js');
+    const { saveAnnotations } = await import('/src/store/db.js');
+    close?.();
+    await saveAnnotations('pen-lag', seeded);
+    await openReader({ id: 'pen-lag', name: 'Pen lag', xml: x, kind: 'notation' });
+    await new Promise((r) => setTimeout(r, 1100));
+  }, { x: xml(), seeded: seedStrokes(count) });
+  await wait(600);
+
+  // A WARM-UP STROKE THAT IS THROWN AWAY. The first press after the tool comes
+  // out lands while the row is still arriving and the first paint is still
+  // compiling its paths, and a run measured a nib that had not started yet.
+  await page.evaluate(() => {
+    if (!document.querySelector('#reader')?.classList.contains('drawing')) {
+      document.querySelector('#reader-annotate')?.click();
+    }
+  });
+  await wait(500);
+  return oneStroke('ballpoint');
+}
 
 console.log(`\n  ${MOVES} pointer moves in one stroke, CPU throttled ${THROTTLE}x\n`);
-console.log('  nib          first quarter        last quarter       worst   drawn in');
-for (const tool of ['ballpoint', 'pencil']) {
-  const got = await oneStroke(tool);
-  if (!got) continue;
-  const { late, drawnMs, drew } = got;
-  if (late.length < 8) { console.log(`  ${tool.padEnd(12)} no samples`); continue; }
+console.log('  marks already   during the stroke      at the PEN LIFT     drawn in');
+console.log('  on the page     median      worst      the block           ');
+for (const count of [0, 60, 200]) {
+  const got = await withMarks(count);
+  if (!got) { console.log(`  ${String(count).padEnd(15)} could not draw`); continue; }
+  const { late, drawnMs, drew, lift } = got;
   if (drew < MOVES * 0.5) {
-    console.log(`  ${tool.padEnd(12)} THE STROKE DID NOT FORM — ${drew} points of ${MOVES};`
-      + ' nothing below this line means anything');
+    console.log(`  ${String(count).padEnd(15)} THE STROKE DID NOT FORM — ${drew} points of ${MOVES}`);
     continue;
   }
-  const span = late.at(-1)[0];
-  const early = late.filter(([t]) => t < span * 0.25).map(([, l]) => l);
-  const later = late.filter(([t]) => t > span * 0.75).map(([, l]) => l);
-  const worst = Math.max(...late.map(([, l]) => l));
-  console.log(`  ${tool.padEnd(12)} ${`${median(early).toFixed(1)}ms`.padEnd(20)}`
-    + `${`${median(later).toFixed(1)}ms`.padEnd(19)}`
-    + `${`${worst.toFixed(0)}ms`.padEnd(8)}${drawnMs}ms  (${drew} points)`);
+  const during = late.filter(([t]) => t <= lift).map(([, l]) => l);
+  const after = late.filter(([t]) => t > lift).map(([, l]) => l);
+  console.log(`  ${String(count).padEnd(15)}${`${median(during).toFixed(1)}ms`.padEnd(12)}`
+    + `${`${Math.max(0, ...during).toFixed(0)}ms`.padEnd(11)}`
+    + `${`${Math.max(0, ...after).toFixed(0)}ms`.padEnd(20)}${drawnMs}ms`);
 }
 console.log(`\n  page errors: ${errors.length}${errors.length ? ` — ${errors[0]}` : ''}`);
 await browser.close();

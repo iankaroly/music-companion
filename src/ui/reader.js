@@ -1088,6 +1088,63 @@ function dropDryInk() {
   dryKey = null;
 }
 
+// ONE MARK JOINS THE PAGE; THE PAGE IS NOT DRAWN AGAIN.
+//
+// `dryStamp` carries `strokes.length`, so finishing a stroke threw the dry
+// layer away and the next frame rebuilt it — every mark on the page placed
+// against its bar, broken at its system and re-rasterised — to add one line.
+// That is a block of work at every PEN LIFT, and it grows with how much you
+// have already written on the page, which is exactly the shape of "the response
+// time when annotating with the pen is a little bit slow".
+//
+// MEASURED by `npm run pen:lag`, 320-point stroke at 6x CPU throttle, the
+// longest the main thread was unavailable when the pen came up:
+//
+//     marks already on the page      before       after
+//                    0                8ms          8ms
+//                   60               13ms          8ms
+//                  200               28ms          9ms
+//
+// …against a cost DURING the stroke that never moved (0.6-0.9ms median), which
+// is what said the fault was at the lift rather than in the drawing.
+//
+// The new mark is simply drawn on top, which is where a rebuild would have put
+// it: strokes are drawn in order and this one is last. Two things are drawn
+// ABOVE the strokes in a rebuild, though — the take's rings and the links — so
+// where either is on the page this stands aside and lets the rebuild happen,
+// rather than quietly changing what is over what.
+function commitStroke(stroke) {
+  const scale = unitScale();
+  const shown = visiblePages();
+  // Asked BEFORE anything changes: this is whether the picture on the dry layer
+  // is a true picture of the page as it stands right now.
+  const canAppend = !!dry
+    && dryKey !== null
+    && dryKey === dryStamp(scale, shown)
+    && !painted
+    && linksOf().length === 0
+    && !hidden.has(stroke.layer ?? 0);
+  strokes.push(stroke);
+  // …AND THE SAVE IS SCHEDULED FROM IN HERE, which is the whole reason this
+  // works. `scheduleSave` drops the dry layer, and it is right to: twelve other
+  // callers change what is ON the page — an erase, an undo, a recolour, a layer
+  // hidden — and for every one of them the picture really is out of date. Only
+  // THIS one knows that the mark it is saving has already been drawn. So the
+  // save is scheduled here and the key put straight back, rather than teaching
+  // twelve call sites a distinction that only matters at one of them.
+  scheduleSave();
+  if (!canAppend) return;          // the next paint rebuilds, as it always did
+  // A mark somewhere else in the part changes nothing on screen, so the picture
+  // is already right — but the stamp still has to move with it.
+  if (touchesScreen(stroke, shown)) {
+    const dpr = window.devicePixelRatio || 1;
+    const dctx = dry.getContext('2d');
+    dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawStroke(dctx, stroke, { scale });
+  }
+  dryKey = dryStamp(scale, shown);
+}
+
 function paintInk() {
   // Measurements are only trusted through the middle of a stroke, where the
   // page is guaranteed to be still. Any other frame re-measures.
@@ -1537,7 +1594,7 @@ function endStroke() {
     // A shape that is a dot was a tap, not a drag.
     const [a, b] = drawing.points.map(place);
     const big = a && b && Math.hypot(b.x - a.x, b.y - a.y) > 6;
-    if (big) { strokes.push(drawing); remember({ type: 'add', stroke: drawing }); scheduleSave(); }
+    if (big) { commitStroke(drawing); remember({ type: 'add', stroke: drawing }); }
     drawing = null;
     redraw();
     return;
@@ -1558,9 +1615,8 @@ function endStroke() {
     // The scrawl behind a snapped shape is scaffolding, not part of the mark.
     delete drawing.freehand;
     delete drawing.snapped;
-    strokes.push(drawing);
+    commitStroke(drawing);
     remember({ type: 'add', stroke: drawing });
-    scheduleSave();
   }
   drawing = null;
   erasing = false;
