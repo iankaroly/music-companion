@@ -133,7 +133,8 @@
     "take:flute": "node tools/flute-tuning-check.mjs",
     "app:first": "node tools/first-run-check.mjs",
     "app:offline": "npm run build && node tools/offline-check.mjs",
-    "ipad:fit": "node tools/ipad-fit-check.mjs"
+    "ipad:fit": "node tools/ipad-fit-check.mjs",
+    "store:shots": "node tools/store-shots.mjs"
   },
   "keywords": [],
   "author": "",
