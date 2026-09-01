@@ -1987,6 +1987,40 @@
        together they read as one row of equals, and the pair then slides left
        and right as the tool's controls change width — so the two buttons you
        reach for without looking move under your thumb. */
+    /* ---- a take, opened in the library ---------------------------------- */
+    #library-take { display: flex; flex-direction: column; gap: 0.6rem; }
+    #library-take-head {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+    #library-take-title {
+      font-family: var(--display);
+      font-weight: 600;
+      font-size: 1rem;
+      flex: 1 1 auto;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    #library-take-back, #library-take-score {
+      flex: 0 0 auto;
+      padding: 0.45rem 0.8rem;
+      border-radius: 999px;
+      border: 1px solid var(--glass-line);
+      background: rgb(var(--sf) / 0.9);
+      color: var(--ink);
+      font: inherit;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    /* The page is hidden by being emptied of height, not by display:none — the
+       stage is a borrowed node and something else measures it. */
+    #library-take-stage { position: relative; }
+    #library-take.no-score #library-take-stage { display: none; }
+
     #reader-ink-row {
       position: fixed;
       z-index: 3;
@@ -4900,6 +4934,25 @@
         <input id="library-search" type="search" placeholder="Search takes" aria-label="Search takes">
         <ul id="library-list"></ul>
         <div id="library-empty">Nothing here yet — record a take and save it 🎶</div>
+      </div>
+      <!-- A TAKE, OPENED WHERE IT WAS FOUND.
+           Pressing a row used to throw you onto the Record tab, and a take
+           played from a piece offered a button through to the Score tab on top
+           of that — two tab switches to look at something you had just asked
+           for from the library. "it shouldnt open in the scores tab, should
+           just be in the library tab and then you can click back or click on
+           the tab at the bottom to bring you back to the library."
+           The review and the page are single nodes shared by every view of
+           them, so they are BORROWED into here and handed back on the way out —
+           the same thing #score-dock has always done. -->
+      <div id="library-take" hidden>
+        <div id="library-take-head">
+          <button id="library-take-back" type="button">← All takes</button>
+          <span id="library-take-title"></span>
+          <button id="library-take-score" type="button" hidden>Hide the score</button>
+        </div>
+        <div id="library-take-stage"></div>
+        <div id="library-take-report"></div>
       </div>
     </section>
 

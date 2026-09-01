@@ -271,23 +271,48 @@ const reopened = await page.evaluate(async ({ piece }) => {
     seeItOnTheScore: [...document.querySelectorAll('button')]
       .filter((b) => /see it on the score/i.test(b.textContent ?? ''))
       .some((b) => b.offsetParent !== null),
+    // The take's own view inside the library, and whether the review and the
+    // page were actually borrowed into it rather than merely left elsewhere.
+    takeView: document.querySelector('#library-take')?.hidden === false,
+    listHidden: document.querySelector('#library')?.hidden === true,
+    reportInLibrary: !!document.querySelector('#library-take-report #report'),
+    stageInLibrary: !!document.querySelector('#library-take-stage #score-stage'),
+    backThere: !!document.querySelector('#library-take-back')?.offsetParent,
+    scoreToggle: (document.querySelector('#library-take-score')?.offsetParent
+      ? document.querySelector('#library-take-score')?.textContent?.trim() : null) ?? null,
   };
 }, { piece: PIECE });
 
 if (reopened.failed) {
   check('the take opens again from the library', false, `${reopened.failed}: ${reopened.why ?? ''}`);
 } else {
-  // A TAKE OPENS WHERE ITS REVIEW IS, AND THAT IS THE RECORD TAB AGAIN.
+  // A TAKE OPENS WHERE IT WAS FOUND, and this assertion has now been reversed
+  // TWICE — first from the Score tab to the Record tab, and now to the library
+  // itself. Both times on instruction, and this one is the one that stops the
+  // tab switching being visible at all: "it shouldnt open in the scores tab,
+  // should just be in the library tab and then you can click back or click on
+  // the tab at the bottom to bring you back to the library."
   //
-  // It used to land on the Score tab, from the round that made a take open on
-  // its own music. Syncing the audio to the bars is on hold for this release
-  // (BAR_SYNC in ui/score.js), that page has nothing to press, and a take
-  // belongs to the library side: "when you record on a score and open it, it
-  // opens in the library tab instead of the score tab". The Record tab rather
-  // than the Library tab because the Library is a list and `renderFreeReview`
-  // draws into `#report`, which is not in it.
-  check('opening it again lands on the Record tab, where the review is',
-    reopened.tab === 'tab-analyze', `landed on ${reopened.tab}`);
+  // What stood in the way was an implementation detail — `#report` lives in the
+  // Record tab and there is only one of it — and the answer is the one
+  // `#score-dock` has used all along: the review and the page are BORROWED into
+  // the library's take view and handed back on the way out. So the assertions
+  // are about where those nodes actually ARE, not merely about which panel is
+  // lit: a tab that is showing with the review still somewhere else is the
+  // failure this is written to catch.
+  check('opening it again stays in the library', reopened.tab === 'tab-library',
+    `landed on ${reopened.tab}`);
+  check('…with the review borrowed into it, and the list out of the way',
+    reopened.reportInLibrary && reopened.takeView && reopened.listHidden,
+    `report in the take view=${reopened.reportInLibrary},`
+    + ` view showing=${reopened.takeView}, list hidden=${reopened.listHidden}`);
+  check('…and the music with it, rather than a button pointing at another tab',
+    reopened.stageInLibrary && reopened.seeItOnTheScore === false,
+    `stage in the take view=${reopened.stageInLibrary},`
+    + ` "see it on the score" offered=${reopened.seeItOnTheScore}`);
+  check('…and a way back to the list, and a way to put the page away',
+    reopened.backThere && /score/i.test(reopened.scoreToggle ?? ''),
+    `back=${reopened.backThere}, toggle="${reopened.scoreToggle}"`);
   check('…with the review up under it',
     reopened.reviewShowing === true,
     `#playback showing=${reopened.reviewShowing}`);

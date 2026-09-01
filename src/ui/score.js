@@ -922,8 +922,25 @@ function openScoreButton() {
 function showScanReview(analysis) {
   const title = el('score-review-title');
   if (title) title.textContent = current.name ?? '';
+  // THE TALLY IS NOT SAID AT THE TOP OF THE SCREEN ANY MORE, in either of the
+  // two places it was being said. "get rid of the two places at the top where
+  // it says you played x notes out of y notes in tune and everything."
+  //
+  // It was on this line AND on the app's own status line, so a player arriving
+  // at the Score tab met the same sentence twice, once under the header and
+  // once under the title — MEASURED, both on screen together at 1024px wide.
+  // Everything in it is on the review underneath in a form you can act on: the
+  // notes are boxes you can press, the graph is coloured by how each one
+  // landed, and the pulse has its own line. A count of them at the top is a
+  // score out of ten for the take you have just played, which is not what this
+  // app is for.
+  //
+  // The row itself stays: the ⤢ that opens the music full screen sits in it,
+  // and the review appends its own sentences about the pairing and the
+  // barlines to it — those say what the app COULD NOT do, which is worth
+  // reading and is not a tally.
   const summary = el('score-tab-summary');
-  if (summary) summary.textContent = scanSummary(analysis);
+  if (summary) summary.textContent = '';
 
   // On BOTH screens, because the sentence and the button were on different
   // ones.
@@ -968,6 +985,7 @@ function showScanReview(analysis) {
 // Through to the review, which is where the page now is.
 function reviewButton() {
   const button = document.createElement('button');
+  button.id = 'score-see';
   button.className = 'ctl primary';
   button.type = 'button';
   button.textContent = 'See it on the score →';
@@ -1015,7 +1033,10 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
       takeDate: Date.now(),
     };
     showScanReview(analysis);
-    status(`${current.name} — ${scanSummary(analysis)}`);
+    // …and the second of the two places it was said. `status` is the app's own
+    // line under the header, shown on every tab, so this put the tally over the
+    // Record tab as well as the Score tab.
+    status(current.name ?? '');
     // Drawn now if the player is already on the Score tab, exactly as a take
     // against notation is: waiting for a tab switch that may never come leaves
     // somebody looking at last week's page.

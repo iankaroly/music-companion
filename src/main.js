@@ -115,6 +115,11 @@ const tabs = initLiquidTabs({
     // The playback panel is one node shared by both views of the review, so
     // whichever tab is leaving hands it back before the arriving one takes it.
     if (previous === 'score') onScoreTabHidden();
+    // Leaving the library hands `#report` and `#score-stage` back to the tabs
+    // they live in, so neither is ever missing from the screen that owns it —
+    // and pressing Library again lands on the list, which is what "click on the
+    // tab at the bottom to bring you back to the library" asks for.
+    if (previous === 'library' && name !== 'library') closeTakeInLibrary();
     if (name === 'score') {
       onScoreTabShown();
       // Only now does the panel have a width to engrave into.
@@ -1128,6 +1133,89 @@ function formatDuration(seconds) {
 // from: which tab asked. A take opened from a piece's shelf belongs on the
 // Score tab — you went looking for it under the music, and the music is what
 // you want it read against.
+// A TAKE OPENS WHERE IT WAS FOUND.
+//
+// The review (`#report`) and the page (`#score-stage`) are each ONE node, lived
+// in by every view of them — there is no second copy to render into. So they
+// are borrowed into the library's take view and handed back on the way out,
+// which is exactly what `#score-dock` has always done for the playback panel.
+// Each node's own parent and next sibling are remembered, so handing them back
+// cannot reorder the Record tab's review.
+const LIBRARY_BORROWS = [
+  { id: 'report', into: 'library-take-report' },
+  { id: 'score-stage', into: 'library-take-stage' },
+];
+let libraryBorrowed = null;
+
+function openTakeInLibrary(name, hasScore) {
+  const view = document.querySelector('#library-take');
+  const list = document.querySelector('#library');
+  if (!view || !list || libraryBorrowed) return;
+  libraryBorrowed = [];
+  for (const { id, into } of LIBRARY_BORROWS) {
+    const node = document.querySelector(`#${id}`);
+    const host = document.querySelector(`#${into}`);
+    if (!node || !host) continue;
+    libraryBorrowed.push({ node, home: node.parentNode, nextSibling: node.nextSibling });
+    host.append(node);
+  }
+  libraryTakeHasScore = !!hasScore;
+  const title = document.querySelector('#library-take-title');
+  if (title) title.textContent = name ?? 'Take';
+  list.hidden = true;
+  view.hidden = false;
+  view.classList.remove('no-score');
+  // NO WAY THROUGH TO THE SCORE TAB FROM HERE, because the page is already on
+  // the screen: "there shouldnt be a see on score option. it should just show
+  // the score and then put an option to hide and show it." The button is right
+  // where it lives — on the review you land on after recording, where the page
+  // is further down and a way to it is worth having.
+  const see = document.querySelector('#score-see');
+  if (see) see.hidden = true;
+  showScoreInLibrary(true);
+}
+
+function closeTakeInLibrary() {
+  const view = document.querySelector('#library-take');
+  const list = document.querySelector('#library');
+  if (!libraryBorrowed) return;
+  for (const { node, home, nextSibling } of libraryBorrowed) {
+    if (nextSibling && nextSibling.parentNode === home) home.insertBefore(node, nextSibling);
+    else home.append(node);
+  }
+  libraryBorrowed = null;
+  const see = document.querySelector('#score-see');
+  if (see) see.hidden = false;
+  if (view) view.hidden = true;
+  if (list) list.hidden = false;
+}
+
+// Whether the page is showing under the take. Only offered where there IS a
+// page: a take played with no piece attached has nothing to hide.
+//
+// ASKED OF THE TAKE, NOT OF THE STAGE. Whether the stage has anything in it was
+// the obvious test and it is the wrong one — the page is engraved a moment
+// AFTER the review is drawn, so at the instant the take opens the stage is
+// empty and the button hid itself for every take, including the ones that had a
+// score. What decides this is whether the take was played from a piece, which
+// is known before any of it is drawn.
+let libraryTakeHasScore = false;
+
+function showScoreInLibrary(on) {
+  const view = document.querySelector('#library-take');
+  const button = document.querySelector('#library-take-score');
+  if (!view || !button) return;
+  button.hidden = !libraryTakeHasScore;
+  view.classList.toggle('no-score', libraryTakeHasScore && !on);
+  button.textContent = on ? 'Hide the score' : 'Show the score';
+}
+
+document.querySelector('#library-take-back')?.addEventListener('click', closeTakeInLibrary);
+document.querySelector('#library-take-score')?.addEventListener('click', () => {
+  const view = document.querySelector('#library-take');
+  showScoreInLibrary(view?.classList.contains('no-score') ?? false);
+});
+
 async function openRecording(r, { from = 'library' } = {}) {
   const data = await loadRecording(r.id);
   if (!data) return;
@@ -1150,7 +1238,13 @@ async function openRecording(r, { from = 'library' } = {}) {
   // review is not in it — `renderFreeReview` draws into `#report`, which lives
   // there. Landing on the Library would leave somebody looking at the row they
   // just pressed.
-  showTab(from === 'score' ? 'score' : 'analyze');
+  // …AND FROM THE LIBRARY IT STAYS IN THE LIBRARY. It used to jump to the
+  // Record tab, which is where `#report` happens to live — an implementation
+  // detail showing through as a tab switch nobody asked for, and then a second
+  // one if the take had a piece attached.
+  if (from === 'library') openTakeInLibrary(r.name ?? r.piece ?? 'Take', !!r.scoreId);
+  else closeTakeInLibrary();
+  showTab(from === 'score' ? 'score' : from === 'library' ? 'library' : 'analyze');
   renderFreeReview(document, data.notes, rec, {
     readings: data.readings, a4: data.a4, recordingId: r.id,
   });
@@ -1163,6 +1257,9 @@ async function openRecording(r, { from = 'library' } = {}) {
     .then(() => annotateTake(data.notes, {
       readings: data.readings, a4: data.a4, recordingId: r.id,
     }))
+    // The page is drawn a moment after the review, so whether there is one to
+    // hide is not known until here.
+    .then(() => { if (libraryBorrowed) showScoreInLibrary(true); })
     .catch(() => {});
 }
 
