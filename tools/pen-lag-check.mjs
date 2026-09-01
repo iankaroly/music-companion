@@ -90,18 +90,30 @@ if (THROTTLE > 1) await cdp.send('Emulation.setCPUThrottlingRate', { rate: THROT
 
 async function oneStroke(tool) {
   // Pick the nib. The bar is only there once the reader is drawing.
-  await page.evaluate((want) => {
-    // THE PENCIL BUTTON IS A TOGGLE. Pressing it unconditionally turned drawing
-    // OFF for every tool after the first, and the run reported "the stroke did
-    // not form" for a nib that was never given a chance to draw.
+  // THE BUTTON IS `#reader-annotate`, and `#reader-pencil` DOES NOT EXIST.
+  //
+  // The first version of this clicked that id, which matched nothing — and the
+  // run still drew, because a pointerType of 'pen' arms the pencil whatever
+  // tool is showing. So it looked like it was working while both rows measured
+  // the SAME nib, and the two numbers it printed under different names were
+  // one number printed twice. Found by looking for the button in the DOM.
+  //
+  // The nib is picked off the row that comes out with the tool, and which nib
+  // ended up selected is READ BACK rather than assumed.
+  const picked = await page.evaluate((want) => {
     if (!document.querySelector('#reader')?.classList.contains('drawing')) {
-      document.querySelector('#reader-pencil')?.click();
+      document.querySelector('#reader-annotate')?.click();
     }
-    const nib = [...document.querySelectorAll('.brush-nib')]
-      .find((n) => (n.dataset.nib ?? n.className).includes(want));
+    const nib = document.querySelector(`#reader-ink-row .ink-nib[data-nib="${want}"]`);
     nib?.click();
+    return document.querySelector('#reader-ink-row .ink-nib.on')?.dataset.nib ?? null;
   }, tool);
   await wait(400);
+  if (picked !== tool) {
+    console.log(`  ${tool.padEnd(12)} COULD NOT SELECT THAT NIB — it is "${picked}";`
+      + ' the row below would be about the wrong pen');
+    return null;
+  }
 
   await page.evaluate(() => {
     window.__late = [];
@@ -180,7 +192,7 @@ const median = (xs) => {
 // compiling its paths, and the run measured a nib that had not started yet — the
 // first tool through here reported 0 points of 320. Every tool is now measured
 // in the same state as every other.
-await page.evaluate(() => document.querySelector('#reader-pencil')?.click());
+await page.evaluate(() => document.querySelector('#reader-annotate')?.click());
 await wait(600);
 await page.evaluate(async ({ w, h }) => {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -199,7 +211,9 @@ await wait(500);
 console.log(`\n  ${MOVES} pointer moves in one stroke, CPU throttled ${THROTTLE}x\n`);
 console.log('  nib          first quarter        last quarter       worst   drawn in');
 for (const tool of ['ballpoint', 'pencil']) {
-  const { late, drawnMs, drew } = await oneStroke(tool);
+  const got = await oneStroke(tool);
+  if (!got) continue;
+  const { late, drawnMs, drew } = got;
   if (late.length < 8) { console.log(`  ${tool.padEnd(12)} no samples`); continue; }
   if (drew < MOVES * 0.5) {
     console.log(`  ${tool.padEnd(12)} THE STROKE DID NOT FORM — ${drew} points of ${MOVES};`

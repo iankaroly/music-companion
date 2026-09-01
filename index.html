@@ -1976,6 +1976,124 @@
     /* The mixer. Hue, saturation, brightness and transparency rather than a
        fixed set of pens, because "a bit lighter than that red" is a thing you
        want at the stand and a palette of six can never have. */
+    /* ---- the row that comes out with the pen ----------------------------
+       Asked for by name, with a picture of GoodNotes: pick a tool and a second
+       row appears under the bar carrying that tool's own choices, with the undo
+       pair moved down into a little pill of its own on the left.
+
+       TWO PILLS, NOT ONE, and the gap between them is doing work. Undo and redo
+       are about the PAGE and are the same two buttons whatever is in your hand;
+       everything to their right is about the TOOL and changes with it. Run
+       together they read as one row of equals, and the pair then slides left
+       and right as the tool's controls change width — so the two buttons you
+       reach for without looking move under your thumb. */
+    #reader-ink-row {
+      position: fixed;
+      z-index: 3;
+      left: 50%;
+      transform: translateX(-50%);
+      top: calc(max(0.6rem, env(safe-area-inset-top, 0px)) + 3.9rem);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      max-width: calc(100vw - 1rem);
+    }
+    #reader-ink-row[hidden] { display: none; }
+    #reader.bare #reader-ink-row {
+      opacity: 0;
+      pointer-events: none;
+      transform: translateX(-50%) translateY(-0.6rem);
+    }
+    .ink-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.15rem;
+      padding: 0.3rem 0.45rem;
+      border-radius: 999px;
+      background: rgb(var(--sf) / 0.92);
+      -webkit-backdrop-filter: blur(26px) saturate(1.8);
+      backdrop-filter: blur(26px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 10px 26px rgb(var(--sh) / 0.2);
+    }
+    /* The tool's own half is the one that can outgrow a phone. It scrolls
+       sideways rather than wrapping: a second line here would push the music
+       down every time a pen came out. `edge:fit` allows anything inside a
+       sideways scroller past the edge, which is exactly this case. */
+    .ink-pill.is-main { overflow-x: auto; scrollbar-width: none; }
+    .ink-pill.is-main::-webkit-scrollbar { display: none; }
+    .ink-nibs, .ink-widths, .ink-colours { display: flex; align-items: center; gap: 0.15rem; }
+    .ink-colours { gap: 0.3rem; padding: 0 0.15rem; }
+    .ink-sep {
+      width: 1px;
+      align-self: stretch;
+      margin: 0.15rem 0.35rem;
+      background: var(--glass-line);
+      flex: 0 0 1px;
+    }
+    .ink-nib, .ink-width, .ink-custom {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 0;
+      background: none;
+      cursor: pointer;
+      padding: 0;
+      flex: 0 0 auto;
+    }
+    .ink-nib {
+      width: 2.3rem;
+      height: 2.1rem;
+      gap: 0.1rem;
+      border-radius: 0.7rem;
+      transition: background 140ms;
+    }
+    /* The pen in hand, lit the way the picture lights it: a soft tinted panel
+       behind the nib rather than a border, so the mark itself stays the thing
+       you are reading. */
+    .ink-nib.on { background: rgb(var(--accent-rgb, 91 75 138) / 0.16); }
+    .ink-nib .brush-nib-mark { width: 1.35rem; height: 0.95rem; color: var(--muted); }
+    .ink-nib.on .brush-nib-mark { color: var(--ink); }
+    /* The chevron only exists on the nib you are holding, because it is the
+       only one that has anything more to show. */
+    .ink-chevron { display: none; }
+    .ink-nib.on .ink-chevron {
+      display: block;
+      width: 0.42rem;
+      height: 0.42rem;
+      border-right: 1.5px solid var(--muted);
+      border-bottom: 1.5px solid var(--muted);
+      transform: rotate(45deg) translate(-0.06rem, -0.06rem);
+    }
+    /* Thickness drawn as the line it makes, at the weight it makes it. */
+    .ink-width { width: 2.2rem; height: 2.1rem; border-radius: 0.6rem; transition: background 140ms; }
+    .ink-width::before {
+      content: "";
+      width: 1.3rem;
+      height: var(--line, 3px);
+      border-radius: 999px;
+      background: var(--muted);
+    }
+    .ink-width.on { background: var(--fill); }
+    .ink-width.on::before { background: var(--ink); }
+    #reader-ink-row .reader-swatch { width: 1.5rem; height: 1.5rem; }
+    /* The dashed ring at the end: a colour that is not one of the four. */
+    .ink-custom {
+      width: 1.5rem;
+      height: 1.5rem;
+      border-radius: 999px;
+      border: 1.5px dashed var(--muted);
+      position: relative;
+    }
+    .ink-custom::before, .ink-custom::after {
+      content: "";
+      position: absolute;
+      background: var(--muted);
+      border-radius: 999px;
+    }
+    .ink-custom::before { width: 0.6rem; height: 1.5px; }
+    .ink-custom::after { width: 1.5px; height: 0.6rem; }
+
     #reader-brush {
       position: fixed;
       z-index: 3;

@@ -186,6 +186,11 @@ const NIBS = [
 // same four or five nibs where they left them.
 const SIZE_DOTS = [0.03, 0.07, 0.14, 0.28, 0.55, 1];
 
+// The three that go on the row under the bar: thin, medium, thick. All six are
+// still a tap away behind the chevron — six laid out flat is a slider drawn as
+// buttons, and none of them is a decision.
+const ROW_WIDTHS = [SIZE_DOTS[1], SIZE_DOTS[3], SIZE_DOTS[5]];
+
 // A full palette, because "any colour you want" is the ask and a mixer alone is
 // not an answer — mixing is for the colour you cannot find here.
 const PALETTE = [
@@ -3120,6 +3125,13 @@ function setTool(next) {
   if (INKS.includes(tool)) lastInk = tool;
   if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
+  // THE ROW COMES OUT WITH THE TOOL and goes back with it. It carries that
+  // tool's own choices, so it has nothing to say when nothing is in your hand
+  // — and the lasso and the stamps have no nib, no width and no colour, so it
+  // stays down for those too rather than showing four controls that would be
+  // about a pen you are not holding.
+  const row = el('reader-ink-row');
+  if (row) row.hidden = !(tool === 'pen' || tool === 'highlighter');
   placeRecordButton();   // it lives in whichever bar is showing
   for (const button of root.querySelectorAll('[data-tool]')) {
     const on = button.dataset.tool === tool;
@@ -3253,6 +3265,18 @@ function closeBrush() {
   el('reader-brush')?.classList.remove('open');
 }
 
+// Opened rather than toggled, for the doors that only ever mean "show me the
+// rest of it" — the dashed ring at the end of the colours is one. Toggling
+// there shuts the case on somebody who has just asked to mix a colour.
+function openBrush() {
+  const panel = el('reader-brush');
+  if (!panel) return;
+  if (!tool) setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
+  panel.classList.add('open');
+  hangBelowBar(panel);
+  refreshBrushUI();
+}
+
 function toggleBrush() {
   const panel = el('reader-brush');
   if (!panel) return;
@@ -3286,7 +3310,12 @@ function toggleBrush() {
 // ends at 58. Found by `npm run app:reach`.
 function hangBelowBar(panel) {
   const bar = tool ? el('reader-ink-bar') : el('reader-top');
-  const bottom = bar ? bar.offsetTop + bar.offsetHeight : 0;
+  let bottom = bar ? bar.offsetTop + bar.offsetHeight : 0;
+  // …AND BELOW THE TOOL'S OWN ROW WHERE THERE IS ONE. The case is opened from
+  // the chevron ON that row, so hanging it off the bar alone opens it straight
+  // through the control that was just pressed.
+  const row = el('reader-ink-row');
+  if (row && !row.hidden) bottom = Math.max(bottom, row.offsetTop + row.offsetHeight);
   panel.style.top = `${Math.round(bottom + 8)}px`;
 }
 
@@ -3316,16 +3345,33 @@ function refreshBrushUI() {
   panel.style.setProperty('--brush-solid', brushCss({ ...brush, a: 1 }));
   panel.style.setProperty('--brush-hue', `hsl(${Math.round(brush.h)} 100% 50%)`);
 
-  for (const button of panel.querySelectorAll('[data-nib]')) {
+  // ACROSS THE WHOLE READER, not just the panel: the nibs, the widths and the
+  // colours are now in two places at once — the row under the bar and the case
+  // behind the chevron — and a selected state painted in only one of them is
+  // how the two come to disagree about which pen you are holding.
+  for (const button of root.querySelectorAll('[data-nib]')) {
     const on = button.dataset.nib === brush.nib;
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
   }
-  for (const button of panel.querySelectorAll('[data-size]')) {
+  for (const button of root.querySelectorAll('[data-size]')) {
     const size = Number(button.dataset.size);
     button.classList.toggle('on', Math.abs(size - brush.width) < 0.005);
   }
-  for (const button of panel.querySelectorAll('[data-colour]')) {
+  // THE ROW'S THREE MARK THE NEAREST, not an exact match. It carries three of
+  // the six, so a width chosen from the full case would otherwise light none of
+  // them and the row would read as though no thickness were set at all.
+  {
+    let best = null;
+    for (const button of root.querySelectorAll('[data-rowsize]')) {
+      const gap = Math.abs(Number(button.dataset.rowsize) - brush.width);
+      if (!best || gap < best.gap) best = { button, gap };
+    }
+    for (const button of root.querySelectorAll('[data-rowsize]')) {
+      button.classList.toggle('on', button === best?.button);
+    }
+  }
+  for (const button of root.querySelectorAll('[data-colour]')) {
     button.classList.toggle('on', button.dataset.colour.toLowerCase() === hexOf(brush));
   }
   for (const button of panel.querySelectorAll('[data-eraser]')) {
@@ -4648,15 +4694,127 @@ function buildInkBar() {
     toolButton('eraser', 'eraser', 'Rub out'),
     // Whether a finger writes on the music or only works the app.
     iconButton('reader-finger', 'finger', 'Let your finger write', toggleFingerInk),
-    ...PRESETS.map((_, i) => presetSwatch(i)),
-    iconButton('reader-undo', 'undo', 'Undo', undo),
-    iconButton('reader-redo', 'redo', 'Redo', redo),
+    // THE COLOURS AND THE UNDO PAIR HAVE MOVED DOWN, onto the row that appears
+    // with the tool. Both were on this bar because there was nowhere else to
+    // put them; there is now, and it is beside the pen they belong to.
     iconButton('reader-clear', 'clear', 'Clear this page', clearPage),
     iconButton('reader-layers', 'layers', 'Layers', openLayerMenu),
     iconButton('reader-reset-zoom', 'fit', 'Back to the whole page', resetZoom),
   );
   bar.querySelector('#reader-reset-zoom').hidden = true;
   return bar;
+}
+
+// THE ROW THAT COMES OUT WITH THE PEN.
+//
+// Asked for by name, with a picture: pick a tool and a second row appears under
+// the bar carrying that tool's own choices — which nib, how thick, what colour
+// — and the undo pair moves down into it, on a little pill of its own.
+//
+// It is two pills rather than one because they are two different things. Undo
+// and redo are about the PAGE and are the same two buttons whatever is in your
+// hand; everything to their right is about the TOOL and changes with it. A
+// single strip makes those look like one row of equals, and the pair then
+// drifts left and right as the tool's own controls change width — the two
+// buttons you reach for without looking move under your thumb.
+//
+// The full pen case is still behind the chevron on the nib you are holding:
+// every size rather than three, the whole palette, the mixer, and drawing
+// under the notes. This row is the handful worth a single tap.
+function buildInkRow() {
+  const row = document.createElement('div');
+  row.id = 'reader-ink-row';
+  row.hidden = true;
+
+  const history = document.createElement('div');
+  history.className = 'ink-pill is-history';
+  history.append(
+    iconButton('reader-undo', 'undo', 'Undo', undo),
+    iconButton('reader-redo', 'redo', 'Redo', redo),
+  );
+
+  const main = document.createElement('div');
+  main.className = 'ink-pill is-main';
+
+  const nibs = document.createElement('div');
+  nibs.className = 'ink-nibs';
+  nibs.append(...NIBS.map(rowNib));
+
+  const widths = document.createElement('div');
+  widths.className = 'ink-widths';
+  // THREE, not the six behind the chevron. A row of six reads as a slider laid
+  // out flat and none of them is a decision; three is thin, medium and thick,
+  // which is what a hand reaching for a pen mid-bar actually wants.
+  widths.append(...ROW_WIDTHS.map(rowWidth));
+
+  const colours = document.createElement('div');
+  colours.className = 'ink-colours';
+  colours.append(...PRESETS.map((_, i) => presetSwatch(i)), rowCustomColour());
+
+  main.append(nibs, sep(), widths, sep(), colours);
+  row.append(history, main);
+  return row;
+}
+
+function sep() {
+  const line = document.createElement('span');
+  line.className = 'ink-sep';
+  line.setAttribute('aria-hidden', 'true');
+  return line;
+}
+
+// The nib, drawn as the mark it makes — the same four marks the pen case uses,
+// so the thing you tapped there is the thing you recognise here.
+function rowNib(nib) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'ink-nib';
+  button.dataset.nib = nib.id;
+  button.title = nib.label;
+  button.setAttribute('aria-label', nib.label);
+  const mark = document.createElement('span');
+  mark.className = `brush-nib-mark is-${nib.id}`;
+  mark.setAttribute('aria-hidden', 'true');
+  const chevron = document.createElement('span');
+  chevron.className = 'ink-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  button.append(mark, chevron);
+  // Tapping the nib you are already holding opens the whole case, which is the
+  // same gesture the tool button itself uses one row up.
+  button.addEventListener('click', () => {
+    if (currentBrush().nib === nib.id) toggleBrush();
+    else setBrush('nib', nib.id);
+  });
+  return button;
+}
+
+function rowWidth(width) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'ink-width';
+  button.dataset.rowsize = String(width);
+  button.style.setProperty('--line', `${Math.max(2, Math.round(2 + width * 9))}px`);
+  button.setAttribute('aria-label', `${width} staff spaces across`);
+  button.addEventListener('click', () => setBrush('width', width));
+  return button;
+}
+
+// The dashed ring at the end of the colours: the way to a colour that is not
+// one of the four, and the door to the mixer that was already there.
+function rowCustomColour() {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.id = 'reader-ink-custom';
+  button.className = 'ink-custom';
+  button.title = 'Another colour';
+  button.setAttribute('aria-label', 'Another colour');
+  button.addEventListener('click', () => {
+    openBrush();
+    const mixer = el('reader-mixer');
+    const custom = el('reader-custom');
+    if (mixer?.hidden && custom) custom.click();
+  });
+  return button;
 }
 
 // What you can do to marks you have picked up. It appears with them and goes
@@ -4793,7 +4951,7 @@ function build() {
   }, { className: 'reader-chip' });
   land.hidden = true;
 
-  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildBrushPanel(),
+  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildInkRow(), buildBrushPanel(),
     buildSelectionBar(), menu, line, land, upNext, aidsElement());
   document.body.append(root);
 
