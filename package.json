@@ -43,7 +43,7 @@
     "scan:bars": "node tools/scan-bars-check.mjs",
     "scan:clef": "node tools/scan-clef-check.mjs",
     "scan:clef-hard": "node tools/scan-clef-hard.mjs",
-    "scan:real": "node tools/real-check.mjs",
+    "scan:real": "node tools/real-take-check.mjs",
     "scan:truth": "node tools/truth-check.mjs",
     "scan:heads-audit": "node tools/head-audit.mjs",
     "reader:mark": "node tools/reader-mark-check.mjs",
@@ -106,7 +106,6 @@
     "scan:pager": "node tools/scan-pager-check.mjs",
     "scan:anchors": "node tools/bar-anchors-check.mjs",
     "scan:guess": "node tools/bar-guess-check.mjs",
-    "scan:real": "node tools/real-take-check.mjs",
     "take:fixture": "node tools/fixture-save-check.mjs",
     "scan:practice": "node tools/practice-runs-check.mjs",
     "reader:record": "node tools/reader-record-check.mjs",
@@ -130,7 +129,8 @@
     "edges:card": "node tools/edges-card-check.mjs",
     "take:save": "node tools/take-save-check.mjs",
     "take:score": "node tools/take-score-check.mjs",
-    "take:tuning": "node tools/tuning-offset-check.mjs"
+    "take:tuning": "node tools/tuning-offset-check.mjs",
+    "take:flute": "node tools/flute-tuning-check.mjs"
   },
   "keywords": [],
   "author": "",
