@@ -130,7 +130,8 @@
     "take:save": "node tools/take-save-check.mjs",
     "take:score": "node tools/take-score-check.mjs",
     "take:tuning": "node tools/tuning-offset-check.mjs",
-    "take:flute": "node tools/flute-tuning-check.mjs"
+    "take:flute": "node tools/flute-tuning-check.mjs",
+    "app:first": "node tools/first-run-check.mjs"
   },
   "keywords": [],
   "author": "",

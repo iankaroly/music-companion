@@ -106,6 +106,18 @@ function newCaptureContext() {
   const ctx = new AudioContext();
   // start fetching the worklet now too; open() awaits it later
   const module = ctx.audioWorklet.addModule(new URL('./capture-processor.js', import.meta.url));
+  // AND SOMEBODY HAS TO BE LISTENING TO IT IN THE MEANTIME. The fetch is
+  // started here and awaited in `open()`, so on every path that ends before
+  // then — a refused microphone is the ordinary one — the context is closed
+  // underneath it and this rejects with AbortError that nothing has claimed.
+  // MEASURED by `app:first`: pressing Record and saying no threw "Unable to
+  // load a worklet's module" out of the page, on top of the sentence the app
+  // had already written for the player.
+  //
+  // This does NOT swallow it. `open()` still awaits `module` itself and still
+  // throws whatever it says; attaching a handler here only stops an error
+  // nobody is waiting for from being reported as one nobody handled.
+  module.catch(() => {});
   return { ctx, module };
 }
 

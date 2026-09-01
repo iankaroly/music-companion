@@ -1,8 +1,10 @@
 # Practice Partner
 
-A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Built from scratch: every line of DSP is hand-written, zero runtime dependencies, ~28 KB gzipped. Nothing you record leaves your device. The one exception is scanning: importing photographed sheet music sends those pages to a recogniser to be turned into notation, and they are deleted there as soon as they are read — audio never goes anywhere, and you can point the app at your own recogniser instead (Settings → Score recogniser).
+A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Every line of DSP is hand-written: the pitch detection, the segmentation, the time-stretching and the page reading are all in this repo, with no library doing any of it.
 
-**Tuner · Record & analyze · Library · Coach · Metronome**
+**Nothing leaves your device — there is no exception.** No account, no server, no analytics: the app makes no network requests at all once it has loaded. Recordings, scanned pages and everything derived from them live in IndexedDB on the device that made them. Photographed music used to be sent to an optical-music-recognition service; that route was removed rather than switched off, and the pages are now read on the device itself.
+
+**Tuner · Record & analyze · Score · Library · Coach · Metronome**
 
 ## What it does
 
@@ -10,6 +12,7 @@ A practice companion for anyone who plays a pitch — strings, winds, brass or v
 - **Record & analyze** — record anything; every note is detected and scored against equal temperament (configurable A4). The session renders as a scrollable pitch trace colored by intonation (green / amber / red). Click any note to hear it with its neighbors ducked, open a cents-level zoom with play/pause and drag-to-scrub, slow playback to ¼× **without changing pitch** (WSOLA time-stretch), hold the note's exact played pitch as a drone against an in-tune reference (unison or pure fifths, ±4 octaves), or compare it with another rendition of the same pitch from the take.
 - **Timing** — the pulse is inferred from your own onsets, so **no metronome is needed** and every take already in the library can be read for timing. Reports the tempo you implied, a tempo curve, how far the average note sat off the beat, and which notes were early or late — tap one to hear it. Each note is measured against the *local* pulse, so ordinary drift isn't charged to every later note as a mistake; take-wide rushing or dragging is reported separately.
 - **Passages** — mark a span inside a take, name it, and mark the same bars again next session under the same name. The coach then tracks that passage's intonation *and* timing across attempts.
+- **Score** — photograph the music you are playing from, or import a PDF, and read it here: the edges are found and straightened, pages turn from the margins, and a pencil and lasso mark them up. Record while the part is open and the take is filed under that piece. The pages are read on the device — staves, clefs, keys and noteheads — with no service involved.
 - **Library** — save takes (audio + analysis) to IndexedDB and reopen them with the full review.
 - **Coach** — habits mined from every saved take: weekly streak, per-piece and per-passage progress, the notes most worth drilling, a tendency map, and a 14-day trend.
 - **Metronome** — lookahead-scheduled on the audio clock, 20–260 BPM with tempo names, tap tempo, subdivisions (eighths, triplets, sixteenths, shuffle), per-bar accent, practice timer.

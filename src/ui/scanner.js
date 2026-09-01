@@ -1148,12 +1148,6 @@ export async function openScanner() {
         canGive: can ? { width: can.width, height: can.height } : null,
         stills: typeof window.ImageCapture === 'function',
       };
-      const got = cameraSaid.got;
-      console.log('[scanner] camera:', JSON.stringify({
-        got: got ? `${got.width}x${got.height}` : 'unknown',
-        canGive: can?.width?.max ? `${can.width.max}x${can.height?.max ?? '?'}` : 'unstated',
-        ImageCapture: cameraSaid.stills,
-      }));
     }
     if (track && typeof window.ImageCapture === 'function') {
       stills = new window.ImageCapture(track);

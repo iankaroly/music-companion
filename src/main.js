@@ -814,7 +814,17 @@ async function startTakeNow({ from = 'analyze' } = {}) {
     return true;
   } catch (err) {
     rememberGrant(false);
-    say(saying('mic unavailable', err), 'bad');
+    // A REFUSAL IS NOT AN ERROR, IT IS AN ANSWER, and it needs the way back
+    // rather than the browser's word for it. `why()` prefers a thrown message
+    // over its own name, and Chrome's message here is "Permission denied" — so
+    // the first thing a new player saw after pressing the app's one big button
+    // was "mic unavailable — Permission denied", which says what happened and
+    // nothing about what to do. This is the ONLY path that gets its own
+    // sentence, because it is the only one where the player is the fix.
+    say(err?.name === 'NotAllowedError'
+      ? 'the microphone was not allowed — turn it on for this app in your'
+        + ' browser or phone settings, then press Record again'
+      : saying('mic unavailable', err), 'bad');
     takeStateChanged({ recording: false, busy: false });
     return false;
   } finally {
