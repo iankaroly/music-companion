@@ -578,10 +578,40 @@ const onTheRightHead = placed.filter((r) => r.head === r.want).length;
 const offsets = sync.rows
   .filter((r) => Number.isFinite(r.time))
   .map((r) => r.time - (r.at - sync.from) / 1000);
-// The first sample is the press itself and is thrown away: building the buffer
-// for a sixteen-second take happens inside the click, so that one reads about
-// 0.13s where every one after it reads 0.04. Measured, printed by OFFSETS=1.
-const steady = offsets.slice(1);
+// THE SETTLING IS FOUND RATHER THAN ASSUMED, AND IT IS BOUNDED.
+//
+// The offset takes a moment to settle — building the buffer for a sixteen-second
+// take happens inside the click — and the samples taken while that is still
+// going on are about the press rather than about the follow. Exactly one used to
+// be thrown away, which is right on a quiet machine and wrong on a busy one.
+// MEASURED with OFFSETS=1 while the suite was running beside it:
+//
+//   0.120  0.020  -0.126  -0.139 -0.142 -0.139 …  (eighty samples, ±0.004)
+//                         -0.155 -0.156 -0.154 …  (the rest, ±0.003)
+//
+// Every SETTLED sample there sits in two plateaus 21ms apart, well inside the
+// 30ms this asks for. The whole failure was sample 1, still on its way down at
+// 0.020 — and `max - min` is defined by its worst outlier, so one unsettled
+// sample decided the verdict. That is a check that goes red when the machine is
+// busy and green when it is not, which costs a real investigation every time.
+//
+// THE TOLERANCE IS NOT TOUCHED. What is fixed is which samples the question is
+// asked of: the ones still settling are dropped, and HOW MANY there were is
+// asserted underneath — so a light that took a second to catch up cannot pass
+// by quietly having its slow samples discarded. That is the property the old
+// `slice(1)` was silently assuming and never checked.
+const SETTLED = 0.03;
+const mid = (xs) => {
+  if (!xs.length) return NaN;
+  const sorted = [...xs].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+};
+const rest = offsets.slice(1);
+// The value it settles AT, taken from the back half where it certainly has.
+const settledValue = mid(rest.slice(Math.floor(rest.length / 2)));
+let settling = 0;
+while (settling < rest.length && Math.abs(rest[settling] - settledValue) > SETTLED) settling += 1;
+const steady = rest.slice(settling);
 const spread = steady.length ? Math.max(...steady) - Math.min(...steady) : Infinity;
 const worstDrift = spread;
 if (process.env.OFFSETS) {
@@ -596,6 +626,13 @@ check('the notehead lit is the one sounding at that moment, every time it is ask
 check('and the moment it reports keeps step with the clock, start to end',
   worstDrift < 0.03,
   `the offset holds within ${worstDrift.toFixed(3)}s across ${steady.length} samples`);
+// The other half of the same question, and the one that stops the line above
+// being satisfied by throwing enough away: the light has to CATCH UP quickly,
+// not merely be steady once it has.
+check('…and it catches up within a sample or two of the press, not seconds',
+  settling <= 3 && steady.length >= 20,
+  `${settling} sample${settling === 1 ? '' : 's'} still settling,`
+  + ` ${steady.length} steady, settled at ${settledValue.toFixed(3)}s`);
 check('the three screenshots caught the light on three different noteheads',
   new Set(shots.filter((s) => s.lit !== null).map((s) => s.head)).size === 3,
   shots.map((s) => (s.lit === null ? 'nothing lit' : `head ${s.head} (p${s.page})`)).join(' → '));
