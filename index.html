@@ -2050,12 +2050,27 @@
       border: 1px solid var(--glass-line);
       box-shadow: 0 10px 26px rgb(var(--sh) / 0.2);
     }
-    /* The tool's own half is the one that can outgrow a phone. It scrolls
-       sideways rather than wrapping: a second line here would push the music
-       down every time a pen came out. `edge:fit` allows anything inside a
-       sideways scroller past the edge, which is exactly this case. */
-    .ink-pill.is-main { overflow-x: auto; scrollbar-width: none; }
-    .ink-pill.is-main::-webkit-scrollbar { display: none; }
+    /* THE TOOL'S OWN HALF WRAPS ON A PHONE, and scrolls on nothing.
+       It scrolled sideways at first, on the reasoning that "a second line here
+       would push the music down every time a pen came out". THAT REASONING WAS
+       WRONG: the row is `position: fixed`, so a second line pushes nothing —
+       it only covers a little more of the page it is already floating over.
+       What the scroller actually cost was MEASURED, controls sitting outside
+       their own pill and reachable only by a sideways drag nobody is told
+       about:
+              320px   8 of 12 hidden        414px   5 of 12
+              375px   6 of 12               820px   0 of 12
+       Every colour and the custom ring, on the phone this is mostly used on.
+       `edge:fit` could not see it either, because it allows anything inside a
+       sideways scroller past the edge — which is exactly what this was.
+       So it wraps, and the history pill takes its own line first so the tools
+       get the whole width to wrap into. */
+    .ink-pill.is-main { flex-wrap: wrap; justify-content: center; }
+    /* On a phone it wraps, and everything on it gets a little smaller so it
+       wraps to as few lines as it can: MEASURED at 320px, three lines and 162px
+       of music covered before this, two lines and 110px after. The 44-point
+       touch target is untouched — the buttons keep their height and lose only
+       the air either side of the mark inside them. */
     .ink-nibs, .ink-widths, .ink-colours { display: flex; align-items: center; gap: 0.15rem; }
     .ink-colours { gap: 0.3rem; padding: 0 0.15rem; }
     .ink-sep {
@@ -2110,6 +2125,13 @@
     }
     .ink-width.on { background: var(--fill); }
     .ink-width.on::before { background: var(--ink); }
+    /* THE COLOURS STAY DOT-SIZED, and that is a trade rather than an oversight.
+       A 44-point target around each of five colours needs 20px of gap between
+       them to avoid overlapping its neighbours — MEASURED, taking the row from
+       47px tall to 88px and pushing a control off the edge of a 320px phone.
+       Every drawing app makes the same trade, the reference this was built from
+       included, and this app's own tool bar has shipped 1.35rem swatches for as
+       long as it has had them. These are a shade larger than those. */
     #reader-ink-row .reader-swatch { width: 1.5rem; height: 1.5rem; }
     /* The dashed ring at the end: a colour that is not one of the four. */
     .ink-custom {
@@ -2127,6 +2149,25 @@
     }
     .ink-custom::before { width: 0.6rem; height: 1.5px; }
     .ink-custom::after { width: 1.5px; height: 0.6rem; }
+
+    /* ON A PHONE IT IS ONE LINE, AND THE NIBS ARE NOT ON IT.
+       Wrapping fixed the controls being unreachable and left something worse to
+       look at: MEASURED at 390px, three rows and 157px of music under a blob,
+       with the undo pair stranded on a line of its own above it. A phone has
+       room for the two things you change mid-bar — how thick and what colour —
+       and not for four pen types as well.
+       So the nibs come off the row here. They are not lost and they do not need
+       a new gesture: tapping the pen you are already holding opens the pen case,
+       which is where every nib, every size, the whole palette and the mixer
+       live, and which this app has done since long before this row existed. */
+    @media (max-width: 700px) {
+      #reader-ink-row { gap: 0.35rem; }
+      .ink-nibs, .ink-sep { display: none; }
+      .ink-pill { padding: 0.25rem 0.4rem; }
+      .ink-width { width: 2rem; }
+      .ink-width::before { width: 1.15rem; }
+      .ink-colours { gap: 0.3rem; padding-left: 0.2rem; }
+    }
 
     #reader-brush {
       position: fixed;

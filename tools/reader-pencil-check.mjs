@@ -254,7 +254,14 @@ check('and turns it back', back === start, `${one} -> ${back}`);
     const r = document.querySelector('#reader-ink-row');
     return !!r && !r.hidden;
   });
-  const nib = await boxOf('#reader-ink-row .ink-nib', 'off');
+  // THE NIBS ARE NOT ON THE ROW ON A PHONE, on purpose: there is room there for
+  // the two things you change mid-bar — how thick and what colour — and not for
+  // four pen types as well, and tapping the pen you are already holding opens
+  // the case that has all of them. So which assertion is right here depends on
+  // the width, and the check asks the screen rather than assuming.
+  const nibsShown = await page.evaluate(() =>
+    [...document.querySelectorAll('#reader-ink-row .ink-nib')].some((n) => n.offsetParent !== null));
+  const nib = nibsShown ? await boxOf('#reader-ink-row .ink-nib', 'off') : null;
   row.askedFor = nib?.key ?? null;
   // TAPPED, not moused. This page is emulated as a phone (`isMobile: true`),
   // and a dispatched mouse event there produces pointer events but never a
@@ -280,11 +287,28 @@ check('and turns it back', back === start, `${one} -> ${back}`);
   const after = (await marks()).count;
 
   check('the row comes out with the pen', row.showing === true);
-  check('pressing a nib on it changes the pen',
-    row.askedFor !== null && row.nibTook === row.askedFor,
-    `asked for ${row.askedFor}, got ${row.nibTook}`
-    + ` — at ${nib?.x?.toFixed(0)},${nib?.y?.toFixed(0)} sits ${nib?.at},`
-    + ` in the row: ${nib?.inRow}, on screen: ${nib?.onScreen}`);
+  if (nibsShown) {
+    check('pressing a nib on it changes the pen',
+      row.askedFor !== null && row.nibTook === row.askedFor,
+      `asked for ${row.askedFor}, got ${row.nibTook}`
+      + ` — at ${nib?.x?.toFixed(0)},${nib?.y?.toFixed(0)} sits ${nib?.at},`
+      + ` in the row: ${nib?.inRow}, on screen: ${nib?.onScreen}`);
+  } else {
+    // Not simply skipped: the way to them has to still be there, or this is a
+    // phone with four pen types and no route to any of them.
+    const caseOpens = await page.evaluate(async () => {
+      const wait2 = (ms) => new Promise((r) => setTimeout(r, ms));
+      document.querySelector('#reader-ink-bar [data-tool="pen"]')?.click();
+      await wait2(400);
+      const open = document.querySelector('#reader-brush')?.classList.contains('open') ?? false;
+      const nibs = document.querySelectorAll('#reader-brush .brush-nib').length;
+      document.querySelector('#reader-ink-bar [data-tool="pen"]')?.click();
+      return { open, nibs };
+    });
+    check('the nibs are off the row on a phone, and the pen case still holds them',
+      caseOpens.open && caseOpens.nibs >= 4,
+      `case opened=${caseOpens.open}, ${caseOpens.nibs} nibs in it`);
+  }
   check('pressing a width on it changes the width',
     row.widthAsked !== null && row.widthTook === row.widthAsked,
     `asked for ${row.widthAsked}, got ${row.widthTook}`);
@@ -294,6 +318,40 @@ check('and turns it back', back === start, `${one} -> ${back}`);
   // The bug itself: those three presses landed on the music and drew.
   check('…and none of those presses left a mark on the page',
     after === before, `${before} marks before, ${after} after`);
+
+  // AND EVERY CONTROL ON IT IS REACHABLE AT EVERY WIDTH A PHONE COMES IN.
+  //
+  // The row scrolled sideways at first rather than wrapping, and `edge:fit`
+  // could not see what that cost because it ALLOWS anything inside a sideways
+  // scroller past the edge — which is exactly what this was. MEASURED then:
+  // eight of twelve controls outside their own pill at 320px, five at 414px,
+  // every colour among them. A control you can only reach by a drag nobody
+  // tells you about is not a control.
+  for (const width of [320, 375, 414, 430]) {
+    await page.setViewport({ width, height: 844, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+    await wait(500);
+    const seen = await page.evaluate(() => {
+      const shown = [...document.querySelectorAll('#reader-ink-row button')]
+        .filter((c) => c.offsetParent !== null);
+      const off = shown.filter((c) => {
+        const b = c.getBoundingClientRect();
+        return b.left < 0 || b.right > window.innerWidth;
+      });
+      // …and the middle of each one has to BE that control, not whatever is
+      // painted over it.
+      const covered = shown.filter((c) => {
+        const b = c.getBoundingClientRect();
+        const at = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+        return !at || (at !== c && !c.contains(at));
+      });
+      return { shown: shown.length, off: off.length, covered: covered.length };
+    });
+    check(`${width}px: every control on the row is on screen and answers`,
+      seen.shown > 0 && seen.off === 0 && seen.covered === 0,
+      `${seen.shown} shown, ${seen.off} off the edge, ${seen.covered} covered`);
+  }
+  await page.setViewport({ ...size, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
+  await wait(400);
 }
 
 console.log('');

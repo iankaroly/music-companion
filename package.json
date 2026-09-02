@@ -1,7 +1,7 @@
 {
   "name": "practice-partner",
   "version": "1.0.0",
-  "description": "A practice companion for anyone who plays a pitch — strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
+  "description": "A practice companion for anyone who plays a pitch \u2014 strings, winds, brass or voice. It listens while you play, tracks every note's pitch and timing, and shows you objective feedback: which notes ran sharp or flat and by how many cents, where the tempo rushed or dragged, and how today's session compares to the last two weeks on the same material. Everything stays on your device.",
   "main": "index.js",
   "scripts": {
     "dev": "vite",
@@ -13,7 +13,7 @@
     "reader:bench": "node tools/reader-bench-run.mjs",
     "reader:pencil": "node tools/reader-pencil-check.mjs",
     "reader:lasso": "node tools/reader-lasso-check.mjs",
-    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/scan-playback-check.mjs && node tools/scan-review-check.mjs && node tools/scan-heads-check.mjs && node tools/scan-pdf-check.mjs && node tools/a11y-prefs-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
+    "reader:check": "node tools/reader-pencil-check.mjs && node tools/reader-pencil-check.mjs ipad && node tools/reader-lasso-check.mjs && node tools/reader-turn-check.mjs && node tools/reader-memory-check.mjs && node tools/reader-round-two-check.mjs && node tools/reader-sweep-check.mjs && node tools/reader-finger-check.mjs && node tools/reader-aids-check.mjs && node tools/reader-rescue-check.mjs && node tools/reader-drag-check.mjs && node tools/reader-stamp-check.mjs && node tools/reader-taps-check.mjs && node tools/audio-route-check.mjs && node tools/scan-analysis-check.mjs && node tools/scan-playback-check.mjs && node tools/scan-review-check.mjs && node tools/scan-heads-check.mjs && node tools/scan-pdf-check.mjs && node tools/a11y-prefs-check.mjs && node tools/reader-targets-check.mjs && node tools/reader-targets-check.mjs ipad",
     "reader:turns": "node tools/reader-turn-check.mjs",
     "reader:memory": "node tools/reader-memory-check.mjs",
     "reader:round2": "node tools/reader-round-two-check.mjs",
