@@ -177,6 +177,125 @@ await tap(W * 0.1, H * 0.6, 12);
 const back = (await state()).page;
 check('and turns it back', back === start, `${one} -> ${back}`);
 
+// --- the row that comes out with the pen, and whether pressing it does anything
+//
+// "none of the options work from the new design in annotation mode. i click on
+// the pen and then try to change something in the drop down and nothing works."
+//
+// The row was added and not added to `CHROME` — the one list of what on top of
+// the music is a CONTROL rather than the page. Four gestures ask that question
+// and the comment above the list says exactly what happens to anything left out
+// of it: "every control added afterwards was a bug waiting in whichever list
+// somebody forgot". So a press on a nib, a width or a colour fell through to
+// the music and DREW A LINE, which is why nothing appeared to work.
+//
+// That is the signature this asserts, and it is stronger than "the button
+// lights up": pressing a control must move the selection AND must not leave a
+// mark on the page. Checking only the first would pass on a build where the
+// selection changed and a stray stroke was laid down behind it.
+{
+  await page.evaluate(() => {
+    if (!document.querySelector('#reader')?.classList.contains('drawing')) {
+      document.querySelector('#reader-annotate')?.click();
+    }
+  });
+  await wait(600);
+  // THE CHROME HAS TO BE UP. The page-turn steps above deliberately leave the
+  // reader `bare`, and bare styles the row `opacity: 0; pointer-events: none`
+  // while leaving its BOX exactly where it was — so `getBoundingClientRect`
+  // hands back a perfectly good rectangle for a control nobody can press, and
+  // the first version of this block spent three assertions tapping an
+  // invisible row. A tap on the music brings the bar back.
+  if (await bare()) { await tap(W * 0.5, H * 0.5, 40); await wait(400); }
+  if (await bare()) { await tap(W * 0.5, H * 0.5, 41); await wait(400); }
+  check('the tool row can be reached at all', await bare() === false,
+    'the reader is still bare, so nothing below could be pressed');
+  const before = (await marks()).count;
+  // PRESSED WHERE THEY ARE, WITH A REAL PEN, and not with `.click()`.
+  //
+  // The first version of this used `element.click()` and PASSED WITH THE BUG
+  // PUT BACK — checked, by putting it back. A synthetic click is dispatched
+  // straight at the element and never goes near the reader's own pointer
+  // handlers, which is the entire mechanism at fault: `onChrome` is asked on
+  // POINTERDOWN, and a control missing from that list has its press treated as
+  // a mark on the music. So the press has to arrive the way a hand's does, at
+  // a coordinate, through the same routing.
+  const boxOf = (sel, pick) => page.evaluate(([s, want]) => {
+    const all = [...document.querySelectorAll(s)];
+    const node = want === 'off' ? all.find((n) => !n.classList.contains('on')) : all[0];
+    if (!node) return null;
+    // BROUGHT INTO VIEW FIRST. The tool's half of the row scrolls sideways on a
+    // phone — deliberately, so a pen coming out never pushes the music down —
+    // and the colours sit at the far end of it. A control scrolled past the
+    // edge of its own pill still reports a rectangle, so tapping its centre
+    // taps whatever is over that spot instead, which is how this failed on the
+    // colours and only on the colours.
+    node.scrollIntoView({ block: 'nearest', inline: 'center' });
+    const b = node.getBoundingClientRect();
+    const x = b.x + b.width / 2;
+    const y = b.y + b.height / 2;
+    const at = document.elementFromPoint(x, y);
+    return {
+      x,
+      y,
+      key: node.dataset.nib ?? node.dataset.rowsize ?? node.dataset.preset ?? null,
+      // What is ACTUALLY at that point — a control scrolled out of its own
+      // pill still reports a perfectly good rectangle.
+      at: at ? `${at.tagName}.${String(at.className).split(' ')[0]}` : 'nothing',
+      inRow: !!at?.closest('#reader-ink-row'),
+      onScreen: x > 0 && y > 0 && x < innerWidth && y < innerHeight,
+    };
+  }, [sel, pick]);
+  const litOf = (sel, attr) => page.evaluate(([s, a]) =>
+    document.querySelector(s)?.dataset?.[a] ?? null, [sel, attr]);
+
+  const row = {};
+  row.showing = await page.evaluate(() => {
+    const r = document.querySelector('#reader-ink-row');
+    return !!r && !r.hidden;
+  });
+  const nib = await boxOf('#reader-ink-row .ink-nib', 'off');
+  row.askedFor = nib?.key ?? null;
+  // TAPPED, not moused. This page is emulated as a phone (`isMobile: true`),
+  // and a dispatched mouse event there produces pointer events but never a
+  // click — so three assertions failed against a build where the control was
+  // sitting right under the coordinate and working. A finger is also what a
+  // player uses on these.
+  if (nib) await tap(nib.x, nib.y, 50);
+  await wait(300);
+  row.nibTook = await litOf('#reader-ink-row .ink-nib.on', 'nib');
+
+  const width = await boxOf('#reader-ink-row .ink-width', 'off');
+  row.widthAsked = width?.key ?? null;
+  if (width) await tap(width.x, width.y, 51);
+  await wait(300);
+  row.widthTook = await litOf('#reader-ink-row .ink-width.on', 'rowsize');
+
+  const swatch = await boxOf('#reader-ink-row .reader-swatch', 'off');
+  row.colourAsked = swatch?.key ?? null;
+  if (swatch) await tap(swatch.x, swatch.y, 52);
+  await wait(300);
+  row.colourTook = await litOf('#reader-ink-row .reader-swatch.on', 'preset');
+  await wait(700);
+  const after = (await marks()).count;
+
+  check('the row comes out with the pen', row.showing === true);
+  check('pressing a nib on it changes the pen',
+    row.askedFor !== null && row.nibTook === row.askedFor,
+    `asked for ${row.askedFor}, got ${row.nibTook}`
+    + ` — at ${nib?.x?.toFixed(0)},${nib?.y?.toFixed(0)} sits ${nib?.at},`
+    + ` in the row: ${nib?.inRow}, on screen: ${nib?.onScreen}`);
+  check('pressing a width on it changes the width',
+    row.widthAsked !== null && row.widthTook === row.widthAsked,
+    `asked for ${row.widthAsked}, got ${row.widthTook}`);
+  check('pressing a colour on it changes the colour',
+    row.colourAsked !== null && row.colourTook === row.colourAsked,
+    `asked for ${row.colourAsked}, got ${row.colourTook}`);
+  // The bug itself: those three presses landed on the music and drew.
+  check('…and none of those presses left a mark on the page',
+    after === before, `${before} marks before, ${after} after`);
+}
+
 console.log('');
 console.log(results.every((r) => r.pass) ? 'ALL PASS' : 'SOME FAILED');
 if (errors.length) console.log('page errors:\n' + [...new Set(errors)].slice(0, 6).join('\n'));

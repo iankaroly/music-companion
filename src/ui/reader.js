@@ -402,7 +402,7 @@ const TOP_REACH = 0.25;
 // forgot. There is one list.
 // `#reader-record` is not listed separately any more: it sits inside
 // `#reader-top`, which is, so a press on it was already not a page turn.
-const CHROME = '#reader-top, #reader-ink-bar, #reader-menu, #reader-brush,'
+const CHROME = '#reader-top, #reader-ink-bar, #reader-ink-row, #reader-menu, #reader-brush,'
   + ' #reader-selection, #reader-land, #reader-aids, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?

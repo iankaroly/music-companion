@@ -277,6 +277,13 @@ const reopened = await page.evaluate(async ({ piece }) => {
     listHidden: document.querySelector('#library')?.hidden === true,
     reportInLibrary: !!document.querySelector('#library-take-report #report'),
     stageInLibrary: !!document.querySelector('#library-take-stage #score-stage'),
+    // THE NODE BEING THERE IS NOT THE MUSIC BEING THERE, and the difference was
+    // a real bug that this check passed straight over: the stage was borrowed
+    // into the library and left EMPTY, because the engraving is deferred until
+    // the Score tab is shown and opening a take here never shows it. "now when
+    // i open a recording from the score it doesnt show it."
+    musicInLibrary: (document.querySelector('#library-take-stage #score-stage')
+      ?.childElementCount ?? 0) > 0,
     backThere: !!document.querySelector('#library-take-back')?.offsetParent,
     scoreToggle: (document.querySelector('#library-take-score')?.offsetParent
       ? document.querySelector('#library-take-score')?.textContent?.trim() : null) ?? null,
@@ -307,8 +314,9 @@ if (reopened.failed) {
     `report in the take view=${reopened.reportInLibrary},`
     + ` view showing=${reopened.takeView}, list hidden=${reopened.listHidden}`);
   check('…and the music with it, rather than a button pointing at another tab',
-    reopened.stageInLibrary && reopened.seeItOnTheScore === false,
+    reopened.stageInLibrary && reopened.musicInLibrary && reopened.seeItOnTheScore === false,
     `stage in the take view=${reopened.stageInLibrary},`
+    + ` with music on it=${reopened.musicInLibrary},`
     + ` "see it on the score" offered=${reopened.seeItOnTheScore}`);
   check('…and a way back to the list, and a way to put the page away',
     reopened.backThere && /score/i.test(reopened.scoreToggle ?? ''),

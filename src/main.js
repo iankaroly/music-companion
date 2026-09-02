@@ -1257,9 +1257,23 @@ async function openRecording(r, { from = 'library' } = {}) {
     .then(() => annotateTake(data.notes, {
       readings: data.readings, a4: data.a4, recordingId: r.id,
     }))
-    // The page is drawn a moment after the review, so whether there is one to
-    // hide is not known until here.
-    .then(() => { if (libraryBorrowed) showScoreInLibrary(true); })
+    // …AND THE PAGE IS ASKED FOR, because nothing else was going to ask.
+    //
+    // The engraving is deliberately deferred until the Score tab is shown —
+    // "an inactive tab panel is display:none, so anything measured inside one
+    // measures zero and the page lays itself out to a width that does not
+    // exist" — and every caller of `renderScoreTab` is gated on that tab being
+    // up. Opening a take in the library never shows it, so the stage was
+    // borrowed in and left empty: the take opened with no music under it.
+    //
+    // The reason for the gate is satisfied here rather than dodged. The stage
+    // is inside the LIBRARY panel, which is the tab that is showing, so it has
+    // a real width to lay out into.
+    .then(async () => {
+      if (!libraryBorrowed) return;
+      await renderScoreTab().catch(() => {});
+      showScoreInLibrary(true);
+    })
     .catch(() => {});
 }
 
