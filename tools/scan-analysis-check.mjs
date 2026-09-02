@@ -93,13 +93,32 @@ check('choosing the scan says what it can and cannot do',
 const reopened = await page.evaluate(async (recId) => {
   const { annotateTake, reviewIsWaiting } = await import('/src/ui/score.js');
   const { loadRecording } = await import('/src/store/db.js');
+  const { renderFreeReview } = await import('/src/ui/report.js');
+  const { Recorder } = await import('/src/audio/recording.js');
   const data = await loadRecording(recId);
+  // THE REVIEW IS DRAWN AS WELL AS THE PAGE, because that is the screen.
+  //
+  // This used to call `annotateTake` alone, which marks the music and nothing
+  // else — so the review underneath was empty and any assertion about what it
+  // reports was being asked of a screen no player ever sees. `openRecording`
+  // does both, in this order, and so does the end of a take.
+  const rec = new Recorder(data.sampleRate ?? 44100);
+  rec.push(data.samples ?? new Float32Array(data.audio ?? new ArrayBuffer(0)));
+  renderFreeReview(document, data.notes, rec, {
+    readings: data.readings, a4: data.a4, recordingId: recId,
+  });
   await annotateTake(data.notes, { readings: data.readings, a4: data.a4, recordingId: recId });
-  await new Promise((r) => setTimeout(r, 700));
+  await new Promise((r) => setTimeout(r, 900));
   const review = document.querySelector('#score-review');
   return {
     reviewShown: review ? !review.hidden : null,
     summary: document.querySelector('#score-tab-summary')?.textContent ?? null,
+    // WHERE THE ANSWERS LIVE NOW that the tally at the top is gone: one box per
+    // note, coloured by how it landed, and the timing panel that is about the
+    // pulse. The whole review's text too, for the claim it must never make.
+    noteBoxes: document.querySelectorAll('#report-grid .degree').length,
+    landingText: (document.querySelector('#landing')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
+    reviewText: (document.querySelector('#report')?.textContent ?? '').replace(/\s+/g, ' ').trim(),
     waiting: reviewIsWaiting(),
     // PRESENT is not the same as reachable, and the difference was the whole
     // bug: the button existed in the document the entire time, on a tab the
@@ -125,14 +144,43 @@ const reopened = await page.evaluate(async (recId) => {
 
 check('reopening the take offers a review at all',
   reopened.reviewShown === true, `#score-review hidden=${!reopened.reviewShown}`);
-check('and it reports intonation, which is the audio and needs no notation',
-  !!reopened.summary && /in tune/i.test(reopened.summary) && /¢/.test(reopened.summary),
-  reopened.summary);
-check('and it reports the pulse the player actually kept',
-  !!reopened.summary && /pulse|even/i.test(reopened.summary), reopened.summary);
+// THESE THREE MOVED RATHER THAN WENT, and the assertion moved with them.
+//
+// They used to require the line at the top of the review to say "N of M notes
+// landed in tune, X¢ from centre, your pulse ran about 86". That line is gone
+// on instruction — "get rid of the two places at the top where it says you
+// played x notes out of y notes in tune and everything" — and it was being said
+// TWICE, on `#score-tab-summary` and on the app's own `#status`, so a player met
+// it under the title and under the header at once.
+//
+// What must not go with it is the app still ANSWERING those questions, so that
+// is what is asked here instead, of the places the answers actually live: a box
+// per note coloured by how it landed, and the timing panel that is about the
+// pulse. A tally is a score out of ten; these are things you can press.
+check('the tally is no longer said at the top of the review',
+  !/in tune/i.test(reopened.summary ?? '') && !/¢/.test(reopened.summary ?? ''),
+  `summary: "${reopened.summary}"`);
+check('…but intonation is still reported, a box per note you can press',
+  reopened.noteBoxes > 0, `${reopened.noteBoxes} note boxes on the review`);
+// THE PULSE IS NOT ASKED FOR HERE, and the reason is worth writing down rather
+// than leaving as a gap. This take is eight notes; eight notes have no pulse to
+// infer, so the app is right to say nothing about one and an assertion here
+// would be asking the fixture for something it cannot produce. Two attempts at
+// it both passed for the wrong reason — first on the word "landing", which is
+// the heading of the panel being read, and then on the ¢ figures beside it,
+// which are about intonation.
+//
+// It IS asserted, on a take long enough to have one: `score:follow` reads
+// `#score-tab-summary .scan-rhythm` and holds it to the route it took. That
+// sentence is a child of the summary row and survives the tally being cleared
+// off it — which the full suite confirms, since score:follow passes.
+// The one claim this review may never make, asked of the WHOLE review rather
+// than of a line that no longer exists — a check whose subject is empty passes
+// for the wrong reason.
 check('and it does NOT claim a written-pitch verdict it cannot have',
-  !!reopened.summary && !/wrong note|written pitch|the printed/i.test(reopened.summary),
-  reopened.summary);
+  reopened.reviewText.length > 0
+    && !/wrong note|written pitch|the printed/i.test(reopened.reviewText),
+  `${reopened.reviewText.length} characters of review`);
 // THIS ASSERTION WAS DROPPED, AND THE DECISION BEHIND IT IS WORTH KEEPING.
 //
 // It used to read:
