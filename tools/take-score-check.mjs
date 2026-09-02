@@ -324,6 +324,7 @@ if (reopened.failed) {
   check('…with the review up under it',
     reopened.reviewShowing === true,
     `#playback showing=${reopened.reviewShowing}`);
+
 }
 
 // --- (4) …and the analysis on the score is the whole analysis --------------
@@ -380,6 +381,44 @@ check('…and they are the Record tab’s own, not a copy',
 check('choosing a duration here puts up the notes that qualified',
   analysis.after > 0 && analysis.listOnScreen,
   `${analysis.before} buttons before, ${analysis.after} after — “${analysis.said}”`);
+
+// AND THE SCORE TAB IS NOT DRAGGED ALONG WITH IT.
+//
+// Opening a take here borrows the page into the library AND selects that
+// take's piece, because that is how its marks get onto the music — two
+// changes to a tab the player was not asking about. Pressing Score afterwards
+// showed the take that had been opened somewhere else, with its page pulled
+// out of the library view mid-look: "it shouldnt show the take on there and
+// drag it from the library tab.. just the menu of scores or watever i last
+// ahd on that tab."
+const overThere = await page.evaluate(async () => {
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  document.querySelector('.tab-btn[data-tab="score"]')?.click();
+  await wait(1200);
+  const stage = document.querySelector('#score-stage');
+  return {
+    tab: document.querySelector('.tab-panel.active')?.id ?? null,
+    // The shelf, not a review of somebody else's take.
+    reviewShowing: document.querySelector('#score-review')?.hidden === false,
+    shelfShowing: document.querySelector('#score-browser')?.offsetParent !== null,
+    // The borrowed nodes are home, and the library has let go of them.
+    reportHome: !document.querySelector('#library-take-report #report'),
+    stageHome: !document.querySelector('#library-take-stage #score-stage'),
+    // …and nothing of the take is left painted on the page it borrowed.
+    stageEmpty: (stage?.childElementCount ?? 0) === 0,
+    takeViewShut: document.querySelector('#library-take')?.hidden !== false,
+  };
+});
+check('pressing Score afterwards lands on the Score tab', overThere.tab === 'tab-score',
+  `landed on ${overThere.tab}`);
+check('…and it shows its own shelf, not the take opened in the library',
+  overThere.shelfShowing && !overThere.reviewShowing && overThere.stageEmpty,
+  `shelf=${overThere.shelfShowing}, a review is up=${overThere.reviewShowing},`
+  + ` stage empty=${overThere.stageEmpty}`);
+check('…and the borrowed page and review went home rather than being dragged there',
+  overThere.reportHome && overThere.stageHome && overThere.takeViewShut,
+  `report home=${overThere.reportHome}, stage home=${overThere.stageHome},`
+  + ` the take view shut=${overThere.takeViewShut}`);
 
 check('nothing was thrown', errors.length === 0, errors.slice(0, 3).join(' | '));
 

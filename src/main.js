@@ -16,6 +16,7 @@ import {
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
+  forgetTakeOnScoreTab,
   takeSaved, currentScoreStats, openScoreFromLibrary, scoreName,
   reviewIsWaiting, showTakeReview, scanPages, askScoreName,
   measurePages, scoreStatus,
@@ -1141,6 +1142,7 @@ function formatDuration(seconds) {
 // which is exactly what `#score-dock` has always done for the playback panel.
 // Each node's own parent and next sibling are remembered, so handing them back
 // cannot reorder the Record tab's review.
+let scoreTabHad = null;
 const LIBRARY_BORROWS = [
   { id: 'report', into: 'library-take-report' },
   { id: 'score-stage', into: 'library-take-stage' },
@@ -1160,6 +1162,11 @@ function openTakeInLibrary(name, hasScore) {
     host.append(node);
   }
   libraryTakeHasScore = !!hasScore;
+  // WHAT THE SCORE TAB HAD BEFORE THIS INTERRUPTED IT. Opening a take here
+  // selects that take's piece, because that is how its marks get onto the
+  // music — and that is a change to another tab, made on the way to somewhere
+  // else. It is put back when the take is closed.
+  scoreTabHad = currentScoreId();
   const title = document.querySelector('#library-take-title');
   if (title) title.textContent = name ?? 'Take';
   list.hidden = true;
@@ -1188,6 +1195,21 @@ function closeTakeInLibrary() {
   if (see) see.hidden = false;
   if (view) view.hidden = true;
   if (list) list.hidden = false;
+  // The nodes are home; now the tab they came from goes back to its shelf.
+  // Order matters — the borrowed page has to be returned before the tab is
+  // told to forget the take, or the clearing empties a stage that is still
+  // sitting in the library.
+  forgetTakeOnScoreTab();
+  // PUT BACK, NEVER TAKEN AWAY. Restoring the piece the tab had is right; but
+  // when it had NONE, "restoring" it meant calling `selectScore(null)` — which
+  // deselects whatever has been chosen since, and there is a path that chooses
+  // one legitimately in between. MEASURED by `app:sweep`: the take was
+  // annotated against no piece at all and the review came back with 0 rings on
+  // it where it wants at least 4. Forgetting the take is enough to put the
+  // shelf up; the selection is only ever handed back, never cleared.
+  const back = scoreTabHad;
+  scoreTabHad = null;
+  if (back) selectScore(back).catch(() => {});
 }
 
 // Whether the page is showing under the take. Only offered where there IS a

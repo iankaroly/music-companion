@@ -739,6 +739,27 @@ function resetSheet() {
   clearScoreTab();
 }
 
+// THE SCORE TAB IS GIVEN BACK WHAT IT HAD.
+//
+// Opening a take in the library borrows the page into that tab — and it also
+// SELECTS that take's piece and builds its review, because that is how the
+// marks get onto the music. Both of those are changes to the Score tab, so
+// pressing Score afterwards showed the take that had been opened somewhere
+// else: "if i open a take in the library with the score, and then click the
+// score tab, it shouldnt show the take on there and drag it from the library
+// tab.. just the menu of scores or watever i last ahd on that tab."
+//
+// The take is forgotten here so the tab goes back to its shelf. What piece was
+// chosen before is the caller's to remember and restore, because only it knows
+// there was an interruption.
+export function forgetTakeOnScoreTab() {
+  view?.destroy?.();
+  view = null;
+  ready = null;
+  drewWithRead = -1;
+  clearScoreTab();
+}
+
 // Used when the take itself goes away, not merely its page.
 export function clearSheet() {
   pending = null;
@@ -1094,7 +1115,10 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
 
   const summary = document.createElement('p');
   summary.id = 'score-summary';
-  summary.textContent = ready.summary;
+  // The tally is not said at the top here either — same instruction, same
+  // reason as the scanned review: "get rid of the line at the top of the
+  // recorded take that says you played x out of y notes in tune".
+  summary.textContent = '';
   sheet.before(summary);
 
   const open = document.createElement('button');
@@ -1169,7 +1193,7 @@ async function renderScanTab() {
     waiting.textContent = pageCount === 1
       ? 'Reading the page, so every note can be put where it belongs…'
       : `Reading the ${pageCount} pages, so every note can be put where it belongs…`;
-    mountScore(waiting, ready.summary);
+    mountScore(waiting, '');
     // No `standAside` handed over on purpose: that argument is the reader's,
     // for keeping a page turn instant, and there are no page turns here. The
     // pass narrates its own progress.
@@ -1188,10 +1212,10 @@ async function renderScanTab() {
     ]);
     payload = await loadScorePages(current.id).catch(() => payload);
     drewWithRead = (payload?.layout ?? []).filter(Boolean).length;
-    status(`${current.name} — ${ready.summary}`);
+    status(current.name ?? '');
   }
   const page = document.createElement('div');
-  const stage = mountScore(page, ready.summary);
+  const stage = mountScore(page, '');
   if (!stage) return null;
 
   try {
@@ -1638,7 +1662,7 @@ async function renderScoreTabOnce() {
   if (ready.plain) return renderScanTab();
 
   const page = document.createElement('div');
-  const stage = mountScore(page, ready.summary);
+  const stage = mountScore(page, '');
   if (!stage) return null;
 
   // Engrave FIRST and paint only once the reconciliation is known to be
