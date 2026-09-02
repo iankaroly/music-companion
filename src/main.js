@@ -111,6 +111,10 @@ const tabs = initLiquidTabs({
   // and disappeared with the score and restoring stranded you on a blank
   // panel with no way out.)
   initial: localStorage.getItem('tab') ?? 'tuner',
+  // Pressing the tab you are already on takes you back to the top of it. Only
+  // the library has anywhere to go back FROM today — a take opened in place —
+  // and the press is the way out of it that does not need a button found.
+  onReselect: (name) => { if (name === 'library') closeTakeInLibrary(); },
   onShown: (name, previous) => {
     localStorage.setItem('tab', name);
     // The playback panel is one node shared by both views of the review, so

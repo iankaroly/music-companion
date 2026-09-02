@@ -6,7 +6,7 @@
 const SPRING = 'transform 420ms cubic-bezier(0.3, 1.35, 0.45, 1), width 420ms cubic-bezier(0.3, 1.35, 0.45, 1)';
 const SLIDE = 'transform 320ms cubic-bezier(0.25, 0.9, 0.3, 1)';
 
-export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
+export function initLiquidTabs({ nav, panes, order, initial, onShown, onReselect }) {
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
   const buttons = new Map(
     [...nav.querySelectorAll('.tab-btn')].map((b) => [b.dataset.tab, b]),
@@ -153,7 +153,23 @@ export function initLiquidTabs({ nav, panes, order, initial, onShown }) {
 
   // --- dock input -----------------------------------------------------------
 
-  for (const [name, b] of buttons) b.addEventListener('click', () => show(name));
+  // A PRESS ON THE TAB YOU ARE ALREADY ON IS NOT NOTHING.
+  //
+  // `show` returns early for it — rightly, there is no slide to make — and
+  // `setActive` is the only thing that calls `onShown`, so a second press on
+  // the tab you are standing on was heard by nobody. That is the press that
+  // should take you back to the top of that tab: "if i have a recording open
+  // in library, and i click the library tab at the bottom again, it should go
+  // back to the main library".
+  //
+  // TOLD FROM THE CLICK AND NEVER FROM `show`, which is the part that matters.
+  // `showTab` reaches `show` too, and main.js calls `showTab('library')` at the
+  // moment it OPENS a take there — so a reselect fired from inside `show` would
+  // close the take view in the same breath as opening it.
+  for (const [name, b] of buttons) b.addEventListener('click', () => {
+    if (name === current) onReselect?.(name);
+    show(name);
+  });
   nav.addEventListener('keydown', (e) => {
     const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
     if (!step) return;

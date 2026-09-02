@@ -256,5 +256,126 @@ for (const count of [0, 60, 200]) {
     + `${`${Math.max(0, ...during).toFixed(0)}ms`.padEnd(11)}`
     + `${`${Math.max(0, ...after).toFixed(0)}ms`.padEnd(20)}${drawnMs}ms`);
 }
+
+// ── AND THE SAME STROKE ON A PHOTOGRAPHED PAGE, ZOOMED IN ───────────────────
+//
+// The condition this instrument could not see, and the one the owner is
+// annotating in: a SCAN rather than engraved notation, magnified. Everything
+// above is measured on notation at zoom 1, where the page is drawn once and
+// never re-rasterised.
+//
+// WHAT IS SUSPECTED, from reading the input path: a pencil is deliberately
+// never counted in `pointers` — src/ui/reader.js says so at the pen branch,
+// because a pencil is never one of the fingers of a pinch. The consequence is
+// at the tail of the shared pointerup handler: `if (pointers.size === 0 &&
+// isPaper() && zoom > 1) redrawPaperAtZoom()`. With the pen uncounted, that
+// condition is TRUE AT EVERY PEN LIFT — so finishing a stroke on a zoomed scan
+// schedules a full re-raster of the visible band at innerWidth*zoom by
+// innerHeight*zoom, 220ms later, for a gesture that changed no zoom at all.
+async function paperRun(onePage = false) {
+  await page.evaluateOnNewDocument(() => {});
+  await page.evaluate((one) => { window.__ONEPAGE = one; }, onePage);
+  await page.evaluate(async () => {
+    const db = await import('/src/store/db.js');
+    const reader = await import('/src/ui/reader.js');
+    const mk = async (label) => {
+      const c = document.createElement('canvas');
+      c.width = 1200; c.height = 4400;
+      const g = c.getContext('2d');
+      g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height);
+      g.fillStyle = '#111';
+      for (let st = 0; st < 18; st += 1) {
+        const y = 220 + st * 230;
+        for (let k = 0; k < 5; k += 1) g.fillRect(150, y + k * 12, 900, 3);
+        for (let d = 0; d < 26; d += 1) {
+          g.beginPath();
+          g.ellipse(180 + d * 34, y + 12 + (d % 5) * 12, 9, 7, 0, 0, Math.PI * 2);
+          g.fill();
+        }
+      }
+      g.font = '34px sans-serif';
+      g.fillText(label, 160, 160);
+      return new Promise((r) => c.toBlob(r, 'image/jpeg', 0.85));
+    };
+    // ONE PAGE OR TWO, because that is the discriminator. A cost paid once,
+    // right at the end of the first stroke on a freshly opened page, is what
+    // the neighbour look-ahead looks like — it stands aside while a hand is on
+    // the glass and runs the moment the hand comes off. With no neighbour to
+    // decode there is nothing for it to do, so if the block survives a
+    // single-page score it is something else.
+    const many = !window.__ONEPAGE;
+    const pages = many ? [await mk('page 1'), await mk('page 2')] : [await mk('page 1')];
+    const id = await db.savePagesScore({
+      name: 'Pen lag paper', source: 'photo', pageCount: pages.length, pages, raws: pages,
+    });
+    await db.saveAnnotations(id, []);
+    await reader.openReader({ id, name: 'Pen lag paper', kind: 'pages', source: 'photo' });
+    await new Promise((r) => setTimeout(r, 4000));
+  });
+  await wait(800);
+
+  // Zoomed IN, through the menu, which is the door a hand uses.
+  const zoomed = await page.evaluate(async () => {
+    const wait2 = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let i = 0; i < 2; i += 1) {
+      // THE CHROME HAS TO BE UP FIRST. The reader goes `bare` after any
+      // interaction — that is the point of it — and a bare reader's menu button
+      // is translated off the top of the screen. Clicking it then does nothing,
+      // silently, and the run measures an unzoomed page while believing it
+      // zoomed: the first two versions of this reported `zoom 1` as though the
+      // expensive path had been entered.
+      if (document.querySelector('#reader')?.classList.contains('bare')) {
+        document.querySelector('#reader-sheet, #reader')?.click();
+        await wait2(400);
+      }
+      document.querySelector('#reader-menu-btn')?.click();
+      await wait2(350);
+      const row = [...document.querySelectorAll('.reader-menu-row')]
+        .find((n) => /^Bigger$/.test((n.querySelector('b')?.textContent ?? '').trim()));
+      row?.click();
+      await wait2(600);
+    }
+    const { readerState } = await import('/src/ui/reader.js');
+    return readerState().zoom;
+  });
+  await page.evaluate(() => {
+    if (!document.querySelector('#reader')?.classList.contains('drawing')) {
+      document.querySelector('#reader-annotate')?.click();
+    }
+  });
+  await wait(600);
+  // TWO STROKES, because one cannot tell a cost that is paid ONCE from a cost
+  // paid every time you lift the pen — and those are different bugs with
+  // different fixes. A page's neighbour being decoded after the first stroke
+  // settles is the first; a re-raster at every lift is the second.
+  const first = await oneStroke('ballpoint');
+  await wait(1500);
+  const second = await oneStroke('ballpoint');
+  return { ...(second ?? {}), zoomed, first };
+}
+
+console.log(`\n  the same stroke on a PHOTOGRAPHED page (${process.env.ONEPAGE ? 'ONE page' : 'two pages'})\n`);
+const paper = await paperRun(!!process.env.ONEPAGE);
+if (!paper || !paper.late || paper.late.length < 8) {
+  console.log('  no samples on the paper page — nothing below means anything');
+} else {
+  const span = paper.late.at(-1)[0];
+  const during = paper.late.filter(([t]) => t <= paper.lift).map(([, l]) => l);
+  const after = paper.late.filter(([t]) => t > paper.lift).map(([, l]) => l);
+  // A run that never magnified the page measures the cheap case and reports it
+  // as the expensive one, so the zoom it actually reached is printed and judged.
+  console.log(`  zoom reached: ${paper.zoomed}${paper.zoomed > 1 ? '' : '  ← NOT ZOOMED, the re-raster path was never entered'}`);
+  console.log(`  during the stroke   median ${median(during).toFixed(1)}ms   worst ${Math.max(0, ...during).toFixed(0)}ms`);
+  console.log(`  at the PEN LIFT     worst ${Math.max(0, ...after).toFixed(0)}ms  over ${(span / 1000).toFixed(1)}s`);
+  console.log(`  ${paper.drew} points drawn`);
+  // WHERE the blocks fall matters more than how big the worst one is: one at
+  // the very start is the page still arriving, and one in the middle of a
+  // stroke is the thing being complained about.
+  const worstOf = (rows) => [...rows].sort((a, b) => b[1] - a[1]).slice(0, 4)
+    .map(([t, l]) => `${(t / 1000).toFixed(1)}s ${l.toFixed(0)}ms`).join('   ');
+  console.log(`  longest blocks, FIRST stroke:  ${worstOf(paper.first?.late ?? [])}`);
+  console.log(`  longest blocks, SECOND stroke: ${worstOf(paper.late)}`);
+}
+
 console.log(`\n  page errors: ${errors.length}${errors.length ? ` — ${errors[0]}` : ''}`);
 await browser.close();

@@ -1410,6 +1410,7 @@ function beginStroke(e) {
   if (!point) return;
   nibPressure(point, e);
   lastInkAt = at;
+  lastInkTime = performance.now();
   strokeTravel = 0;
   // The tools that PLACE a thing do it when the finger lifts, not when it lands.
   //
@@ -1520,6 +1521,28 @@ function extendStroke(e, { quiet = false } = {}) {
 // a pixel: below what any screen can draw, above what a still hand reports.
 const INK_STEP = 0.34;
 let lastInkAt = null;
+// WHEN the pen last did anything, as a clock rather than a place. `lastInkAt`
+// above is a POINT — where the nib was — and this is how long ago.
+//
+// A DEAD END, KEPT BECAUSE IT LOOKS LIKE THE ANSWER. The neighbour-page
+// look-ahead (`keepNeighboursReady`) is a single uninterruptible rough render,
+// and it runs the moment the hand comes off the glass. MEASURED by
+// `npm run pen:lag` on a two-page photographed score: the main thread was
+// unavailable for 448ms at the end of the FIRST stroke on a page, against 14ms
+// for the same stroke on a ONE-page score — which is the discriminator, and it
+// names the look-ahead beyond argument. Second strokes cost 5ms.
+//
+// The obvious repair is to make that loop wait out the pen the way it already
+// waits out a page turn. IT DOES NOT WORK, and the numbers say so plainly:
+// deferring it turned one 448ms block into 352ms, 252ms and 416ms — the same
+// work, split and moved, some of it still landing inside the stroke. A block
+// that big has to become SMALLER or INTERRUPTIBLE, which is paper.js's decode
+// and not this loop's scheduling.
+//
+// (A first attempt also gated on `tool`, which did nothing at all: a pencil
+// arms itself and draws with no tool selected, so `tool` is null for exactly
+// the hand it was meant to notice.)
+let lastInkTime = 0;
 // How far a stroke has travelled across the glass. Under TAP_INK it was a tap,
 // however many positions the device reported along the way — see endStroke.
 const TAP_INK = 4;
@@ -1620,6 +1643,7 @@ function endStroke() {
   }
   drawing = null;
   erasing = false;
+  lastInkTime = performance.now();
   redraw();
 }
 
@@ -2262,8 +2286,24 @@ function trackPointers(root) {
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
     // …and now it IS one. Waiting for real movement is what tells a pinch from
     // a hand that happens to be on the glass.
+    //
+    // MOVEMENT MEANS EITHER KIND, and only one of them counted here. The test
+    // was on SEPARATION alone, so two fingers dragged rigidly across the page —
+    // which is how anybody moves a zoomed page, and the gesture the pan maths
+    // below is written for — never promoted, and the page never moved. You had
+    // to spread your fingers slightly first to persuade it you meant it.
+    //
+    // The midpoint travelling is movement by the same argument: a hand resting
+    // on the glass does neither, and a hand doing either is asking for the
+    // page. It is safe by arithmetic — with the separation unchanged, `asked`
+    // below comes to exactly `pinch.zoom`, so `grew` is 1 and the zoom maths
+    // collapses to a pure translation.
     if (!pinching) {
-      if (Math.abs(distance - pinch.distance) < PINCH_START) return;
+      const spread = Math.abs(distance - pinch.distance);
+      const midX = (a.x + b.x) / 2;
+      const midY = (a.y + b.y) / 2;
+      const travelled = Math.hypot(midX - pinch.x, midY - pinch.y);
+      if (spread < PINCH_START && travelled < PINCH_START) return;
       pinching = true;
       clearTimeout(pinchOver);
       // A settle still running belongs to the LAST pinch, and this one has the
@@ -2969,6 +3009,9 @@ function keepNeighboursReady(shown) {
       // Nothing is drawn ahead while somebody is waiting on a page NOW. The
       // look-ahead exists to make turns instant; a look-ahead that delays a
       // turn is doing the opposite of its job.
+      // THE PEN IS NOT WAITED OUT HERE, AND IT WAS TRIED. See the note over
+      // INK_QUIET: deferring this loop until the hand pauses moves the block,
+      // it does not remove it, and MEASURED it came out worse.
       while (turning > 0) {
         await new Promise((go) => { setTimeout(go, 30); });
         if (mine !== lookAhead) return;
@@ -3881,6 +3924,20 @@ function buildMenu(sheet) {
         onPick: () => togglePainted(),
       });
     }
+  }
+  // PLAY IS ASKED OF THE TAKE, NOT OF THE PAGE, and it had to move out of the
+  // `canMark` block above to stay reachable.
+  //
+  // `canMark` is "can this take be MARKED ONTO this page" — for a photograph,
+  // that the pages have been read; for notation, that the take aligned. The bar
+  // button just deleted was gated only on there BEING a take. So on a scan
+  // whose pages are still being read, or a take the pairing refused, the button
+  // was the only way to play it and the menu row was not offered: deleting one
+  // without moving the other would have left those takes with no way to play at
+  // all, and the reader is full screen so the Record tab's transport is not
+  // reachable either.
+  if (take) {
+    menuGroup(sheet, 'play');
     menuRow(sheet, {
       label: takeIsPlaying() ? 'Pause' : 'Play the take', glyph: takeIsPlaying() ? 'pause' : 'play',
       onPick: togglePlayback,
@@ -4701,7 +4758,11 @@ function buildTopBar() {
   const right = document.createElement('div');
   right.className = 'reader-bar-right';
   right.append(
-    iconButton('reader-play', 'play', 'Play the take', togglePlayback),
+    // NO PLAY BUTTON HERE. It was the first thing in this group and it is gone
+    // on instruction — "get rid of the play button at the top right when you
+    // open a score on the score tab". Playing the take is still one press away,
+    // in the More menu below, which is where the rest of what you can do to a
+    // take already lives.
     // RECORD, HERE, BESIDE THE PENCIL — see buildRecordButton for what moved
     // and what had to hold for it to be safe.
     buildRecordButton(),
@@ -6547,7 +6608,6 @@ function followTake() {
   clearSounding();
   soundingMark = -1;
   unfollow = followPlayback((note, t) => {
-    refreshPlayButton();
     if (isPaper()) { followOnPaper(note, t); return; }
     const next = note && view?.noteheadFor ? view.noteheadFor(note) : null;
     if (next === sounding) return;
@@ -6582,18 +6642,6 @@ function togglePlayback() {
   toggleTakePlayback();
   // The engine flips its own controls; catch up a moment later so this button
   // agrees with them.
-  setTimeout(refreshPlayButton, 60);
-}
-
-function refreshPlayButton() {
-  const mine = el('reader-play');
-  if (!mine) return;
-  const playable = !!take && !document.querySelector('#playback')?.hidden;
-  mine.hidden = !playable;
-  if (!playable) return;
-  const on = takeIsPlaying();
-  mine.replaceChildren(icon(on ? 'pause' : 'play'));
-  mine.setAttribute('aria-label', on ? 'Pause the take' : 'Play the take');
 }
 
 // --- the door ----------------------------------------------------------------
@@ -6692,7 +6740,6 @@ export async function openReader(row, {
   // The first page is on the glass; the reading pass may have the processor
   // back. Anything after this is the look-ahead, which already yields.
   comingUp = false;
-  refreshPlayButton();
   refreshLandButton();
   return view;
 }
@@ -6726,6 +6773,12 @@ export function readerState() {
     // zero is measuring a reader whose warm pass never ran, not a slow turn.
     thumbsReady: paper?.thumbsReady?.() ?? null,
     roughNow: rough.size,
+    // How far in, and how far across. `pen:lag` needs this: the cost it is
+    // hunting only exists at zoom > 1, and a run that failed to magnify the
+    // page measures the cheap case and reports it as the expensive one.
+    zoom,
+    panX,
+    panY,
   };
 }
 
