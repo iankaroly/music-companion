@@ -418,6 +418,256 @@ let hidden = new Set();   // layers being kept out of sight
 // than halfway down the music you were reading.
 const SPREAD_KEY = 'readerSpread';
 let spread = false;
+
+// --- half-page turns ----------------------------------------------------------
+//
+// A whole-page turn takes the line you are playing away and puts a new page
+// under your eyes all at once, and for the length of that blink you are
+// nowhere. The reader that has been on stands longest turns a page in two
+// halves instead: the first turn brings in the TOP of the next page over the
+// top of this one, with a line across the join, so the bottom of the page you
+// are on — the music you are actually playing — stays until you have moved
+// off it; the second turn finishes the page. A hand that is busy, or no hand
+// at all — a pedal, a singer with a folder — gets the same two turns.
+//
+// Off by default and remembered when turned on. Only at zoom 1 and only with
+// one page up: two pages side by side already keep a page on the stand across
+// every turn, and a magnified page has nothing to turn halfway.
+const HALF_KEY = 'readerHalfTurns';
+let halfTurns = false;       // the setting
+let half = null;             // { from, to } while the top of `to` is over the top of `from`
+
+function wantsHalfTurns() {
+  try { return globalThis.localStorage?.getItem(HALF_KEY) === 'on'; } catch { return false; }
+}
+
+// Whether the NEXT turn should be a half one.
+function halfPossible() {
+  return halfTurns && !spread && zoom === 1 && !tool && pageEls.length > 1;
+}
+
+// The half turn, finished: the page whose top you were shown is now the page.
+function finishHalf() {
+  if (!half) return;
+  const { to } = half;
+  half = null;
+  showPage(to);
+}
+
+// The hairline across the join, laid over the page at its middle.
+function placeHalfLine() {
+  const line = el('reader-half-line');
+  if (!line) return;
+  const node = half ? pageEls[half.from] : null;
+  const box = node?.getBoundingClientRect();
+  line.hidden = !box || !box.height;
+  if (line.hidden) return;
+  line.style.left = `${Math.round(box.left)}px`;
+  line.style.width = `${Math.round(box.width)}px`;
+  line.style.top = `${Math.round(box.top + box.height / 2) - 1}px`;
+}
+
+async function toggleHalfTurns() {
+  halfTurns = !halfTurns;
+  try { globalThis.localStorage?.setItem(HALF_KEY, halfTurns ? 'on' : 'off'); } catch { /* fine */ }
+  if (!halfTurns && half) finishHalf();
+}
+
+// --- the performance lock ----------------------------------------------------
+//
+// On stage the screen has one job, turning, and every other thing it can do
+// is a way for a sleeve, a bow or a nervous hand to do something else: bring
+// the bar down over the top system, start a pinch, arm a pencil. Locked, the
+// page turns — tap zones, swipe, pedal — and nothing else answers. A small
+// lock at the top corner is the only way out, and Escape on a keyboard. Not
+// remembered: a lock is for this performance.
+let locked = false;
+
+function setLocked(on) {
+  locked = on;
+  root?.classList.toggle('locked', on);
+  const chip = el('reader-lock');
+  if (chip) chip.hidden = !on;
+  if (on) {
+    if (half) finishHalf();
+    if (tool) setTool(null);
+    closeMenu();
+    closeBrush();
+    setChrome(false);
+    say('locked: the page turns and nothing else. tap the lock to unlock');
+    clearTimeout(lockSaid);
+    lockSaid = setTimeout(() => { if (locked) say(''); }, 3200);
+  } else {
+    clearTimeout(lockSaid);
+    say('');
+  }
+}
+let lockSaid = null;
+
+// --- turning by itself -------------------------------------------------------
+//
+// A piece you know is a piece whose pages turn on a clock: so many seconds a
+// page, set once for that score and remembered with it. Any turn you make
+// yourself restarts the clock, so it never fights a hand; it stops on the last
+// page, and a countdown in the corner says when the next one is due.
+const AUTO_KEY = 'readerAutoTurn';
+const AUTO_CHOICES = [0, 15, 20, 30, 45, 60, 90, 120, 180];
+let autoTurn = 0;          // seconds a page, 0 for off
+let autoTimer = null;
+let autoTick = null;
+let autoDue = 0;
+
+function autoKey(id = score?.id) {
+  return `${AUTO_KEY}:${id}`;
+}
+
+function loadAutoTurn() {
+  try { autoTurn = Number(globalThis.localStorage?.getItem(autoKey())) || 0; } catch { autoTurn = 0; }
+}
+
+function setAutoTurn(seconds) {
+  autoTurn = Math.max(0, Number(seconds) || 0);
+  try {
+    if (autoTurn) globalThis.localStorage?.setItem(autoKey(), String(autoTurn));
+    else globalThis.localStorage?.removeItem(autoKey());
+  } catch { /* a clock that is not remembered still runs */ }
+  armAutoTurn();
+}
+
+function stopAutoTurn() {
+  clearTimeout(autoTimer);
+  clearInterval(autoTick);
+  autoTimer = null;
+  autoTick = null;
+  const chip = el('reader-countdown');
+  if (chip) chip.hidden = true;
+}
+
+function armAutoTurn() {
+  stopAutoTurn();
+  if (!autoTurn || !score || !root || root.hidden) return;
+  // Nothing past the last page to turn to — unless a half turn is on and the
+  // top of it is still to come.
+  const last = visiblePages().at(-1) ?? 0;
+  const more = half || last < pageEls.length - 1
+    || (setlist && moveSet && setlist.index + 1 < (setlist.items?.length ?? 0));
+  if (!more) return;
+  autoDue = Date.now() + autoTurn * 1000;
+  autoTimer = setTimeout(() => { autoTimer = null; nextPage(); }, autoTurn * 1000);
+  const chip = el('reader-countdown');
+  const show = () => {
+    if (!chip) return;
+    const left = Math.max(0, Math.ceil((autoDue - Date.now()) / 1000));
+    chip.textContent = `turns in ${left}s`;
+    chip.hidden = false;
+  };
+  show();
+  autoTick = setInterval(show, 500);
+}
+
+function spanLabel(seconds) {
+  if (!seconds) return 'Off';
+  if (seconds < 60) return `every ${seconds} second${seconds === 1 ? '' : 's'}`;
+  const m = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return `every ${m} minute${m > 1 ? 's' : ''}${rest ? ` ${rest}s` : ''}`;
+}
+
+// The clock's own sheet: one row per interval, the current one ticked.
+function openAutoTurnMenu() {
+  const sheet = el('reader-menu');
+  if (!sheet) return;
+  sheet.replaceChildren();
+  menuGroup(sheet, 'turn pages by itself');
+  for (const seconds of AUTO_CHOICES) {
+    menuRow(sheet, {
+      label: spanLabel(seconds),
+      glyph: seconds === autoTurn ? 'tick' : '',
+      onPick: () => setAutoTurn(seconds),
+    });
+  }
+  sheet.classList.add('open');
+  setChrome(true);
+  hangBelowBar(sheet);
+}
+
+// --- transposing ---------------------------------------------------------------
+//
+// A singer whose voice sits a third under the printed key, a clarinettist
+// handed a part in C, a horn player reading a cello line: the notes are the
+// notes, and what changes is where they are written. On an engraved score
+// the engraver can move them — the key signature and every note together —
+// so the page IS the page you sing from, and the take is judged against what
+// is on it rather than against the file's own pitch. Per score, remembered.
+// A photograph of a page has no notes to move.
+const TRANSPOSE_KEY = 'readerTranspose';
+let transpose = 0;          // semitones, written pitch on the page minus the file's
+
+// Read from outside the reader too: the review lines a take up against the
+// score's notes, and a score being read a fourth up wants its notes a fourth
+// up as well.
+export function transpositionOf(id) {
+  try { return Math.max(-12, Math.min(12, Number(globalThis.localStorage?.getItem(`${TRANSPOSE_KEY}:${id}`)) || 0)); } catch { return 0; }
+}
+
+async function setTranspose(semitones) {
+  if (!score || isPaper()) return;
+  const next = Math.max(-12, Math.min(12, Math.round(Number(semitones) || 0)));
+  if (next === transpose) return;
+  transpose = next;
+  try {
+    if (transpose) globalThis.localStorage?.setItem(`${TRANSPOSE_KEY}:${score.id}`, String(transpose));
+    else globalThis.localStorage?.removeItem(`${TRANSPOSE_KEY}:${score.id}`);
+  } catch { /* fine */ }
+  // The bar you are looking at is kept, not the page number — as `resize` does.
+  const anchorBar = firstBarOnPage();
+  await engrave();
+  showPage(bars.get(anchorBar)?.page ?? 0);
+  refreshTransposeRow();
+}
+
+const INTERVALS = ['written pitch', 'a semitone', 'a tone', 'a minor third', 'a major third',
+  'a fourth', 'a tritone', 'a fifth', 'a minor sixth', 'a major sixth', 'a minor seventh',
+  'a major seventh', 'an octave'];
+
+function transposeLabel(n = transpose) {
+  if (!n) return 'Written pitch';
+  const name = INTERVALS[Math.abs(n)];
+  return `${n > 0 ? '+' : '−'}${Math.abs(n)}  ·  ${name} ${n > 0 ? 'up' : 'down'}`;
+}
+
+function refreshTransposeRow() {
+  const label = el('reader-transpose-value');
+  if (label) label.textContent = transposeLabel();
+  const down = el('reader-transpose-down');
+  const up = el('reader-transpose-up');
+  if (down) down.disabled = transpose <= -12;
+  if (up) up.disabled = transpose >= 12;
+}
+
+// The transposer's own sheet: a stepper that stays open while you step, and a
+// way back to the written pitch.
+function openTransposeMenu() {
+  const sheet = el('reader-menu');
+  if (!sheet) return;
+  sheet.replaceChildren();
+  menuGroup(sheet, 'transpose');
+  const row = document.createElement('div');
+  row.className = 'reader-menu-stepper';
+  const down = iconButton('reader-transpose-down', '−', 'Down a semitone',
+    () => setTranspose(transpose - 1), { className: 'reader-chip' });
+  const value = document.createElement('b');
+  value.id = 'reader-transpose-value';
+  const up = iconButton('reader-transpose-up', '+', 'Up a semitone',
+    () => setTranspose(transpose + 1), { className: 'reader-chip' });
+  row.append(down, value, up);
+  sheet.append(row);
+  menuRow(sheet, { label: 'Written pitch', glyph: 'note', onPick: () => setTranspose(0) });
+  refreshTransposeRow();
+  sheet.classList.add('open');
+  setChrome(true);
+  hangBelowBar(sheet);
+}
 // How far down the screen counts as "the top", where a tap is a reach for the
 // controls rather than a page turn.
 //
@@ -438,7 +688,7 @@ const TOP_REACH = 0.25;
 // `#reader-record` is not listed separately any more: it sits inside
 // `#reader-top`, which is, so a press on it was already not a page turn.
 const CHROME = '#reader-top, #reader-ink-bar, #reader-ink-row, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-aids, .pick-pop, dialog';
+  + ' #reader-selection, #reader-land, #reader-aids, #reader-lock, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -502,6 +752,9 @@ function currentPage() {
 // pages have to be drawn before they are shown, and that means knowing which
 // ones they will be.
 function visiblePages(at = pageIndex) {
+  // Halfway through a turn, BOTH pages are on the glass: the one you are
+  // leaving under, the one you are arriving at over it.
+  if (half && at === half.from) return [half.from, half.to];
   const shown = [at];
   if (spread && at + 1 < pageEls.length) shown.push(at + 1);
   return shown;
@@ -1111,7 +1364,24 @@ let dryKey = null;       // what it is a picture OF
 // Everything about the page that would make the dry layer wrong.
 function dryStamp(scale, shown) {
   return `${strokes.length}|${scale}|${shown.join(',')}|${[...hidden].join(',')}`
-    + `|${zoom}|${panX}|${panY}|${painted ? 1 : 0}|${take ? 1 : 0}|${linksOf().length}`;
+    + `|${zoom}|${panX}|${panY}|${painted ? 1 : 0}|${take ? 1 : 0}|${linksOf().length}`
+    + `|${half ? `${half.from}-${half.to}` : ''}`;
+}
+
+// Which of the pages on screen a mark belongs to, by its first point. Asked
+// only halfway through a turn, when two pages share one rectangle and a mark
+// has to be drawn on the half that is its own.
+function pageOfStroke(stroke, shown) {
+  const first = stroke.points[0];
+  if (!first) return -1;
+  if (first.p === undefined) return bars.get(first.m)?.page ?? -1;
+  for (const index of shown) {
+    const slice = slices[index];
+    if (!slice || slice.page !== first.p) continue;
+    const air = slice.rect.h * 0.04;
+    if (first.y >= slice.rect.y - air && first.y <= slice.rect.y + slice.rect.h + air) return index;
+  }
+  return -1;
 }
 
 // The stamp catches a page that has changed shape or gained a mark. It cannot
@@ -1294,17 +1564,41 @@ function paintInk() {
     const dctx = dry.getContext('2d');
     dctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     dctx.clearRect(0, 0, w, h);
-    for (const stroke of strokes) {
-      if (hidden.has(stroke.layer ?? 0)) continue;
-      // A part is one list of marks from the first bar to the last, and all but
-      // the handful on the page in front of you are somewhere else. Asking each
-      // of the others where it is — bar by bar, point by point — only to find
-      // out it is not here is the cost of a whole score.
-      if (!touchesScreen(stroke, shown)) continue;
-      drawStroke(dctx, stroke, { scale });
+    const marks = (page) => {
+      for (const stroke of strokes) {
+        if (hidden.has(stroke.layer ?? 0)) continue;
+        // A part is one list of marks from the first bar to the last, and all
+        // but the handful on the page in front of you are somewhere else.
+        // Asking each of the others where it is — bar by bar, point by point —
+        // only to find out it is not here is the cost of a whole score.
+        if (!touchesScreen(stroke, shown)) continue;
+        if (page !== null && pageOfStroke(stroke, shown) !== page) continue;
+        drawStroke(dctx, stroke, { scale });
+      }
+    };
+    if (half) {
+      // Two pages on one rectangle: each page's marks, on its own half only.
+      // The rings of a take and the jumps are not drawn halfway through a
+      // turn — they belong to a page you are looking at whole.
+      const box = pageEls[half.from]?.getBoundingClientRect();
+      const mid = box ? box.top + box.height / 2 : h / 2;
+      dctx.save();
+      dctx.beginPath();
+      dctx.rect(0, 0, w, mid);
+      dctx.clip();
+      marks(half.to);
+      dctx.restore();
+      dctx.save();
+      dctx.beginPath();
+      dctx.rect(0, mid, w, h - mid);
+      dctx.clip();
+      marks(half.from);
+      dctx.restore();
+    } else {
+      marks(null);
+      if (painted) drawScanMarks(dctx);
+      drawLinks(dctx);
     }
-    if (painted) drawScanMarks(dctx);
-    drawLinks(dctx);
     dryKey = stamp;
     rebuilt = true;
   }
@@ -2179,6 +2473,7 @@ function refreshFingerButton() {
 function armPencil(e) {
   if (!root || root.hidden) return false;
   noteAPencil();
+  if (locked) { penRefused('the page is locked'); return false; }
   if (isMenuOpen()) { penRefused('a menu was open'); return false; }
   // Not on the chrome: a pencil is a perfectly good way to press a button.
   if (onChrome(e)) {
@@ -2188,6 +2483,7 @@ function armPencil(e) {
   }
   // Nor over a jump you taped down, or the one you are in the middle of taping.
   if (pendingLink) { penRefused('a jump was being taped down'); return false; }
+  if (half) finishHalf();
   setTool(lastInk);
   armedByPen = true;
   if (!tool) return false;
@@ -2538,7 +2834,9 @@ function trackPointers(root) {
       const midY = (a.y + b.y) / 2;
       const travelled = Math.hypot(midX - pinch.x, midY - pinch.y);
       if (spread < PINCH_START && travelled < PINCH_START) return;
+      if (locked) return;    // two fingers on a locked page are two fingers
       pinching = true;
+      if (half) finishHalf();   // a pinch wants a whole page under it
       clearTimeout(pinchOver);
       // A settle still running belongs to the LAST pinch, and this one has the
       // page now. Cancelled rather than allowed to finish, or the two of them
@@ -3084,6 +3382,9 @@ export async function showPage(index) {
   // looking at than the page you have just left, because it is the one you
   // asked for — and it arrives sooner now anyway, drawn roughly first. So the
   // turn is committed here, immediately, and the drawing follows it.
+  // A turn to anywhere but the page a half turn started from ends the half
+  // turn: it was about the page after THAT one.
+  if (half && next !== half.from) half = null;
   const moved = next !== pageIndex;
   pageIndex = next;
   // A new page is a new page: it arrives whole, not at whatever corner you had
@@ -3092,19 +3393,32 @@ export async function showPage(index) {
   const shown = visiblePages();
   for (const [i, node] of pageEls.entries()) {
     const wantHidden = !shown.includes(i);
-    const side = shown.length > 1 && shown.includes(i) ? (i === shown[0] ? 'left' : 'right') : '';
+    // Halfway through a turn the two pages sit on the SAME rectangle, one over
+    // the other, each showing only its own half; otherwise two pages sit side
+    // by side.
+    const stacked = half && shown.includes(i) ? (i === half.from ? 'under' : 'over') : '';
+    const side = !stacked && shown.length > 1 && shown.includes(i)
+      ? (i === shown[0] ? 'left' : 'right') : '';
+    const want = stacked || side;
     // Only the pages whose state actually changes are written to. A twenty-one
     // page part was having every one of its containers assigned a hidden flag,
     // a data attribute and four inline styles on every turn — eighty-odd writes
     // to say that nineteen pages are still exactly where they were, each one a
     // reason for the browser to think about the layout again.
-    if (node.hidden === wantHidden && node.dataset.side === side) continue;
+    if (node.hidden === wantHidden && node.dataset.side === want) continue;
     node.hidden = wantHidden;
-    node.dataset.side = side;
+    node.dataset.side = want;
+    node.style.clipPath = stacked ? (stacked === 'over' ? 'inset(0 0 50% 0)' : 'inset(50% 0 0 0)') : '';
+    node.style.zIndex = stacked === 'over' ? '1' : '';
     // Laid out from here rather than from the stylesheet: the engraver puts
     // `position: relative` inline on every page container it makes, and an
     // inline style beats any rule you can write about it.
-    if (side) {
+    if (stacked) {
+      node.style.position = 'absolute';
+      node.style.top = '0';
+      node.style.left = '0';
+      node.style.width = '100%';
+    } else if (side) {
       node.style.position = 'absolute';
       node.style.top = '0';
       // An engraved page container is already half the screen wide (the
@@ -3123,6 +3437,8 @@ export async function showPage(index) {
   if (count) count.textContent = `p. ${pageIndex + 1} of ${pageEls.length}`;
   invalidateGeometry();     // different music, in different places
   refreshUpNext();
+  placeHalfLine();
+  armAutoTurn();     // every turn, yours or its own, restarts the clock
   redraw();
   if (!isPaper()) return;
 
@@ -3158,6 +3474,7 @@ export async function showPage(index) {
     if (token === turnToken) root?.classList.remove('waiting');
   }
   if (token !== turnToken) return;
+  placeHalfLine();   // the page has its picture now, and with it its size
   keepNeighboursReady(shown);
 }
 
@@ -3385,6 +3702,15 @@ const step = () => (spread ? 2 : 1);
 // glass — see wantedPage. Two taps is two pages even if the first one is still
 // being drawn.
 function nextPage() {
+  // Halfway already: this turn finishes the page.
+  if (half) { finishHalf(); return; }
+  // Or halfway now: the top of the next page comes in over this one.
+  if (halfPossible() && wantedPage + 1 < pageEls.length) {
+    half = { from: wantedPage, to: wantedPage + 1 };
+    tap('turn');
+    showPage(wantedPage);
+    return;
+  }
   if (wantedPage + step() >= pageEls.length && setlist && moveSet) {
     if (setlist.index + 1 < setlist.items.length) {
       moveSet(setlist, setlist.index + 1);
@@ -3395,6 +3721,15 @@ function nextPage() {
 }
 
 function previousPage() {
+  // Halfway through a turn, back is "not yet": the page you were on comes
+  // back whole.
+  if (half) {
+    const { from } = half;
+    half = null;
+    tap('turn');
+    showPage(from);
+    return;
+  }
   if (wantedPage === 0 && setlist && moveSet && setlist.index > 0) {
     moveSet(setlist, setlist.index - 1);
     return;
@@ -3453,6 +3788,10 @@ function setChrome(on) {
 }
 
 function setTool(next) {
+  if (locked && next) return;   // nothing is picked up on a locked page
+  // A pen picked up halfway through a turn finishes the turn first: two pages
+  // on one rectangle is no place to anchor a mark.
+  if (half && next) finishHalf();
   // Tapping the pen you are already holding opens the pen case — which pen,
   // how thick, what colour. It is what every drawing app does, and it is how
   // the brush gets reached without a second button to learn.
@@ -4263,6 +4602,27 @@ function buildMenu(sheet) {
     onPick: toggleSpread,
   });
   menuRow(sheet, {
+    label: halfTurns ? 'Whole-page turns' : 'Half-page turns',
+    glyph: 'half',
+    onPick: toggleHalfTurns,
+  });
+  menuRow(sheet, {
+    label: 'Turn pages by itself…', glyph: 'timer',
+    detail: autoTurn ? spanLabel(autoTurn) : '',
+    onPick: openAutoTurnMenu,
+  });
+  if (!isPaper()) {
+    menuRow(sheet, {
+      label: 'Transpose…', glyph: 'transpose',
+      detail: transpose ? transposeLabel() : '',
+      onPick: openTransposeMenu,
+    });
+  }
+  menuRow(sheet, {
+    label: 'Lock the page', glyph: 'lock',
+    onPick: () => setLocked(true),
+  });
+  menuRow(sheet, {
     label: night ? 'Light page' : 'Dark page',
     glyph: night ? 'sun' : 'moon',
     onPick: toggleNight,
@@ -4595,6 +4955,13 @@ const ICONS = {
   shelf: '<rect x="3.5" y="4" width="7" height="7" rx="1.4"/><rect x="13.5" y="4" width="7" height="7" rx="1.4"/>'
     + '<rect x="3.5" y="13" width="7" height="7" rx="1.4"/><rect x="13.5" y="13" width="7" height="7" rx="1.4"/>',
   tick: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+  // A page with a line across its middle and the top half shaded: the join of
+  // a half-page turn.
+  half: '<rect x="6" y="4" width="12" height="16" rx="1.5"/><path d="M6 12h12"/>'
+    + '<path d="M8.5 7h7M8.5 9.5h7" opacity="0.55"/>',
+  lock: '<rect x="6" y="11" width="12" height="9" rx="1.8"/><path d="M8.5 11V8a3.5 3.5 0 0 1 7 0v3"/>',
+  timer: '<circle cx="12" cy="13" r="7"/><path d="M12 9.5V13l2.5 1.5M10 3.5h4"/>',
+  transpose: '<path d="M6 17.5V6.5l4 4M14 6.5v11l4-4"/>',
   highlighter: '<path d="M4 19h6"/><path d="M7 15.5l8-8a2 2 0 0 1 3 3l-8 8H7z"/>',
   text: '<path d="M5 6h14M12 6v13"/>',
   shapes: '<rect x="4.5" y="4.5" width="10" height="10" rx="1"/><circle cx="15.5" cy="15.5" r="4.5"/>',
@@ -5319,6 +5686,20 @@ function build() {
   upNext.id = 'reader-next';
   upNext.hidden = true;
   upNext.setAttribute('aria-live', 'polite');
+  // The join of a half-page turn.
+  const halfLine = document.createElement('div');
+  halfLine.id = 'reader-half-line';
+  halfLine.hidden = true;
+  halfLine.setAttribute('aria-hidden', 'true');
+  // The lock, at the top corner, only while the page is locked.
+  const lock = iconButton('reader-lock', 'lock', 'Unlock the page', () => setLocked(false),
+    { className: 'reader-corner' });
+  lock.hidden = true;
+  // The clock, at the foot, only while the pages turn by themselves.
+  const countdown = document.createElement('div');
+  countdown.id = 'reader-countdown';
+  countdown.hidden = true;
+  countdown.setAttribute('aria-live', 'polite');
 
   const land = iconButton('reader-land', 'Land it', 'Land the jump here', () => {
     if (pendingLink?.stage === 'to') finishLink(pageIndex);
@@ -5326,8 +5707,8 @@ function build() {
   }, { className: 'reader-chip' });
   land.hidden = true;
 
-  root.append(sheet, ink, buildTopBar(), buildInkBar(), buildInkRow(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land, upNext, aidsElement());
+  root.append(sheet, ink, halfLine, buildTopBar(), buildInkBar(), buildInkRow(), buildBrushPanel(),
+    buildSelectionBar(), menu, line, land, upNext, lock, countdown, aidsElement());
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -5455,7 +5836,9 @@ function build() {
     if (!tool && !isMenuOpen() && !pinching && zoom === 1
       && pointers.size <= 1 && e.pointerType !== 'pen' && !pendingLink
       && !onChrome(e)) {
-      if (e.clientY < window.innerHeight * TOP_REACH) {
+      // Locked, the top strip is not a reach for the bar: the page turns and
+      // nothing else, so the strip belongs to the turn zones like the rest.
+      if (e.clientY < window.innerHeight * TOP_REACH && !locked) {
         // Up here is the bar, either way round — showing it if it is away, and
         // getting out of the way of a tap meant for it if it is already down.
         if (!chrome) { setChrome(true); tapFrom = null; return; }
@@ -5552,6 +5935,7 @@ function build() {
 
   function onTap(e) {
     if (onChrome(e)) return;
+    if (locked) return;      // the turn already happened on the way down
     if (isMenuOpen()) { closeMenu(); return; }
     if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
     // A tap on the page hides the BAR. It does not put the pen down.
@@ -5747,7 +6131,8 @@ function build() {
     if (e.target?.closest?.('input, textarea, [contenteditable]')
       || document.querySelector('dialog[open]')) return;
     if (e.key === 'Escape') {
-      if (isMenuOpen()) closeMenu();
+      if (locked) setLocked(false);
+      else if (isMenuOpen()) closeMenu();
       else if (tool) setTool(null);
       else close();
       return;
@@ -5844,6 +6229,7 @@ function pageFormat() {
 
 // One door, two kinds of score behind it.
 async function render() {
+  half = null;              // new pages; a turn halfway through the old ones is over
   invalidateGeometry();     // new pages; every measurement of the old ones is void
   const out = score.kind === 'pages' ? await layOutPaper() : await engrave();
   invalidateGeometry();
@@ -6479,6 +6865,7 @@ async function engraveAsPrinted() {
       partIndex: score.partIndex ?? 0,
       pageFormat: { width: base.width * bigger, height: base.height * bigger },
       zoom: base.zoom / bigger,
+      transpose,
       autoRelayout: false,
       asPrinted: true,
     });
@@ -6533,6 +6920,7 @@ async function engravePlainly() {
     partIndex: score.partIndex ?? 0,
     pageFormat: page,
     zoom: page.zoom,
+    transpose,
     // The reader re-engraves on rotation itself, at the new page shape; the
     // view's own resize handler would re-render at the old one underneath it.
     autoRelayout: false,
@@ -6981,6 +7369,11 @@ export async function openReader(row, {
   painted = row.kind === 'pages' && !!analysed?.notes?.length;
   spread = wantsSpread();
   root.classList.toggle('spread', spread);
+  halfTurns = wantsHalfTurns();
+  half = null;
+  if (locked) setLocked(false);
+  transpose = row.kind === 'pages' ? 0 : transpositionOf(row.id);
+  loadAutoTurn();
   try {
     pencilSeen = globalThis.localStorage?.getItem(PENCIL_SEEN_KEY) === 'yes';
   } catch { pencilSeen = false; }
@@ -7111,6 +7504,9 @@ export function close() {
   if (wasReading != null) dropSpares(wasReading);
   paper = null;
   pageEls = [];
+  half = null;
+  stopAutoTurn();
+  if (locked) setLocked(false);
   // Closing is a re-laying-out like any other: draws still in flight belong to
   // a score that is no longer open, and none of them may report back.
   era++;

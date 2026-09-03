@@ -22,7 +22,7 @@ import { scanRhythm } from '../analysis/scan-rhythm.js';
 import { spread } from '../analysis/scan-timing.js';
 import { showScore, paint } from './score-view.js';
 import { showScanScore } from './scan-view.js';
-import { openReader, standAside as readerStandAside } from './reader.js';
+import { openReader, standAside as readerStandAside, transpositionOf } from './reader.js';
 import { intonationBounds } from './chart-utils.js';
 import { takeStats } from '../analysis/score-history.js';
 import {
@@ -1087,7 +1087,11 @@ export async function annotateTake(notes, { readings = null, a4 = 440, recording
   // printed: 73 notes accused of being wrong across takes of forty, three
   // notes left with no mark at all, and 55 played notes put on the wrong
   // notehead. With it on: none, none, and none.
-  const aligned = alignScore(notes, current.notes, { nearMiss: current.readFromPages === true });
+  // A score being read transposed is a score whose notes have moved: the take
+  // is lined up against what is on the page, not against the file.
+  const shift = current.id != null ? transpositionOf(current.id) : 0;
+  const expected = shift ? current.notes.map((n) => ({ ...n, midi: n.midi + shift })) : current.notes;
+  const aligned = alignScore(notes, expected, { nearMiss: current.readFromPages === true });
   const timing = scoreTiming(aligned.attempts, { targetBpm });
 
   // How each note SPOKE, not just where it ended up. Needs the raw readings,

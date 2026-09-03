@@ -138,6 +138,8 @@
     "pen:lag": "node tools/pen-lag-check.mjs",
     "pen:frames": "node tools/pen-frame-check.mjs",
     "pen:strip": "node tools/ink-strip-check.mjs",
+    "turn:half": "node tools/half-turn-check.mjs",
+    "reader:modes": "node tools/reader-modes-check.mjs",
     "reader:pan": "node tools/reader-pan-check.mjs"
   },
   "keywords": [],

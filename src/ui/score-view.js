@@ -58,7 +58,9 @@ function engravedNotes(osmd, instrument) {
               measure: number,
               order,
               beatInMeasure,
-              midi: source.halfTone + HALFTONE_TO_MIDI,
+              // The pitch as WRITTEN on this page: the transposed one where the
+              // sheet is transposed, the file's own otherwise.
+              midi: (source.TransposedPitch?.getHalfTone?.() ?? source.halfTone) + HALFTONE_TO_MIDI,
               gnote,
             });
           }
@@ -125,6 +127,7 @@ export async function showScore(container, {
   pageFormat = null,
   autoRelayout = true,
   asPrinted = false,
+  transpose = 0,
 } = {}) {
   const { OpenSheetMusicDisplay } = await loadEngraver();
 
@@ -204,6 +207,15 @@ export async function showScore(container, {
   if (pageFormat) osmd.setCustomPageFormat(pageFormat.width, pageFormat.height);
   else osmd.setPageFormat('Endless');
   osmd.zoom = zoom;
+  // Moved to another key, notes and key signature together. The engraver's own
+  // calculator does it; it is only asked for when there is something to move,
+  // and `updateGraphic` is what makes the sheet notice before it is drawn.
+  if (transpose) {
+    const { TransposeCalculator } = await loadEngraver();
+    osmd.TransposeCalculator = new TransposeCalculator();
+    osmd.Sheet.Transpose = transpose;
+    osmd.updateGraphic();
+  }
 
 
   // Show only the line that was played. A cellist reading their own part
@@ -228,7 +240,14 @@ export async function showScore(container, {
   // players — so filtering there left half the noteheads in no index at all:
   // drawn, but impossible to tap, light or correct.
   const engraved = engravedNotes(osmd, !asPrinted && instruments.length > 1 ? instrument : null);
-  const { map, unmatched, ok } = reconcile(scoreNotes ?? [], engraved);
+  // The file's notes are matched to the engraved ones by bar, beat and pitch —
+  // and on a transposed page the engraved pitch is the file's moved by the
+  // transposition, so the file's notes are moved the same way before they are
+  // looked for. The map still answers by the file's own note ids.
+  const lookFor = transpose
+    ? (scoreNotes ?? []).map((n) => ({ ...n, midi: n.midi + transpose }))
+    : (scoreNotes ?? []);
+  const { map, unmatched, ok } = reconcile(lookFor, engraved);
 
   // OSMD draws each page into a container of its own. Tagging them is what lets
   // a mark be placed against the page it belongs to rather than against the
