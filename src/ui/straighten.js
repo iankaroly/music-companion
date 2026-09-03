@@ -1029,11 +1029,36 @@ function within(quad, { x0, y0, x1, y1 }) {
   return [at(x0, y0), at(x1, y0), at(x1, y1), at(x0, y1)];
 }
 
+// LOADED IS NOT DECODED, and the difference is half a second of frozen screen.
+//
+// `onload` fires when the bytes have arrived and the size is known. The JPEG is
+// not pixels yet: the browser decodes it lazily, at the moment something first
+// draws it — synchronously, on the main thread, inside `drawImage`. So a page
+// handed back by this function carries a hidden debt that is paid by whoever
+// paints it, which in the reader is the neighbour-page look-ahead, which runs
+// the instant a hand comes off the glass.
+//
+// `decode()` resolves when the image is ready to PAINT, having done that work
+// asynchronously. Awaited BEFORE the object URL is revoked, because a revoked
+// URL is a decode with nothing to read. If it is unsupported or refuses,
+// nothing is lost — the pixels are produced at draw time as they were before.
+//
+// AND IT DID NOT MOVE THE NUMBER IT WAS REACHED FOR, which is worth saying so
+// that nobody re-derives it as a fix. `npm run pen:lag` on a two-page
+// photographed score blocks the main thread for about 500ms at the end of the
+// first stroke on a page, and that is unchanged by this: the block is the
+// look-ahead's `brighten` (see below), not the decode. Kept anyway, because a
+// page handed back from here now really is paint-ready, and crop.js has a note
+// complaining that it was not.
 function loadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const image = new Image();
-    image.onload = () => { URL.revokeObjectURL(url); resolve(image); };
+    image.onload = async () => {
+      try { await image.decode?.(); } catch { /* decoded at draw time instead */ }
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
     image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('that page could not be read')); };
     image.src = url;
   });
