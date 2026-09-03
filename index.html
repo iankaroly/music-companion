@@ -5079,8 +5079,10 @@
           </div>
         </div>
       </div>
+      <!-- A finished take is kept the moment it finishes; this bar is the
+           way to take it back out. Save appears only if keeping it failed. -->
       <div class="row" id="save-bar" hidden>
-        <button id="save-rec" class="ctl primary">Save to library</button>
+        <button id="save-rec" class="ctl primary" hidden>Save to library</button>
         <button id="discard-rec" class="ctl">Discard</button>
       </div>
     </section>

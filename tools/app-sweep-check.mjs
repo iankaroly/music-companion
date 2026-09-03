@@ -258,10 +258,20 @@ for (const state of STATES) {
         box.dispatchEvent(new Event('input', { bubbles: true }));
         await new Promise((r) => setTimeout(r, 250));
       }
-      // Twice: a folder made, a second one made, and the sheet closed both times.
+      // Twice: a folder made from this shelf, a second from the Library's
+      // own button, and the sheet closed both times. A folder shows on the
+      // shelf that made it until something of the other kind is filed in it
+      // (see createFolder's `home`), so the library walk below wants one made
+      // there.
       let made = 0;
       for (let i = 0; i < 2; i += 1) {
-        document.querySelector('#score-folder')?.click();
+        if (i === 1) {
+          document.querySelector('.tab-btn[data-tab="library"]')?.click();
+          await new Promise((r) => setTimeout(r, 400));
+          document.querySelector('#new-folder')?.click();
+        } else {
+          document.querySelector('#score-folder')?.click();
+        }
         await new Promise((r) => setTimeout(r, 300));
         const dialog = document.querySelector('#folder-dialog');
         const input = document.querySelector('#folder-name');
@@ -273,6 +283,8 @@ for (const state of STATES) {
         }
         await new Promise((r) => setTimeout(r, 400));
       }
+      document.querySelector('.tab-btn[data-tab="score"]')?.click();
+      await new Promise((r) => setTimeout(r, 400));
       // Setlists in and out.
       document.querySelector('#score-sets')?.click();
       await new Promise((r) => setTimeout(r, 400));
@@ -491,7 +503,11 @@ for (const state of STATES) {
       const wasScores = (await listScores()).length;
       let deleted = 0;
       for (let i = 0; i < 2; i += 1) {
-        const row = document.querySelector('#score-list li button:last-of-type');
+        // A PIECE, not a folder: an empty folder made on this shelf sits at
+        // the top of it now, and its ⋯ offers to delete the folder.
+        const piece = [...document.querySelectorAll('#score-list li')]
+          .find((li) => !li.querySelector('.lib-folder'));
+        const row = piece?.querySelector('button:last-of-type');
         row?.click();
         await new Promise((r) => setTimeout(r, 400));
         const kill = [...document.querySelectorAll('.pick-pop.menu .pick-row')]

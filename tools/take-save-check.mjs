@@ -11,8 +11,8 @@
 // underneath. Nothing on the shelf was called what he had just played, which is
 // what "not going anywhere" means from the outside.
 //
-// TWO TAKES, THROUGH THE DOORS HE USES: the dot on the music, the save bar
-// under the review, the name dialog with the piece already in it. The first is
+// TWO TAKES, THROUGH THE DOOR HE USES: the dot on the music, and the take kept
+// on its own the moment it finishes, called what the piece is called. The first is
 // a row called by its name; the second makes a folder of that name with BOTH in
 // it, and neither of them left loose outside it.
 //
@@ -188,24 +188,15 @@ async function aTake(midi, { name = null } = {}) {
     // Stopping closes the reader, runs the analysis and draws the review.
     await wait(6000);
 
-    // THE SAVE BAR UNDER THE REVIEW, which is where the take is kept.
+    // KEPT ON ITS OWN, the moment it finished — there is no Save to press and
+    // no dialog: a take from the music is filed under the piece and called
+    // what the piece is called. What is left on the bar is Discard.
+    const discard = document.querySelector('#score-discard-take, #discard-rec');
+    out.discardOffered = !!discard && !discard.closest('[hidden]');
     const save = document.querySelector('#score-save-take');
-    out.saveOffered = !!save && !save.closest('[hidden]') && !!save.textContent.trim();
-    out.saveSays = save?.textContent?.trim() ?? null;
-    if (!out.saveOffered) return { ...out, failed: 'the review offered no way to save the take' };
-    save.click();
-    await wait(500);
-
-    // …AND IT ASKS WHAT TO CALL IT, with the piece already in the box.
-    const dialog = document.querySelector('#rename-dialog');
-    const input = document.querySelector('#rename-input');
-    out.asked = !!dialog?.open;
-    out.offeredName = input?.value ?? null;
-    if (!out.asked) return { ...out, failed: 'saving never asked what to call the take' };
-    if (rename) input.value = rename;
-    dialog.querySelector('button[value="save"]').click();
-    await wait(2500);
-    out.said = document.querySelector('#score-saved')?.textContent ?? null;
+    out.saveSays = save && !save.closest('[hidden]') ? save.textContent.trim() : null;
+    if (out.saveSays && /save/i.test(out.saveSays)) return { ...out, failed: `Save was still offered: "${out.saveSays}"` };
+    await wait(1500);
     return out;
   }, { notes: midi, piece: PIECE, rename: name });
 }
@@ -238,8 +229,8 @@ const first = made.error ? { failed: 'no piece' } : await aTake(made.midi);
 if (first.failed) {
   check('a take recorded from the music can be saved', false, `${first.failed} — ${first.why ?? ''}`);
 } else {
-  check('saving asks what to call the take, with the piece already in the box',
-    first.offeredName === PIECE, `offered “${first.offeredName}”`);
+  check('the take is kept on its own, with Discard the one thing left on the bar',
+    first.discardOffered === true, first.saveSays ? `the bar says "${first.saveSays}"` : 'no Discard offered');
   const lib = await theLibrary();
   const named = lib.rows.find((r) => r.name === PIECE && !r.folder);
   check('the first take is a row in the library, called what the piece is called',

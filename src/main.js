@@ -69,10 +69,17 @@ const saveBar = document.querySelector('#save-bar');
 // was just pressed and that otherwise appears to have done nothing at all — a
 // take with nothing in it, a save that failed, a microphone that would not
 // open. Those go through here as well, onto one line under the Record button.
+// The line under the count-in says only what went WRONG. It used to repeat
+// every step — "asking for the microphone…", "finishing that take…", "saved to
+// library" — under a button that was visibly doing those things, and the
+// running commentary was asked to go: "get rid of the little text lines under
+// count in". A failure still has to be said somewhere the eye is, because a
+// button that silently does nothing is the worst thing a button can do; the
+// rest goes only to the screen reader's status line.
 function say(message, tone = '') {
   statusEl.textContent = message;
   if (!recNote) return;
-  recNote.textContent = message;
+  recNote.textContent = tone === 'bad' ? message : '';
   recNote.dataset.tone = tone;
 }
 
@@ -98,6 +105,10 @@ let takeCameFromTheMusic = false;
 // another take replaces it — so "save it" and "file it under the Bach" can be
 // done in either order.
 let savedTakeId = null;
+// THE TAKE ON SCREEN IS ALREADY IN THE LIBRARY. A finished take is kept the
+// moment it is finished (see finishRecording) — there is no Save to press any
+// more — and this is its id, so that Discard means "and take it back out".
+let onScreenTakeId = null;
 let tunerStarting = false; // declared before tabs init — onShown fires during it
 
 // --- tabs ------------------------------------------------------------------
@@ -582,6 +593,8 @@ scoreSaveTake?.addEventListener('click', async () => {
 function clearTake() {
   clearRecNote(); // whatever went wrong last time is not about this take
   lastTake = null;
+  onScreenTakeId = null;
+  saveBtn.hidden = true;
   // …and the door it came through goes with it. `startTakeNow` calls this
   // before it opens the microphone, so a take begun from the Record tab cannot
   // inherit the last one's answer.
@@ -614,10 +627,13 @@ function finishRecording(note = null) {
   showTake(collected, recorder, { readings, a4: lastTake.a4 });
   saveBar.hidden = false;
   if (note) statusEl.textContent = note;
-  // The charts are up already; the score arrives a moment later because the
-  // engraver is fetched on first use. Nothing below waits on it.
-  annotateTake(collected, { readings, a4: lastTake.a4 })
-    .catch(() => { /* score.js has already said so on the card */ });
+  // KEPT AS SOON AS IT IS FINISHED. "maybe instead of saving to library it
+  // should automatically do so but there is still a discard option." A take
+  // played from a piece is filed under it, named after it; any other take
+  // goes in plainly. Discard, still on the bar, takes it back out. Saving
+  // and drawing the page happen side by side: keepTake re-renders the review
+  // with the take's id once it has one, and annotates the page itself.
+  keepTake({ name: takeCameFromTheMusic ? scoreName() : null });
 }
 
 // --- the take, judged against another A --------------------------------------
@@ -967,7 +983,11 @@ async function keepTake({ toScore = false, name = null } = {}) {
     // …and the second go at the same thing makes a folder of it. See
     // fileTakeUnderName: one take is a row, two are a folder with both in.
     const folderId = name ? await fileTakeUnderName(id, name).catch(() => null) : null;
-    saveBar.hidden = true;
+    // The bar stays, with Discard on it and Save gone: there is nothing left
+    // to save, and one thing left to undo.
+    saveBar.hidden = false;
+    saveBtn.hidden = true;
+    onScreenTakeId = id;
     lastTake = null;
     takeCameFromTheMusic = false;
     // Null once it is filed, because `refreshSaveLabel` reads this to decide
@@ -995,6 +1015,9 @@ async function keepTake({ toScore = false, name = null } = {}) {
       .catch(() => {});
     refreshLibrary();
   } catch (err) {
+    // The one time Save is worth a button: keeping it failed, the take is
+    // still on screen, and pressing this tries again.
+    saveBtn.hidden = false;
     say(saying('could not save', err), 'bad');
   }
 }
@@ -1007,8 +1030,19 @@ saveBtn.addEventListener('click', () => {
   saveTake();
 });
 
-document.querySelector('#discard-rec').addEventListener('click', () => {
+// Discard, for a take that was kept the moment it finished, is taking it back
+// out of the library — the same button, the same meaning it always had.
+async function discardOnScreenTake() {
+  const id = onScreenTakeId;
   clearTake();
+  if (id != null) {
+    await deleteRecording(id).catch(() => { /* it stays in the library, then */ });
+    refreshLibrary();
+  }
+}
+
+document.querySelector('#discard-rec').addEventListener('click', async () => {
+  await discardOnScreenTake();
   statusEl.textContent = 'recording discarded';
 });
 
@@ -1016,12 +1050,14 @@ document.querySelector('#discard-rec').addEventListener('click', () => {
 // just been read against the music. A take that is already IN the library is
 // not thrown away by this — by then the only thing on offer was filing it under
 // the piece, so this says no to that and leaves the recording alone.
-document.querySelector('#score-discard-take')?.addEventListener('click', () => {
-  const kept = !lastTake && savedTakeId !== null;
+document.querySelector('#score-discard-take')?.addEventListener('click', async () => {
+  // A take reopened from the library is not on this bar's conscience: only
+  // the take just finished, which was kept on its own, is taken back out.
+  const kept = !lastTake && savedTakeId !== null && onScreenTakeId === null;
   const words = kept
     ? 'left in the library, not filed under the piece'
     : 'take discarded';
-  clearTake();   // clears the bar's own line, so the news goes on after it
+  await discardOnScreenTake();   // clears the bar's own line, so the news goes on after it
   statusEl.textContent = words;
   saidOnTheBar(words);
 });

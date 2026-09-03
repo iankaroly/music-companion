@@ -158,16 +158,17 @@ const fromTheMusic = await page.evaluate(async ({ notes, piece }) => {
   dot.click();
   await hold(6000);
 
-  // THE RECORD TAB'S OWN SAVE, which is the one the sentence is about. Not the
-  // save bar at the foot of the Score tab — that one always filed the take
-  // under the piece and would prove nothing.
+  // KEPT ON ITS OWN. There is no Save to press any more: a finished take is in
+  // the library the moment it finishes, and the Record tab's bar offers only
+  // Discard (Save comes back only if keeping it failed).
   toTab('record');
   await hold(900);
+  const bar = document.querySelector('#save-bar');
+  const discard = document.querySelector('#discard-rec');
   const save = document.querySelector('#save-rec');
-  const offered = !!save && !save.closest('[hidden]');
-  if (!offered) return { failed: 'the Record tab offered no way to save the take' };
-  save.click();
-  await hold(2500);
+  if (!bar || bar.hidden || !discard) return { failed: 'the Record tab offered no way to discard the take' };
+  if (save && !save.hidden) return { failed: 'Save was offered for a take that should already be kept' };
+  await hold(1500);
   const { listRecordings } = await import('/src/store/db.js');
   const takes = await listRecordings();
   // …AND WHAT THE PIECE'S OWN SHELF SHOWS AFTERWARDS. "not to the take you just
@@ -188,7 +189,7 @@ const fromTheMusic = await page.evaluate(async ({ notes, piece }) => {
 if (fromTheMusic.failed) {
   check('a take recorded from the music', false, fromTheMusic.failed);
 } else {
-  check('a take recorded from the music and saved on the Record tab is kept',
+  check('a take recorded from the music is kept the moment it finishes',
     fromTheMusic.takes === 1, `${fromTheMusic.takes} in the library`);
   check('…and it carries the piece it was played from, with no second decision',
     fromTheMusic.scoreIds[0] === made.id,
@@ -220,13 +221,18 @@ const fromTheTab = await page.evaluate(async ({ notes }) => {
   await hold(seconds * 1000 + 600);
   start.click();
   await hold(5000);
-  const save = document.querySelector('#save-rec');
-  if (!save || save.closest('[hidden]')) return { failed: 'nothing offered to save it' };
-  save.click();
-  await hold(2500);
+  const bar = document.querySelector('#save-bar');
+  if (!bar || bar.hidden) return { failed: 'the bar with Discard on it did not appear' };
+  await hold(1500);
   const { listRecordings } = await import('/src/store/db.js');
   const takes = await listRecordings();
-  return { openScore: open, takes: takes.length, scoreIds: takes.map((t) => t.scoreId ?? null) };
+  // …AND DISCARD TAKES IT BACK OUT. The take was kept on its own; the one
+  // decision left is to undo that, and it has to reach the library.
+  document.querySelector('#discard-rec')?.click();
+  await hold(1500);
+  const after = await listRecordings();
+  return { openScore: open, takes: takes.length, scoreIds: takes.map((t) => t.scoreId ?? null),
+    afterDiscard: after.length, barGone: document.querySelector('#save-bar')?.hidden };
 }, { notes: [55, 57, 59, 60, 62, 64] });
 
 if (fromTheTab.failed) {
@@ -238,6 +244,9 @@ if (fromTheTab.failed) {
   check('…and is NOT filed under the piece that happened to be open',
     fromTheTab.openScore !== null && fromTheTab.scoreIds.filter((id) => id === made.id).length === 1,
     `the ${PIECE} was open (${fromTheTab.openScore}); scoreIds now ${JSON.stringify(fromTheTab.scoreIds)}`);
+  check('…and Discard takes it back out of the library',
+    fromTheTab.afterDiscard === 1 && fromTheTab.barGone === true,
+    `${fromTheTab.afterDiscard} left in the library, bar hidden=${fromTheTab.barGone}`);
 }
 
 // --- (3) opening the score-backed take again -------------------------------
