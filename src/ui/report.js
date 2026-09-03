@@ -1619,7 +1619,7 @@ export function hideReport(root) {
 // piano that has drifted: the question "how out of tune was that, really?" has
 // a different answer against each, and the honest way to see it is to type the
 // A in and watch the colours move — the same box the tuner has, with the same
-// range. Shown only where something can act on it (`extras.onRetune`), and
+// range, in whole hertz: the arrows step by one, as the tuner's do. Shown only where something can act on it (`extras.onRetune`), and
 // beside it, when the playing was steadily centred somewhere other than the
 // app's A, the A it WAS centred on, one tap away.
 function offerRetune(root, extras, offset) {
@@ -1630,7 +1630,7 @@ function offerRetune(root, extras, offset) {
     row = document.createElement('div');
     row.id = 'report-tuning';
     row.innerHTML = '<label for="report-a4">judged against A4 =</label>'
-      + '<input id="report-a4" type="number" min="400" max="450" step="0.1" inputmode="decimal" />'
+      + '<input id="report-a4" type="number" min="400" max="450" step="1" inputmode="numeric" />'
       + '<label for="report-a4">Hz</label>'
       + '<button id="report-a4-centre" type="button" class="ctl" hidden></button>';
     card.prepend(row);
@@ -1640,19 +1640,19 @@ function offerRetune(root, extras, offset) {
   if (row.hidden) return;
   const a4 = extras.a4 ?? 440;
   const input = row.querySelector('#report-a4');
-  input.value = String(Math.round(a4 * 10) / 10);
+  input.value = String(Math.round(a4));
   const commit = () => {
     const v = Number(input.value);
-    if (!Number.isFinite(v) || v < 400 || v > 450) { input.value = String(Math.round(a4 * 10) / 10); return; }
-    const asked = Math.round(v * 10) / 10;
+    if (!Number.isFinite(v) || v < 400 || v > 450) { input.value = String(Math.round(a4)); return; }
+    const asked = Math.round(v);
     if (asked === a4) return;
     retune(asked);
   };
   input.onchange = commit;
   input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } };
   const centre = row.querySelector('#report-a4-centre');
-  const hz = offset ? Math.round(centreHz(a4, offset.cents) * 10) / 10 : null;
-  const worth = hz !== null && offset.tightness >= 0.6 && Math.abs(hz - a4) >= 0.5;
+  const hz = offset ? Math.round(centreHz(a4, offset.cents)) : null;
+  const worth = hz !== null && offset.tightness >= 0.6 && hz !== Math.round(a4);
   centre.hidden = !worth;
   if (worth) {
     centre.textContent = `you were centred on ${hz} Hz — judge against that`;

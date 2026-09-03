@@ -79,7 +79,7 @@ const read = () => page.evaluate(() => {
 const r0 = await read();
 check('the review offers the A it is judged against', r0.shown && r0.a4 === '440', `${r0.a4}`);
 check('every note reads ten cents sharp against 440', r0.cents.length >= 12 && r0.cents.every((c) => c === 10), r0.cents.slice(0, 6).join(' '));
-const wanted = Math.round(440 * 2 ** (10 / 1200) * 10) / 10;
+const wanted = Math.round(440 * 2 ** (10 / 1200));   // whole hertz, as the box steps
 check('it says what A the playing was centred on', !!r0.centre && r0.centre.includes(String(wanted)), r0.centre ?? 'no offer');
 if (OUT) await page.screenshot({ path: `${OUT}/retune-before.png` });
 
@@ -101,7 +101,7 @@ await page.evaluate(() => document.querySelector('#report-a4-centre')?.click());
 await wait(1200);
 const r2 = await read();
 check('judged against the A it was centred on, the take reads in tune',
-  Number(r2.a4) === wanted && r2.cents.every((c) => Math.abs(c) <= 1), `${r2.a4} Hz, ${r2.cents.slice(0, 6).join(' ')}`);
+  Number(r2.a4) === wanted && r2.cents.every((c) => Math.abs(c) <= 2), `${r2.a4} Hz, ${r2.cents.slice(0, 6).join(' ')}`);
 check('…and the offer goes away', r2.centre === null, r2.centre ?? '');
 if (OUT) await page.screenshot({ path: `${OUT}/retune-after.png` });
 
