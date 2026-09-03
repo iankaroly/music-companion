@@ -546,6 +546,9 @@ function stopAutoTurn() {
 function armAutoTurn() {
   stopAutoTurn();
   if (!autoTurn || !score || !root || root.hidden) return;
+  // Not while a pen is out: a page that turns under a mark being made is a
+  // mark on the wrong page. The clock starts again when the pen is put down.
+  if (tool) return;
   // Nothing past the last page to turn to — unless a half turn is on and the
   // top of it is still to come.
   const last = visiblePages().at(-1) ?? 0;
@@ -3829,6 +3832,7 @@ function setTool(next) {
   }
   closeBrush();
   refreshBrushUI();
+  armAutoTurn();   // the clock stops while a pen is out and restarts when it is put down
 }
 
 function openShapeMenu() {
