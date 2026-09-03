@@ -1667,6 +1667,29 @@ const pointers = new Map();
 let pinch = null;         // { distance, x, y } at the moment the second finger landed
 let pinching = false;     // a pinch is in progress, or has only just ended
 let drawingPointer = null;
+// ONE FINGER MOVES A ZOOMED PAGE.
+//
+// Asked for by name: "when im zoomed in on the score annotating, i should be
+// able to drag with one finger up and down, to the left and to the right to
+// move the score in that direction while zoomed in."
+//
+// The rule is ZOOM, not the tool. At zoom 1 nothing changes — a finger still
+// turns the page or writes, exactly as before, and that is the state the whole
+// reader was designed around. Past zoom 1 there is more page than screen, so a
+// finger has somewhere to push it and the pencil keeps the ink to itself:
+// which is what every drawing app does once you magnify, and what makes the
+// gesture findable without being told.
+//
+// Held apart from `pinch` on purpose. A pinch is two contacts and owns the
+// zoom as well as the pan; this is one contact and can only translate. Sharing
+// the state would mean every guard that asks "are we pinching" would have to
+// learn a third answer.
+let onePan = null;    // { id, x, y, panX, panY, moved } while a lone finger drags
+// Whether the finger that has just come up MOVED the page. Kept for the length
+// of one release, because the capture handler that ends the drag runs before
+// the bubble handler that decides whether the same lift was a tap or a swipe —
+// and a drag that moved the page must be neither.
+let panDidMove = false;
 // How many marks were on the page when this gesture started. A gesture that
 // added one was WRITING, however small it was — see onTap.
 let marksAtDown = 0;
@@ -2244,8 +2267,17 @@ function trackPointers(root) {
     pointers.set(e.pointerId, {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
     });
+    // A LONE FINGER ON A ZOOMED PAGE IS A DRAG. Armed rather than started —
+    // the same way a pinch is — so that a finger resting on the glass moves
+    // nothing until it actually travels.
+    if (pointers.size === 1 && e.pointerType === 'touch' && zoom > 1 && !penIsDown()) {
+      onePan = { id: e.pointerId, x: e.clientX, y: e.clientY, panX, panY, moved: false };
+    }
     if (pointers.size === 2) {
       const [a, b] = [...pointers.values()];
+      // …and whatever the first finger was doing on its own, it is not doing it
+      // now: two contacts are a pinch's business.
+      onePan = null;
       // ARMED, not started.
       //
       // Two contacts used to mean a pinch outright, and that is not what two
@@ -2281,6 +2313,23 @@ function trackPointers(root) {
       x: e.clientX, y: e.clientY, touch: e.pointerType === 'touch', at: e.timeStamp,
     });
     forgetLostPointers(e.timeStamp);
+    // ONE FINGER, ONE ZOOMED PAGE: it moves.
+    //
+    // Before the pinch branch, because it can only ever be true when the pinch
+    // branch's own test is false — one contact against two — and reading it
+    // here keeps the whole gesture in one place.
+    if (onePan && pointers.size === 1 && e.pointerId === onePan.id) {
+      const dx = e.clientX - onePan.x;
+      const dy = e.clientY - onePan.y;
+      // Armed at the touch, started by the travel. Under this, a finger resting
+      // on the page has not asked for anything.
+      if (!onePan.moved && Math.hypot(dx, dy) < PAN_START) return;
+      onePan.moved = true;
+      panX = onePan.panX + dx;
+      panY = onePan.panY + dy;
+      applyZoom();
+      return;
+    }
     if (pointers.size !== 2 || !pinch) return;
     const [a, b] = [...pointers.values()];
     const distance = Math.hypot(a.x - b.x, a.y - b.y);
@@ -2376,6 +2425,10 @@ function trackPointers(root) {
     root.addEventListener(type, (e) => {
       if (e.pointerType === 'pen' && type !== 'lostpointercapture') penStroke.end();
       if (e.pointerId === penPointer) penPointer = null;
+      if (onePan && onePan.id === e.pointerId) {
+        panDidMove = onePan.moved;
+        onePan = null;
+      }
       pointers.delete(e.pointerId);
       if (pointers.size < 2 && pinch) {
         // The fingers that were holding it past its edge have gone, so the
@@ -2447,6 +2500,10 @@ const POINTER_STALE = 1500;
 // How far two contacts have to travel relative to one another before they are
 // a pinch rather than two things that happen to be touching the screen.
 const PINCH_START = 14;
+// How far a lone finger travels before it is moving the page rather than
+// resting on it. The same idea as PINCH_START and deliberately the same size:
+// both are "this is a gesture, not a hand".
+const PAN_START = 14;
 
 function forgetLostPointers(now) {
   // A pencil that has said nothing for a while is a pencil that has been put
@@ -5234,6 +5291,7 @@ function build() {
     // before it began. `pinching` is set the moment two fingers really are one
     // gesture, so the original intent survives and a resting hand stops eating
     // your taps.
+    panDidMove = false;
     tapFrom = pinching ? null : { x: e.clientX, y: e.clientY, at: e.timeStamp, id: e.pointerId };
   }, true);
   root.addEventListener('pointerup', (e) => {
@@ -5242,6 +5300,10 @@ function build() {
     const from = tapFrom;
     tapFrom = null;
     if (!from || from.id !== e.pointerId || pinching) return;
+    // A finger that MOVED the page asked for nothing else. Without this a drag
+    // across a zoomed page reads as a swipe and turns it — the page you were
+    // moving replaced by the next one.
+    if (panDidMove) return;
     if (onSwipe(e, from)) return;
     if (Math.hypot(e.clientX - from.x, e.clientY - from.y) > TAP_SLIP) return;
     if (e.timeStamp - from.at > TAP_TIME) return;
@@ -5366,6 +5428,11 @@ function build() {
     if (pinching && !isPen) return;
     // And a finger only writes if it has been given permission to.
     if (!isPen && !canFingerDraw()) return;
+    // PAST ZOOM 1 A FINGER MOVES THE PAGE INSTEAD. There is more page than
+    // screen up there, so a finger has somewhere to push it, and the pencil
+    // keeps the ink to itself — which is what every drawing app does once you
+    // magnify. At zoom 1 nothing here changes.
+    if (!isPen && zoom > 1) return;
     // A second FINGER is a pinch. A palm while the pencil is writing is not a
     // second anything — it has already been turned away at the door.
     if (pointers.size > 1 && !penIsDown()) {
