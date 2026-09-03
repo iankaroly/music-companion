@@ -1088,6 +1088,11 @@ function dropDryInk() {
   dryKey = null;
 }
 
+// The band on screen is not the band that was sharpened any more.
+function forgetSharpened() {
+  sharpFor = { zoom: 0, page: -1 };
+}
+
 // ONE MARK JOINS THE PAGE; THE PAGE IS NOT DRAWN AGAIN.
 //
 // `dryStamp` carries `strokes.length`, so finishing a stroke threw the dry
@@ -1532,12 +1537,19 @@ let lastInkAt = null;
 // for the same stroke on a ONE-page score — which is the discriminator, and it
 // names the look-ahead beyond argument. Second strokes cost 5ms.
 //
-// The obvious repair is to make that loop wait out the pen the way it already
-// waits out a page turn. IT DOES NOT WORK, and the numbers say so plainly:
-// deferring it turned one 448ms block into 352ms, 252ms and 416ms — the same
-// work, split and moved, some of it still landing inside the stroke. A block
-// that big has to become SMALLER or INTERRUPTIBLE, which is paper.js's decode
-// and not this loop's scheduling.
+// TWO REPAIRS TRIED AND REJECTED, both on the numbers:
+//
+//   · Make the loop wait out the pen, the way it already waits out a page turn.
+//     One 448ms block became 352ms, 252ms and 416ms — the same work, split and
+//     moved, some of it still landing inside the stroke.
+//   · Turn ROUGH down so the look-ahead rasterises less. Ruled out without
+//     trying it: it is ALREADY at 0.34, about a ninth of the work, and the cost
+//     survives that. What survives a 9x cut in rasterising is not rasterising —
+//     it is decoding the page.
+//
+// So the block has to become SMALLER or INTERRUPTIBLE at the DECODE, which is
+// paper.js and not this loop's scheduling. That is the next piece of work and
+// it is a real one; it is not a line of guard here.
 //
 // (A first attempt also gated on `tool`, which did nothing at all: a pencil
 // arms itself and draws with no tool selected, so `tool` is null for exactly
@@ -1816,10 +1828,31 @@ function resetZoom() {
 // blurrier. Once the fingers come off, the page is drawn again at the size it
 // is now being shown.
 let sharpenTimer = null;
+// What the band on screen was last re-sharpened FOR. A page drawn at this zoom
+// is already the right page; drawing it again produces the same pixels.
+let sharpFor = { zoom: 0, page: -1 };
+
 function redrawPaperAtZoom() {
   clearTimeout(sharpenTimer);
   sharpenTimer = setTimeout(async () => {
     if (!isPaper() || !paper) return;
+    // NOTHING TO RE-SHARPEN IF THE ZOOM HAS NOT MOVED.
+    //
+    // This is asked at the tail of the shared pointerup handler, on
+    // `pointers.size === 0` — and a pencil is deliberately never counted in
+    // `pointers`, so that condition is TRUE AT EVERY PEN LIFT. Annotating a
+    // magnified scan therefore re-rasterised the whole visible band after every
+    // stroke, for a gesture that changed no zoom at all.
+    //
+    // MEASURED by `npm run pen:lag` on a photographed page pinched to zoom 4.5:
+    // 20-30ms of blocked main thread at each lift, against 5ms for the same
+    // stroke at zoom 1. Small next to the look-ahead block above it, and paid
+    // every single time you lift the pen.
+    //
+    // The guard is the honest one — has the thing this redraws FOR changed —
+    // rather than a test for whether a pen is down, which the one-finger pan
+    // would have walked straight through.
+    if (sharpFor.zoom === zoom && sharpFor.page === pageIndex) return;
     const node = pageEls[pageIndex];
     const canvas = node?.querySelector('canvas');
     const slice = slices[pageIndex];
@@ -1842,6 +1875,7 @@ function redrawPaperAtZoom() {
     if (!(shownW > 0) || !(shownH > 0)) return;
     canvas.style.width = `${Math.round(shownW / zoom)}px`;
     canvas.style.height = `${Math.round(shownH / zoom)}px`;
+    sharpFor = { zoom, page: pageIndex };
     redraw();
   }, 220);
 }
@@ -4214,6 +4248,7 @@ async function trimPage(pageNumber) {
   // from the crop, so they are all different now. This happens AT ONCE — the
   // trim you just made is on screen before you have lifted your finger.
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   await render();
   showPage(Math.max(0, slices.findIndex((slice) => slice.page === pageNumber)));
 
@@ -4304,6 +4339,7 @@ async function changeEdges(pageNumber) {
   // Everything measured about that page is gone with it, so the reader is
   // rebuilt from the score as it now stands.
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   await render();
   showPage(Math.min(pageIndex, pageEls.length - 1));
 
@@ -4344,6 +4380,7 @@ async function toggleSpread() {
   const paperPage = isPaper() ? slices[pageIndex]?.page ?? 0 : null;
   const bar = isPaper() ? null : firstBarOnPage();
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   await render();
   if (isPaper()) showPage(Math.max(0, slices.findIndex((slice) => slice.page === paperPage)));
   else showPage(bars.get(bar)?.page ?? 0);
@@ -5531,6 +5568,7 @@ function build() {
   document.addEventListener('visibilitychange', () => {
     if (root.hidden || document.visibilityState !== 'visible' || !isPaper()) return;
     drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
     for (const index of visiblePages()) drawPaperPage(index).catch(() => {});
     keepNeighboursReady(visiblePages());
   });
@@ -5585,6 +5623,7 @@ async function resize(factor) {
     // page is split at another system gap and each half fills the glass.
     const first = pageIndex;
     drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
     await render();
     showPage(Math.min(first, pageEls.length - 1));
     return;
@@ -5615,7 +5654,8 @@ function relayout() {
     const wasOn = pageIndex;
     spread = wantsSpread();
     root.classList.toggle('spread', spread);
-    drawn.clear();           // the screen changed shape; so does every page
+    drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them           // the screen changed shape; so does every page
     await render();
     showPage(Math.min(wasOn, pageEls.length - 1));
   }, 200);
@@ -5681,6 +5721,7 @@ async function layOutPaper() {
   const mine = ++era;
   // Nothing that was true of the old pages is true of the new ones.
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   beingDrawn.clear();
   const payload = await loadScorePages(score.id);
   if (mine !== era) return null;
@@ -5824,6 +5865,7 @@ async function relayoutSameScore(id) {
   if (!root || root.hidden || score?.id !== id || !isPaper()) return;
   const wasOn = slices[pageIndex]?.page ?? 0;
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   await render();
   if (!root || root.hidden || score?.id !== id) return;
   // Back to the same PAGE of paper, which is what the player was looking at —
@@ -5862,8 +5904,17 @@ const beingDrawn = new Map();
 // Riffling shows soft pages that keep up; stopping on one sharpens it within a
 // breath.
 //
-// Only ever for a page being waited on. The look-ahead has nobody waiting, so
-// it draws properly the first time and there is no second pass to pay for.
+// NOT "only ever for a page being waited on" — that sentence stood here and had
+// stopped being true. `keepNeighboursReady` asks for `{ quick: true }` too, and
+// its own comment explains why it was changed to: a full render of a
+// photographed page is several times the work, and the look-ahead was the most
+// expensive thing in the reader while being the least urgent. Two comments, one
+// code path, opposite claims.
+//
+// WHICH MATTERS BECAUSE IT RULES SOMETHING OUT. The look-ahead already draws at
+// a ninth of the work and STILL blocks the main thread for about half a second
+// (see lastInkTime). Turning this number down further cannot be the fix: the
+// cost that survives a 9x reduction in rasterising is not rasterising.
 const ROUGH = 0.34;
 const rough = new Set();
 
@@ -6792,6 +6843,7 @@ export async function openReader(row, {
   const opening = sayOpening(row);
   try {
     drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
     await render();
   } catch (err) {
     opening.remove();
@@ -6897,6 +6949,7 @@ export function close() {
   // a score that is no longer open, and none of them may report back.
   era++;
   drawn.clear();
+  forgetSharpened();  // …and the band that was sharpened went with them
   cardTries.clear();   // a different score's pages, and a different tally
   cards.drawn = 0;
   cards.healed = 0;

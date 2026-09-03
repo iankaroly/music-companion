@@ -314,27 +314,30 @@ async function paperRun(onePage = false) {
   });
   await wait(800);
 
-  // Zoomed IN, through the menu, which is the door a hand uses.
+  // ZOOMED IN BY A REAL PINCH, because nothing else gets there.
+  //
+  // Two earlier versions used the reader's own "Bigger" menu row. That calls
+  // `resize`, which changes the READING size — how much music is laid out on a
+  // screenful — and never touches the pinch zoom. So both runs reported zoom 1
+  // while believing they had magnified the page, and measured the cheap case as
+  // though it were the expensive one. Only a two-finger spread gets there.
+  const cx = size.width / 2;
+  const cy = size.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: cx - 60, y: cy, id: 1 }, { x: cx + 60, y: cy, id: 2 }],
+  });
+  for (let i = 1; i <= 8; i += 1) {
+    const d = 60 + i * 26;
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ x: cx - d, y: cy, id: 1 }, { x: cx + d, y: cy, id: 2 }],
+    });
+    await wait(45);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await wait(800);
   const zoomed = await page.evaluate(async () => {
-    const wait2 = (ms) => new Promise((r) => setTimeout(r, ms));
-    for (let i = 0; i < 2; i += 1) {
-      // THE CHROME HAS TO BE UP FIRST. The reader goes `bare` after any
-      // interaction — that is the point of it — and a bare reader's menu button
-      // is translated off the top of the screen. Clicking it then does nothing,
-      // silently, and the run measures an unzoomed page while believing it
-      // zoomed: the first two versions of this reported `zoom 1` as though the
-      // expensive path had been entered.
-      if (document.querySelector('#reader')?.classList.contains('bare')) {
-        document.querySelector('#reader-sheet, #reader')?.click();
-        await wait2(400);
-      }
-      document.querySelector('#reader-menu-btn')?.click();
-      await wait2(350);
-      const row = [...document.querySelectorAll('.reader-menu-row')]
-        .find((n) => /^Bigger$/.test((n.querySelector('b')?.textContent ?? '').trim()));
-      row?.click();
-      await wait2(600);
-    }
     const { readerState } = await import('/src/ui/reader.js');
     return readerState().zoom;
   });
