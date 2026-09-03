@@ -783,6 +783,36 @@ export async function saveRecording({
   });
 }
 
+// The same take, judged against another A. The notes are rewritten as they
+// read against the new reference and the reference goes with them, in the
+// payload and in the meta record's stats, so the library row and the review
+// agree the next time either is opened.
+export async function retuneRecording(id, { notes, readings, a4 }) {
+  const db = await openDB();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(['recordings', 'recording-data'], 'readwrite');
+    const meta = tx.objectStore('recordings');
+    const data = tx.objectStore('recording-data');
+    const metaReq = meta.get(id);
+    metaReq.onsuccess = () => {
+      if (!metaReq.result) return;
+      meta.put({
+        ...metaReq.result,
+        noteStats: statsOf(notes),
+        landingStats: landingStats(notes, readings, a4) ?? [],
+      });
+    };
+    const dataReq = data.get(id);
+    dataReq.onsuccess = () => {
+      if (!dataReq.result) return;
+      data.put({ ...dataReq.result, notes, a4 });
+    };
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));
+  });
+}
+
 export async function listRecordings() {
   const db = await openDB();
   return new Promise((resolve, reject) => {
@@ -1020,11 +1050,15 @@ export async function deleteRecording(id) {
 // take is one field on a record that already exists rather than a move. That
 // also means deleting a folder can never take recordings with it — see below.
 
-export async function createFolder(name) {
+// `home` is which shelf made it: 'scores' or 'takes'. One set of folders
+// holds both pieces and takes, and each shelf shows a folder once there is
+// something of its own in it — so an EMPTY folder has to say where it was
+// made, or the shelf that made it cannot show it and the other one does.
+export async function createFolder(name, home = 'takes') {
   const db = await openDB();
   return new Promise((resolve, reject) => {
     const tx = db.transaction('folders', 'readwrite');
-    const req = tx.objectStore('folders').add({ name, date: Date.now() });
+    const req = tx.objectStore('folders').add({ name, date: Date.now(), home });
     tx.oncomplete = () => resolve(req.result);
     tx.onerror = () => reject(tx.error);
     tx.onabort = () => reject(tx.error ?? new Error('the database stopped mid-write'));

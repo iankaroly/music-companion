@@ -140,6 +140,8 @@
     "pen:strip": "node tools/ink-strip-check.mjs",
     "turn:half": "node tools/half-turn-check.mjs",
     "reader:modes": "node tools/reader-modes-check.mjs",
+    "shelf:folder": "node tools/shelf-folder-check.mjs",
+    "take:retune": "node tools/take-retune-check.mjs",
     "reader:pan": "node tools/reader-pan-check.mjs"
   },
   "keywords": [],

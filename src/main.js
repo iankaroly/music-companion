@@ -5,11 +5,13 @@ import { Analyzer } from './audio/analyzer.js';
 import { NoteSegmenter } from './analysis/notes.js';
 import { Recorder, MAX_SECONDS } from './audio/recording.js';
 import { Tuner } from './ui/tuner.js';
+import { retuneNotes } from './analysis/tuning-offset.js';
 import { renderFreeReview, hideReport, selectPlayedNote } from './ui/report.js';
 import { shareFile, fileName } from './ui/export.js';
 import {
   saveRecording, listRecordings, loadRecording, deleteRecording, renameRecording,
   createFolder, listFolders, renameFolder, deleteFolder, setRecordingFolder, setScoreFolder,
+  retuneRecording,
   fileTakeUnderName,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
   listSetlists, saveSetlist, deleteSetlist, replacePages,
@@ -609,13 +611,51 @@ function finishRecording(note = null) {
   }
   lastTake = { recorder, notes: collected, readings, a4: currentA4() };
   refreshSaveLabel(); // there is a take to keep now, so the Score tab offers to
-  renderFreeReview(document, collected, recorder, { readings, a4: lastTake.a4 });
+  showTake(collected, recorder, { readings, a4: lastTake.a4 });
   saveBar.hidden = false;
   if (note) statusEl.textContent = note;
   // The charts are up already; the score arrives a moment later because the
   // engraver is fetched on first use. Nothing below waits on it.
   annotateTake(collected, { readings, a4: lastTake.a4 })
     .catch(() => { /* score.js has already said so on the card */ });
+}
+
+// --- the take, judged against another A --------------------------------------
+//
+// Every cents figure on the review is a distance from a name, and the name was
+// chosen against the A the app was set to when the take was heard. Asked to
+// see the same take against 441, or 442, or whatever the orchestra tuned to,
+// nothing is re-heard: the notes are moved by the difference and named again
+// (see retuneNotes), the review and the page are drawn again from them, and a
+// take already in the library is written back so it reads the same tomorrow.
+let shownTake = null;   // { notes, readings, a4, recorder, recordingId } of the review on screen
+
+function showTake(notes, recorder, extras) {
+  shownTake = { notes, recorder, ...extras };
+  renderFreeReview(document, notes, recorder, { ...extras, onRetune: retuneTake });
+}
+
+async function retuneTake(a4) {
+  if (!shownTake) return;
+  const { notes, readings, recorder, recordingId } = shownTake;
+  const from = shownTake.a4 ?? 440;
+  if (!Number.isFinite(a4) || a4 === from) return;
+  const retuned = retuneNotes(notes, from, a4);
+  // The take waiting to be saved is the take on screen: what is saved is what
+  // was looked at.
+  if (lastTake && lastTake.notes === notes) {
+    lastTake.notes = retuned;
+    lastTake.a4 = a4;
+  }
+  showTake(retuned, recorder, { readings, a4, recordingId });
+  annotateTake(retuned, { readings, a4, recordingId })
+    .catch(() => { /* score.js has already said so on the card */ });
+  if (recordingId != null) {
+    await retuneRecording(recordingId, { notes: retuned, readings, a4 })
+      .catch(() => { /* the review on screen is still right */ });
+    refreshLibrary();
+  }
+  statusEl.textContent = `judged against A4 = ${a4} Hz`;
 }
 
 // --- the recording clock, count-in and pause --------------------------------
@@ -949,7 +989,7 @@ async function keepTake({ toScore = false, name = null } = {}) {
     // the id for the same reason: without it, choosing a score for the take
     // just saved would mark the page but never attach the score to the take,
     // and the attachment would be lost until it was reopened.
-    renderFreeReview(document, notes, recorder, { readings, a4, recordingId: id });
+    showTake(notes, recorder, { readings, a4, recordingId: id });
     annotateTake(notes, { readings, a4, recordingId: id })
       .then(() => (filed ? takeSaved(id) : null))
       .catch(() => {});
@@ -1271,9 +1311,7 @@ async function openRecording(r, { from = 'library' } = {}) {
   if (from === 'library') openTakeInLibrary(r.name ?? r.piece ?? 'Take', !!r.scoreId);
   else closeTakeInLibrary();
   showTab(from === 'score' ? 'score' : from === 'library' ? 'library' : 'analyze');
-  renderFreeReview(document, data.notes, rec, {
-    readings: data.readings, a4: data.a4, recordingId: r.id,
-  });
+  showTake(data.notes, rec, { readings: data.readings, a4: data.a4, recordingId: r.id });
   // A take is marked up against the score IT was played from, not whatever is
   // selected right now: reopening last week's Elgar while the Bach is chosen
   // would otherwise produce a page of confident nonsense — every note wrong,
@@ -1324,14 +1362,18 @@ folderDialog.addEventListener('close', async () => {
   if (folderDialog.returnValue !== 'save' || !name || !pending) return;
   if (pending.mode === 'rename') await renameFolder(pending.id, name);
   else {
-    const id = await createFolder(name);
+    const id = await createFolder(name, pending.home);
     await pending.then?.(id);
   }
+  // BOTH shelves. A folder made from the Scores shelf used to refresh only
+  // the library, so it appeared there and not where it was made — "adding a
+  // folder in the score tab adds it to the library and not the scores tab".
   refreshLibrary();
+  refreshScoreTab();
 });
 
-function askFolderName(mode, { id = null, current = '', then = null } = {}) {
-  folderPending = { mode, id, then };
+function askFolderName(mode, { id = null, current = '', then = null, home = 'takes' } = {}) {
+  folderPending = { mode, id, then, home };
   folderInput.value = current;
   document.querySelector('#folder-dialog h2').textContent =
     mode === 'rename' ? 'Rename this folder' : 'Name this folder';
@@ -1535,7 +1577,7 @@ document.querySelector('#new-folder').addEventListener('click', () => askFolderN
 // pieces (see the note above `openFolder`), so a folder made here is the folder
 // the Library shows too — which is why making one had to be possible from both
 // shelves and until now was only possible from one.
-document.querySelector('#score-folder')?.addEventListener('click', () => askFolderName('create'));
+document.querySelector('#score-folder')?.addEventListener('click', () => askFolderName('create', { home: 'scores' }));
 
 // Score name by id, so a take can say which piece it was played from without
 // each row going to the database for it.
@@ -2173,12 +2215,14 @@ async function refreshScoreTab() {
             if (score.folderId === undefined || score.folderId === null) continue;
             inside.set(score.folderId, (inside.get(score.folderId) ?? 0) + 1);
           }
-          // Only folders with music in them. The same folders hold takes, and a
-          // shelf of pieces listing every folder you ever made for a recording
-          // is a shelf of empty rooms.
+          // Only folders with music in them — or made HERE, for music that is
+          // about to be put in them. The same folders hold takes, and a shelf
+          // of pieces listing every folder you ever made for a recording is a
+          // shelf of empty rooms; but a folder you have just made on this
+          // shelf and cannot see is a folder that vanished.
           for (const folder of folders) {
-            if (!inside.has(folder.id)) continue;
-            scoreList.append(scoreFolderRow(folder, inside.get(folder.id)));
+            if (!inside.has(folder.id) && folder.home !== 'scores') continue;
+            scoreList.append(scoreFolderRow(folder, inside.get(folder.id) ?? 0));
           }
         }
         for (const score of matches.filter(here)) {
@@ -2285,7 +2329,12 @@ async function refreshLibrary() {
       for (const r of recordings) {
         if (r.folderId != null) counts.set(r.folderId, (counts.get(r.folderId) ?? 0) + 1);
       }
-      for (const f of folders) libraryList.append(folderRow(f, counts.get(f.id) ?? 0));
+      // …and the library keeps the same rule from its side: a folder made on
+      // the Scores shelf is shown here once a take is filed in it.
+      for (const f of folders) {
+        if (f.home === 'scores' && !counts.has(f.id)) continue;
+        libraryList.append(folderRow(f, counts.get(f.id) ?? 0));
+      }
     }
     for (const r of shown) libraryList.append(libraryRow(r));
 

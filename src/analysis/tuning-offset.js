@@ -1,3 +1,4 @@
+import { midiToName } from './note-utils.js';
 // WHERE THE INSTRUMENT ITSELF IS SITTING, against the A the app assumes.
 //
 // THE COMPLAINT THIS EXISTS FOR, in a player's words: "one time, it got the
@@ -124,4 +125,31 @@ export function sayTuningOffset(offset, a4 = 440) {
   const theirA = Math.round(a4 * 2 ** (cents / 1200));
   return `everything you played sits about ${size}¢ ${cents < 0 ? 'below' : 'above'}`
     + ` A${Math.round(a4)} — that is an A of about ${theirA}`;
+}
+
+// The same take, judged against another A.
+//
+// Every note was written down against the A the app was set to when it was
+// heard: the nearest name and the distance from it. That is a rounding, and
+// the reference it was rounded against travels with the take (`a4`). Asked
+// what the same sounds are against 441 instead of 440, nothing is re-heard —
+// the pitch each note was centred on is put back together from its name and
+// cents, moved by the difference between the two references, and named again.
+// A note that sat 49 cents sharp of C at one A can be 15 cents flat of C sharp
+// at another, and that is the point of asking.
+export function retuneNotes(notes, from, to) {
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) return notes;
+  const shift = 12 * Math.log2(from / to);
+  return (notes ?? []).map((note) => {
+    if (!note || !Number.isFinite(note.cents) || !Number.isFinite(note.midi)) return note;
+    const centre = note.midi + note.cents / 100 + shift;
+    const midi = Math.round(centre);
+    return { ...note, midi, name: midiToName(midi), cents: (centre - midi) * 100 };
+  });
+}
+
+// The A the playing was actually centred on: the reference it was judged
+// against, moved by the offset `tuningOffset` found.
+export function centreHz(a4, cents) {
+  return a4 * 2 ** ((cents ?? 0) / 1200);
 }

@@ -4,7 +4,7 @@ import { buildEmphasizedClip, findComparisonNote, findSameNotes } from '../audio
 import { timeStretch } from '../audio/stretch.js';
 import { renderOverviewChart, renderNoteChart } from './pitch-chart.js';
 import { intonationStatus, intonationHue, findNoteAt, cursorReading } from './chart-utils.js';
-import { tuningOffset, sayTuningOffset } from '../analysis/tuning-offset.js';
+import { tuningOffset, sayTuningOffset, centreHz } from '../analysis/tuning-offset.js';
 import { midiToName } from '../analysis/note-utils.js';
 import { toggleMenu } from './controls.js';
 import { renderLanding, hideLanding } from './landing.js';
@@ -1509,11 +1509,13 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       // on this screen moved together while each one's cents look immaculate.
       // Nothing else here can say that, and it is almost never said — steady
       // playing, well off the app's A, is the only case that reaches it.
-      const off = sayTuningOffset(tuningOffset(allNotes), extras.a4 ?? 440);
+      const offset = tuningOffset(allNotes);
+      const off = sayTuningOffset(offset, extras.a4 ?? 440);
       summary.textContent = (heldLeast > 0 && shown !== degrees.length
         ? `${shown} of ${degrees.length} notes, held ${heldLeast}s or longer`
         : `${allNotes.length} notes`)
         + (off ? ` — ${off}` : '');
+      offerRetune(root, extras, offset);
     }
     // …and the graph says the same thing. `null` rather than the whole set when
     // nothing is being filtered, so the chart can skip the lookup entirely.
@@ -1610,6 +1612,54 @@ export function hideReport(root) {
 
 // Free-play review: every detected note as a replayable tile, no expected
 // scale to align against.
+// THE A THE TAKE IS JUDGED AGAINST, as a number you can change.
+//
+// Every cents figure on this screen is a distance from the A the app was set
+// to when the take was heard. An orchestra at 442, a baroque group at 415, a
+// piano that has drifted: the question "how out of tune was that, really?" has
+// a different answer against each, and the honest way to see it is to type the
+// A in and watch the colours move — the same box the tuner has, with the same
+// range. Shown only where something can act on it (`extras.onRetune`), and
+// beside it, when the playing was steadily centred somewhere other than the
+// app's A, the A it WAS centred on, one tap away.
+function offerRetune(root, extras, offset) {
+  const card = root.querySelector('#report');
+  if (!card) return;
+  let row = card.querySelector('#report-tuning');
+  if (!row) {
+    row = document.createElement('div');
+    row.id = 'report-tuning';
+    row.innerHTML = '<label for="report-a4">judged against A4 =</label>'
+      + '<input id="report-a4" type="number" min="400" max="450" step="0.1" inputmode="decimal" />'
+      + '<label for="report-a4">Hz</label>'
+      + '<button id="report-a4-centre" type="button" class="ctl" hidden></button>';
+    card.prepend(row);
+  }
+  const retune = extras.onRetune;
+  row.hidden = typeof retune !== 'function';
+  if (row.hidden) return;
+  const a4 = extras.a4 ?? 440;
+  const input = row.querySelector('#report-a4');
+  input.value = String(Math.round(a4 * 10) / 10);
+  const commit = () => {
+    const v = Number(input.value);
+    if (!Number.isFinite(v) || v < 400 || v > 450) { input.value = String(Math.round(a4 * 10) / 10); return; }
+    const asked = Math.round(v * 10) / 10;
+    if (asked === a4) return;
+    retune(asked);
+  };
+  input.onchange = commit;
+  input.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); input.blur(); } };
+  const centre = row.querySelector('#report-a4-centre');
+  const hz = offset ? Math.round(centreHz(a4, offset.cents) * 10) / 10 : null;
+  const worth = hz !== null && offset.tightness >= 0.6 && Math.abs(hz - a4) >= 0.5;
+  centre.hidden = !worth;
+  if (worth) {
+    centre.textContent = `you were centred on ${hz} Hz — judge against that`;
+    centre.onclick = () => retune(hz);
+  }
+}
+
 export function renderFreeReview(root, notes, recording, extras = {}) {
   // Chord notes complete on their own clock — order everything by onset.
   const ordered = [...notes].sort((a, b) => a.start - b.start);
