@@ -136,6 +136,8 @@
     "ipad:fit": "node tools/ipad-fit-check.mjs",
     "store:shots": "node tools/store-shots.mjs",
     "pen:lag": "node tools/pen-lag-check.mjs",
+    "pen:frames": "node tools/pen-frame-check.mjs",
+    "pen:strip": "node tools/ink-strip-check.mjs",
     "reader:pan": "node tools/reader-pan-check.mjs"
   },
   "keywords": [],

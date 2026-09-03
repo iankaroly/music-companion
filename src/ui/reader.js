@@ -365,6 +365,41 @@ let lastInk = 'pen';
 // annotate, and nobody ever means "carry on erasing" after a page turn.
 const INKS = ['pen', 'highlighter', 'text', 'lasso', 'line', 'arrow', 'rect', 'ellipse', 'stamp'];
 let drawing = null;   // the stroke being drawn
+// WHERE THE PEN IS ABOUT TO BE, as the device guesses it.
+//
+// A frame drawn from the samples that have arrived is a frame that is behind
+// the nib by the time it is on the glass: the hand has moved on while the
+// frame was being made. The device knows its own delay and extrapolates a few
+// positions past the last sample it delivered — `getPredictedEvents` — and a
+// line drawn out to them meets the nib instead of trailing it. It is what a
+// native ink layer does, and it is most of the difference between "the line
+// follows my pen" and "the line is drawn where my pen was".
+//
+// Never kept. The guess is drawn under the frame it was made for and thrown
+// away the next, when the pen has said where it actually went; only real
+// samples reach the mark. Capped, too — a prediction is honest for a frame or
+// so and a guess past a sharp turn is a hook the hand never drew.
+let predicted = [];   // screen points past the last real sample, this frame only
+const PREDICT_POINTS = 3;
+const PREDICT_REACH = 32;   // px past the last real sample a guess is allowed
+
+function predictFrom(e) {
+  predicted = [];
+  if (!drawing || drawing.type || drawing.snapped) return;
+  let guesses = null;
+  try {
+    guesses = e.getPredictedEvents?.() ?? null;
+  } catch { guesses = null; }
+  if (!guesses || !guesses.length) return;
+  for (const guess of guesses) {
+    if (predicted.length >= PREDICT_POINTS) break;
+    const x = guess.clientX;
+    const y = guess.clientY;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+    if (Math.hypot(x - e.clientX, y - e.clientY) > PREDICT_REACH) break;
+    predicted.push({ x, y });
+  }
+}
 let chrome = true;    // is the bar showing
 let saveTimer = null;
 // What was done, so it can be undone: each entry is a whole gesture — one
@@ -1150,6 +1185,79 @@ function commitStroke(stroke) {
   dryKey = dryStamp(scale, shown);
 }
 
+// --- the stroke under way: painted where it moved, not where it is ------------
+//
+// A frame of a pen stroke used to be: clear the whole screen, copy the whole
+// dry layer back, draw the whole stroke again, and for a pencil draw it four
+// times. Every one of those is the size of the SCREEN, on a tablet at two
+// device pixels per point, once per frame, for a mark that has grown by a
+// quarter of an inch since the last one. That is where a frame's budget went,
+// and it is why the line sat a frame or two behind the nib however little you
+// had drawn.
+//
+// So while a freehand mark is under way only the strip it has grown by is
+// touched: cleared, the dry ink under it put back from the dry layer, and the
+// stroke drawn again CLIPPED to that strip. The stroke is still drawn from all
+// of its points — building a path is cheap, filling the screen is not — so
+// what lands inside the strip is pixel for pixel what a full repaint would
+// have put there: the fountain's carried width, the pencil's grain, the
+// highlighter's single wash, all computed over the whole mark as before.
+//
+// The strip is measured generously: from two points before the first new one
+// (a pencil's grain sits either side of a point on the normal to its
+// neighbours, so adding a point moves the grain of the one before it), out to
+// the end of the predicted tail, padded by the nib's full reach. And it takes
+// in wherever LAST frame's tail was drawn, since that tail was a guess and the
+// pen has now said where it really went.
+//
+// Everything that is not a freehand mark in the middle of being made — a
+// shape being stretched, a lasso, a mark that has just snapped to a shape, the
+// frame after the dry layer was rebuilt — takes the full repaint it always did.
+let wet = null;     // { points, upTo, box }: what the last frame painted of the mark under way
+
+// The mark as this frame should show it: its real points, and then where the
+// pen is expected to be by the time the frame is on the glass.
+function wetStroke() {
+  if (!drawing || drawing.type || drawing.snapped) return null;
+  if (!predicted.length) return { stroke: drawing, tailBox: null };
+  const tail = [];
+  for (const at of predicted) {
+    const point = anchor(at.x, at.y);
+    if (point) tail.push(point);
+  }
+  if (!tail.length) return { stroke: drawing, tailBox: null };
+  const last = drawing.points[drawing.points.length - 1];
+  return {
+    stroke: { ...drawing, points: [...drawing.points, ...tail] },
+    tailBox: boxAround([last, ...tail].map(place)),
+  };
+}
+
+// The smallest rectangle round some placed points, or null if none are on screen.
+function boxAround(spots) {
+  let left = Infinity;
+  let top = Infinity;
+  let right = -Infinity;
+  let bottom = -Infinity;
+  for (const spot of spots) {
+    if (!spot) continue;
+    if (spot.x < left) left = spot.x;
+    if (spot.x > right) right = spot.x;
+    if (spot.y < top) top = spot.y;
+    if (spot.y > bottom) bottom = spot.y;
+  }
+  return left === Infinity ? null : { left, top, right, bottom };
+}
+
+function unionBox(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    left: Math.min(a.left, b.left), top: Math.min(a.top, b.top),
+    right: Math.max(a.right, b.right), bottom: Math.max(a.bottom, b.bottom),
+  };
+}
+
 function paintInk() {
   // Measurements are only trusted through the middle of a stroke, where the
   // page is guaranteed to be still. Any other frame re-measures.
@@ -1169,7 +1277,6 @@ function paintInk() {
   ink.style.top = '0px';
   const ctx = ink.getContext('2d');
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.clearRect(0, 0, w, h);
   // Measured once for the whole page rather than re-derived per mark: it is the
   // same length for every stroke on screen, and working it out means walking
   // the bars.
@@ -1177,6 +1284,7 @@ function paintInk() {
   const shown = visiblePages();
 
   const stamp = dryStamp(scale, shown);
+  let rebuilt = false;
   if (dryKey !== stamp || !dry || dry.width !== ink.width || dry.height !== ink.height) {
     if (!dry) dry = document.createElement('canvas');
     if (dry.width !== ink.width || dry.height !== ink.height) {
@@ -1198,15 +1306,54 @@ function paintInk() {
     if (painted) drawScanMarks(dctx);
     drawLinks(dctx);
     dryKey = stamp;
+    rebuilt = true;
   }
+
+  const live = wetStroke();
+  // THE STRIP, when the frame is one more piece of the same mark.
+  if (live && !rebuilt && wet && wet.points === drawing.points
+    && drawing.points.length >= wet.upTo && !lasso && !picked.length) {
+    const from = Math.max(0, wet.upTo - 2);
+    const grown = drawing.points.slice(from).map(place);
+    let box = unionBox(unionBox(boxAround(grown), live.tailBox), wet.box);
+    wet = { points: drawing.points, upTo: drawing.points.length, box: live.tailBox };
+    if (!box) return;     // nothing new is on screen; there is nothing to paint
+    // The nib's reach beyond the line through its points: half a width for the
+    // line itself, up to 1.5 widths for a fountain pen pressed hard, and a
+    // pencil's grain out to 0.65 of a width — plus a pixel for the antialiasing.
+    const reach = Math.max(2, drawing.width * scale * 1.6 + 2);
+    const left = Math.max(0, Math.floor(box.left - reach));
+    const top = Math.max(0, Math.floor(box.top - reach));
+    const right = Math.min(w, Math.ceil(box.right + reach));
+    const bottom = Math.min(h, Math.ceil(box.bottom + reach));
+    if (right <= left || bottom <= top) return;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(left, top, right - left, bottom - top);
+    ctx.clip();
+    ctx.clearRect(left, top, right - left, bottom - top);
+    // Only the strip of the dry layer, in device pixels, copied straight across.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(dry,
+      left * dpr, top * dpr, (right - left) * dpr, (bottom - top) * dpr,
+      left * dpr, top * dpr, (right - left) * dpr, (bottom - top) * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    drawStroke(ctx, live.stroke, { scale });
+    ctx.restore();
+    return;
+  }
+
+  ctx.clearRect(0, 0, w, h);
   // One copy of everything that was already there…
   ctx.save();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.drawImage(dry, 0, 0);
   ctx.restore();
   // …and then the only thing that is moving.
-  if (drawing) drawStroke(ctx, drawing, { scale });
+  if (live) drawStroke(ctx, live.stroke, { scale });
+  else if (drawing) drawStroke(ctx, drawing, { scale });
   drawLasso(ctx);
+  wet = live ? { points: drawing.points, upTo: drawing.points.length, box: live.tailBox } : null;
 }
 
 // Rubbing out: a stroke goes if the eraser passes within a finger's width of it.
@@ -1384,6 +1531,7 @@ let pendingPlace = null; // { tool, point } this gesture will leave, if it is a 
 function beginStroke(e) {
   const at = pointerPosition(e);
   if (!at) return;
+  predicted = [];
   if (tool === 'eraser') { erasing = false; eraseAt(at.x, at.y); erasing = true; return; }
   if (tool === 'lasso') {
     // Inside a selection you already have, the drag moves it; anywhere else it
@@ -1576,6 +1724,7 @@ function nibPressure(point, e) {
 
 // A stroke that turned out to be the start of a pinch is not a stroke.
 function cancelStroke() {
+  predicted = [];
   // A pencil's stroke is not a thing to cancel.
   //
   // This exists for the finger that turns out to have been the first half of a
@@ -1610,6 +1759,7 @@ function cancelStroke() {
 function endStroke() {
   stopHold();
   lastInkAt = null;
+  predicted = [];
   // A thing that survived the gesture: one finger went down and the same finger
   // came up, so it was a tap and it meant what it said.
   if (pendingPlace) {
@@ -2183,6 +2333,7 @@ const penStroke = {
       penRefused(`a sample could not be drawn (${err.name}: ${err.message})`);
       try { extendStroke(e, { quiet: true }); } catch { /* the stroke is what it is */ }
     }
+    predictFrom(e);
     redraw();
   },
 
@@ -3323,6 +3474,7 @@ function setTool(next) {
   const row = el('reader-ink-row');
   if (row) row.hidden = !(tool === 'pen' || tool === 'highlighter');
   placeRecordButton();   // it lives in whichever bar is showing
+  placeInkRow();         // …and the bar is only as tall as it is once that has landed
   for (const button of root.querySelectorAll('[data-tool]')) {
     const on = button.dataset.tool === tool;
     button.classList.toggle('on', on);
@@ -3498,6 +3650,18 @@ function toggleBrush() {
 // wants: where the bar WILL be, which is where it already is as far as layout
 // is concerned. MEASURED: sheet top 8px before, 66px after, against a bar that
 // ends at 58. Found by `npm run app:reach`.
+// The row sits under the bar — under where the bar actually ENDS. Its top was
+// a fixed distance from the top of the screen, which was the bar's height on a
+// tablet; on a phone the bar wraps to two lines and is taller, and the row
+// came out overlapping its bottom edge with the pills touching the tools.
+function placeInkRow() {
+  const row = el('reader-ink-row');
+  const bar = el('reader-ink-bar');
+  if (!row || !bar || row.hidden) return;
+  const bottom = bar.offsetTop + bar.offsetHeight;
+  if (bottom > 0) row.style.top = `${Math.round(bottom + 8)}px`;
+}
+
 function hangBelowBar(panel) {
   const bar = tool ? el('reader-ink-bar') : el('reader-top');
   let bottom = bar ? bar.offsetTop + bar.offsetHeight : 0;
@@ -5532,6 +5696,7 @@ function build() {
     const moves = e.getCoalescedEvents?.() ?? null;
     if (moves && moves.length > 1) for (const move of moves) extendStroke(move, { quiet: true });
     else extendStroke(e, { quiet: true });
+    predictFrom(e);
     redraw();
   });
   for (const type of ['pointerup', 'pointercancel']) {
@@ -5606,6 +5771,7 @@ function build() {
 
   window.addEventListener('resize', () => {
     if (!root.hidden) relayout();
+    placeInkRow();
   });
 
   return root;

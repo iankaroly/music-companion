@@ -2030,6 +2030,17 @@
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      /* AS WIDE AS WHAT IS ON IT, and this line is the whole of "the colours
+         go outside the box". A fixed box with `left: 50%` and no width is
+         sized by the browser to fit — into the space to the RIGHT of that
+         left edge, which is half the screen. So the row was never allowed
+         more than half the viewport, on an iPad with a thousand pixels to
+         spare as much as on a phone, and the tool's pill folded its colours
+         onto a second line inside a stadium whose corners then swept in
+         through them. MEASURED at 820px: the row came to 410px, the pill to
+         two lines, before this. `max-content` lets it take the width of its
+         controls, and the max-width below is still the only ceiling. */
+      width: max-content;
       max-width: calc(100vw - 1rem);
     }
     #reader-ink-row[hidden] { display: none; }
@@ -2161,7 +2172,19 @@
        which is where every nib, every size, the whole palette and the mixer
        live, and which this app has done since long before this row existed. */
     @media (max-width: 700px) {
-      #reader-ink-row { gap: 0.35rem; }
+      /* THE PILL STAYS ONE LINE; THE ROW WRAPS INSTEAD.
+         The tool's pill used to wrap inside itself — widths on one line, the
+         colours on a second — and a pill is a stadium: its corners are
+         semicircles the height of the whole thing, so on a two-line pill the
+         curve swept in through the corners and the first and last colours sat
+         on the very edge of it, the custom ring half over the border. "the
+         colors options going outside of the box". Every control on the pill is
+         still reachable, which was the point of wrapping, but what wraps now is
+         the ROW: the undo pair takes a line of its own above when the two pills
+         will not sit side by side, and the tool's pill is a single straight
+         line of controls inside a shape that fits them. */
+      #reader-ink-row { gap: 0.4rem 0.35rem; flex-wrap: wrap; justify-content: center; }
+      .ink-pill.is-main { flex-wrap: nowrap; }
       .ink-nibs, .ink-sep { display: none; }
       .ink-pill { padding: 0.25rem 0.4rem; }
       .ink-width { width: 2rem; }
