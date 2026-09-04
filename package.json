@@ -135,6 +135,7 @@
     "app:offline": "npm run build && node tools/offline-check.mjs",
     "ipad:fit": "node tools/ipad-fit-check.mjs",
     "store:shots": "node tools/store-shots.mjs",
+    "store:upload": "sh tools/store-upload.sh",
     "pen:lag": "node tools/pen-lag-check.mjs",
     "pen:frames": "node tools/pen-frame-check.mjs",
     "pen:strip": "node tools/ink-strip-check.mjs",

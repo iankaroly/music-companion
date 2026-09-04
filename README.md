@@ -61,17 +61,24 @@ code is still the same web build, so `dist/` is what actually ships.
 npm run ios      # build, sync into the Xcode project, and open it
 ```
 
-**Xcode is required and is not installed here yet** — get it from the Mac App
-Store. CocoaPods is not needed; Capacitor 8 uses Swift Package Manager.
+Xcode is required, from the Mac App Store. CocoaPods is not needed; Capacitor 8
+uses Swift Package Manager.
 
 Then in Xcode: pick your device in the toolbar, set a team under
 *Signing & Capabilities*, and press run. A free Apple ID works — the app is
 signed for 7 days at a time. The $99/year Developer Program extends that to a
-year and opens TestFlight.
+year and opens TestFlight and the App Store.
 
-Nothing here is public. An App Store listing happens only when a build is
-submitted, and builds can sit on your own device or in TestFlight indefinitely
-before that.
+## On the App Store
+
+```
+npm run store:upload   # build, archive, and upload a build to App Store Connect
+```
+
+`docs/store/listing.md` has every field the listing asks for, ready to paste,
+and the screenshots beside it (`npm run store:shots` regenerates them). Xcode
+must be signed in with the Apple ID that holds the membership, and the app
+record must exist in App Store Connect first; the listing file says how.
 
 Icons: `tools/icon.html` is the source, `tools/build-icons.sh` renders the web
 icons, the maskable variant, the share image, **and** the 1024 iOS app icon in
