@@ -9,7 +9,8 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 | Field | Value |
 |---|---|
 | Platform | iOS (covers iPhone and iPad) |
-| Name | Practice Partner |
+| Name | Practice Partner: Music Coach |
+| | "Practice Partner" alone is taken store-wide. Fallbacks that fit 30 chars: "Practice Partner for Musicians", "Practice Partner Music". The name under the icon stays Practice Partner (CFBundleDisplayName). |
 | Primary language | English (U.S.) |
 | Bundle ID | com.iankaroly.practicepartner |
 | SKU | practicepartner |
