@@ -1,6 +1,6 @@
 {
   "appId": "com.iankaroly.practicepartner",
-  "appName": "Practice Partner",
+  "appName": "Stand Partner",
   "webDir": "dist",
   "ios": {
     "contentInset": "never",

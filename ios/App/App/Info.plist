@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>Practice Partner</string>
+        <string>Stand Partner</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -76,12 +76,12 @@
 	<!-- Shown verbatim in the iOS permission prompt, so it is written for the
 	     player rather than for review: what is listened to, and what is not. -->
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Practice Partner listens while you play so it can show you what you played — the pitch and timing of every note. Recordings stay on this device and are never uploaded.</string>
+	<string>Stand Partner listens while you play so it can show you what you played — the pitch and timing of every note. Recordings stay on this device and are never uploaded.</string>
 	<!-- Scanning a part. Without this key iOS does not refuse the camera, it
 	     kills the app the moment the scanner asks for it — so the scan button
 	     inside the installed app was a crash rather than a prompt. -->
 	<key>NSCameraUsageDescription</key>
-	<string>Practice Partner uses the camera to photograph the pages of the music you are playing from, so you can read and mark them up here. The pages stay on this device and are never uploaded.</string>
+	<string>Stand Partner uses the camera to photograph the pages of the music you are playing from, so you can read and mark them up here. The pages stay on this device and are never uploaded.</string>
 	<!-- Keeps the audio session alive while a take is recording and the screen
 	     locks or the app is briefly backgrounded, instead of truncating it. -->
 	<!-- The app uses only the HTTPS the system provides (and after loading,

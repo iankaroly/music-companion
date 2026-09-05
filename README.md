@@ -1,4 +1,4 @@
-# Practice Partner
+# Stand Partner
 
 A practice companion for anyone who plays a pitch — strings, winds, brass or voice. Every line of DSP is hand-written: the pitch detection, the segmentation, the time-stretching and the page reading are all in this repo, with no library doing any of it.
 

@@ -10,16 +10,18 @@
 import { landingStats } from '../analysis/landing.js';
 import { encodeStoredAudio, decodeStoredAudio, storedBytes } from '../audio/codec.js';
 
-// The app is called Practice Partner now. This is NOT — and the backup format
+// The app is called Stand Partner now. This is NOT — and the backup format
 // string below is not either. Both are keys, not names: renaming the database
 // points the app at an empty one and every take anybody has ever recorded is
 // still sitting in the old one, unreachable. Renaming the format string makes
 // every backup file already saved unimportable. They stay as they are.
 //
-// THE REST OF THE REPO HAS SINCE BEEN RENAMED and these two were deliberately
-// left behind, so nobody has to work out again why they look inconsistent: the
-// npm package, the Vercel project and the service worker's cache prefix are all
-// `practice-partner` now. The cache could move because it is swept on every
+// THE REST OF THE REPO HAS BEEN RENAMED TWICE (Music Companion, then Practice
+// Partner, then Stand Partner when the App Store turned out to have ABRSM's
+// Practice Partner apps already) and these two were deliberately left behind
+// each time, so nobody has to work out again why they look inconsistent. The
+// npm package, the Vercel project and the service worker's cache prefix are
+// still `practice-partner`: keys too, and nobody sees them. The cache could move because it is swept on every
 // activate and rebuilt from the network; these two cannot, because nothing
 // rebuilds somebody's practice history.
 const DB_NAME = 'music-companion';
@@ -930,7 +932,7 @@ export async function exportLibrary() {
 // the one thing about a recording that is already unique.
 export async function importLibrary(backup) {
   if (backup?.format !== 'music-companion-backup') {
-    throw new Error('that file is not a Practice Partner backup');
+    throw new Error('that file is not a Stand Partner backup');
   }
   const db = await openDB();
   const existing = await listRecordings();

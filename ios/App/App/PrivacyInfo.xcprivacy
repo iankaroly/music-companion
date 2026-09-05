@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Practice Partner collects nothing and sends nothing.
+	  Stand Partner collects nothing and sends nothing.
 
 	  This is not a claim made to fill in a form: there is no fetch,
 	  XMLHttpRequest, sendBeacon or WebSocket anywhere in the app's source, so

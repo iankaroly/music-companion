@@ -342,7 +342,7 @@ export function initSettings(doc = document) {
       const blob = new Blob([JSON.stringify(backup)], { type: 'application/json' });
       const a = doc.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `practice-partner-history-${new Date(backup.exported).toISOString().slice(0, 10)}.json`;
+      a.download = `stand-partner-history-${new Date(backup.exported).toISOString().slice(0, 10)}.json`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 5000);
       announce(doc, 'backup');

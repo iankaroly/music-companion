@@ -1,4 +1,4 @@
-# App Store listing — Practice Partner
+# App Store listing — Stand Partner
 
 Everything App Store Connect asks for on the first submission, ready to paste.
 The screenshots beside this file are the ones to upload (6.9" iPhone and 13"
@@ -9,8 +9,8 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 | Field | Value |
 |---|---|
 | Platform | iOS (covers iPhone and iPad) |
-| Name | Practice Partner: Music Coach |
-| | "Practice Partner" alone is taken store-wide. Fallbacks that fit 30 chars: "Practice Partner for Musicians", "Practice Partner Music". The name under the icon stays Practice Partner (CFBundleDisplayName). |
+| Name | Stand Partner |
+| | The app was Practice Partner until 2026-09-05; that name is ABRSM's on the store (seven "X Practice Partner" apps), so it changed. Names are editable per version if it changes again. |
 | Primary language | English (U.S.) |
 | Bundle ID | com.iankaroly.practicepartner |
 | SKU | practicepartner |
@@ -28,7 +28,7 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
 **Description**
 
-    Practice Partner listens while you play and shows you what you played.
+    Stand Partner listens while you play and shows you what you played.
 
     Record a take on any instrument, or sing one, and the app draws it out note by note: the pitch of each one, how far it sat from centre, and where the pulse pushed or dragged. Photograph the page you are playing from and the take is marked straight onto the music, so a sharp F is a ring on the F that was sharp.
 
@@ -43,7 +43,7 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
     FOR EVERY INSTRUMENT
 
-    Strings, winds, brass, voice, piano: if it plays a pitch, Practice Partner can hear it. Choose your instrument once and the tuner, the ranges and the review fit it.
+    Strings, winds, brass, voice, piano: if it plays a pitch, Stand Partner can hear it. Choose your instrument once and the tuner, the ranges and the review fit it.
 
     NOTHING LEAVES YOUR DEVICE
 
