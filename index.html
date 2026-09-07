@@ -3720,10 +3720,30 @@
 
     /* ---- landing ---- */
     #landing { margin-top: 1.1rem; border-top: 1px dashed var(--line-strong); padding-top: 0.9rem; }
+    /* THE HEAD IS A ROW, like the passages head above it, and it holds the
+       pill's height. It had no rule at all: the title and the pill sat inline
+       in an 18px line box, and a pill with 0.3rem of padding top and bottom
+       is 27px tall — inline padding paints outside the line, so the pill
+       hung 4px below the box and 3px INTO the first line of the sentence
+       under it. "where it says landing and then scooping... it is almost
+       touching the writing below." MEASURED, at 390 wide: head 471-489, pill
+       466-492, summary starting at 489. Flex makes the row as tall as the
+       pill; the margin under it is the room the passages head keeps between
+       itself and its own line of text. Centred, because the passages head
+       is, and the two were the only heads in the review that disagreed. */
+    #landing-head {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.7rem;
+      margin-bottom: 0.75rem;
+    }
     #landing-verdict {
+      display: inline-block;
       font-family: var(--display);
       font-weight: 500;
       font-size: 0.92rem;
+      line-height: 1.25;
       padding: 0.3rem 0.9rem;
       border-radius: 999px;
     }
@@ -4711,9 +4731,9 @@
   <div id="welcome" hidden>
     <div id="welcome-card" role="dialog" aria-labelledby="welcome-title" aria-modal="true">
       <h2 id="welcome-title"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M37 15 A36 36 0 0 0 37 85 A49 49 0 0 1 37 15Z" fill="currentColor"/><path d="M63 15 A36 36 0 0 1 63 85 A49 49 0 0 0 63 15Z" fill="currentColor" fill-opacity="0.5"/><ellipse cx="50" cy="50" rx="10" ry="7" fill="var(--wordmark-dot)" transform="rotate(-22 50 50)"/></svg>stand partner</h2>
-      <p class="welcome-lead">It listens while you practice and tells you what actually
-      happened — which notes ran sharp or flat, where the tempo moved, and how cleanly
-      you land after a leap.</p>
+      <p class="welcome-lead">A music stand you can read, mark up and play from — and it
+      listens while you practice and tells you what actually happened: every note's
+      pitch and timing, where the tempo moved, and how cleanly you land after a leap.</p>
 
       <div class="welcome-step">
         <span class="set-label" id="welcome-instrument-label">What do you play?</span>
@@ -4724,7 +4744,7 @@
         <li><b>Tuner</b> a dial, drones and a spectrum — for tuning up.</li>
         <li><b>Record</b> play something, then read it back note by note.</li>
         <li><b>Library</b> every take you keep, grouped into folders by piece.</li>
-        <li><b>Score</b> load the part you are working on and see your playing marked onto it.</li>
+        <li><b>Score</b> your part on a stand: read it full screen, turn pages, mark it up, play from it.</li>
         <li><b>Coach</b> what your takes say about you over weeks, not minutes.</li>
         <li><b>Metronome</b> subdivisions, a tempo trainer and a practice timer.</li>
       </ul>
@@ -5099,7 +5119,7 @@
             <ul id="passage-list"></ul>
           </div>
           <div id="landing" hidden>
-            <div id="timing-head">
+            <div id="landing-head">
               <span class="timing-title">landing</span>
               <span id="landing-verdict"></span>
             </div>

@@ -1,6 +1,6 @@
 // THE TOUR POINTS AT THE RIGHT THINGS, FITS ON THE SCREEN, AND IS SHOWN ONCE.
 //
-// The tour is four coach marks drawn over the real app after the welcome
+// The tour is ten coach marks drawn over the real app after the welcome
 // screen (ui/tour.js). Everything that could go wrong with it is geometric or
 // is a flag, and neither kind of fault throws: a hole that frames the wrong
 // control, a card that has walked off the bottom of a phone, a card sat over
@@ -42,12 +42,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // stop that drifts onto the wrong control is caught rather than agreed with.
 // The first stop frames the dial AND the "Tap to listen" button under it,
 // because on a cold device that button is there (the microphone has not been
-// granted) and a hole round the dial alone left a sliver of it showing.
+// granted) and a hole round the dial alone left a sliver of it showing. The
+// three Score stops frame the shelf's own buttons and its empty-shelf note,
+// because on a cold device there is no part to frame — and the empty note is
+// the tallest thing the tour points at, which is what the 320x568 screen is
+// here to catch.
 const STOPS = [
   { tab: 'tuner', target: ['#gauge-wrap', '#tuner-listen'] },
   { tab: 'analyze', target: '#start' },
+  { tab: 'analyze', target: ['#tab-analyze .mini-label', '.seg[aria-label="Count-in before recording"]'] },
   { tab: 'library', target: ['#new-folder', '#library-search'] },
   { tab: 'score', target: '#score-load' },
+  { tab: 'score', target: ['#score-sets', '#score-folder'] },
+  { tab: 'score', target: ['#score-search', '#score-list-empty'] },
   { tab: 'coach', target: '.tab-btn[data-tab="coach"]' },
   { tab: 'metronome', target: ['#bpm-display', '#bpm-slider'] },
   { tab: 'tuner', target: '#settings-btn' },
@@ -60,6 +67,14 @@ const LAST = STOPS.length;
   const asks = src.match(/getUserMedia|openScanner|mediaDevices|getDisplayMedia/g) ?? [];
   check('ui/tour.js never names the microphone, the camera or the scanner',
     asks.length === 0, asks.join(', '));
+  // The take-on-the-page feature is not ready and must not be promised. The
+  // card copy is the one place a new player reads a promise, so the strings
+  // are read here rather than trusted; the comment above STOPS is allowed to
+  // say the words, the copy is not.
+  const copy = src.slice(src.indexOf('export const STOPS'));
+  const promises = copy.match(/'[^']*marked[^']*'|'[^']*onto the (page|score|music)[^']*'/g) ?? [];
+  check('ui/tour.js does not promise the take is marked onto the page',
+    promises.length === 0, promises.join(', '));
 }
 
 const browser = await puppeteer.launch({

@@ -24,19 +24,19 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
 **Promotional text** (170 max)
 
-    Play, and see every note: which ran sharp or flat, where the tempo drifted, and what has improved since last week. Nothing leaves your device.
+    A music stand you can read, mark up and play from — and a review of every note you played: its pitch, its timing, and what has improved since last week.
 
 **Description**
 
     Stand Partner listens while you play and shows you what you played.
 
-    Record a take on any instrument, or sing one, and the app draws it out note by note: the pitch of each one, how far it sat from centre, and where the pulse pushed or dragged. Photograph the page you are playing from and the take is marked straight onto the music, so a sharp F is a ring on the F that was sharp.
+    Record a take on any instrument, or sing one, and the app draws it out note by note: the pitch of each one, how far it sat from centre, and where the pulse pushed or dragged. And the Score tab is a music stand: put your part on it and read it full screen, mark it up, and play from it.
 
     WHAT IS IN IT
 
     • Tuner: a fast, steady chromatic tuner for any instrument or voice, with the A adjustable from 400 to 450 Hz.
     • Record: a count-in, a take, and a review of every note in it. Takes are kept the moment they finish.
-    • Score: photograph or import your part, read it on screen with half-page turns, turn pages hands-free, and annotate it with a pencil or a finger. Transpose an engraved score to any key.
+    • Score: photograph your part, or import a PDF or MusicXML, and read it full screen. Turn pages with a tap, a swipe or a pedal, half a page at a time if you like, or let them turn by themselves; lock the page for a performance. Annotate with a pencil or a finger — nibs, widths, colours, lasso, undo — and transpose an engraved part to any key. Record a take without leaving the page.
     • Coach: what has improved since the last take, and what has not.
     • Metronome: subdivisions, accents, tempo ramps.
     • Library: every take and every score, in folders and setlists.
@@ -51,7 +51,7 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
 **Keywords** (100 max, comma-separated, no spaces after commas)
 
-    tuner,metronome,practice,music,sheet music,intonation,recorder,cello,violin,singing,pitch,score
+    tuner,metronome,practice,music stand,sheet music,intonation,cello,violin,singing,pitch,score,pdf
 
 **Support URL**
 
@@ -99,7 +99,7 @@ Free. All territories.
 
 **Notes for the reviewer**
 
-    The app needs the microphone to do anything useful: open the Tuner tab and play or sing a note and the needle moves. The Record tab counts in, records a take, and shows every note of it. The camera is used only on the Score tab, to photograph a page of sheet music. No account, no server; the app makes no network requests after it has loaded.
+    The app needs the microphone to do anything useful: open the Tuner tab and play or sing a note and the needle moves. The Record tab counts in, records a take, and shows every note of it with its pitch and timing. The camera is used only on the Score tab, to photograph a page of sheet music, which is then read on screen like a music stand: page turns, annotation with a pencil or a finger, and a Record button on the page. A PDF or MusicXML file can be imported instead of photographing. No account, no server; the app makes no network requests after it has loaded.
 
 ## Export compliance
 

@@ -5,8 +5,8 @@
 // what the app is FOR, and the two lines above the phone are the only words a
 // browser reads before deciding whether to scroll. So each image is three
 // things: a caption in the app's own display face, a device with the screen in
-// it, and a ground built from the app's own palette so the ten images read as
-// one thing and match the icon beside them.
+// it, and a ground built from the app's own palette so the twelve images read
+// as one thing and match the icon beside them.
 //
 // The device is a plain rounded bezel and not Apple's artwork: Apple's device
 // images are trademarked and the guidelines only ask that a frame, if any, is
@@ -65,14 +65,22 @@ const DEVICES = [
   },
 ];
 
-// The five screens, in the order the listing tells the story, with the line
+// The six screens, in the order the listing tells the story, with the line
 // each one earns. Short enough to sit in two lines at 96px on the phone.
+//
+// Two of them are the score tab as a music stand — the shelf, and a page with
+// a pencil on it — and none of them is the take marked onto the music. That
+// screen ("Marked straight onto your music") was the second image until the
+// rings were held back from the listing; store-shots.mjs no longer makes it,
+// and a caption promising it would be a promise the app on the store does
+// not keep yet.
 const SCREENS = [
   { name: '1-what-you-played', caption: 'Every note, as you played it' },
-  { name: '2-on-the-music', caption: 'Marked straight onto your music' },
-  { name: '3-tuner', caption: 'A tuner that understands vibrato' },
-  { name: '4-coach', caption: 'What changed since last week' },
-  { name: '5-metronome', caption: 'A metronome that trains tempo' },
+  { name: '2-on-the-stand', caption: 'Your music, on the stand' },
+  { name: '3-pencil', caption: 'Mark it up with a pencil' },
+  { name: '4-tuner', caption: 'A tuner that understands vibrato' },
+  { name: '5-coach', caption: 'What changed since last week' },
+  { name: '6-metronome', caption: 'A metronome that trains tempo' },
 ];
 
 function pageFor(device, caption, pngBase64) {

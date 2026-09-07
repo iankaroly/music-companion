@@ -3,10 +3,18 @@
 // The welcome screen says what the app is and asks what you play; it does not
 // say what to DO. A new player closed it and was looking at a tuner dial and
 // six words along the bottom, and "what is Coach?" was the first question every
-// one of them asked. Four coach marks, shown once, each over a real control on
-// the tab it lives on: the dial, the Record button, the button that puts a part
-// on the stand, and the Coach tab. It is a tour and not a manual — one or two
+// one of them asked. Ten coach marks, shown once, each over a real control on
+// the tab it lives on, in the order the tab bar meets them: the dial, Record
+// and its count-in, the Library, the three buttons on the Score shelf, Coach,
+// the metronome and the gear. It is a tour and not a manual — one or two
 // sentences per stop and a way out on every card.
+//
+// It began as four stops and grew to seven, then to ten, when the reader had
+// become the reason to keep the phone on the stand and none of it was said:
+// a player who had taken the tour still did not know a page could turn by
+// itself or that a take could be recorded from the page. On a first run no
+// part exists, so the reader's stops frame the shelf that will hold one and
+// say what happens once it does.
 //
 // WHAT IT DOES NOT DO. It never asks for the microphone or the camera itself.
 // Switching to the Tuner tab starts the tuner exactly as pressing that tab
@@ -50,9 +58,14 @@ export function forgetTour(storage = globalThis.localStorage) {
 
 // Each stop: the tab it needs, the control it points at, and what to say. The
 // copy says what the control actually does — the dial follows vibrato rather
-// than flagging it (tuner.js), a take comes back as pitch and timing per note
-// (report.js), "＋ Score" offers Scan, PDF and Choose file (main.js), and the
-// coach compares this week's error with last week's (coach.js renderWeek).
+// than flagging it (tuner.js), a take is kept the moment it ends and comes back
+// as a box per note with its cents over the pitch trace (report.js,
+// pitch-chart.js), "＋ Score" offers Scan, PDF and Choose file (main.js), the
+// reader's menu rows are Half-page turns, Turn pages by itself, Transpose,
+// Lock the page and Record a take (reader.js openMenu), and the coach compares
+// this week's error with last week's (coach.js renderWeek). NOTHING HERE SAYS
+// A TAKE IS MARKED ONTO THE PAGE: that is not ready, and a promise on a tour
+// card is the first one a new player tests.
 export const STOPS = [
   {
     tab: 'tuner',
@@ -72,8 +85,24 @@ export const STOPS = [
   {
     tab: 'analyze',
     target: '#start',
-    text: 'Press Record, play something, press Stop. Every note comes back '
-      + 'with its pitch and its timing.',
+    text: 'Press Record, play something, press Stop. The take is kept the '
+      + 'moment it ends.',
+  },
+  {
+    tab: 'analyze',
+    // No take exists on a first run, so the review itself cannot be framed;
+    // the count-in is the one control on this tab that is about the take to
+    // come, and the card says what will appear under it. The <select> itself
+    // is hidden — controls.js draws it as a segmented group carrying the
+    // select's aria-label — so the group is what gets framed; pointing at
+    // #count-in measured a 0x0 hole in the middle of the screen. The word
+    // "count-in" beside it is framed too: with the group alone the hole's
+    // edge cut the label in half, which the 390x844 screenshot showed.
+    target: ['#tab-analyze .mini-label', '.seg[aria-label="Count-in before recording"]'],
+    text: 'A count-in gives you a bar or two before the take. Afterwards every '
+      + 'note comes back as a box — its name, and how far sharp or flat in '
+      + 'cents — over a graph of your pitch through the take. Tap a note to '
+      + 'hear it again.',
   },
   {
     tab: 'library',
@@ -88,7 +117,25 @@ export const STOPS = [
     tab: 'score',
     target: '#score-load',
     text: 'Put your part on the stand: scan it with the camera, or bring in a '
-      + 'PDF or MusicXML. Record from it, and the take is marked straight onto the page.',
+      + 'PDF or MusicXML.',
+  },
+  {
+    tab: 'score',
+    target: ['#score-sets', '#score-folder'],
+    text: 'Folders keep the parts of a piece together, and a setlist puts a '
+      + 'programme in playing order.',
+  },
+  {
+    tab: 'score',
+    // The shelf is empty on a first run, so the stop frames the search box
+    // and the empty-shelf note and says what the reader does once a part is
+    // on it. Two sentences, one for reading and one for marking: the longest
+    // card on the tour, and it still fits above the shelf at 320 wide.
+    target: ['#score-search', '#score-list-empty'],
+    text: 'Open a part and it fills the screen: turn with a tap or a swipe, '
+      + 'half a page at a time, or let it turn by itself — and lock the page '
+      + 'for a performance. Mark it up with a pencil or a finger, transpose an '
+      + 'engraved part, and record a take straight from the page.',
   },
   {
     tab: 'coach',

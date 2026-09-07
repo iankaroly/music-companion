@@ -42,16 +42,43 @@ describe('the tour is shown once', () => {
 });
 
 describe('the stops', () => {
-  it('are seven, one for every tab and one for the gear, each with something to point at', () => {
-    const tabs = ['tuner', 'analyze', 'score', 'library', 'coach', 'metronome'];
-    expect(STOPS).toHaveLength(7);
+  const textOf = (stop) => (typeof stop.text === 'function'
+    ? stop.text({ querySelector: () => null })
+    : stop.text);
+
+  it('are ten, in tab-bar order, each on a tab that exists with something to point at', () => {
+    const tabs = ['tuner', 'analyze', 'library', 'score', 'coach', 'metronome'];
+    expect(STOPS).toHaveLength(10);
     for (const stop of STOPS) {
       expect(tabs).toContain(stop.tab);
       expect([].concat(stop.target).length).toBeGreaterThan(0);
-      const text = typeof stop.text === 'function'
-        ? stop.text({ querySelector: () => null })
-        : stop.text;
-      expect(text.length).toBeGreaterThan(20);
+      expect(textOf(stop).length).toBeGreaterThan(20);
+    }
+    // The tab bar's order, with the gear last on the tab the tour began on.
+    const order = STOPS.slice(0, -1).map((s) => tabs.indexOf(s.tab));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
+    expect(STOPS.at(-1).target).toBe('#settings-btn');
+  });
+
+  it('say what the reader does once a part is open', () => {
+    const score = STOPS.filter((s) => s.tab === 'score').map(textOf).join(' ');
+    for (const word of ['scan', 'PDF', 'MusicXML', 'setlist', 'half a page', 'turn by itself',
+      'lock', 'pencil', 'transpose', 'record a take']) {
+      expect(score.toLowerCase()).toContain(word.toLowerCase());
+    }
+  });
+
+  it('do not promise the take is marked onto the page — that is not ready', () => {
+    for (const stop of STOPS) {
+      expect(textOf(stop)).not.toMatch(/marked|onto the (page|score|music)/i);
+    }
+  });
+
+  it('are a tour and not a manual: no card runs past three sentences or 300 characters', () => {
+    for (const stop of STOPS) {
+      const text = textOf(stop);
+      expect(text.length).toBeLessThanOrEqual(300);
+      expect(text.split(/[.!?](\s|$)/).filter((s) => s.trim()).length).toBeLessThanOrEqual(3);
     }
   });
 });
