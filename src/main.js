@@ -432,6 +432,24 @@ function showListenButton(show) {
 }
 
 // What the note under the Listen button says when nothing has gone wrong.
+//
+// The sentence in index.html is written for Safari — "your browser asks once
+// per visit, add it to the Home Screen and iPhone remembers" — and it was
+// shipping verbatim inside the App Store build, where there is no browser and
+// nothing to add to the Home Screen. The native app (capacitor://) and an app
+// already on the Home Screen (display-mode: standalone) both ask once and
+// remember, so they get the sentence that is true for them, set BEFORE the
+// default is captured so every later reset restores the right one.
+{
+  const note = document.querySelector('#tuner-listen-note');
+  const installed = location.protocol === 'capacitor:'
+    || navigator.standalone === true
+    || globalThis.matchMedia?.('(display-mode: standalone)')?.matches;
+  if (note && installed) {
+    note.textContent = 'Allow the microphone when asked. It only listens while '
+      + 'you are on the Tuner or recording a take.';
+  }
+}
 const listenNote = document.querySelector('#tuner-listen-note')?.textContent ?? '';
 
 async function startTuner() {
