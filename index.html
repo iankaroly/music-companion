@@ -4381,6 +4381,40 @@
     #welcome-instruments button:last-child:nth-child(odd) { grid-column: span 2; }
     #welcome-instruments small { font-size: 0.62rem; opacity: 0.75; font-weight: 400; }
 
+    /* ---- the tour ----
+       One hole and one card, over the real app. The dimming IS the hole's
+       shadow: spread past any screen edge, it darkens everything except the
+       hole's own rectangle, so the control being pointed at is the one thing
+       lit. The hole is drawn on top of the control too, transparent, which is
+       what stops it being pressed: the tour is modal, and Next and Skip are
+       the only things that answer. The card is the welcome card's glass, a
+       size down, and sits wherever place() in ui/tour.js measures room for
+       it — never past an edge (edge:fit) and never over the hole. */
+    #tour { position: fixed; inset: 0; z-index: 100; }
+    #tour-hole {
+      position: absolute;
+      box-shadow: 0 0 0 200vmax rgb(var(--sh) / 0.55);
+      transition: top 260ms var(--spring), left 260ms var(--spring),
+        width 260ms var(--spring), height 260ms var(--spring), border-radius 260ms;
+    }
+    #tour-card {
+      position: absolute;
+      width: min(22rem, calc(100vw - 1rem));
+      padding: 1rem 1.1rem 0.9rem;
+      border-radius: 1.4rem;
+      background: rgb(var(--sf) / 0.92);
+      -webkit-backdrop-filter: blur(28px) saturate(1.8);
+      backdrop-filter: blur(28px) saturate(1.8);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 18px 50px rgb(var(--sh) / 0.35);
+      animation: pop-in 320ms var(--spring);
+      outline: none;
+    }
+    #tour-text { font-size: 0.95rem; line-height: 1.45; color: var(--ink); margin: 0 0 0.8rem; }
+    #tour-foot { display: flex; align-items: center; gap: 0.4rem; }
+    #tour-count { flex: 1; color: var(--muted); font-size: 0.75rem; }
+    #tour-foot .ctl { padding: 0.55rem 1.1rem; font-size: 0.88rem; }
+
     :root[data-motion="off"] #blobs i { animation: none !important; }
 
     /* ---- what the device asked for ----------------------------------------
@@ -4431,7 +4465,7 @@
       #score-list, #panes.swiping, #panes.swiping .tab-panel.sliding,
       #reader-hint, #reader-say, #reader-selection, #reader-top, #reader-ink-bar,
       #reader-aids, #reader-next, #score-expand, #scan-bottom .ctl:disabled,
-      #scan-top .scan-chip:first-of-type, #welcome, #welcome-card {
+      #scan-top .scan-chip:first-of-type, #welcome, #welcome-card, #tour-card {
         -webkit-backdrop-filter: none !important;
         backdrop-filter: none !important;
       }
@@ -4441,7 +4475,7 @@
       .card, .cluster, .column, .lib-item, .metro-split, .pick-pop, .scan-chip,
       .scan-tool, #library-list, #score-list, #reader-hint, #reader-say,
       #reader-selection, #reader-top, #reader-ink-bar, #reader-aids,
-      #reader-next, #score-expand, #welcome, #welcome-card {
+      #reader-next, #score-expand, #welcome, #welcome-card, #tour-card {
         background: rgb(var(--sf)) !important;
       }
       /* The reader at night is the exception: it sets its own black and its
@@ -4466,7 +4500,7 @@
       }
       .card, .cluster, .column, .lib-item, .pick-pop, .scan-chip, .scan-tool,
       #reader-top, #reader-ink-bar, #reader-aids, #reader-selection,
-      #welcome-card, button.ctl, .seg-btn, .pick-btn, .reader-tool {
+      #welcome-card, #tour-card, button.ctl, .seg-btn, .pick-btn, .reader-tool {
         border: 1px solid rgb(var(--on-surface) / 0.55) !important;
       }
       /* A tool that is ON must not be told apart by a tint alone. */
@@ -5439,6 +5473,11 @@
         <button id="set-intro" type="button" class="set-wide">Show the introduction again</button>
         <p class="set-hint">Reopens the screen you saw the first time, where you pick what
         you play. Your takes and settings are untouched.</p>
+      </div>
+      <div class="set-group">
+        <button id="set-tour" type="button" class="set-wide">Show the tour again</button>
+        <p class="set-hint">Four short stops — the dial, Record, putting a part on the
+        stand, and the coach.</p>
       </div>
       <div class="set-group">
         <button id="set-reset" type="button" class="set-wide">Restore default settings</button>

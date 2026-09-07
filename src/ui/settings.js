@@ -17,6 +17,7 @@ import { micRetains, setMicRetains } from '../audio/capture.js';
 import { refreshDroneLevel } from '../audio/drone.js';
 import { storageReport, requestPersistence, exportLibrary, importLibrary } from '../store/db.js';
 import { INSTRUMENTS, instrument, saveInstrument, loadInstrument, forgetInstrument } from '../analysis/instruments.js';
+import { replayTour } from './tour.js';
 
 const MOTION_KEY = 'mc-motion';
 const TOLERANCE_KEY = 'tolerance';
@@ -372,6 +373,13 @@ export function initSettings(doc = document) {
   doc.querySelector('#set-intro')?.addEventListener('click', () => {
     forgetInstrument();
     location.reload();
+  });
+
+  // The tour is drawn over the tabs, so the sheet has to be out of the way
+  // before it starts — a dialog is in the top layer and would sit over it.
+  doc.querySelector('#set-tour')?.addEventListener('click', () => {
+    dialog.close('tour');
+    replayTour();
   });
 
   const reset = doc.querySelector('#set-reset');

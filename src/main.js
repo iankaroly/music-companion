@@ -42,6 +42,7 @@ import { readyHaptics } from './ui/haptics.js';
 import { renderCoach } from './ui/coach.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
+import { initTour, tourSeen } from './ui/tour.js';
 import { registerTakeControl, takeStateChanged } from './ui/take-control.js';
 import { close as closeReader, readerIsOpen, sayOnTheMusic } from './ui/reader.js';
 import { instrument, segmentation } from './analysis/instruments.js';
@@ -2733,12 +2734,23 @@ refreshDroneButton();
 
 // --- first run -----------------------------------------------------------------
 
+// The tour switches tabs without the slide — it places its card by measuring
+// the control it points at, and a control mid-slide measures wrong.
+const tour = initTour(document, {
+  showTab: (name) => tabs.show(name, { animate: false }),
+  currentTab: () => tabs.current,
+});
+
 initWelcome(document, {
   onDone: (chosen) => {
     timbreSel.value = chosen.timbre;
     setDroneTimbre(chosen.timbre);
     localStorage.setItem('timbre', chosen.timbre);
     timbreSel.dispatchEvent(new Event('refresh-label'));
+    // Straight after the welcome card and never on a later launch: an install
+    // that has been through it has the flag, and one that chose an instrument
+    // before there was a tour is left alone (Settings has it).
+    if (!tourSeen()) requestAnimationFrame(() => tour.start());
   },
 });
 
