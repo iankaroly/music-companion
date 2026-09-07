@@ -76,6 +76,15 @@ export const STOPS = [
       + 'with its pitch and its timing.',
   },
   {
+    tab: 'library',
+    // The list is empty on a first run, so the frame is around the Library's
+    // own controls rather than the nothing underneath them.
+    target: ['#new-folder', '#library-search'],
+    text: 'Every take you keep lands in the Library, filed under the piece it '
+      + 'was played from. Folders and setlists keep a programme together, and '
+      + 'search finds a take by name.',
+  },
+  {
     tab: 'score',
     target: '#score-load',
     text: 'Put your part on the stand: scan it with the camera, or bring in a '
@@ -86,6 +95,19 @@ export const STOPS = [
     target: '.tab-btn[data-tab="coach"]',
     text: 'Come back after a few takes. The coach shows which notes you pull '
       + 'sharp or flat, what to drill, and how this week compares with last.',
+  },
+  {
+    tab: 'metronome',
+    target: ['#bpm-display', '#bpm-slider'],
+    text: 'Set a tempo here, choose subdivisions and accents below, and the '
+      + 'trainer can nudge the speed up every few bars while you play.',
+  },
+  {
+    tab: 'tuner',
+    // The gear is on every tab; the tour ends back where it began.
+    target: '#settings-btn',
+    text: 'Settings holds your instrument, the A you tune to, and this tour, '
+      + 'if you ever want to see it again.',
   },
 ];
 

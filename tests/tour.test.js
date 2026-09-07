@@ -42,9 +42,9 @@ describe('the tour is shown once', () => {
 });
 
 describe('the stops', () => {
-  it('are four, each on a real tab with something to point at', () => {
+  it('are seven, one for every tab and one for the gear, each with something to point at', () => {
     const tabs = ['tuner', 'analyze', 'score', 'library', 'coach', 'metronome'];
-    expect(STOPS).toHaveLength(4);
+    expect(STOPS).toHaveLength(7);
     for (const stop of STOPS) {
       expect(tabs).toContain(stop.tab);
       expect([].concat(stop.target).length).toBeGreaterThan(0);

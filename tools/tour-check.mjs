@@ -46,9 +46,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const STOPS = [
   { tab: 'tuner', target: ['#gauge-wrap', '#tuner-listen'] },
   { tab: 'analyze', target: '#start' },
+  { tab: 'library', target: ['#new-folder', '#library-search'] },
   { tab: 'score', target: '#score-load' },
   { tab: 'coach', target: '.tab-btn[data-tab="coach"]' },
+  { tab: 'metronome', target: ['#bpm-display', '#bpm-slider'] },
+  { tab: 'tuner', target: '#settings-btn' },
 ];
+const LAST = STOPS.length;
 
 // The tour must not be ABLE to open a device, whatever the page around it does.
 {
@@ -113,7 +117,7 @@ for (const screen of SCREENS) {
     count: document.querySelector('#tour-count')?.textContent ?? '',
   }));
   check(`${tag} Start playing brings the tour up in its place`,
-    opened.welcomeGone && opened.tour && opened.count === '1 of 4',
+    opened.welcomeGone && opened.tour && opened.count === `1 of ${LAST}`,
     `welcome gone ${opened.welcomeGone}, tour ${opened.tour}, "${opened.count}"`);
 
   if (SHOTS && screen.shot) {
@@ -164,7 +168,7 @@ for (const screen of SCREENS) {
 
     const n = i + 1;
     check(`${tag} stop ${n} is on the ${stop.tab} tab`, m.active === `tab-${stop.tab}`, `active ${m.active}`);
-    check(`${tag} stop ${n} counts itself "${n} of 4"`, m.count === `${n} of 4`, `"${m.count}"`);
+    check(`${tag} stop ${n} counts itself "${n} of ${LAST}"`, m.count === `${n} of ${LAST}`, `"${m.count}"`);
     check(`${tag} stop ${n} says something`, m.text.length > 20, `"${m.text.slice(0, 40)}…"`);
 
     // The hole frames the control: it contains the control's rectangle, and
@@ -185,7 +189,7 @@ for (const screen of SCREENS) {
     const overlaps = !!c && !!h && c.left < h.right && c.right > h.left && c.top < h.bottom && c.bottom > h.top;
     check(`${tag} stop ${n} does not lay the card over the control it describes`, !overlaps);
     check(`${tag} stop ${n} puts focus on the card`, m.focusInCard);
-    check(`${tag} stop ${n} says ${n === 4 ? 'Done' : 'Next'}`, m.next === (n === 4 ? 'Done' : 'Next'), `"${m.next}"`);
+    check(`${tag} stop ${n} says ${n === LAST ? 'Done' : 'Next'}`, m.next === (n === LAST ? 'Done' : 'Next'), `"${m.next}"`);
     check(`${tag} stop ${n} opened nothing — no scanner, no sheet`, !m.scanner && !m.dialogOpen);
     check(`${tag} stop ${n}'s Next button is pressable`, m.nextOwnsItsMiddle);
 
@@ -231,7 +235,7 @@ for (const screen of SCREENS) {
     active: document.querySelector('.tab-panel.active')?.id ?? '',
   }));
   check(`${tag} "Show the tour again" in Settings brings it back from the first stop`,
-    replay.tour && replay.count === '1 of 4' && !replay.sheetOpen,
+    replay.tour && replay.count === `1 of ${LAST}` && !replay.sheetOpen,
     `tour ${replay.tour}, "${replay.count}", sheet still open ${replay.sheetOpen}`);
 
   // Escape is the keyboard's Skip.
