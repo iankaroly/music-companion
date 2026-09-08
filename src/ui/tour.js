@@ -153,8 +153,12 @@ export const STOPS = [
     tab: 'tuner',
     // The gear is on every tab; the tour ends back where it began.
     target: '#settings-btn',
-    text: 'Settings holds your instrument, the A you tune to, and this tour, '
-      + 'if you ever want to see it again.',
+    // Direct, and about what is actually inside: "it should be direct and say
+    // this is settings and the important things inside." The A you tune to is
+    // NOT here — it is in the Tuner's own tuning card — so it is not claimed.
+    text: 'This is Settings. Your instrument, how strict "in tune" is, keeping '
+      + 'the screen awake, a page-turn pedal, Apple Pencil, and a backup of your '
+      + 'practice history all live here. So does this tour, if you want it again.',
   },
 ];
 
