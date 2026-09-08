@@ -606,6 +606,102 @@ check('and “any” puts the list away again',
   jumps.listHiddenAtAny === true && jumps.listHiddenAtAnyAgain === true,
   `hidden at first ${jumps.listHiddenAtAny}, hidden again ${jumps.listHiddenAtAnyAgain}`);
 
+// A TAKE THAT RUNS OUT ON ITS OWN, AND WHERE IT LEAVES THE CURSOR.
+//
+// Every seek above is followed by a press; nothing here had ever let a take
+// simply END. It was wrong. Seeked to 0:19 of a 0:22 take and left to finish,
+// the graph kept the line and its dot drawn at 0:19 while the player had
+// silently rewound to 0 — so the next press on ▶ played from the top with the
+// marker parked nineteen seconds in. `stopPlayback` painted the marker at
+// `full.pos` FIRST, and the whole-take player's own callback moved `full.pos`
+// to 0 afterwards with nothing painting again. MEASURED before the repaint was
+// added: on a 22s take seeked to 19.5s the marker read 2371px at the end and
+// the next press carried on from 70px.
+//
+// READ OFF THE THING A FINGER GRABS. `full.pos` is module-private and the
+// cursor is painted into a canvas, but the drag handle over it is a real
+// element — `.chart-knob` inside `#chart-scroll`, placed by pitch-chart.js at
+// `contentX(t)` — so its `left` IS the marker, in content pixels, and it does
+// not move when the strip scrolls under it. Scoped to the strip; the close-up
+// under the graph draws its own cursor and does not build a handle.
+//
+// `null` means the graph is drawing no marker at all. It is one of the two
+// answers the promise allows — the chart hides the cursor for a moment outside
+// its own range, so a take whose first note is late enough has 0 off the left
+// of it and a player back at the top is honestly represented by nothing. THIS
+// FIXTURE DOES NOT GO THAT WAY: its cursor lands on the graph's left edge, at
+// 31px, and that is the path measured below. The branch is allowed and not
+// exercised.
+//
+// …and it is gated on `seekedAt`, which is a number, for the reason the rest of
+// this file exists. `null` is also what an ABSENT knob reads as — a chart that
+// fell back to the no-op controller, a handle a refactor stopped building — and
+// a cleared-agrees-with-cleared test would go green over a graph that draws
+// nothing whatever. Requiring that the very same handle was seen standing at
+// 2398px a few seconds earlier is what stops that.
+//
+// STATED AS "CARRIED ON FROM", not as a fixed pixel. The reading after the next
+// press is taken as soon as the press lands, but a frame or two of playback
+// arrives first — 40px, a third of a second, at this take's 120px per second —
+// so the assertion is that the press picked the marker up and moved FORWARD
+// from it, by less than a couple of seconds. The fault it is here for was
+// 2300px in the other direction.
+//
+// IN TWO PARTS, because "the marker agrees" passes for nothing if the take
+// never reached its end — so the end is waited for with a timeout that FAILS.
+const knobLeft = () => page.evaluate(() => {
+  const k = document.querySelector('#chart-scroll .chart-knob');
+  if (!k || k.style.display === 'none') return null;
+  const px = parseFloat(k.style.left);
+  return Number.isFinite(px) ? Math.round(px) : null;
+});
+// Seeked through `playTakeFrom`, which is the app's own way in — it is what a
+// bar pressed on the music calls, and it is used higher up in this file for the
+// same reason. A tap on the trace would do as well, but the second it lands on
+// depends on where the strip happens to be scrolled, and this needs a moment a
+// couple of seconds from the end so the wait below is seconds and not the whole
+// recording.
+const seeked = await page.evaluate(async () => {
+  const { playTakeFrom, takeLength } = await import('/src/ui/report.js');
+  const dur = takeLength();
+  playTakeFrom(dur - 2.5);
+  await new Promise((r) => setTimeout(r, 300));
+  return { dur, at: dur - 2.5, playing: document.querySelector('#clip-play')?.textContent };
+});
+const seekedAt = await knobLeft();
+let ranOut = false;
+for (let i = 0; i < 40; i++) {
+  await new Promise((r) => setTimeout(r, 250));
+  if (await page.evaluate(() => document.querySelector('#clip-play')?.textContent) === '▶') {
+    ranOut = true; break;
+  }
+}
+check('a take seeked near its end runs out on its own',
+  seeked.playing === '❚❚' && seekedAt !== null && ranOut,
+  `${seeked.at.toFixed(1)}s of ${seeked.dur.toFixed(1)}s, marker at ${seekedAt}px, transport `
+  + `${seeked.playing} → ` + (ranOut ? '▶' : 'STILL PLAYING after 10s — nothing below was tested'));
+const restAt = await knobLeft();
+// …and then the press the disagreement was costing: it plays from wherever the
+// player really is, and the marker it leaves must be the one the end left.
+const resumeSays = await page.evaluate(async () => {
+  const btn = document.querySelector('#clip-play');
+  btn.scrollIntoView({ block: 'center' });
+  await new Promise((r) => requestAnimationFrame(() => r()));
+  btn.click();
+  await new Promise((r) => setTimeout(r, 400));
+  return btn.textContent;
+});
+const resumeAt = await knobLeft();
+const agrees = restAt === null
+  ? (resumeAt === null || resumeAt < 200)
+  : (resumeAt !== null && resumeAt >= restAt - 4 && resumeAt - restAt < 250);
+const said = (v) => (v === null ? 'cleared' : `${v}px`);
+check('when it runs out the graph does not keep the marker where playback started',
+  seekedAt !== null && ranOut && resumeSays === '❚❚'
+    && (restAt === null || restAt < seekedAt - 200) && agrees,
+  `marker ${said(seekedAt)} while playing → ${said(restAt)} at the end, and the next press`
+  + ` carried on from ${said(resumeAt)}`);
+
 if (errors.length) {
   console.log('\nerrors on the page:');
   for (const e of errors.slice(0, 6)) console.log(`  ${e}`);

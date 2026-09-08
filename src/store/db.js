@@ -340,6 +340,30 @@ export async function saveSetlist({ id = null, name, items = [] }) {
   });
 }
 
+// WHERE A PIECE LANDS WHEN IT MOVES ONE PLACE IN THE PROGRAMME — or nowhere,
+// which is the answer at both ends.
+//
+// The first piece has nothing earlier and the last has nothing later, and the
+// ⋯ menu used to offer both moves on every row anyway. The swap computed an
+// index off the end of the list, hit the guard in the caller and returned
+// before saving: the menu closed, the order was untouched and nothing was
+// said. A choice that does nothing and does not say why reads as the app
+// ignoring the tap.
+//
+// The decision lives here, with no database in it, so that the MENU and the
+// MOVE ask one question rather than holding two opinions — the menu offers a
+// move only where this names a place, and the move asks again as its backstop,
+// because a row's position is captured when the shelf is drawn and the shelf
+// can be redrawn under it.
+//
+// @returns {number|null} the place to swap with, or null if there is not one.
+export function setMoveTo(position, delta, count) {
+  const to = position + delta;
+  if (position < 0 || position >= count) return null;
+  if (to < 0 || to >= count) return null;
+  return to;
+}
+
 export async function deleteSetlist(id) {
   const db = await openDB();
   return new Promise((resolve, reject) => {

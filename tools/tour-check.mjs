@@ -47,19 +47,34 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 // because on a cold device there is no part to frame — and the empty note is
 // the tallest thing the tour points at, which is what the 320x568 screen is
 // here to catch.
+// `topic` is the words Settings promises for that stop. The hint under "Show
+// the tour again" in index.html is the only description of the tour a player
+// reads before starting it, and it said "Four short stops — the dial, Record,
+// putting a part on the stand, and the coach" while this list was ten long: a
+// count six out and six areas of the app unmentioned. Nothing could see it,
+// because the hint is copy in index.html and the tour is data in ui/tour.js.
+// So the phrases are written HERE, beside the stops they belong to and
+// independently of both, and read back out of the open sheet below.
 const STOPS = [
-  { tab: 'tuner', target: ['#gauge-wrap', '#tuner-listen'] },
-  { tab: 'analyze', target: '#start' },
-  { tab: 'analyze', target: ['#tab-analyze .mini-label', '.seg[aria-label="Count-in before recording"]'] },
-  { tab: 'library', target: ['#new-folder', '#library-search'] },
-  { tab: 'score', target: '#score-load' },
-  { tab: 'score', target: ['#score-sets', '#score-folder'] },
-  { tab: 'score', target: ['#score-search', '#score-list-empty'] },
-  { tab: 'coach', target: '.tab-btn[data-tab="coach"]' },
-  { tab: 'metronome', target: ['#bpm-display', '#bpm-slider'] },
-  { tab: 'tuner', target: '#settings-btn' },
+  { tab: 'tuner', target: ['#gauge-wrap', '#tuner-listen'], topic: 'the dial' },
+  { tab: 'analyze', target: '#start', topic: 'Record' },
+  { tab: 'analyze', target: ['#tab-analyze .mini-label', '.seg[aria-label="Count-in before recording"]'], topic: 'count-in' },
+  { tab: 'library', target: ['#new-folder', '#library-search'], topic: 'the Library' },
+  { tab: 'score', target: '#score-load', topic: 'on the stand' },
+  { tab: 'score', target: ['#score-sets', '#score-folder'], topic: 'setlists' },
+  { tab: 'score', target: ['#score-search', '#score-list-empty'], topic: 'the reader' },
+  { tab: 'coach', target: '.tab-btn[data-tab="coach"]', topic: 'the coach' },
+  { tab: 'metronome', target: ['#bpm-display', '#bpm-slider'], topic: 'the metronome' },
+  { tab: 'tuner', target: '#settings-btn', topic: 'Settings' },
 ];
 const LAST = STOPS.length;
+
+// Counting words, so a stop added without a look at Settings fails here rather
+// than being quietly undercounted to the player. Every one of them is looked
+// for: the fault this catches is the RIGHT count word never appearing and an
+// old WRONG one staying put.
+const COUNTS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six',
+  'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 
 // The tour must not be ABLE to open a device, whatever the page around it does.
 {
@@ -241,6 +256,38 @@ for (const screen of SCREENS) {
   // ── AND BACK FROM SETTINGS ─────────────────────────────────────────────────
   await page.click('#settings-btn');
   await wait(400);
+
+  // What Settings SAYS the tour is, against the tour just walked. Measured
+  // with the sheet open, so the same read also says whether the longer line
+  // still fits: at 320 it is the widest hint in the sheet.
+  const hint = await page.evaluate(() => {
+    const p = document.querySelector('#tour-hint');
+    if (!p) return null;
+    const sheet = p.closest('dialog') ?? document.body;
+    const b = p.getBoundingClientRect();
+    const s = sheet.getBoundingClientRect();
+    return {
+      text: p.textContent.replace(/\s+/g, ' ').trim(),
+      spills: b.left < s.left - 0.5 || b.right > s.right + 0.5,
+      overflow: Math.round(sheet.scrollWidth - sheet.clientWidth),
+      box: `${Math.round(b.left)}→${Math.round(b.right)} in ${Math.round(s.left)}→${Math.round(s.right)}`,
+    };
+  });
+  const said = hint?.text ?? '';
+  const lower = said.toLowerCase();
+  const counted = COUNTS.filter((w) => new RegExp(`\\b${w}\\b`).test(lower));
+  check(`${tag} Settings counts the tour's stops — "${COUNTS[LAST]}", and no other number`,
+    counted.length === 1 && counted[0] === COUNTS[LAST],
+    `hint says ${counted.length ? counted.map((w) => `"${w}"`).join(', ') : 'no number'}`
+    + ` — "${said.slice(0, 80)}${said.length > 80 ? '…' : ''}"`);
+  const unnamed = STOPS.filter((stop) => !said.includes(stop.topic)).map((stop) => stop.topic);
+  check(`${tag} Settings names every part of the app the tour visits`,
+    !!said && unnamed.length === 0,
+    unnamed.length ? `not mentioned: ${unnamed.join(', ')}` : `all ${STOPS.length} named`);
+  check(`${tag} …and that line still fits the sheet`,
+    !!hint && !hint.spills && hint.overflow <= 0,
+    hint ? `${hint.box}, sheet overflows by ${hint.overflow}px` : 'no #tour-hint');
+
   await page.click('#set-tour');
   await wait(700);
   const replay = await page.evaluate(() => ({

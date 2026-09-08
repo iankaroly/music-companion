@@ -4037,6 +4037,30 @@
     }
     #library-head button:active, #score-browser-head button:active { background: var(--line); }
     #library-head, #score-browser-head { gap: 0.45rem; }
+    /* THE HEADING KEEPS ITS OWN WORDS ON THE NARROWEST PHONE. The title is the
+       only item in this row that can give — the three buttons are `nowrap` —
+       so at 320 it was handed 50px of a 301px row for 77px of text and the
+       shelf was headed “S…”. MEASURED at 320: the buttons and their gaps take
+       250.6 of the 301, leaving 50.4; “Scores” wants 76.6 and “Library” 76.5.
+       Untightened, the title runs out of room below about 346px wide, so 350
+       is the boundary: MEASURED at 351, the first width the query does not
+       reach, the title gets 81px for the same 76.6.
+       LETTING THE ROW WRAP INSTEAD WAS TRIED AND COST MORE THAN IT BOUGHT:
+       the three actions on a second line make the heading 68px tall against
+       32, and those 36px pushed everything below it down — tour stop 7's hole
+       went from 99→301 to 135→337 while its card only moved 313→324, so the
+       card came to lie over the control it describes and `app:tour` went
+       341/341 to 340/341. 320x568 has no vertical budget to spend.
+       So the row is tightened rather than broken: 0.4rem of side padding and a
+       0.3rem gap give the title 86px for 76.6px of text — nine of slack, not
+       the fraction of a pixel that 0.55rem/0.2rem would have left. Nothing at
+       360 and wider is touched, and a long piece or folder name (this title is
+       also a score's name) still ellipsises on one line, which is right: an
+       arbitrary name has no width to promise. */
+    @media (max-width: 350px) {
+      #library-head, #score-browser-head { gap: 0.3rem; }
+      #library-head button, #score-browser-head button { padding: 0.34rem 0.4rem; }
+    }
     .lib-folder { color: var(--primary); flex: none; display: grid; place-items: center; }
     .lib-folder svg { width: 1.35rem; height: 1.35rem; display: block; }
     #library-empty, #score-list-empty {
@@ -4395,9 +4419,26 @@
     .seg-wrap { display: flex; flex-wrap: wrap; border-radius: 1.4rem; }
     .seg-wrap button { flex: 1 1 7rem; }
     /* An even grid rather than flex: the labels are different lengths and a
-       ragged last row read as a mistake. */
-    #welcome-instruments { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.3rem; }
-    #welcome-instruments button { display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem 0.7rem; }
+       ragged last row read as a mistake.
+       THE TRACKS DECIDE THE WIDTH, NOT THE CAPTIONS. `1fr` is `minmax(auto,
+       1fr)`, and that auto floor is the item's MIN-CONTENT — which, with the
+       `white-space: nowrap` every `.seg button` carries, is the whole of the
+       longest caption on one unbreakable line. "flute, clarinet, oboe, sax,
+       bassoon" is 177px of it, so the right-hand column sat at x=385 on a
+       320-wide phone whatever the track was worth: 103px past the card's
+       content edge, 81px past its rounded border, off the screen entirely, and
+       "Winds" read "flute, clarinet, obo". Settings' `#instrument-seg` is the
+       same `.seg.seg-wrap` and never showed it because its buttons carry no
+       <small>. So: `minmax(0, 1fr)` and `min-width: 0` take the content floor
+       off the track and off the tile, and `white-space: normal` lets the
+       caption wrap rather than overflow the narrower tile it now sits in. All
+       three are needed — wrapping alone still leaves the track floored by
+       "Keys & other". */
+    #welcome-instruments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.3rem; }
+    #welcome-instruments button {
+      display: flex; flex-direction: column; gap: 0.1rem; padding: 0.6rem 0.7rem;
+      min-width: 0; white-space: normal;
+    }
     #welcome-instruments button:last-child:nth-child(odd) { grid-column: span 2; }
     #welcome-instruments small { font-size: 0.62rem; opacity: 0.75; font-weight: 400; }
 
@@ -5496,8 +5537,20 @@
       </div>
       <div class="set-group">
         <button id="set-tour" type="button" class="set-wide">Show the tour again</button>
-        <p class="set-hint">Four short stops — the dial, Record, putting a part on the
-        stand, and the coach.</p>
+        <!-- WHY THE STOPS ARE COUNTED AND LISTED IN FULL: this line said "Four
+             short stops — the dial, Record, putting a part on the stand, and the
+             coach" long after the tour had grown to the ten in ui/tour.js STOPS,
+             whose own cards count themselves "1 of 10" … "10 of 10". A hint that
+             undercounts the thing it is about to start is the first place a
+             player catches the app being wrong, and those four left out half of
+             what the tour covers — the count-in and the review, the Library,
+             folders and setlists, the reader, the metronome and Settings. The
+             copy stays here and the tour stays in ui/tour.js, and `npm run
+             app:tour` reads this line out of the open sheet and fails if the
+             count word or any topic drifts from the stops it has just walked. -->
+        <p class="set-hint" id="tour-hint">Ten short stops — the dial, Record, the
+        count-in and the note-by-note review, the Library, putting a part on the stand,
+        folders and setlists, the reader, the coach, the metronome, and Settings.</p>
       </div>
       <div class="set-group">
         <button id="set-reset" type="button" class="set-wide">Restore default settings</button>
@@ -5517,27 +5570,39 @@
         space and return.</p>
         <button id="set-pedal-forget" type="button" class="set-wide">Forget the taught pedal</button>
       </div>
+      <!-- WHY THE NEXT THREE HINTS ARE EACH ONE LONG SOURCE LINE: these three
+           paragraphs are also where the check WRITES its report, and a report is
+           a list of findings whose line breaks carry the meaning, so they carry
+           `white-space: pre-wrap` (see the rule beside .set-hint above). That
+           rule preserves the newlines and leading spaces in the HTML as well as
+           the ones the JS writes, so the placeholder prose — authored wrapped
+           and indented like every other hint in this sheet — was rendered with
+           its own source indentation. MEASURED at 320x568, before any button is
+           pressed: two authored newlines in the pencil hint and one in each of
+           the other two, each resuming after 27px of rendered indent mid
+           sentence ("…and says⏎        what this device reported"). The rule
+           STAYS — it is what keeps the report readable once a button is pressed
+           — so the markup gives way instead. `npm run mic:place` asserts both
+           halves: pre-wrap still computed on all three, and no newline or
+           double space in the placeholder any of them starts with.
+           Do not re-wrap these three lines. -->
       <!-- The four things about the pencil that cannot be measured from a
            laptop, asked of the device itself. See pen-check.js. -->
       <div class="set-group">
         <span class="set-label">Apple Pencil</span>
         <button id="set-pen-check" type="button" class="set-wide">Check the pencil</button>
         <canvas id="set-pen-box" hidden aria-label="Draw here"></canvas>
-        <p class="set-hint" id="set-pen-report">Draws with the pencil for four seconds and says
-        what this device reported — pressure, tilt, whether the fast samples arrive, whether a
-        resting palm is turned away, and whether anything on the page got highlighted.</p>
+        <p class="set-hint" id="set-pen-report">Draws with the pencil for four seconds and says what this device reported — pressure, tilt, whether the fast samples arrive, whether a resting palm is turned away, and whether anything on the page got highlighted.</p>
       </div>
       <div class="set-group">
         <span class="set-label">Sound</span>
         <button id="set-sound-check" type="button" class="set-wide">Check the sound</button>
-        <p class="set-hint" id="set-sound-report">Plays four clicks and says what this device did
-        with them — whether the audio is awake, which route it is on, and where the levels are.</p>
+        <p class="set-hint" id="set-sound-report">Plays four clicks and says what this device did with them — whether the audio is awake, which route it is on, and where the levels are.</p>
       </div>
       <div class="set-group">
         <span class="set-label">Microphone</span>
         <button id="set-mic-check" type="button" class="set-wide">Check the microphone</button>
-        <p class="set-hint" id="set-mic-report">Asks this device for the microphone and says
-        exactly what came back — useful when the tuner or a recording will not start.</p>
+        <p class="set-hint" id="set-mic-report">Asks this device for the microphone and says exactly what came back — useful when the tuner or a recording will not start.</p>
       </div>
       <!-- Which build this is. Installed from the home screen there is no
            address bar and no reload button, so this is the only way to tell an

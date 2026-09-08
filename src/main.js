@@ -14,7 +14,7 @@ import {
   retuneRecording,
   fileTakeUnderName,
   listScores, setRecordingScore, renameScore, deleteScore, loadScorePages, savePageOrder,
-  listSetlists, saveSetlist, deleteSetlist, replacePages,
+  listSetlists, saveSetlist, deleteSetlist, setMoveTo, replacePages,
 } from './store/db.js';
 import {
   initScoreCard, annotateTake, clearSheet, currentScoreId, selectScore, renderScoreTab,
@@ -25,6 +25,9 @@ import {
 } from './ui/score.js';
 import { onScoreTabShown, onScoreTabHidden } from './ui/score-tab.js';
 import { initPenCheck } from './ui/pen-check.js';
+import {
+  APP as RUNNING_IN_APP, HOME_SCREEN, runningIn, installed, placeName,
+} from './ui/where-running.js';
 import { feedReading } from './ui/score-aids.js';
 import { toggleDroneNote, retuneDrones, activeDroneNotes, setDroneTimbre } from './audio/drone.js';
 import { encodeWav } from './audio/wav.js';
@@ -440,12 +443,15 @@ function showListenButton(show) {
 // already on the Home Screen (display-mode: standalone) both ask once and
 // remember, so they get the sentence that is true for them, set BEFORE the
 // default is captured so every later reset restores the right one.
+//
+// This test used to be written out here by hand, and that hand-written copy was
+// the only one in the file that knew about `capacitor:` — see where-running.js
+// for what the other three copies were still saying. It asks the shared
+// question now, and it wants the UNION of the two installed places: both ask
+// once and remember, which is the whole of what this sentence claims.
 {
   const note = document.querySelector('#tuner-listen-note');
-  const installed = location.protocol === 'capacitor:'
-    || navigator.standalone === true
-    || globalThis.matchMedia?.('(display-mode: standalone)')?.matches;
-  if (note && installed) {
+  if (note && installed()) {
     note.textContent = 'Allow the microphone when asked. It only listens while '
       + 'you are on the Tuner or recording a take.';
   }
@@ -772,25 +778,33 @@ pauseBtn.addEventListener('click', () => {
 // a switch that was never the one holding the microphone shut. Written the day
 // that happened — both settings checked, both already right, and the app still
 // silent, because the app doing the refusing was the installed one.
+//
+// THREE ANSWERS AND NOT TWO, and the third is the one that was missing: the App
+// Store build has its own switch, Settings → Stand Partner → Microphone, and it
+// is neither Safari's nor a copy of the site that can be opened beside it.
+// Telling it what to tell a Home Screen app — "open the same address in Safari
+// itself" — is the same wrong advice as Safari's settings wearing a different
+// hat: `capacitor://localhost` is not an address anybody can open.
 function noAnswer() {
+  const where = runningIn();
+  const advice = {
+    [RUNNING_IN_APP]:
+      'otherwise this is the installed app being refused, and neither Safari nor its settings'
+      + ' govern it: open Settings → Stand Partner → Microphone and switch it on',
+    [HOME_SCREEN]:
+      'otherwise this is the installed app being refused, which the Safari settings do not govern:'
+      + ' open the same address in Safari itself and record there to see whether it is only the'
+      + ' installed copy',
+  }[where]
+    ?? 'otherwise check Settings → Safari → Microphone, and Screen Time → Content & Privacy'
+      + ' → Microphone if that is on';
   return 'the microphone never answered. If a permission prompt appeared, answer it and try again — '
-    + (installedApp()
-      ? 'otherwise this is the installed app being refused, which the Safari settings do not govern:'
-        + ' open the same address in Safari itself and record there to see whether it is only the'
-        + ' installed copy'
-      : 'otherwise check Settings → Safari → Microphone, and Screen Time → Content & Privacy'
-        + ' → Microphone if that is on')
-    + `. ${SEE_SETTINGS}`;
+    + `${advice}. ${SEE_SETTINGS}`;
 }
 
 // Every dead end above ends here, because the answer to "what is actually wrong
 // on THIS iPad" is already one tap away and nothing on screen said so.
 const SEE_SETTINGS = 'The gear, top right, checks the microphone and says what it finds';
-
-function installedApp() {
-  return navigator.standalone === true
-    || globalThis.matchMedia?.('(display-mode: standalone)').matches === true;
-}
 
 async function within(work, ms) {
   let timer = null;
@@ -1881,28 +1895,52 @@ function setItemRow(set, scoreId, position) {
   more.className = 'lib-more';
   more.textContent = '⋯';
   more.setAttribute('aria-haspopup', 'menu');
-  more.setAttribute('aria-label', `Move or remove ${name.textContent}`);
   const move = async (delta) => {
     const items = [...set.items];
-    const to = position + delta;
-    if (to < 0 || to >= items.length) return;
+    const to = setMoveTo(position, delta, items.length);
+    // The BACKSTOP, not the gate: the menu below only offers a move this piece
+    // can make, but `position` was captured when the shelf was drawn and the
+    // shelf is rebuilt under a row every time the programme changes.
+    if (to === null) return;
     [items[position], items[to]] = [items[to], items[position]];
     await saveSetlist({ id: set.id, name: set.name, items });
     refreshLibrary();
   };
-  more.addEventListener('click', () => actionMenu(more, [
-    { label: 'Earlier in the programme', onPick: () => move(-1) },
-    { label: 'Later in the programme', onPick: () => move(1) },
-    {
-      label: 'Take it out',
-      danger: true,
-      onPick: async () => {
-        const items = set.items.filter((_, i) => i !== position);
-        await saveSetlist({ id: set.id, name: set.name, items });
-        refreshLibrary();
-      },
+  // ONLY THE MOVES THIS PIECE CAN ACTUALLY MAKE.
+  //
+  // The menu used to offer both on every row, so the first piece was offered
+  // "Earlier in the programme" and the last "Later": the swap ran off the end
+  // of the list, `move` returned before saving, and the menu closed on an
+  // unchanged programme without a word. A row that does nothing is worse than
+  // no row — the ends of a programme are obvious once the choice is missing,
+  // and a sentence explaining why the app ignored a tap it should not have
+  // offered is an apology for a control that should not be there.
+  //
+  // `setMoveTo` in store/db.js is the one place that knows where a piece can
+  // go; the menu and `move` both ask it. Unit-tested there, apart from the
+  // database, in tests/setlist-order.test.js.
+  const rows = [];
+  if (setMoveTo(position, -1, set.items.length) !== null) {
+    rows.push({ label: 'Earlier in the programme', onPick: () => move(-1) });
+  }
+  if (setMoveTo(position, 1, set.items.length) !== null) {
+    rows.push({ label: 'Later in the programme', onPick: () => move(1) });
+  }
+  rows.push({
+    label: 'Take it out',
+    danger: true,
+    onPick: async () => {
+      const items = set.items.filter((_, i) => i !== position);
+      await saveSetlist({ id: set.id, name: set.name, items });
+      refreshLibrary();
     },
-  ]));
+  });
+  // …and the button says what it opens, which on a programme of one is only
+  // ever the one choice left in it.
+  more.setAttribute('aria-label', rows.length > 1
+    ? `Move or remove ${name.textContent}`
+    : `Remove ${name.textContent}`);
+  more.addEventListener('click', () => actionMenu(more, rows));
 
   li.append(open, more);
   return li;
@@ -2854,7 +2892,11 @@ refreshPedalReport();
 function appSetting() {
   const os = navigator.userAgent.match(/OS (\d+)[._](\d+)/);
   return [
-    installedApp() ? 'Added to the home screen' : 'Running in the browser',
+    // Three places, three names. This line said "Running in the browser" inside
+    // the App Store build, where there is no browser — the first thing read off
+    // the screen when somebody is asked what their app is doing, and it was
+    // pointing every question that followed at the wrong machine.
+    placeName(),
     os ? `iOS/iPadOS ${os[1]}.${os[2]}` : null,
     globalThis.isSecureContext ? null : 'the page is not secure, which alone stops the microphone',
   ].filter(Boolean).join(' · ');
@@ -2926,18 +2968,27 @@ async function checkMicrophone() {
     }
   } catch (err) {
     if (err.message === 'no answer') {
+      // Said differently in each of the three places, because Settings → Safari
+      // is not the switch holding two of them shut and the ten minutes spent
+      // there are ten minutes not spent finding the one that is. The App Store
+      // build has a switch of its own and had never been told about it.
+      const where = runningIn();
+      const advice = {
+        [RUNNING_IN_APP]:
+          'and since this is the installed app rather than Safari, the Safari settings are not what'
+          + ' is holding it shut. Open Settings → Stand Partner → Microphone and switch it on. If'
+          + ' Stand Partner is not listed there at all, the app has never managed to ask, and'
+          + ' deleting it and installing it again asks from scratch.',
+        [HOME_SCREEN]:
+          'and since this is the app added to the home screen rather than Safari, the Safari'
+          + ' settings are not what is holding it shut. Open the same address in Safari itself'
+          + ' and try recording there: if that works, it is this installed copy that has been'
+          + ' refused, and re-adding it to the home screen asks again from scratch.',
+      }[where]
+        ?? 'check Settings → Safari → Microphone, and Screen Time → Content &'
+          + ' Privacy Restrictions → Microphone if that is switched on.';
       say('No answer after ten seconds — the permission prompt never appeared. That is the system'
-        + ' refusing silently: '
-        + (installedApp()
-          // Said differently to an app that is not Safari, because Settings →
-          // Safari is not the switch holding it shut and the ten minutes spent
-          // there are ten minutes not spent finding the one that is.
-          ? 'and since this is the app added to the home screen rather than Safari, the Safari'
-            + ' settings are not what is holding it shut. Open the same address in Safari itself'
-            + ' and try recording there: if that works, it is this installed copy that has been'
-            + ' refused, and re-adding it to the home screen asks again from scratch.'
-          : 'check Settings → Safari → Microphone, and Screen Time → Content &'
-            + ' Privacy Restrictions → Microphone if that is switched on.'), true);
+        + ` refusing silently: ${advice}`, true);
     } else {
       say(`Refused: ${err.name} — ${err.message}`, true);
     }

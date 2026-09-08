@@ -38,6 +38,20 @@ const page = await browser.newPage();
 await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
 const errors = [];
 page.on('pageerror', (e) => errors.push(String(e)));
+// PAST THE FIRST RUN BEFORE A SINGLE POINT IS HIT-TESTED. "Start playing" is
+// the welcome screen's button and it does two things: it settles the
+// instrument, and on an install that has never seen it, it starts the TOUR.
+// `#tour` is fixed, inset 0, z-index 100, pointer-events auto, so while it is
+// up every `elementFromPoint` on the page answers the tour and not the strip —
+// which is how the two hit tests below came to read a bare "DIV" on a build
+// where the strip was perfect. A player never opens the scanner mid-tour: the
+// tour is modal by design and `app:tour` holds it to that. So the state this
+// check wants is the state AFTER the tour, and the honest way to ask for it is
+// the flag ui/tour.js itself writes when the tour ends, set before a line of
+// the app runs.
+await page.evaluateOnNewDocument(() => {
+  try { localStorage.setItem('tourSeen', '1'); } catch { /* an opaque origin; survivable */ }
+});
 await page.goto(APP, { waitUntil: 'load' });
 await new Promise((r) => setTimeout(r, 1600));
 await page.evaluate(() => {
@@ -76,11 +90,19 @@ const out = await page.evaluate(async () => {
   const badge = wrap?.querySelector('.scan-edges');
   const drop = wrap?.querySelector('.scan-drop');
   const img = wrap?.querySelector('img');
+  // WHAT IS UNDER A POINT, NAMED SO THE FAILURE DIAGNOSES ITSELF. The class on
+  // its own answered "DIV" for a full-screen overlay with no class — true, and
+  // no help whatever: the id is the half that says WHICH div it was.
+  const named = (at) => {
+    if (!at) return null;
+    const cls = typeof at.className === 'string' ? at.className.trim() : '';
+    if (cls) return cls;
+    return at.id ? `${at.tagName}#${at.id}` : at.tagName;
+  };
   const hit = (el) => {
     if (!el) return null;
     const b = el.getBoundingClientRect();
-    const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-    return at?.className || at?.tagName || null;
+    return named(document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2));
   };
   // The middle of the PICTURE — the place a finger goes, and the place that did
   // nothing at all before.
@@ -88,10 +110,15 @@ const out = await page.evaluate(async () => {
     if (!img) return null;
     const b = img.getBoundingClientRect();
     const at = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-    return at === openBtn ? 'the edges button' : (at?.className || at?.tagName || 'nothing');
+    return at === openBtn ? 'the edges button' : (named(at) ?? 'nothing');
   })();
   return {
     opened: true,
+    // ASKED WHERE IT MATTERS, not at the end of the setup. The tour is started
+    // a frame or two after "Start playing", by which time a check that asked
+    // immediately has already been told there is no tour; what decides every
+    // hit test below is what is on the page NOW, with the scanner open.
+    firstRunLeft: [...document.querySelectorAll('#tour, #welcome')].map((el) => `#${el.id}`),
     appeared,
     settled,
     hasOpen: !!openBtn,
@@ -104,6 +131,15 @@ const out = await page.evaluate(async () => {
 });
 
 check('the scanner opened with a shutter to press', out.opened === true);
+// SAID OUT LOUD, because the setup above is load-bearing and fails silently.
+// A first-run screen left over the app does not break the strip, it breaks
+// every MEASUREMENT of the strip — the two hit tests below sat red on a build
+// where the strip was perfect, and said only "DIV". One line, named, so the
+// next thing to cover the scanner is read off the check rather than inferred
+// from a hit test three lines later.
+check('and nothing from the first run is left over it',
+  Array.isArray(out.firstRunLeft) && out.firstRunLeft.length === 0,
+  out.firstRunLeft?.length ? `still on the page: ${out.firstRunLeft.join(', ')}` : 'the app is on top');
 // A RATIO, NOT A STOPWATCH. This asserted "under 120ms", which is the right
 // claim on an idle machine and meaningless on a busy one: run beside anything
 // else it reads 129, 250 or 743ms for the same code, and the check then reports
@@ -261,6 +297,116 @@ check('…and confirming with Grey bakes the colour out of the stored page',
   asGrey.read ? `${(asGrey.coloured * 100).toFixed(2)}% of pixels carry colour`
     + ` (was ${Math.round(asColour.coloured * 100)}%);`
     + ` the page was rewritten: ${asGrey.changed}` : 'the page could not be read back');
+
+// --- AND A PAGE THROWN AWAY RENAMES THE ONES AFTER IT ----------------------
+//
+// A thumbnail says which page it is THREE times: the number printed on it, the
+// ✕'s aria-label and the picture's aria-label. `renumber` rewrote only the
+// first, so after throwing away page 2 of four the badges read 1, 2, 3 while
+// the labels still said page 1, page 3, page 4 — and the number is not
+// aria-hidden, so a screen reader read the contradiction in one breath.
+// Somebody pressing the thumbnail announced as "Throw away page 3" threw away
+// the one everyone else could see as page 2.
+//
+// THREE ASSERTIONS, because any one of them alone passes a wrong fix. Agreement
+// alone passes if every slot agrees on the same wrong number; the sequence
+// alone passes if the labels are right and the ✕ now deletes by position; and
+// the pages themselves are what a name is a name OF, so the surviving pictures
+// are checked by identity. The delete was never the broken half — `dropButton`
+// closes over the File — and this is what stops a later fix from making it
+// index-based to match the labels.
+//
+// It runs LAST and reaches four pages from where the check already is: the
+// timing measurement above is about the first press, and everything between
+// here and it works `.scan-thumb` (the first slot), which by now has had its
+// edges changed twice. So this covers `reshape`'s naming path for free.
+const naming = await page.evaluate(async () => {
+  const settled = () => document.querySelectorAll('.scan-thumb:not(.pending)').length;
+  const shutter = document.querySelector('#scan-shutter');
+  if (!shutter) return { took: 0 };
+  // Waited on the strip rather than on a delay: a shot takes as long as the
+  // machine takes.
+  for (let want = settled() + 1; want <= 4; want += 1) {
+    shutter.click();
+    for (let i = 0; i < 300 && settled() < want; i += 1) {
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+  const digitsIn = (text) => (text ?? '').match(/\d+/)?.[0] ?? null;
+  const read = () => [...document.querySelectorAll('.scan-thumb')].map((slot) => ({
+    num: digitsIn(slot.querySelector('.scan-number')?.textContent),
+    drop: digitsIn(slot.querySelector('.scan-drop')?.getAttribute('aria-label')),
+    open: digitsIn(slot.querySelector('.scan-open')?.getAttribute('aria-label')),
+    dropSays: slot.querySelector('.scan-drop')?.getAttribute('aria-label') ?? null,
+    src: slot.querySelector('img')?.src ?? null,
+  }));
+  const before = read();
+  const doneBefore = document.querySelector('#scan-done')?.textContent?.trim();
+  // The SECOND one, pressed on the ✕ it really carries.
+  document.querySelectorAll('.scan-thumb')[1]?.querySelector('.scan-drop')?.click();
+  await new Promise((r) => setTimeout(r, 200));
+  const after = read();
+  // AND THE EDGES CHANGED ON A PAGE THAT HAS MOVED. `reshape` names its slot
+  // from `pages.indexOf(file)`, which is the only place in the file where the
+  // number comes from somewhere other than the slot's position in the strip —
+  // and it is the one path the section above cannot see, because the page whose
+  // edges were changed up there never moved. So it is done again here, on the
+  // slot that used to be page 3 and is now page 2. The rebuilt ✕ and picture
+  // must come back named 2, not 3: this is the same rebuild whose own comment
+  // records the button that was missed last time.
+  const moved = document.querySelectorAll('.scan-thumb')[1];
+  const wasSrc = moved?.querySelector('img')?.src;
+  moved?.querySelector('.scan-open')?.click();
+  for (let i = 0; i < 60 && document.querySelector('#crop')?.hidden !== false; i += 1) {
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  await new Promise((r) => setTimeout(r, 400));
+  document.querySelector('#crop-keep')?.click();
+  for (let i = 0; i < 150; i += 1) {
+    await new Promise((r) => setTimeout(r, 100));
+    if (moved?.querySelector('img')?.src !== wasSrc) break;
+  }
+  await new Promise((r) => setTimeout(r, 250));
+  const reshaped = read();
+  return {
+    took: before.length,
+    before,
+    after,
+    reshaped,
+    reshapedIt: moved?.querySelector('img')?.src !== wasSrc,
+    doneBefore,
+    doneAfter: document.querySelector('#scan-done')?.textContent?.trim(),
+    // The pictures that should have survived, by identity: 1, 3 and 4.
+    wanted: [before[0]?.src, before[2]?.src, before[3]?.src],
+  };
+});
+const agree = (rows) => (rows ?? []).every((r) => r.num !== null
+  && r.num === r.drop && r.num === r.open);
+// READ OFF THE LABELS, not off the badge: with the bug in, the badges renumber
+// and only the spoken names lag, so a sequence assertion made against
+// `.scan-number` passes on the broken build.
+const spokenInOrder = (rows) => (rows ?? []).every((r, i) => r.drop === String(i + 1)
+  && r.open === String(i + 1));
+check('four pages went into the strip', naming.took === 4, `${naming.took} in it`);
+check('every thumbnail agrees with itself about which page it is',
+  naming.took === 4 && agree(naming.before) && agree(naming.after),
+  (naming.after ?? []).map((r) => `${r.num}/${r.drop}/${r.open}`).join(' '));
+check('…and after one is thrown away they are still 1, 2, 3 out loud',
+  naming.after?.length === 3 && spokenInOrder(naming.after),
+  (naming.after ?? []).map((r) => r.dropSays).join(' · '));
+check('and the page thrown away is the one that was named',
+  naming.after?.length === 3
+  && naming.after.every((r, i) => r.src && r.src === naming.wanted[i]),
+  naming.after?.length === 3 && naming.after.every((r, i) => r.src === naming.wanted[i])
+    ? 'pages 1, 3 and 4 are what is left'
+    : 'the wrong picture went');
+check('and the count says so too', naming.doneAfter === 'Done · 3 pages',
+  `${naming.doneBefore} \u2192 ${naming.doneAfter}`);
+check('changing the edges of a page that has MOVED keeps its new name',
+  naming.reshapedIt === true && agree(naming.reshaped) && spokenInOrder(naming.reshaped),
+  naming.reshapedIt
+    ? (naming.reshaped ?? []).map((r) => `${r.num}/${r.drop}/${r.open}`).join(' ')
+    : 'the page was never re-cut, so this proves nothing');
 
 if (errors.length) {
   console.log('\nerrors on the page:');

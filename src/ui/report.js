@@ -259,6 +259,17 @@ function scheduleClickTrack(startTime, from, recSpan) {
   }
 }
 
+// WHERE THE MARKER RESTS WHEN NOTHING IS SOUNDING: at the position the next
+// press will resume from, which is what each player keeps in its own `pos`.
+// `pauseZoom` has always done this by hand (`setPlayheads(zoom.pos)` after
+// stopPlayback, below); this is the same sentence given a name, because there
+// is a second moment that needs it and it was missing there.
+function restPlayheads() {
+  setPlayheads(null);
+  if (zoom) zoomChart?.setPlayhead(zoom.pos);
+  if (full) currentChart?.setPlayhead(full.pos);
+}
+
 function stopPlayback(root) {
   stopClicks();
   releaseAudio('playback');
@@ -274,9 +285,7 @@ function stopPlayback(root) {
     currentSource = null;
   }
   cancelAnimationFrame(animationFrame);
-  setPlayheads(null);
-  if (zoom) zoomChart?.setPlayhead(zoom.pos);
-  if (full) currentChart?.setPlayhead(full.pos);
+  restPlayheads();
   stopNoteDrone();
   tellFollowers(null, null);
   for (const el of root.querySelectorAll('.degree.playing')) el.classList.remove('playing');
@@ -402,7 +411,22 @@ function playClip(clip, root, timeMap, spans, onDone) {
     tellFollowers(sounding, recTime);
     animationFrame = requestAnimationFrame(tick);
   };
-  source.onended = () => { stopPlayback(root); onDone?.(); };
+  // AND PAINTED AGAIN AFTER THE CALLBACK, because the callback is what decides
+  // where the take was left. `stopPlayback` draws the marker at `full.pos`
+  // FIRST, and only then does the whole-take player's own onDone rewind
+  // `full.pos` to 0 — so a take seeked partway in and allowed to run out left
+  // the line and its dot drawn where playback had STARTED, while the player was
+  // sitting at 0, and the next press on ▶ played from the top with the marker
+  // parked nineteen seconds in. MEASURED, `npm run review:taps` without this
+  // line, on a 22s take seeked to 19.5s: the graph's cursor read 2371px at the
+  // end and the next press carried on from 71px.
+  //
+  // NOT by running `onDone` before `stopPlayback`: three callers read state
+  // that stopPlayback resets — both `playing` flags and, in the zoom loop, the
+  // token guard whose comment above `playZoomFrom` says re-entering the
+  // teardown from this callback is exactly the hazard. The order is
+  // load-bearing; the missing repaint is not.
+  source.onended = () => { stopPlayback(root); onDone?.(); restPlayheads(); };
   source.start(startTime);
   currentSource = source;
   scheduleClickTrack(startTime, timeMap(0), (samples.length / clip.sampleRate) * playbackSpeed);

@@ -112,6 +112,7 @@
     "reader:review": "node tools/reader-review-check.mjs",
     "review:taps": "node tools/review-taps-check.mjs",
     "settings:away": "node tools/settings-away-check.mjs",
+    "mic:place": "node tools/mic-place-check.mjs",
     "crop:edit": "node tools/crop-edit-check.mjs",
     "scan:strip": "node tools/scan-strip-check.mjs",
     "page:card": "node tools/page-card-check.mjs",

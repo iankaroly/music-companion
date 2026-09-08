@@ -51,6 +51,43 @@ function announce(doc, key) {
   doc.dispatchEvent(new CustomEvent('settings-change', { detail: { key } }));
 }
 
+// The two numbers on the storage line live three scales apart: the audio a
+// player has saved is kilobytes at first, and the DEVICE QUOTA is tens of
+// gigabytes. MEASURED, headless Chrome hands back a quota of 10737425458 bytes,
+// and the MB-only helper this replaces printed that as "about 10240 MB
+// available" — a five-figure number nobody reads as ten gigabytes.
+//
+// The unit changes when the value would print as a THOUSAND of the smaller one,
+// not at the binary boundary. A quota of 1010 MiB is "1.0 GB" here; switching
+// at 1 GiB exactly would print "1010 MB", which is the same four-figure fault
+// as the bug, in a 24 MiB-wide window instead of a device-wide one. So no size
+// this ever prints has four figures in front of the unit.
+//
+// One decimal until there are ten of them — "1.4 GB", then "12 GB" — because a
+// tenth of a gigabyte is not a fact anybody acts on. No TB branch: the quota is
+// a fraction of free disk, and no disk this app has met makes that four figures
+// of gigabytes.
+const KIB = 1024;
+const SIZES = [
+  // `from` is 999.5 of the unit below: the least value that would otherwise
+  // round to a four-figure count of it.
+  { unit: 'GB', scale: KIB ** 3, from: 999.5 * KIB ** 2 },
+  { unit: 'MB', scale: KIB ** 2, from: 999.5 * KIB },
+];
+
+export function describeBytes(bytes) {
+  const n = Math.max(0, Number(bytes) || 0);
+  for (const { unit, scale, from } of SIZES) {
+    if (n >= from) {
+      const v = n / scale;
+      return `${v.toFixed(v < 9.95 ? 1 : 0)} ${unit}`;
+    }
+  }
+  // Anything smaller is at least a kilobyte: "0 KB of audio" for a take that
+  // exists reads as a bug.
+  return `${Math.max(1, Math.round(n / KIB))} KB`;
+}
+
 export function readTolerance() {
   const v = Number(read(TOLERANCE_KEY, '8'));
   return Number.isFinite(v) && v > 0 ? v : 8;
@@ -279,20 +316,16 @@ export function initSettings(doc = document) {
 
   // --- practice history: how big it is, and getting it off the device -------
 
-  const mb = (bytes) => (bytes >= 1048576
-    ? `${(bytes / 1048576).toFixed(bytes > 10485760 ? 0 : 1)} MB`
-    : `${Math.max(1, Math.round(bytes / 1024))} KB`);
-
   const storageLine = doc.querySelector('#storage-line');
   const refreshStorage = async () => {
     if (!storageLine) return;
     try {
       const { takes, audioBytes, quota } = await storageReport();
       const persisted = await requestPersistence();
-      const room = quota ? ` of about ${mb(quota)} available` : '';
+      const room = quota ? ` of about ${describeBytes(quota)} available` : '';
       storageLine.textContent = takes === 0
         ? 'Nothing saved yet.'
-        : `${takes} ${takes === 1 ? 'take' : 'takes'}, ${mb(audioBytes)} of audio${room}.`
+        : `${takes} ${takes === 1 ? 'take' : 'takes'}, ${describeBytes(audioBytes)} of audio${room}.`
           + (persisted ? ' Stored persistently.' : '');
     } catch {
       storageLine.textContent = 'Could not read storage.';

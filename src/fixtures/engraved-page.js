@@ -25,6 +25,10 @@
 // the others share one engraving rather than four hand-drawn approximations of
 // one.
 
+// Statically imported, not `await import`ed like everything else in this file:
+// `takeFromWritten` below is synchronous, and its notes carry a NAME.
+import { midiToName } from '../analysis/note-utils.js';
+
 const GLYPH = {
   black: '\u{E0A4}',
   fClef: '\u{E062}',
@@ -175,7 +179,19 @@ export function takeFromWritten(written, {
     const start = lead + notes.length * spacing;
     notes.push({
       midi: w.midi,
-      name: null,
+      // A NAME, because the note's name is what the coach LABELS things with,
+      // and this fixture is what seeds the App Store screenshots. It said
+      // `null` here, `statsOf` in store/db.js copied that into `noteStats`, and
+      // every row of the Coach's tendency map shipped with a blank left column
+      // — nine unlabelled bars, nothing saying which note runs sharp — while
+      // the drill under it read "null runs 8¢ sharp" with a "Drone null"
+      // button. Worse than the label: the drone's key is `coach:${d.name}`, so
+      // every drill on the card shared ONE key and starting the second stopped
+      // the first. No player could reach any of it — notes.js:284 and
+      // tuning-offset.js:147 both name a real take's notes — so it was the
+      // fixture and the pictures it ships, and it belongs here rather than as a
+      // fallback in coach.js, which would leave the null in the store.
+      name: midiToName(w.midi),
       cents: ((i * 29) % 41) - 20,
       start,
       end: start + sounding,

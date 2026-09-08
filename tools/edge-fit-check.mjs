@@ -53,6 +53,58 @@ for (const width of WIDTHS) {
   await page.goto(APP, { waitUntil: 'load' });
   await new Promise((r) => setTimeout(r, 1600));
 
+  // ── THE WELCOME CARD, BEFORE ANYTHING DELETES IT ──────────────────────────
+  // Everything below this begins by removing the welcome screen, which is right
+  // for measuring the app but left the FIRST screen a new player ever sees out
+  // of every fit check in the repo — and it was broken: the instrument tiles'
+  // captions ("flute, clarinet, oboe, sax, bassoon") set each tile's min-content
+  // width, `repeat(2, 1fr)` could not go under it, and the right-hand column sat
+  // 103px past the card's content edge — the edge measured below — and off a
+  // 320-wide screen entirely, reading "flute, clarinet, obo". So measure it
+  // here, first, while it is still on the page.
+  //
+  // Two things together, because either alone passes a bad card: every tile
+  // INSIDE the card's content box (a tile can be whole and still hang off), and
+  // every tile's own words UNCUT (a tile can sit inside the card with its
+  // caption clipped). Plus the way out: a taller card must still be scrollable
+  // to "Start playing", or a fixed overhang becomes a dead first screen.
+  const welcome = await page.evaluate(async () => {
+    const card = document.querySelector('#welcome-card');
+    const tiles = [...document.querySelectorAll('#welcome-instruments [data-instrument]')];
+    if (!card || !tiles.length) return { none: true };
+    const style = getComputedStyle(card);
+    const box = card.getBoundingClientRect();
+    const left = box.left + parseFloat(style.paddingLeft);
+    const right = box.right - parseFloat(style.paddingRight);
+    const past = [];
+    const cut = [];
+    for (const tile of tiles) {
+      const r = tile.getBoundingClientRect();
+      const out = Math.round(Math.max(left - r.left, r.right - right));
+      const name = tile.firstChild?.textContent?.trim() || tile.textContent.trim();
+      if (out > 2) past.push(`${name} +${out}px`);
+      for (const node of [tile, ...tile.querySelectorAll('*')]) {
+        if (node.scrollWidth - node.clientWidth > 1) { cut.push(name); break; }
+      }
+    }
+    // The way out, after scrolling as far as the card goes.
+    const start = document.querySelector('#welcome-start');
+    card.scrollTop = card.scrollHeight;
+    await new Promise((r) => setTimeout(r, 120));
+    const s = start?.getBoundingClientRect();
+    const reachable = !!s && s.bottom <= window.innerHeight + 2 && s.top >= -2 && s.height > 20;
+    return { past, cut, tiles: tiles.length, reachable, startBottom: Math.round(s?.bottom ?? 0), viewportH: window.innerHeight };
+  });
+  check(`${width}px: the welcome card's instrument tiles fit inside it, whole`,
+    !welcome.none && welcome.tiles === 5 && welcome.past.length === 0 && welcome.cut.length === 0,
+    welcome.none ? 'no welcome card on a fresh profile'
+      : `${welcome.tiles} tiles`
+        + `${welcome.past.length ? `, past the card: ${welcome.past.join(', ')}` : ''}`
+        + `${welcome.cut.length ? `, clipped words: ${welcome.cut.join(', ')}` : ''}`);
+  check(`${width}px: "Start playing" is reachable on the welcome card`,
+    !welcome.none && welcome.reachable,
+    welcome.none ? 'no welcome card' : `bottom at ${welcome.startBottom}px of ${welcome.viewportH}`);
+
   // A shelf, a part and a take, so the screens being measured have something on
   // them: an empty app has nothing to hang off the edge.
   await page.evaluate(async ({ bravura }) => {
@@ -177,6 +229,84 @@ for (const width of WIDTHS) {
   check(`${width}px: all six tabs fit, whole`,
     tabs.cut <= 1 && (tabs.tight?.length ?? 0) === 0 && tabs.labels === 6,
     `${tabs.cut}px past the bar${tabs.tight?.length ? `, clipped: ${tabs.tight.join(', ')}` : ''}`);
+
+  // …and the SHELF HEADINGS are whole, which is the same question a third time
+  // and the one nothing above could see: the Score tab's heading read "S…" at
+  // 320 while every element on the screen was inside the screen, because the
+  // clipping was INSIDE the row. The title is the only item there that can
+  // give — the three buttons are `nowrap` — so it was handed 50px of a 301px
+  // row for 77px of "Scores".
+  //
+  // TWO ASSERTIONS, because either alone passes a bad fix. Whole words plus a
+  // row that does not overflow is satisfied by a heading that wraps its actions
+  // onto a second line at EVERY width, which is a regression at 390 dressed up
+  // as a fix; so the second one holds the rest of the range to ONE line. A
+  // floor on the title that is too generous fails it.
+  const heads = await page.evaluate(async () => {
+    const out = {};
+    for (const [tab, id] of [['score', '#score-browser-head'], ['library', '#library-head']]) {
+      for (let i = 0; i < 20; i += 1) {
+        if (document.querySelector(`#tab-${tab}`)?.classList.contains('active')) break;
+        document.querySelector(`.tab-btn[data-tab="${tab}"]`)?.click();
+        await new Promise((r) => setTimeout(r, 120));
+      }
+      await new Promise((r) => setTimeout(r, 400));
+      // THE SHELF IS BEHIND THE REVIEW. Everything above this built a take and
+      // annotated it, and a review arriving takes the Score tab — so the
+      // heading row is hidden, has no client rects, and a check that walks its
+      // children finds nothing and PASSES. It did, at every width, until the
+      // "one line" assertion printed `row 0px, tallest item 0px`. Press the
+      // review's ← first, and refuse to report on a row that is not on screen.
+      document.querySelector('#score-review-back')?.click();
+      await new Promise((r) => setTimeout(r, 300));
+      // The heading of a piece is that piece's NAME and is allowed to
+      // ellipsise; the root of the shelf is the fixed word being measured.
+      const back = document.querySelector(tab === 'score' ? '#score-browser-back' : '#library-back');
+      for (let i = 0; i < 6 && back && !back.hidden; i += 1) {
+        back.click();
+        await new Promise((r) => setTimeout(r, 200));
+      }
+      const head = document.querySelector(id);
+      if (!head || !head.getClientRects().length) { out[tab] = { none: true }; continue; }
+      const words = [];
+      for (const node of head.querySelectorAll('*')) {
+        if (node.hidden || !node.getClientRects().length) continue;
+        if (node.scrollWidth - node.clientWidth > 1) words.push(node.textContent.trim());
+      }
+      // One line, measured as the row being no taller than its tallest item.
+      const tall = Math.max(0, ...[...head.children]
+        .filter((c) => !c.hidden && c.getClientRects().length)
+        .map((c) => c.getBoundingClientRect().height));
+      out[tab] = {
+        words,
+        title: document.querySelector(tab === 'score' ? '#score-browser-title' : '#library-title')?.textContent ?? '',
+        over: head.scrollWidth - head.clientWidth,
+        height: Math.round(head.getBoundingClientRect().height),
+        tall: Math.round(tall),
+      };
+    }
+    return out;
+  });
+  for (const [tab, head] of Object.entries(heads)) {
+    check(`${width}px: the ${tab === 'score' ? 'Score' : 'Library'} tab's heading row reads whole`,
+      !head.none && head.words.length === 0 && head.over <= 1,
+      head.none ? 'the heading row was not on screen to measure'
+        : `“${head.title}”, `
+          + `${head.words.length ? `clipped: ${head.words.join(', ')}` : 'nothing clipped'}`
+          + `, row ${head.over}px past itself`);
+  }
+  // …ON ONE LINE, at every width including 320. Letting the row WRAP is the
+  // obvious way to make the words whole and it was tried: the actions on a
+  // second line make the heading 68px tall against 32, and those 36px pushed
+  // tour stop 7's hole from 99→301 down to 135→337 while its card only moved
+  // 313→324, so the card came to lie over the control it describes. Whole
+  // words alone would pass that; this is the half that does not.
+  for (const [tab, head] of Object.entries(heads)) {
+    check(`${width}px: the ${tab === 'score' ? 'Score' : 'Library'} tab's heading stays on one line`,
+      !head.none && head.height <= head.tall + 1,
+      head.none ? 'the heading row was not on screen to measure'
+        : `row ${head.height}px, tallest item ${head.tall}px`);
+  }
 
   await page.close();
 }

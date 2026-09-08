@@ -48,6 +48,13 @@ await page.evaluateOnNewDocument(() => {
   quiet.start();
   navigator.mediaDevices.getUserMedia = async () => fake.stream;
 });
+// AND PAST THE FIRST RUN, before the score is opened. "Start playing" below
+// also starts the tour on an install that has never seen it, and `#tour` is a
+// fixed, full-screen, pointer-events:auto layer over everything — it swallows
+// the taps this check makes. Same flag, same reason as scan-strip-check.mjs.
+await page.evaluateOnNewDocument(() => {
+  try { localStorage.setItem('tourSeen', '1'); } catch { /* an opaque origin; survivable */ }
+});
 await page.goto(APP, { waitUntil: 'domcontentloaded' });
 await new Promise((r) => setTimeout(r, 1400));
 

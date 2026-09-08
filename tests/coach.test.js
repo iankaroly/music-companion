@@ -3,6 +3,8 @@ import {
   aggregateTendencies, dailyScores, pickDrills, weeklyReport, pieceProgress,
   aggregateLandings, dailyLandings,
 } from '../src/analysis/coach.js';
+import { takeFromWritten } from '../src/fixtures/engraved-page.js';
+import { midiToName } from '../src/analysis/note-utils.js';
 
 const session = (date, notes) => ({
   date,
@@ -183,6 +185,55 @@ describe('pickDrills', () => {
       session(T0, [[57, 'A3', 1], [57, 'A3', 2], [57, 'A3', 0]]),
     ]);
     expect(pickDrills(centered)).toEqual([]);
+  });
+});
+
+// THE SEEDED TAKE HAS TO CARRY NAMES, and nothing checked it until the App
+// Store listing shipped a tendency map with an empty left column. Every browser
+// check that needs a take builds it with `takeFromWritten`, and it wrote
+// `name: null` on every note; `statsOf` in store/db.js copies exactly
+// { midi, name, cents } into a recording's `noteStats`, which is the only thing
+// the coach ever reads. So the whole chain — fixture to noteStats to the row
+// the map labels — is walked here, unit-fast and with no browser, because the
+// picture that showed the fault costs a full `store:shots` run to look at.
+//
+// The rows are shaped inline rather than through `statsOf`, which db.js does
+// not export: exporting it to reach it from a test would be the test changing
+// the app.
+describe('a take seeded from the engraved fixture', () => {
+  const written = [45, 47, 48, 50, 52, 53, 55, 57, 59].map((midi) => ({ midi }));
+  const statsOf = (notes) => notes.map((n) => ({ midi: n.midi, name: n.name, cents: n.cents }));
+  const take = (from) => takeFromWritten(written, { from, count: 9, spacing: 0.4 });
+
+  test('names every note it plays', () => {
+    const notes = take(0);
+    expect(notes).toHaveLength(9);
+    for (const n of notes) expect(n.name).toBe(midiToName(n.midi));
+  });
+
+  test('every tendency row the coach draws is labelled', () => {
+    const rows = aggregateTendencies(
+      [0, 1, 2].map((i) => ({ date: T0 + i * DAY, noteStats: statsOf(take(0)) })),
+    );
+    expect(rows.length).toBeGreaterThan(0);
+    for (const r of rows) {
+      expect(r.name).toBe(midiToName(r.midi));
+      expect(r.name).toMatch(/^[A-G]#?-?\d+$/);
+    }
+  });
+
+  // The drill's drone key is `coach:${d.name}`, so a null name is not only a
+  // blank label: every drill on the card shares one key and starting the
+  // second stops the first.
+  test('every drill is named, and no two drills share a drone key', () => {
+    const rows = aggregateTendencies(
+      [0, 1, 2].map((i) => ({ date: T0 + i * DAY, noteStats: statsOf(take(0)) })),
+    );
+    const drills = pickDrills(rows, 3);
+    expect(drills.length).toBeGreaterThan(1);
+    for (const d of drills) expect(d.name).toBe(midiToName(d.midi));
+    const keys = drills.map((d) => `coach:${d.name}`);
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

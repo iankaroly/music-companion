@@ -62,6 +62,35 @@ for (const screen of SCREENS) {
   await page.goto(APP, { waitUntil: 'load' });
   await new Promise((r) => setTimeout(r, 1600));
 
+  // The welcome card first, while it is still on the page — the same
+  // measurement `edge:fit` makes, for the same reason: the line below deletes
+  // the first screen a new player meets, and on a phone its instrument tiles
+  // were hanging 81px past the card with their captions cut. A tablet has room
+  // to spare, so this is the side that says the fix did not need it.
+  const welcome = await page.evaluate(() => {
+    const card = document.querySelector('#welcome-card');
+    const tiles = [...document.querySelectorAll('#welcome-instruments [data-instrument]')];
+    if (!card || !tiles.length) return { none: true };
+    const style = getComputedStyle(card);
+    const box = card.getBoundingClientRect();
+    const left = box.left + parseFloat(style.paddingLeft);
+    const right = box.right - parseFloat(style.paddingRight);
+    const bad = [];
+    for (const tile of tiles) {
+      const r = tile.getBoundingClientRect();
+      const name = tile.firstChild?.textContent?.trim() || tile.textContent.trim();
+      const out = Math.round(Math.max(left - r.left, r.right - right));
+      if (out > 2) bad.push(`${name} +${out}px past the card`);
+      else if ([tile, ...tile.querySelectorAll('*')].some((n) => n.scrollWidth - n.clientWidth > 1)) {
+        bad.push(`${name} clipped`);
+      }
+    }
+    return { bad, tiles: tiles.length };
+  });
+  check(`${screen.name}: the welcome card's instrument tiles fit inside it, whole`,
+    !welcome.none && welcome.tiles === 5 && welcome.bad.length === 0,
+    welcome.none ? 'no welcome card on a fresh profile' : `${welcome.tiles} tiles${welcome.bad.length ? `, ${welcome.bad.join(', ')}` : ''}`);
+
   // A shelf, a part and a take, so the screens being measured have something on
   // them — an empty app has nothing to strand and nothing to hang off an edge.
   await page.evaluate(async ({ bravura }) => {

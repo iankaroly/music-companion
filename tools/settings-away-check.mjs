@@ -16,6 +16,13 @@
 //   · THE KEYBOARD. Enter on a button synthesises a click at 0,0 — outside
 //     every rectangle there has ever been.
 //
+// AND, SINCE THIS IS THE CHECK THAT HAS THE SHEET OPEN, one thing the sheet
+// SAYS: the storage line's units. It read "of about 10240 MB available" on
+// every device, because the size helper stopped at MB. The exact strings are
+// pinned in tests/storage-size.test.js on fixed byte counts; what can only be
+// seen here is the REAL quota the browser hands back, which moves between runs
+// and between machines — so this asserts the SHAPE, not a number.
+//
 //   npm run dev                  (on 5199)
 //   npm run settings:away
 //
@@ -135,6 +142,28 @@ await page.evaluate(async () => {
   await new Promise((r) => setTimeout(r, 300));
 });
 check('Done still closes it', await isOpen() === false);
+
+// --- 6. the storage line names a unit somebody uses -------------------------
+// The room clause only appears once something is saved, so a take is put in the
+// store first; the line is rebuilt every time the sheet opens.
+await page.evaluate(async () => {
+  const db = await import('/src/store/db.js');
+  const sampleRate = 48000;
+  await db.saveRecording({
+    date: Date.now(), duration: 2, sampleRate, audio: new Float32Array(sampleRate * 2),
+    notes: [], readings: [], a4: 440, name: 'Storage line check',
+  });
+});
+await openSheet();
+const storage = await page.evaluate(async () => {
+  const est = await navigator.storage?.estimate?.().catch(() => null);
+  return { said: document.querySelector('#storage-line')?.textContent ?? '', quota: est?.quota ?? null };
+});
+check('the storage line does not report the quota in four figures of megabytes',
+  !/\d{4}\s*(MB|KB)/.test(storage.said), storage.said);
+check('a quota of a gigabyte or more is named in GB',
+  storage.quota === null || storage.quota < 1073741824 || / of about [\d.]+ GB available/.test(storage.said),
+  `quota ${storage.quota} bytes — "${storage.said}"`);
 
 if (errors.length) {
   console.log('\nerrors on the page:');

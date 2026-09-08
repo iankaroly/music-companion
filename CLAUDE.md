@@ -266,6 +266,39 @@ npm run settings:away    TAP THE DARK AND THE SETTINGS SHEET GOES AWAY, and
                          replaced with would instead close on a slider dragged
                          out past the edge (range inputs capture the pointer) and
                          on a keyboard's click at 0,0. All three are checks here.
+npm run mic:place        WHERE THE APP SAYS IT IS RUNNING, and where it sends
+                         somebody when the microphone refuses. The settings
+                         sheet's report opens with the place and the mic-failure
+                         advice picks its Settings path from the same decision,
+                         and that decision was written TWICE in main.js: only
+                         the tuner's copy knew about `capacitor:`, so the App
+                         Store build read as a browser and was sent to Settings
+                         → Safari → Microphone, which does not govern a
+                         WKWebView. One module now — src/ui/where-running.js.
+                         TWO OF THE THREE PLACES ARE REACHABLE HEADLESSLY and
+                         both are checked end to end, including the advice: a
+                         plain page, and `navigator.standalone` defined the way
+                         iOS defines it on a Home Screen app, with getUserMedia
+                         made a promise that never settles to read the
+                         ten-second branch. THE THIRD IS NOT — nothing headless
+                         can be served over `capacitor://` — so the App Store
+                         build's reading is checked as the DECISION, imported
+                         from the page's own module graph, and in
+                         tests/where-running.test.js. Said plainly rather than
+                         faked. A FRESH PAGE PER SCENARIO, because
+                         `evaluateOnNewDocument` scripts accumulate and the deaf
+                         microphone leaked into every later run, leaving one
+                         check passing on a prefix of "Asking…".
+                         AND THE THREE REPORTS BEFORE ANYBODY PRESSES THEM.
+                         `#set-pen-report`, `#set-sound-report` and
+                         `#set-mic-report` are where the checks WRITE, so they
+                         carry `white-space: pre-wrap` to keep one finding to a
+                         line — and that rule renders the HTML's own newlines
+                         and leading spaces too, so all three placeholders broke
+                         mid sentence and resumed eight spaces in. BOTH HALVES
+                         are checked, because either alone invites the wrong
+                         fix: pre-wrap still computed on all three, and no
+                         newline or double space authored into the placeholder.
 npm run review:taps      CAN A FINGER REACH THE REVIEW'S CONTROLS — the pixel
                          in the middle of the graph's play button, of Save and
                          of Discard, and what is actually there to receive a
@@ -507,6 +540,21 @@ npm run edge:fit         NOTHING RUNS OFF THE EDGE OF THE SCREEN, at five phone
                          scrolls sideways, and the drifting colour behind
                          everything. It also asserts the graph REACHES both
                          edges, so a bleed that is too small fails too.
+                         AND THE CLIPPING THAT HAPPENS INSIDE A ROW, which
+                         nothing above can see: the Score tab's heading read
+                         “S…” at 320 while every element on the screen was
+                         within the screen. The Library and Score heading rows
+                         are read WHOLE and on ONE LINE at all five widths.
+                         Both halves, because either alone passes a bad fix —
+                         whole words are also bought by wrapping the actions
+                         onto a second line, and those 36px pushed tour stop 7's
+                         hole into its own card at 320x568.
+                         IT PRESSES THE REVIEW'S BACK FIRST and refuses a row
+                         with no client rects: everything above this builds a
+                         take, a review takes the Score tab, and a check that
+                         walks a hidden row finds nothing clipped and PASSES.
+                         It did, at every width, until the one-line assertion
+                         printed `row 0px, tallest item 0px`.
 npm run scan:lag         HOW SLOW THE SCANNER IS, in three numbers, because "the
                          scanner is slow to use" was open and undiagnosed for
                          weeks behind one sentence: "I do not know whether what

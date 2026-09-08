@@ -702,12 +702,13 @@ function refreshCount() {
 // because positions shift as pages are thrown away — and both are rebuilt when
 // a page is taken again with new edges, so neither is left pointing at a page
 // that no longer exists.
-function dropButton(file, thumbnail, index) {
+function dropButton(file, thumbnail) {
   const drop = document.createElement('button');
   drop.type = 'button';
   drop.className = 'scan-drop';
   drop.textContent = '✕';
-  drop.setAttribute('aria-label', `Throw away page ${index + 1}`);
+  // No page number is written here: `nameSlot` owns all three of a slot's
+  // names, because a name baked in at build time cannot survive a deletion.
   drop.addEventListener('click', () => {
     const at = pages.indexOf(file);
     if (at >= 0) { pages.splice(at, 1); shots.splice(at, 1); }
@@ -789,13 +790,12 @@ function settleThumb(slot, file, index) {
   shown.addEventListener('load', () => { if (was?.startsWith('blob:')) URL.revokeObjectURL(was); });
   const label = document.createElement('span');
   label.className = 'scan-number';
-  label.textContent = String(index + 1);
   const open = document.createElement('button');
   open.type = 'button';
   open.className = 'scan-open';
-  open.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
   open.addEventListener('click', () => reshape(file, shown));
-  slot.append(shown, open, edgesBadge(), dropButton(file, shown, index), label);
+  slot.append(shown, open, edgesBadge(), dropButton(file, shown), label);
+  nameSlot(slot, index);
 }
 
 function addThumb(file, index) {
@@ -806,7 +806,6 @@ function addThumb(file, index) {
   image.alt = '';
   const label = document.createElement('span');
   label.className = 'scan-number';
-  label.textContent = String(index + 1);
   // The picture's own button, laid over the whole of it. A <button> inside a
   // <button> is not a thing the DOM should be asked to hold, and the ✕ has to
   // stay pressable — so this is a sibling underneath it rather than a wrapper
@@ -814,9 +813,9 @@ function addThumb(file, index) {
   const open = document.createElement('button');
   open.type = 'button';
   open.className = 'scan-open';
-  open.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
   open.addEventListener('click', () => reshape(file, image));
-  wrap.append(image, open, edgesBadge(), dropButton(file, image, index), label);
+  wrap.append(image, open, edgesBadge(), dropButton(file, image), label);
+  nameSlot(wrap, index);
   strip.append(wrap);
   strip.scrollLeft = strip.scrollWidth;
 }
@@ -877,25 +876,54 @@ async function reshape(file, thumbnail) {
   // now because there is nothing in it to rebuild: the badge is a label with
   // `pointer-events: none` and closes over nothing at all.
   const slot = thumbnail.parentElement;
-  slot?.querySelector('.scan-drop')?.replaceWith(dropButton(fresh, thumbnail, at));
+  slot?.querySelector('.scan-drop')?.replaceWith(dropButton(fresh, thumbnail));
   const open = slot?.querySelector('.scan-open');
   if (open) {
     const again = document.createElement('button');
     again.type = 'button';
     again.className = 'scan-open';
-    again.setAttribute('aria-label', `Change the edges of page ${at + 1}`);
     again.addEventListener('click', () => reshape(fresh, thumbnail));
     open.replaceWith(again);
   }
+  // Both buttons are new, so both are nameless until this runs.
+  if (slot) nameSlot(slot, at);
   say('edges changed');
 }
 
 // The numbers on the thumbnails are positions, not names, so throwing away
 // page 2 has to renumber everything after it.
+//
+// AND THE SPOKEN NAMES ARE POSITIONS TOO. This used to rewrite only the badge
+// you can SEE. The aria-labels on the ✕ and on the picture were baked in where
+// each button was built — `dropButton`, `settleThumb`, `addThumb`, `reshape` —
+// and nothing ever touched them again, so after throwing away page 2 of four
+// the badges read 1, 2, 3 while the labels still said page 1, page 3, page 4.
+// The badge is not `aria-hidden` (only the "Edges" word is), so the
+// contradiction is audible in one breath: "2 · Throw away page 3". A VoiceOver
+// user pressing the thumbnail announced as "Throw away page 3" threw away the
+// one everyone else could see as page 2, and every page after a deletion stayed
+// misnamed for the rest of the session. The visible count and the delete itself
+// were right — `dropButton` closes over the FILE, not over a position — so it
+// is only the names that were wrong. MEASURED by `scan:strip`, which now reads
+// all three names off every slot before and after a deletion.
+//
+// The four places that used to bake a name in now write none. All three names
+// come from `nameSlot` below and from nowhere else, so there is one answer in
+// this file to "what is this page called" and no way for two of them to drift.
 function renumber() {
-  [...strip.querySelectorAll('.scan-number')].forEach((node, i) => {
-    node.textContent = String(i + 1);
-  });
+  [...strip.querySelectorAll('.scan-thumb')].forEach((slot, i) => nameSlot(slot, i));
+}
+
+// One page's three names: the number you can see, and the two you can only
+// hear. A slot still waiting for its page gets the number and nothing else —
+// it has no ✕ and no edges button yet, deliberately, because both act on a
+// `File` that does not exist yet (see addPending).
+function nameSlot(slot, index) {
+  const label = slot.querySelector('.scan-number');
+  if (label) label.textContent = String(index + 1);
+  slot.querySelector('.scan-drop')?.setAttribute('aria-label', `Throw away page ${index + 1}`);
+  slot.querySelector('.scan-open')
+    ?.setAttribute('aria-label', `Change the edges of page ${index + 1}`);
 }
 
 function button(id, text, className, onClick) {

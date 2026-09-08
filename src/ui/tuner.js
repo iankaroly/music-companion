@@ -174,11 +174,21 @@ export class Tuner {
     this.setNeedle(cents);
 
     // Double stop: show the second string's note alongside.
+    //
+    // NAMED IN THE SAME KEY AS THE BIG NOTE, because both notes come off one
+    // instrument and a player reads the two of them as an interval. This line
+    // used to print `freqToNote(...).name`, which is concert pitch: MEASURED
+    // with transpose 2 and a secondary of 392.0 Hz, the big note read "D4"
+    // and this line read "+ G4" — a fourth on the screen where the player
+    // hears a fifth. Same arithmetic as the big note above.
+    //
+    // The CENTS are left alone on purpose: a transposition renames by whole
+    // semitones and does not move the reading's distance from the note.
     const sec = reading.secondary;
     if (sec?.frequency && sec.confidence >= CONFIDENCE_FLOOR) {
       const s = freqToNote(sec.frequency, this.a4);
-      this.secondEl.textContent =
-        `double stop: + ${s.name} ${s.cents >= 0 ? '+' : ''}${s.cents.toFixed(0)}¢`;
+      this.secondEl.textContent = `double stop: + ${midiToName(s.midi + this.transpose)} ${
+        s.cents >= 0 ? '+' : ''}${s.cents.toFixed(0)}¢`;
     } else {
       this.secondEl.textContent = '';
     }
