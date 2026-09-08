@@ -68,7 +68,29 @@ const ENGRAVE = { pages: 2, systems: 8, perSystem: 12, space: 13 };
 // and geometry the seeding returned. `only` names the one device a screen is
 // for, where the two devices want different pictures under the same caption.
 const SCREENS = [
-  { tab: 'analyze', name: '1-what-you-played' },
+  {
+    tab: 'analyze', name: '1-what-you-played',
+    // A NOTE PRESSED, so the review is at its most complete: the overview with
+    // the cursor on the note, the box for it, and the up-close panel under it
+    // with the cents-level graph, its play button and the drone. "can the
+    // picture with the recording analysis be more complex and have the zoomed
+    // in graph like you clicked on somewhere." The eleventh note is far enough
+    // in that the overview shows notes on both sides of the cursor.
+    settle: (page) => page.evaluate(async () => {
+      const { selectPlayedNote } = await import('/src/ui/report.js');
+      const notes = window.__storeNotes ?? [];
+      if (notes[10]) selectPlayedNote(notes[10]);
+      await new Promise((r) => setTimeout(r, 700));
+      // pause the playback the press started, so the button reads ▶ and the
+      // cursor holds still for the photograph
+      const btn = document.querySelector('#zoom-play');
+      if (btn && /⏸|pause/i.test(btn.textContent + (btn.getAttribute('aria-label') ?? ''))) btn.click();
+      await new Promise((r) => setTimeout(r, 300));
+      const zoom = document.querySelector('#note-zoom');
+      zoom?.scrollIntoView({ block: 'end' });
+      await new Promise((r) => setTimeout(r, 400));
+    }),
+  },
   {
     tab: 'score', name: '2-on-the-stand', only: 'iphone-6.9',
     // THE SHELF ON THE PHONE, THE PAGE ON THE IPAD. Six rows fill a phone's
@@ -299,12 +321,32 @@ for (const device of DEVICES) {
     const { renderFreeReview } = await import('/src/ui/report.js');
     const { Recorder } = await import('/src/audio/recording.js');
     const notes = takeFromWritten(written, { from: 0, count: 64, spacing: 0.35, sounding: 0.3, lead: 0 });
-    const readings = notes.map((n) => ({
-      time: n.start, frequency: n.frequency, confidence: 0.95, rms: 0.05, midi: n.midi, cents: n.cents,
-    }));
+    // READINGS EVERY TWENTY MILLISECONDS, not one per note. One reading a note
+    // draws the overview but leaves the up-close panel — the cents-level graph
+    // that opens when a note is pressed — with nothing to draw, and that panel
+    // is the picture asked for: "have the zoomed in graph like you clicked on
+    // somewhere". Each note is given what a played note has: a short scoop
+    // into the pitch that settles over the first tenth of a second, then a
+    // gentle vibrato, so the close-up has a shape rather than a flat line.
+    const readings = [];
+    for (const [i, n] of notes.entries()) {
+      const aim = n.cents ?? 0;
+      const scoop = (i % 3 === 0 ? -18 : 9) * ((i * 7) % 5 + 3) / 5;
+      for (let t = n.start; t < n.end; t += 0.02) {
+        const into = (t - n.start);
+        const settle = scoop * Math.exp(-into / 0.06);
+        const vib = 6 * Math.sin(2 * Math.PI * 5.2 * into + i);
+        const cents = aim + settle + (into > 0.1 ? vib : 0);
+        readings.push({
+          time: t, frequency: n.frequency * 2 ** (cents / 1200), confidence: 0.95, rms: 0.05,
+          midi: n.midi, cents,
+        });
+      }
+    }
     const rec = new Recorder(44100);
     rec.push(new Float32Array(44100 * 18));
     renderFreeReview(document, notes, rec, { readings, a4: 440 });
+    window.__storeNotes = notes;
 
     // THE COACH NEEDS A FORTNIGHT, not a take. It draws nothing until three
     // takes share a note, and its opening card compares this week with last —
