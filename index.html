@@ -5065,7 +5065,7 @@
         </details>
         <div id="playback" hidden>
           <div id="clip-head">
-            <button id="clip-play" aria-label="Play or pause the whole take">▶</button>
+            <button id="clip-play" data-audible aria-label="Play or pause the whole take">▶</button>
             <button id="clip-restart" aria-label="Play from the beginning" title="back to the start">↺</button>
             <div id="chart-mode" role="group" aria-label="Graph style">
               <button data-mode="pitch" class="active">pitch</button>
@@ -5075,7 +5075,7 @@
           <div id="chart-scroll"><canvas id="pitch-chart"></canvas></div>
           <div id="note-zoom" hidden>
             <div id="zoom-head">
-              <button id="zoom-play" aria-label="Play or pause this section">▶</button>
+              <button id="zoom-play" data-audible aria-label="Play or pause this section">▶</button>
               <span id="zoom-label"></span>
             </div>
             <canvas id="note-chart" role="img" aria-label="Pitch of the selected note in cents"></canvas>
@@ -5088,9 +5088,9 @@
               <button data-speed="0.5">½×</button>
               <button data-speed="0.25">¼×</button>
             </span>
-            <button id="clip-click" type="button" hidden>Play with click</button>
-            <button id="note-drone" hidden>Hold cursor note as drone</button>
-            <button id="ref-drone" hidden></button>
+            <button id="clip-click" data-audible type="button" hidden>Play with click</button>
+            <button id="note-drone" data-audible hidden>Hold cursor note as drone</button>
+            <button id="ref-drone" data-audible hidden></button>
             <select id="ref-interval" hidden aria-label="Reference drone interval">
               <option value="unison" selected>same note</option>
               <option value="fifth-up">fifth up</option>
@@ -5107,8 +5107,8 @@
               <option value="3">3 octaves up</option>
               <option value="4">4 octaves up</option>
             </select>
-            <button id="compare" hidden></button>
-            <button id="any-drone" aria-haspopup="menu" aria-expanded="false">Drone</button>
+            <button id="compare" data-audible hidden></button>
+            <button id="any-drone" data-audible aria-haspopup="menu" aria-expanded="false">Drone</button>
             <!-- ONLY THE NOTES THAT WERE HELD. A take of a piece is mostly
                  passing notes, and the pitch you can actually judge is the one
                  that stood still long enough to have a pitch — see
@@ -5403,7 +5403,7 @@
             </select>
           </div>
           <div id="beat-dots"></div>
-          <button id="metro-toggle" class="ctl primary big">Start</button>
+          <button id="metro-toggle" data-audible class="ctl primary big">Start</button>
         </div>
       </div>
     </section>
@@ -5438,7 +5438,7 @@
       <div class="set-group">
         <span class="set-label" id="click-pitch-label">Metronome pitch</span>
         <div class="set-slider">
-          <input id="set-click-pitch" type="range" min="-5" max="12" step="1" aria-labelledby="click-pitch-label" />
+          <input id="set-click-pitch" data-audible type="range" min="-5" max="12" step="1" aria-labelledby="click-pitch-label" />
           <span id="set-click-pitch-out" class="set-out"></span>
         </div>
         <p class="set-hint">Semitones from where the click normally sits — down to
@@ -5596,7 +5596,7 @@
       </div>
       <div class="set-group">
         <span class="set-label">Sound</span>
-        <button id="set-sound-check" type="button" class="set-wide">Check the sound</button>
+        <button id="set-sound-check" data-audible type="button" class="set-wide">Check the sound</button>
         <p class="set-hint" id="set-sound-report">Plays four clicks and says what this device did with them — whether the audio is awake, which route it is on, and where the levels are.</p>
       </div>
       <div class="set-group">

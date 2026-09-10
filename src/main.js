@@ -210,6 +210,7 @@ function droneFrequency(name) {
 for (const name of PIPE_NOTES) {
   const btn = document.createElement('button');
   btn.textContent = name;
+  btn.dataset.audible = '';
   btn.addEventListener('click', () => {
     const on = toggleDroneNote(name, droneFrequency(name));
     btn.classList.toggle('active', on);

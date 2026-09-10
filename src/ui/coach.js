@@ -281,6 +281,7 @@ function renderDrills(list, drills) {
       + `<small>(${d.count} notes) — long-tone it against the drone and ${aim} until the beats stop</small>`;
     const btn = document.createElement('button');
     btn.className = 'ctl';
+    btn.dataset.audible = '';
     const key = `coach:${d.name}`;
     const label = () => { btn.textContent = activeDroneNotes().has(key) ? `Stop ${d.name}` : `Drone ${d.name}`; };
     btn.classList.toggle('active', activeDroneNotes().has(key));

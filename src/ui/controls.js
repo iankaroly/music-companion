@@ -107,6 +107,8 @@ export function toggleMenu(btn, build, { columns = false } = {}) {
   const pop = document.createElement('div');
   pop.className = columns ? 'pick-pop cols' : 'pick-pop';
   pop.setAttribute('role', 'menu');
+  // rows of a sound-making menu (a drone pick) warm the audio on the press too
+  if (btn.hasAttribute('data-audible')) pop.setAttribute('data-audible', '');
   const render = () => {
     pop.replaceChildren(...build().map((item) => {
       const row = document.createElement('button');

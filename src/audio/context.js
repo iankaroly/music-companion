@@ -97,6 +97,23 @@ export function warmAudio() {
   scheduleSleep(); // still let go if the press turns out not to be a play
 }
 
+// Every control that starts a sound on click gets that warm-up from one
+// listener, by carrying a data-audible attribute, rather than each of them
+// remembering to wire pointerdown by hand. The drone buttons — the tuner's
+// pitch pipe, the review's held and in-tune drones, the coach's drills, the
+// metronome — never had it, and the one that was tapped first after a review
+// was the one that came in late: the mic had just been given back, the session
+// was idle, and resume plus re-activation both ran inside the click. A menu
+// whose rows make sound marks the pop-over itself, so closest() finds it from
+// any row. Capture phase, so nothing that stops propagation can starve it.
+export function warmAudibleOn(root) {
+  root.addEventListener('pointerdown', (e) => {
+    if (e.target?.closest?.('[data-audible]')) warmAudio();
+  }, { capture: true, passive: true });
+}
+
+if (globalThis.document?.addEventListener) warmAudibleOn(globalThis.document);
+
 // Called the moment anything audible is wired up. Claims the session, wakes
 // the context, and cancels any pending sleep.
 export function wakeAudio() {

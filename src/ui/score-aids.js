@@ -101,6 +101,7 @@ function build() {
   metroRow.dataset.aid = 'metronome';
 
   const play = chip('▶', 'Start the click', () => toggleClick(), 'aid-chip aid-play');
+  play.dataset.audible = '';
   const beat = document.createElement('span');
   beat.className = 'aid-beat';
   beat.setAttribute('aria-hidden', 'true');
