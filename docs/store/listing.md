@@ -59,7 +59,7 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
 **Marketing URL**
 
-    https://practicepartner.vercel.app
+    https://standpartner.vercel.app
 
 **Copyright**
 
@@ -77,7 +77,7 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 | Secondary category | Education |
 | Content rights | Does not contain, show, or access third-party content |
 | Age rating | Answer "None" to every content question → 4+ |
-| Privacy policy URL | https://practicepartner.vercel.app/privacy |
+| Privacy policy URL | https://standpartner.vercel.app/privacy |
 
 ## App Privacy
 
