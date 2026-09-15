@@ -683,7 +683,7 @@ function openTransposeMenu() {
 // you can hit without looking, and it costs the turn zones nothing that
 // matters: the page still turns from anywhere in the lower three quarters,
 // which is where a hand reaching for the corner of a page actually lands.
-const TOP_REACH = 0.25;
+const TOP_REACH = 1 / 3;   // the top third of the screen reaches for the bars
 
 // Everything on top of the music that is a CONTROL rather than the page.
 //
@@ -4423,7 +4423,7 @@ function toggleNight() {
 // phone, which is a different thing from sending it somewhere.
 
 async function sendScore(withMarks) {
-  const { pdfFromPages, shareFile, fileName } = await import('./export.js');
+  const { pdfFromPages, fileName } = await import('./export.js');
   const pages = [];
   say('making the file…');
   try {
@@ -4450,12 +4450,51 @@ async function sendScore(withMarks) {
         height: canvas.height,
       });
     }
-    const how = await shareFile(pdfFromPages(pages), fileName(score.name, 'pdf'));
-    say(how === 'saved' ? 'saved to your files' : '');
+    say('');
+    offerFile(pdfFromPages(pages), fileName(score.name, 'pdf'));
   } catch {
     say('that file could not be made');
+    setTimeout(() => say(''), 2600);
   }
-  setTimeout(() => say(''), 2600);
+}
+
+// THE SHARE SHEET IS ASKED FOR FROM A TAP, once the file exists.
+//
+// It used to be asked for at the end of making the file. Making a PDF of a
+// part is seconds of rendering, and the browser only lets a page open the
+// share sheet inside a moment of the user's own touch — a moment that has
+// expired by the time the pages are drawn. So `navigator.share` was refused,
+// the code fell through to a download, and what the player saw was "saved to
+// your files" with no Messages, no AirDrop, no Mail: "when sharing there
+// should be more options than just pdf". The file is made first, and then a
+// small menu offers it; picking from that menu IS the touch, and the phone's
+// own sheet opens with everything it can do with a PDF.
+function offerFile(blob, name) {
+  const anchor = el('reader-share') ?? el('reader-menu-btn');
+  const rows = [];
+  const file = new File([blob], name, { type: blob.type });
+  const canShare = !!navigator.canShare?.({ files: [file] });
+  if (canShare) {
+    rows.push({
+      label: 'Share…',
+      hint: 'Messages, Mail, AirDrop, another app',
+      onPick: async () => {
+        const { shareFile } = await import('./export.js');
+        const how = await shareFile(blob, name);
+        if (how === 'saved') { say('saved to your files'); setTimeout(() => say(''), 2600); }
+      },
+    });
+  }
+  rows.push({
+    label: 'Save the file',
+    onPick: async () => {
+      const { downloadFile } = await import('./export.js');
+      downloadFile(blob, name);
+      say('saved to your files');
+      setTimeout(() => say(''), 2600);
+    },
+  });
+  actionMenu(anchor, rows);
 }
 
 async function sendNotation() {
@@ -4468,9 +4507,9 @@ async function sendNotation() {
 
 function openSend() {
   if (!isPaper()) { sendNotation(); return; }
-  actionMenu(el('reader-menu-btn'), [
-    { label: 'PDF, with everything written on it', onPick: () => sendScore(true) },
-    { label: 'PDF of the pages as they are', onPick: () => sendScore(false) },
+  actionMenu(el('reader-share') ?? el('reader-menu-btn'), [
+    { label: 'PDF, edited', hint: 'with everything written on it', onPick: () => sendScore(true) },
+    { label: 'PDF, unedited', hint: 'the pages as they came', onPick: () => sendScore(false) },
   ]);
 }
 
@@ -5148,7 +5187,14 @@ function presetSwatch(index) {
 // showing a colour or a thickness, and a native range input shows neither: it
 // puts a grey track and a fat knob over the top of the only thing you came to
 // look at.
-function rail(id, className, onDrag) {
+// `hit` is the element that takes the touch, when it is not the rail itself:
+// the thickness wedge is clipped to its shape, and a clipped element answers a
+// touch only inside the clip — at the thin end that is a strip a pixel or two
+// tall, which a finger or a pencil cannot land on. "when i tap on the stroke
+// settings and try to change the pen thickness with my finger or apple pencil
+// it doesnt register." The wrapper around the wedge is a full box; it listens,
+// and the position is still read off the rail.
+function rail(id, className, onDrag, { hit = null } = {}) {
   const track = document.createElement('div');
   track.id = id;
   track.className = `brush-rail ${className}`;
@@ -5160,19 +5206,22 @@ function rail(id, className, onDrag) {
     const box = track.getBoundingClientRect();
     onDrag(Math.min(1, Math.max(0, (e.clientX - box.left) / box.width)));
   };
-  track.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    // Capture is what makes a drag survive leaving the rail; a device that
-    // will not give it is still allowed to tap.
-    try { track.setPointerCapture(e.pointerId); } catch { /* tap only */ }
-    pick(e);
-  });
-  track.addEventListener('pointermove', (e) => {
-    if (!track.hasPointerCapture(e.pointerId)) return;
-    e.stopPropagation();
-    pick(e);
-  });
+  const listen = (target) => {
+    target.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      // Capture is what makes a drag survive leaving the rail; a device that
+      // will not give it is still allowed to tap.
+      try { target.setPointerCapture(e.pointerId); } catch { /* tap only */ }
+      pick(e);
+    });
+    target.addEventListener('pointermove', (e) => {
+      if (!target.hasPointerCapture(e.pointerId)) return;
+      e.stopPropagation();
+      pick(e);
+    });
+  };
+  listen(hit ?? track);
   return track;
 }
 
@@ -5845,7 +5894,10 @@ function buildStrokePanel() {
   // above it rather than being sliced off by the clip.
   const sizeWrap = document.createElement('div');
   sizeWrap.className = 'brush-size-wrap';
-  const sizeRail = rail('reader-size-rail', 'is-size', (t) => setBrush('width', railToSize(t)));
+  // The WRAPPER takes the touch — see rail(): the wedge is clipped to its
+  // shape and cannot be hit at its thin end.
+  const sizeRail = rail('reader-size-rail', 'is-size', (t) => setBrush('width', railToSize(t)),
+    { hit: sizeWrap });
   const sizeThumb = document.createElement('span');
   sizeThumb.className = 'brush-thumb';
   sizeThumb.setAttribute('aria-hidden', 'true');
@@ -6218,16 +6270,18 @@ function build() {
       return;
     }
     if (followLink(e.clientX, e.clientY)) return;
-    // While the bar is down, ANY tap on the music puts it away again — it is
-    // in the way, and reaching for a particular third of the screen to dismiss
-    // something that is covering the music is a rule nobody should have to
-    // learn. Page turns come back the moment it is gone.
-    if (chrome) { setChrome(false); return; }
-    if (e.clientY < window.innerHeight * TOP_REACH) { setChrome(true); return; }
+    // THE SIDES ALWAYS TURN, bars up or down. A tap in the left third is the
+    // page before and the right third the page after, whatever else is on the
+    // screen — the bars used to take the first tap for themselves ("any tap
+    // puts the bar away"), so with the toolbar up a tap at the edge hid the
+    // toolbar and turned nothing, which read as the turns having gone. The
+    // top third of the screen, and the middle, bring the bars up and put them
+    // away; that is where a hand reaches for controls, not for a turn.
     const third = window.innerWidth / 3;
-    if (e.clientX < third) previousPage();
-    else if (e.clientX > window.innerWidth - third) nextPage();
-    else setChrome(true);
+    const top = e.clientY < window.innerHeight * TOP_REACH;
+    if (!top && e.clientX < third) { previousPage(); return; }
+    if (!top && e.clientX > window.innerWidth - third) { nextPage(); return; }
+    setChrome(!chrome);
   }
 
   // Drawing and pinching share the same surface, and the pen must lose every

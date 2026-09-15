@@ -96,6 +96,12 @@ export async function shareFile(blob, name) {
       if (err?.name === 'AbortError') return 'cancelled';
     }
   }
+  downloadFile(blob, name);
+  return 'saved';
+}
+
+// A plain download: the file, into the browser's downloads or the Files app.
+export function downloadFile(blob, name) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -104,7 +110,6 @@ export async function shareFile(blob, name) {
   link.click();
   link.remove();
   setTimeout(() => URL.revokeObjectURL(url), 4000);
-  return 'saved';
 }
 
 // A name a file system will accept and a person will recognise.
