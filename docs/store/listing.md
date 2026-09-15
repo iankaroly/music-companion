@@ -20,15 +20,13 @@ iPad, five each, in the numbered order). `npm run store:shots` regenerates them.
 
 **Subtitle** (30 max)
 
-    Hear what you played
+    The music stand that listens
 
 **Promotional text** (170 max)
 
     A music stand you can read, mark up and play from — and a review of every note you played: its pitch, its timing, and what has improved since last week.
 
 **Description**
-
-    Stand Partner listens while you play and shows you what you played.
 
     Record a take on any instrument, or sing one, and the app draws it out note by note: the pitch of each one, how far it sat from centre, and where the pulse pushed or dragged. And the Score tab is a music stand: put your part on it and read it full screen, mark it up, and play from it.
 
