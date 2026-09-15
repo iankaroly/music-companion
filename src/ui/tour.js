@@ -79,7 +79,7 @@ export const STOPS = [
     text: (doc) => (doc.querySelector('#tuner-listen')?.hidden === false
       ? 'Tap to listen, then play a note. '
       : 'Play a note. ')
-      + 'The needle shows how far from centre you are, and the dial follows '
+      + 'The needle shows how far from center you are, and the dial follows '
       + 'your vibrato instead of calling it out of tune.',
   },
   {
@@ -110,7 +110,7 @@ export const STOPS = [
     // own controls rather than the nothing underneath them.
     target: ['#new-folder', '#library-search'],
     text: 'Every take you keep lands in the Library, filed under the piece it '
-      + 'was played from. Folders and setlists keep a programme together, and '
+      + 'was played from. Folders and setlists keep a program together, and '
       + 'search finds a take by name.',
   },
   {
@@ -123,7 +123,7 @@ export const STOPS = [
     tab: 'score',
     target: ['#score-sets', '#score-folder'],
     text: 'Folders keep the parts of a piece together, and a setlist puts a '
-      + 'programme in playing order.',
+      + 'program in playing order.',
   },
   {
     tab: 'score',

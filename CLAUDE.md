@@ -374,6 +374,25 @@ npm run metro:page       THE METRONOME IS A PAGE, NOT A SCROLL. One card with
                          press the tab until it takes: the app restores the last
                          tab AFTER load, and a single click at a fixed delay
                          raced it and measured the tuner half the time.
+npm run metro:inset      THE METRONOME PAGE WITH THE INSTALLED APP'S SAFE AREAS —
+                         393x852 minus a 59px notch and a 34px home bar, which
+                         is the height the media queries never see. main.js
+                         measures the page and adds html.metro-tight /
+                         metro-tighter (class twins of the two max-height
+                         blocks) until it stops scrolling.
+npm run pdf:turns        A PDF PART IN THE READER: open time, and for each turn
+                         whether the page shown is sharp (@786 device px on a
+                         phone) or a stand-in (roughAfter > 0). PDF pages are
+                         never drawn rough and the look-ahead renders the real
+                         page, not the small copy — roughAfter must be 0 on
+                         every turn the look-ahead reached.
+npm run review:hand      THE REVIEW GRAPH: colours per moment (as the readout
+                         does), and a swipe on the graph keeps the wheel while
+                         the take plays (STAYED); a seek or play gives it back.
+npm run reader:tabs      The reader's tabs: two parts open, switch by tab,
+                         close the active tab and the neighbour takes over,
+                         close the last and the shelf is back. Also a dotted,
+                         stabilised stroke through the stroke settings panel.
 npm run read:stall       HOW LONG THE MAIN THREAD IS UNAVAILABLE while a part is
                          being read, which is the number behind "it takes a
                          while to load before i can tap through the pages". A

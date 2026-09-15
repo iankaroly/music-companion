@@ -59,7 +59,7 @@ async function run(tool, nib, type, row) {
     const finger = document.querySelector('#reader-finger');
     if (finger && finger.getAttribute('aria-pressed') !== 'true') finger.click();
     document.querySelector(`#reader-ink-bar [data-tool="${tool}"]`)?.click();
-    document.querySelector(`#reader-ink-row .ink-nib[data-nib="${nib}"]`)?.click();
+    document.querySelector(`#reader-brush .brush-nib[data-nib="${nib}"]`)?.click();
     document.querySelector('#reader-brush')?.classList.remove('open');
   }, { tool, nib });
   await wait(300);

@@ -472,6 +472,11 @@ function playFullFrom(root, from) {
   full.pos = from;
   full.playInfo = { from, startTime };
   updateFullButton(root);
+  // Pressing play is asking to watch the playhead: the graph follows it again
+  // even if a hand had swiped away to look at something (see `follow` in
+  // pitch-chart.js — a swipe takes the wheel, and this is one of the two
+  // things that gives it back; a seek is the other).
+  currentChart?.follow?.();
 }
 
 // Play one marked span and stop at its end — the whole-take player's spans and
@@ -1557,7 +1562,7 @@ export function renderReport(root, alignment, recording = null, extras = {}) {
       chartEl.setAttribute('aria-label',
         `Pitch over the whole take. Showing the ${standing.size} of ${allNotes.length}`
         + ` notes held ${heldLeast} seconds or longer; the rest of the trace is there`
-        + ' in grey.');
+        + ' in gray.');
     }
   };
   wireHeldFilter(root);

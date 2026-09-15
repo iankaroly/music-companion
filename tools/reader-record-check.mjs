@@ -251,7 +251,7 @@ say('the reader is open afterwards', report.readerOpenAfter, 'true');
 say('and the tab button has reset', report.tabButtonAfter, '"Record"');
 say('and it is offered again', report.offeredAgainAfter, 'true');
 say('the pencil bar has no record button', report.recordInTheInkBarIdle === false, 'true');
-say('…and nothing about recording shows there', report.recordSeenIdleWhileDrawing === false, 'true');
+say('…and record stays on the toolbar, which stays up', report.recordSeenIdleWhileDrawing === true, 'true');
 if (errors.length) console.log(`page errors: ${errors.join(' | ')}`);
 
 const ok = report.hasButton && report.hiddenAtFirst === false
@@ -267,7 +267,7 @@ const ok = report.hasButton && report.hiddenAtFirst === false
   && report.offeredAgainAfter
   && report.drawingAgain
   && report.recordInTheInkBarIdle === false
-  && report.recordSeenIdleWhileDrawing === false;
+  && report.recordSeenIdleWhileDrawing === true;
 console.log(ok
   ? '\nPASS — the bar gets out of the way, and the stop is always one tap back'
   : '\nFAIL');

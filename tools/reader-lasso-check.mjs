@@ -113,8 +113,14 @@ if (!inkBox) { console.log('no ink drawn at all — FAIL'); await browser.close(
 // loop begun up there is drawn on a button instead of on the music.
 const lx0 = size.width * 0.06;
 const lx1 = size.width * 0.94;
-const ly0 = Math.max(size.height * 0.14, 110);
-const ly1 = size.height * 0.46;
+// …and below the FLOATING ROW as well, which hangs under the bar while a tool
+// is out and, on a phone, wraps to three lines. Measured off the row itself.
+const rowBottom = await page.evaluate(() => {
+  const row = document.querySelector('#reader-ink-bar');
+  return row ? row.getBoundingClientRect().bottom : 0;
+});
+const ly0 = Math.max(size.height * 0.14, 110, rowBottom + 24);
+const ly1 = Math.max(ly0 + 120, size.height * 0.46);
 const cx = (lx0 + lx1) / 2;
 const cy = (ly0 + ly1) / 2;
 const rx = (lx1 - lx0) / 2;

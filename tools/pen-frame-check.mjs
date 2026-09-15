@@ -51,7 +51,7 @@ await page.evaluate((nib) => {
   if (!document.querySelector('#reader')?.classList.contains('drawing')) document.querySelector('#reader-annotate')?.click();
   const finger = document.querySelector('#reader-finger');
   if (finger && finger.getAttribute('aria-pressed') !== 'true') finger.click();
-  document.querySelector(`#reader-ink-row .ink-nib[data-nib="${nib}"]`)?.click();
+  document.querySelector(`#reader-brush .brush-nib[data-nib="${nib}"]`)?.click();
   // time every rAF callback
   const raf = window.requestAnimationFrame.bind(window);
   window.__frames = [];

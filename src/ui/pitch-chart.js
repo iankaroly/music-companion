@@ -1,5 +1,5 @@
 import { midiToName } from '../analysis/note-utils.js';
-import { findNoteAt, intonationHue } from './chart-utils.js';
+import { findNoteAt, intonationHue, cursorReading } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
 
 // Two synced views: the session overview (pitch contour, notes tinted by
@@ -296,10 +296,18 @@ function nearestPoint(pts, time, key) {
 // density is whatever the player pinches it to and nothing is capped.
 const PX_PER_SEC = 120;
 
-// Consecutive trace points sharing an intonation verdict are stroked as ONE
-// path rather than one path per point. A ten-minute take is ~52,000 points;
-// as individual strokes that alone missed frame budget by an order of magnitude.
-function drawTrace(ctx, pts, from, to, x, y, keep = null) {
+// Consecutive trace SEGMENTS sharing a colour are stroked as ONE path rather
+// than one path per point. A ten-minute take is ~52,000 points; as individual
+// strokes that alone missed frame budget by an order of magnitude.
+//
+// EVERY SEGMENT IS DRAWN, and every segment wears the colour of the moment it
+// arrives at. This used to skip any run shorter than two points and bridge
+// between runs in grey — harmless while a whole note wore one colour, and a
+// trace full of holes once each moment got its own: vibrato crosses the centre
+// ten times a second, so single-point runs are the common case, and the gaps
+// were "sometimes there's just white space and it doesn't show red, green or
+// blue". `key` is the field holding the value drawn on the y axis.
+function drawTrace(ctx, pts, from, to, x, y, keep = null, key = 'mf') {
   ctx.lineWidth = LINE_WIDTH;
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
@@ -310,28 +318,17 @@ function drawTrace(ctx, pts, from, to, x, y, keep = null) {
   // belongs to no note at all.
   const stat = (p) => (keep && p.note && !keep(p.note) ? null : p.status);
   let i = from;
-  while (i < to) {
-    if (pts[i].mf === null) { i++; continue; }
-    // a run ends at a gap, or where the verdict changes
-    const status = stat(pts[i]);
+  while (i + 1 < to) {
+    if (pts[i][key] === null || pts[i + 1][key] === null) { i++; continue; }
+    const status = stat(pts[i + 1]);
     let j = i + 1;
-    while (j < to && pts[j].mf !== null && stat(pts[j]) === status) j++;
-    if (j - i > 1) {
-      ctx.strokeStyle = status ? STATUS_LINE()[status] : C().muted;
-      ctx.beginPath();
-      ctx.moveTo(x(pts[i].time), y(pts[i].mf));
-      for (let k = i + 1; k < j; k++) ctx.lineTo(x(pts[k].time), y(pts[k].mf));
-      ctx.stroke();
-      // bridge to the next run so a verdict change isn't a visible break
-      if (j < to && pts[j].mf !== null) {
-        ctx.strokeStyle = C().muted;
-        ctx.beginPath();
-        ctx.moveTo(x(pts[j - 1].time), y(pts[j - 1].mf));
-        ctx.lineTo(x(pts[j].time), y(pts[j].mf));
-        ctx.stroke();
-      }
-    }
-    i = j;
+    while (j + 1 < to && pts[j + 1][key] !== null && stat(pts[j + 1]) === status) j++;
+    ctx.strokeStyle = status ? STATUS_LINE()[status] : C().muted;
+    ctx.beginPath();
+    ctx.moveTo(x(pts[i].time), y(pts[i][key]));
+    for (let k = i + 1; k <= j; k++) ctx.lineTo(x(pts[k].time), y(pts[k][key]));
+    ctx.stroke();
+    i = j;   // the next run starts where this one ended, sharing the vertex
   }
 }
 
@@ -410,9 +407,15 @@ export function renderOverviewChart(canvas, {
     if (r.frequency === null || r.confidence < 0.6) { pts.push({ time: r.time, mf: null }); continue; }
     const mf = toMidiFloat(r, a4);
     if (mf < yMin - 0.5 || mf > yMax + 0.5) { pts.push({ time: r.time, mf: null }); continue; }
-    // the trace wears the intonation verdict of the note it belongs to
+    // THE TRACE WEARS THE COLOUR OF THE MOMENT, measured exactly the way the
+    // readout under the cursor measures it (cursorReading): against the note
+    // the moment is in, or the nearest semitone where it is in none. A whole
+    // note used to wear its one verdict while the box over the cursor said
+    // what each moment did — "the line will show green and when I drag
+    // around it the square will show blue. If that is the case, that part of
+    // the line should be blue and match it."
     const note = findNoteAt(notes, r.time, 0);
-    pts.push({ time: r.time, mf, status: note ? intonationHue(note.cents) : null, note });
+    pts.push({ time: r.time, mf, status: intonationHue(cursorReading(mf, note).cents), note });
   }
   // Notes are drawn per screenful too, so they get the same bisection.
   const noteStarts = notes.map((n) => ({ time: n.start, n }));
@@ -570,8 +573,22 @@ export function renderOverviewChart(canvas, {
   // held-for list asks for the same thing from outside — press a note in the
   // list and the graph goes to it — and two copies of this arithmetic would be
   // two answers to "is it visible".
+  // A HAND ON THE GRAPH TAKES THE WHEEL, and a seek gives it back.
+  //
+  // The playhead pulled the view after it every frame, so swiping ahead to
+  // look at something while the take played was overruled a moment later,
+  // every moment. Latched on the GESTURE — wheel, touch, pointer — and never on
+  // the scroll event, because `reveal` scrolls and a latch listening for that
+  // would trip on its own footsteps. The same rule the score page follows.
+  let handOff = false;
+  let knobEl = null;
+  const takeWheel = (e) => {
+    if (knobEl && e?.target && knobEl.contains(e.target)) return;   // a drag of the cursor is a seek
+    handOff = true;
+  };
+  const giveBack = () => { handOff = false; };
   const reveal = (t) => {
-    if (t === null || !scroller) return;
+    if (t === null || !scroller || handOff) return;
     const px = contentX(t);
     const view = scroller.clientWidth;
     if (px < scroller.scrollLeft + PAD.left + 20 || px > scroller.scrollLeft + view - 60) {
@@ -586,6 +603,9 @@ export function renderOverviewChart(canvas, {
     basePlayhead(t);
   };
   controller.reveal = reveal;
+  // Playback starting is the one thing besides a seek that takes the view
+  // back to the playhead — pressing play is asking to watch it.
+  controller.follow = () => { giveBack(); };
 
   // The drag handle is a real DOM element floating over the drawn knob:
   // it declares touch-action none, so grabbing it always drags the cursor,
@@ -597,6 +617,14 @@ export function renderOverviewChart(canvas, {
     knob.className = 'chart-knob';
     scroller.append(knob);
   }
+  knobEl = knob;
+  if (scroller && !scroller._chartHand) {
+    scroller._chartHand = true;
+    scroller.addEventListener('wheel', (e) => scroller._takeWheel?.(e), { passive: true });
+    scroller.addEventListener('touchstart', (e) => scroller._takeWheel?.(e), { passive: true });
+    scroller.addEventListener('pointerdown', (e) => scroller._takeWheel?.(e), { passive: true });
+  }
+  if (scroller) scroller._takeWheel = takeWheel;
   // The handle spans the cursor's whole height rather than sitting as a dot at
   // the top of it. What is drawn is a line down the chart, so that line is what
   // people reach for — and on a phone the old 44px circle meant hunting for a
@@ -637,6 +665,7 @@ export function renderOverviewChart(canvas, {
   if (knob) {
     knob.onpointerdown = (e) => {
       if (!onSeek) return;
+      giveBack();
       dragging = true;
       knob.setPointerCapture(e.pointerId);
       e.preventDefault();
@@ -655,11 +684,11 @@ export function renderOverviewChart(canvas, {
     // Same reason: a tap that lands on the strip is a tap on the chart, and
     // without this the cursor's own column would be the one place tapping did
     // nothing at all.
-    knob.onclick = (e) => onSeek?.(timeAt(e), 'tap');
+    knob.onclick = (e) => { giveBack(); onSeek?.(timeAt(e), 'tap'); };
   }
 
   canvas.onmousemove = hoverAt;
-  canvas.onclick = (e) => onSeek?.(timeAt(e), 'tap');
+  canvas.onclick = (e) => { giveBack(); onSeek?.(timeAt(e), 'tap'); };
   canvas.onmouseleave = () => {
     onNoteHover?.(null);
     controller.setHighlight(null);
@@ -679,7 +708,9 @@ export function renderOverviewChart(canvas, {
 
 // --- zoom inset: one note in cents detail ----------------------------------
 
-export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, onSeek, onScale }) {
+export function renderNoteChart(canvas, {
+  readings, note, a4, contextSec = 1.2, onSeek, onScale, notes = [note],
+}) {
   const CLAMP = 150;
   syncPad(canvas, [-100, 0, 100].map((dev) => midiToName(note.midi + dev / 100)));
   const t0 = note.start - contextSec;
@@ -693,11 +724,15 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
     const r = readings[i];
     if (r.time > t1) break;
     if (r.frequency === null || r.confidence < 0.6) { pts.push({ time: r.time, dev: null }); continue; }
-    const dev = Math.max(-CLAMP, Math.min(CLAMP, (toMidiFloat(r, a4) - note.midi) * 100));
-    pts.push({ time: r.time, dev, inTarget: r.time >= note.start && r.time <= note.end });
+    const mf = toMidiFloat(r, a4);
+    const dev = Math.max(-CLAMP, Math.min(CLAMP, (mf - note.midi) * 100));
+    // Coloured per MOMENT, and measured exactly as the readout over the cursor
+    // measures it — against the note the moment is inside, or the nearest
+    // semitone where it is in none — so the box and the line under it never
+    // disagree. See drawTrace and cursorReading.
+    const status = intonationHue(cursorReading(mf, findNoteAt(notes, r.time, 0)).cents);
+    pts.push({ time: r.time, dev, status, inTarget: r.time >= note.start && r.time <= note.end });
   }
-  // Read at draw time so a theme switch repaints in the new palette.
-  const noteColour = () => STATUS_LINE()[intonationHue(note.cents)] ?? C().muted;
 
   const controller = makeController(canvas, (cv, dpr, cssW, cssH, hoverPt, playhead) => {
     const ctx = cv.getContext('2d');
@@ -726,26 +761,7 @@ export function renderNoteChart(canvas, { readings, note, a4, contextSec = 1.2, 
       ctx.fillText(midiToName(note.midi + dev / 100), PAD.left - LABEL_GAP, y(dev));
     }
 
-    ctx.lineWidth = LINE_WIDTH;
-    ctx.lineJoin = 'round';
-    let prev = null;
-    for (const p of pts) {
-      if (p.dev === null) { prev = null; continue; }
-      if (prev) {
-        // The whole note wears one colour — the note's own, the same one the
-        // overview and its tile show. Colouring each MOMENT by direction would
-        // strobe: vibrato crosses the centre line about ten times a second, so
-        // the trace would flip warm-green-cool-green twice a cycle. The height
-        // of the line against the dashed centre already says every moment's
-        // deviation, and says it exactly.
-        ctx.strokeStyle = p.inTarget && prev.inTarget ? noteColour() : C().muted;
-        ctx.beginPath();
-        ctx.moveTo(x(prev.time), y(prev.dev));
-        ctx.lineTo(x(p.time), y(p.dev));
-        ctx.stroke();
-      }
-      prev = p;
-    }
+    drawTrace(ctx, pts, 0, pts.length, x, y, null, 'dev');
 
     if (playhead !== null && playhead >= t0 && playhead <= t1) {
       drawPlayhead(ctx, x(playhead), PAD.top, h);

@@ -104,9 +104,10 @@ const back = await page.evaluate(async (x) => {
   const { openReader } = await import('/src/ui/reader.js');
   await openReader({ id: 'mem', name: 'Memory', xml: x, kind: 'notation' });
   await new Promise((r) => setTimeout(r, 900));
-  // The reader opens with no tool out; reaching for "annotate" takes the LAST
-  // one, which is what should have survived.
-  document.querySelector('#reader-annotate')?.click();
+  // The reader opens with no tool out. The toolbar's pen IS the pen now (the
+  // GoodNotes layout lights the tool you pick), so the highlighter is picked
+  // up by name — and what should have survived is its ink.
+  document.querySelector('#reader-top [data-tool="highlighter"]')?.click();
   await new Promise((r) => setTimeout(r, 250));
   const tool = document.querySelector('#reader-ink-bar .reader-tool.on')?.dataset.tool;
   document.querySelector(`#reader-ink-bar [data-tool="${tool}"]`)?.click();
@@ -114,7 +115,7 @@ const back = await page.evaluate(async (x) => {
   return { tool, hex: document.querySelector('#reader-hex')?.value };
 }, xml(30));
 console.log('after a reload:', JSON.stringify(back));
-check('the tool you last used came back', back.tool === 'highlighter', `tool=${back.tool}`);
+check('the highlighter can be picked up again', back.tool === 'highlighter', `tool=${back.tool}`);
 check('and the colour you mixed came back',
   (back.hex ?? '').toLowerCase() === '#12b39a', `hex=${back.hex}`);
 

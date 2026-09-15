@@ -242,7 +242,7 @@ check('and turns it back', back === start, `${one} -> ${back}`);
       // What is ACTUALLY at that point — a control scrolled out of its own
       // pill still reports a perfectly good rectangle.
       at: at ? `${at.tagName}.${String(at.className).split(' ')[0]}` : 'nothing',
-      inRow: !!at?.closest('#reader-ink-row'),
+      inRow: !!at?.closest('#reader-ink-bar'),
       onScreen: x > 0 && y > 0 && x < innerWidth && y < innerHeight,
     };
   }, [sel, pick]);
@@ -251,7 +251,7 @@ check('and turns it back', back === start, `${one} -> ${back}`);
 
   const row = {};
   row.showing = await page.evaluate(() => {
-    const r = document.querySelector('#reader-ink-row');
+    const r = document.querySelector('#reader-ink-bar');
     return !!r && !r.hidden;
   });
   // THE NIBS ARE NOT ON THE ROW ON A PHONE, on purpose: there is room there for
@@ -260,8 +260,8 @@ check('and turns it back', back === start, `${one} -> ${back}`);
   // the case that has all of them. So which assertion is right here depends on
   // the width, and the check asks the screen rather than assuming.
   const nibsShown = await page.evaluate(() =>
-    [...document.querySelectorAll('#reader-ink-row .ink-nib')].some((n) => n.offsetParent !== null));
-  const nib = nibsShown ? await boxOf('#reader-ink-row .ink-nib', 'off') : null;
+    [...document.querySelectorAll('#reader-brush .brush-nib')].some((n) => n.offsetParent !== null));
+  const nib = nibsShown ? await boxOf('#reader-brush .brush-nib', 'off') : null;
   row.askedFor = nib?.key ?? null;
   // TAPPED, not moused. This page is emulated as a phone (`isMobile: true`),
   // and a dispatched mouse event there produces pointer events but never a
@@ -270,19 +270,19 @@ check('and turns it back', back === start, `${one} -> ${back}`);
   // player uses on these.
   if (nib) await tap(nib.x, nib.y, 50);
   await wait(300);
-  row.nibTook = await litOf('#reader-ink-row .ink-nib.on', 'nib');
+  row.nibTook = await litOf('#reader-brush .brush-nib.on', 'nib');
 
-  const width = await boxOf('#reader-ink-row .ink-width', 'off');
+  const width = await boxOf('#reader-ink-bar .ink-width', 'off');
   row.widthAsked = width?.key ?? null;
   if (width) await tap(width.x, width.y, 51);
   await wait(300);
-  row.widthTook = await litOf('#reader-ink-row .ink-width.on', 'rowsize');
+  row.widthTook = await litOf('#reader-ink-bar .ink-width.on', 'rowsize');
 
-  const swatch = await boxOf('#reader-ink-row .reader-swatch', 'off');
+  const swatch = await boxOf('#reader-ink-bar .reader-swatch', 'off');
   row.colourAsked = swatch?.key ?? null;
   if (swatch) await tap(swatch.x, swatch.y, 52);
   await wait(300);
-  row.colourTook = await litOf('#reader-ink-row .reader-swatch.on', 'preset');
+  row.colourTook = await litOf('#reader-ink-bar .reader-swatch.on', 'preset');
   await wait(700);
   const after = (await marks()).count;
 
@@ -331,7 +331,7 @@ check('and turns it back', back === start, `${one} -> ${back}`);
     await page.setViewport({ width, height: 844, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
     await wait(500);
     const seen = await page.evaluate(() => {
-      const shown = [...document.querySelectorAll('#reader-ink-row button')]
+      const shown = [...document.querySelectorAll('#reader-ink-bar button')]
         .filter((c) => c.offsetParent !== null);
       const off = shown.filter((c) => {
         const b = c.getBoundingClientRect();

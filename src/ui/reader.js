@@ -42,7 +42,7 @@ import { aidsElement, showAids, hideAids, aidsShowing, stopAids } from './score-
 import { tap, readyHaptics } from './haptics.js';
 import {
   loadAnnotations, saveAnnotations, loadScorePages, renameScore, deleteScore,
-  saveBookmarks, saveLinks, saveScoreLayout, wasReadFromPages, saveCorrection,
+  saveBookmarks, saveLinks, saveScoreLayout, wasReadFromPages, saveCorrection, loadScore,
 } from '../store/db.js';
 
 // How big the music is drawn, as the height of one staff space in pixels.
@@ -202,10 +202,14 @@ const PALETTE = [
 
 // One brush per tool, because a highlighter is not a pen with the settings
 // changed — reaching for it should not mean re-mixing yellow every time.
+// `stab` is stroke stabilisation, 0–1: how much of the hand's wobble is
+// smoothed out of a line (see extendStroke). `dash` is the line's pattern —
+// solid, dashed or dotted — and travels onto the mark (see drawStroke).
 const brushes = {
-  pen: { h: 262, s: 12, l: 26, a: 1, width: PEN_WIDTH, overlay: false, nib: 'ballpoint' },
-  highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true, nib: 'marker' },
+  pen: { h: 262, s: 12, l: 26, a: 1, width: PEN_WIDTH, overlay: false, nib: 'ballpoint', stab: 0, dash: 'solid' },
+  highlighter: { h: 52, s: 95, l: 55, a: 0.35, width: HIGHLIGHT_WIDTH, overlay: true, nib: 'marker', stab: 0, dash: 'solid' },
 };
+const DASHES = ['solid', 'dashed', 'dotted'];
 
 // …and the pen case survives being put away.
 //
@@ -690,8 +694,8 @@ const TOP_REACH = 0.25;
 // forgot. There is one list.
 // `#reader-record` is not listed separately any more: it sits inside
 // `#reader-top`, which is, so a press on it was already not a page turn.
-const CHROME = '#reader-top, #reader-ink-bar, #reader-ink-row, #reader-menu, #reader-brush,'
-  + ' #reader-selection, #reader-land, #reader-aids, #reader-lock, .pick-pop, dialog';
+const CHROME = '#reader-tabs, #reader-top, #reader-ink-bar, #reader-menu, #reader-brush, #reader-stroke,'
+  + ' #reader-colours, #reader-selection, #reader-land, #reader-aids, #reader-lock, .pick-pop, dialog';
 
 // Was this touch on the chrome rather than on the music?
 function onChrome(e) {
@@ -1119,6 +1123,11 @@ function drawStroke(ctx, stroke, { at = place, scale = unitScale() } = {}) {
   // hairline: the canvas draws a 0.4px line as a faint one, which is exactly
   // what a sharp pencil does to paper.
   ctx.lineWidth = Math.max(0.35, stroke.width * scale);
+  // Dashed or dotted, in units of the line's own width, so the pattern scales
+  // with the music the way the width does. Round caps make the dots round.
+  const dash = stroke.dash ?? 'solid';
+  if (dash === 'dashed') ctx.setLineDash([ctx.lineWidth * 3, ctx.lineWidth * 2.2]);
+  else if (dash === 'dotted') ctx.setLineDash([0.01, ctx.lineWidth * 2.1]);
 
   // Typed, not drawn: a fingering, a bar number, "watch the shift". Written at
   // a size in staff spaces like everything else, so it stays the size of the
@@ -1227,6 +1236,13 @@ function inkRun(ctx, points, stroke, width) {
     ctx.beginPath();
     ctx.arc(points[0].x, points[0].y, width / 2, 0, Math.PI * 2);
     ctx.fill();
+    return;
+  }
+  // A dashed or dotted line is one path: the nibs below lay a line down in
+  // pieces — a segment at a time for the fountain pen, three passes for the
+  // pencil — and a dash pattern restarted on every piece is no pattern at all.
+  if ((stroke.dash ?? 'solid') !== 'solid') {
+    polyline(ctx, points);
     return;
   }
   if (nib === 'fountain') {
@@ -1888,6 +1904,7 @@ function beginStroke(e) {
     // The pen it was written with, kept on the mark: a pencil note stays a
     // pencil note after you have picked up the highlighter.
     nib: brush.nib,
+    dash: brush.dash ?? 'solid',
     points: [point],
   };
   // A shape is two points: where the finger went down and where it is now. The
@@ -1955,13 +1972,23 @@ function extendStroke(e, { quiet = false } = {}) {
   // because their second point IS the live corner and replacing it is the whole
   // gesture.
   if (drawing.type !== 'shape' && !stirred) { watchForHold(at); return; }
-  const point = anchor(at.x, at.y);
+  // STROKE STABILISATION. The line follows the hand at a distance: each new
+  // sample is pulled part of the way back toward the last one, so a tremor is
+  // averaged out and a curve is still a curve — at 100% the pen trails the
+  // finger by most of a move, at 0% it is exactly where the finger is. Only for
+  // freehand: a shape's second point IS the corner being dragged.
+  const stab = drawing.type !== 'shape' ? (currentBrush().stab ?? 0) : 0;
+  const spot = stab > 0 && lastInkAt
+    ? { x: lastInkAt.x + (at.x - lastInkAt.x) * (1 - stab * 0.85),
+      y: lastInkAt.y + (at.y - lastInkAt.y) * (1 - stab * 0.85) }
+    : at;
+  const point = anchor(spot.x, spot.y);
   if (point) nibPressure(point, e);
   if (point && drawing.type === 'shape') drawing.points[1] = point;
   else if (point) {
-    strokeTravel += lastInkAt ? Math.hypot(at.x - lastInkAt.x, at.y - lastInkAt.y) : 0;
+    strokeTravel += lastInkAt ? Math.hypot(spot.x - lastInkAt.x, spot.y - lastInkAt.y) : 0;
     drawing.points.push(point);
-    lastInkAt = at;
+    lastInkAt = spot;
   }
   if (drawing.type !== 'shape') watchForHold(at);
   if (!quiet) redraw();
@@ -3593,7 +3620,7 @@ function keepNeighboursReady(shown) {
       // fills, and sharpenSoon upgrades whatever you land on a moment after
       // the turns stop — which is the order these should always have been in:
       // something to read immediately, sharp before you need the detail.
-      await drawPaperPage(i, { quick: true }).catch(() => {});
+      await drawPaperPage(i, { quick: true, ahead: true }).catch(() => {});
     }
     if (mine !== lookAhead) return;
     // Again afterwards: a page drawn by the LAST turn's look-ahead finishes
@@ -3808,22 +3835,16 @@ function setTool(next) {
   if (INKS.includes(tool)) lastInk = tool;
   if (tool !== 'lasso') { picked = []; lasso = null; refreshSelectionBar(); }
   root?.classList.toggle('drawing', tool !== null);
-  // THE ROW COMES OUT WITH THE TOOL and goes back with it. It carries that
-  // tool's own choices, so it has nothing to say when nothing is in your hand
-  // — and the lasso and the stamps have no nib, no width and no colour, so it
-  // stays down for those too rather than showing four controls that would be
-  // about a pen you are not holding.
-  const row = el('reader-ink-row');
-  if (row) row.hidden = !(tool === 'pen' || tool === 'highlighter');
-  placeRecordButton();   // it lives in whichever bar is showing
-  placeInkRow();         // …and the bar is only as tall as it is once that has landed
+  placeRecordButton();
+  placeInkRow();         // the floating row hangs under the toolbar
   for (const button of root.querySelectorAll('[data-tool]')) {
     const on = button.dataset.tool === tool;
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
   }
-  const shapes = el('reader-shapes');
-  if (shapes) shapes.classList.toggle('on', SHAPES.includes(tool));
+  for (const shapes of root.querySelectorAll('#reader-shapes, .ink-shapes')) {
+    shapes.classList.toggle('on', SHAPES.includes(tool));
+  }
   const stamps = el('reader-stamps');
   if (stamps) stamps.classList.toggle('on', tool === 'stamp');
   if (tool) {
@@ -3835,8 +3856,8 @@ function setTool(next) {
   armAutoTurn();   // the clock stops while a pen is out and restarts when it is put down
 }
 
-function openShapeMenu() {
-  const button = el('reader-shapes');
+function openShapeMenu(anchor = null) {
+  const button = anchor ?? el('reader-shapes');
   actionMenu(button, SHAPES.map((shape) => ({
     label: { line: 'Line', arrow: 'Arrow', rect: 'Box', ellipse: 'Ring' }[shape],
     onPick: () => setTool(shape),
@@ -3946,82 +3967,104 @@ function clearPage() {
 
 // --- the brush ---------------------------------------------------------------
 
+// The three panels that hang under the floating row — the pen (which nib, how
+// steady), the stroke (solid or dashed, how thick) and the colours — after the
+// layout of GoodNotes, which the reader was asked to copy. One open at a time.
+const PANELS = ['reader-brush', 'reader-stroke', 'reader-colours'];
+
 function closeBrush() {
-  el('reader-brush')?.classList.remove('open');
+  for (const id of PANELS) el(id)?.classList.remove('open');
 }
 
-// Opened rather than toggled, for the doors that only ever mean "show me the
-// rest of it" — the dashed ring at the end of the colours is one. Toggling
-// there shuts the case on somebody who has just asked to mix a colour.
-function openBrush() {
-  const panel = el('reader-brush');
+function panelOpen(id) {
+  return !!el(id)?.classList.contains('open');
+}
+
+function anyPanelOpen() {
+  return PANELS.some(panelOpen);
+}
+
+// Opened under the control that asked for it, and closed by asking again.
+function openPanel(id, anchor = null) {
+  const panel = el(id);
   if (!panel) return;
+  const wasOpen = panel.classList.contains('open');
+  closeBrush();
+  if (wasOpen) return;
   if (!tool) setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
   panel.classList.add('open');
-  hangBelowBar(panel);
+  hangBelowBar(panel, anchor);
+  refreshBrushUI();
+}
+
+// The pen case, from the pen you are holding.
+function openBrush() {
+  if (!tool) setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
+  const panel = el('reader-brush');
+  if (!panel) return;
+  closeBrush();
+  panel.classList.add('open');
+  hangBelowBar(panel, heldToolButton());
   refreshBrushUI();
 }
 
 function toggleBrush() {
-  const panel = el('reader-brush');
-  if (!panel) return;
-  // The rubber used to be bundled in with "no tool at all" here, and opening
-  // the pen case while holding it swapped it for a pen — which was fair when a
-  // rubber had nothing to configure. It has a size now, and that panel is
-  // reached the same way the pen's is: by tapping the tool already in hand.
-  if (!tool) setTool(lastInk === 'highlighter' ? 'highlighter' : 'pen');
-  panel.classList.toggle('open');
-  hangBelowBar(panel);
-  refreshBrushUI();
+  if (panelOpen('reader-brush')) { closeBrush(); return; }
+  openBrush();
 }
 
-// Under whichever bar is up, measured rather than guessed: on a phone the tool
-// bar wraps onto two rows, and a panel positioned from a constant would open
-// straight through it.
-// Hung under whichever bar is showing — measured off the LAYOUT, not off the
-// painted box.
-//
-// `getBoundingClientRect` reports where a thing is drawn, and while the bar is
-// coming down it is drawn wherever the transition has got to: `#reader.bare
-// #reader-top` holds it at `translateY(-100%)`, so a rect taken in that moment
-// says the bar ends at zero. Opening this sheet is what BRINGS the bar down
-// (`setChrome(true)` a line earlier), so the measurement was taken during the
-// 220ms it takes to arrive — and the sheet was placed at 8px, on top of the
-// close button, the page arrows, the page count and the record dot.
-//
-// `offsetTop` and `offsetHeight` are the untransformed answer and are what this
-// wants: where the bar WILL be, which is where it already is as far as layout
-// is concerned. MEASURED: sheet top 8px before, 66px after, against a bar that
-// ends at 58. Found by `npm run app:reach`.
-// The row sits under the bar — under where the bar actually ENDS. Its top was
-// a fixed distance from the top of the screen, which was the bar's height on a
-// tablet; on a phone the bar wraps to two lines and is taller, and the row
-// came out overlapping its bottom edge with the pills touching the tools.
+// The button on the floating row for the tool in hand — what a panel hangs from.
+function heldToolButton() {
+  return root?.querySelector(`#reader-ink-bar [data-tool="${tool}"]`)
+    ?? root?.querySelector('#reader-ink-bar [data-tool="pen"]') ?? null;
+}
+
+// The floating row sits under the toolbar — under where the toolbar actually
+// ENDS, measured off the layout rather than the painted box (offsetTop and
+// offsetHeight are the untransformed answer; getBoundingClientRect reports
+// wherever the slide-in transition has got to).
 function placeInkRow() {
-  const row = el('reader-ink-row');
-  const bar = el('reader-ink-bar');
-  if (!row || !bar || row.hidden) return;
+  const row = el('reader-ink-bar');
+  const bar = el('reader-top');
+  if (!row || !bar) return;
   const bottom = bar.offsetTop + bar.offsetHeight;
   if (bottom > 0) row.style.top = `${Math.round(bottom + 8)}px`;
 }
 
-function hangBelowBar(panel) {
-  const bar = tool ? el('reader-ink-bar') : el('reader-top');
+// A panel hangs under the floating row (or under the toolbar when no tool is
+// out), centred on the control that opened it and kept on screen, with its
+// caret pointing back at that control.
+function hangBelowBar(panel, anchor = null) {
+  const row = el('reader-ink-bar');
+  const bar = tool && row ? row : el('reader-top');
   let bottom = bar ? bar.offsetTop + bar.offsetHeight : 0;
-  // …AND BELOW THE TOOL'S OWN ROW WHERE THERE IS ONE. The case is opened from
-  // the chevron ON that row, so hanging it off the bar alone opens it straight
-  // through the control that was just pressed.
-  const row = el('reader-ink-row');
-  if (row && !row.hidden) bottom = Math.max(bottom, row.offsetTop + row.offsetHeight);
-  panel.style.top = `${Math.round(bottom + 8)}px`;
+  if (tool && row && el('reader-top')) {
+    bottom = Math.max(bottom, el('reader-top').offsetTop + el('reader-top').offsetHeight);
+  }
+  panel.style.top = `${Math.round(bottom + 10)}px`;
+  const width = Math.min(panel.offsetWidth || 352, window.innerWidth - 16);
+  const box = anchor?.getBoundingClientRect?.();
+  let left = (window.innerWidth - width) / 2;
+  if (box && box.width) left = box.left + box.width / 2 - width / 2;
+  left = Math.max(8, Math.min(window.innerWidth - width - 8, left));
+  panel.style.left = `${Math.round(left)}px`;
+  const caret = box && box.width ? Math.round(box.left + box.width / 2 - left) : Math.round(width / 2);
+  panel.style.setProperty('--caret', `${Math.max(18, Math.min(width - 18, caret))}px`);
+}
+
+// The thickness in millimetres, as a pen is sold: a staff space on a printed
+// part is about 1.75mm, and widths here are in staff spaces.
+function millimetres(width) {
+  const mm = width * 1.75;
+  return `${mm < 1 ? mm.toFixed(2) : mm.toFixed(1)} mm`;
 }
 
 function refreshBrushUI() {
   // Everything that changes the pen, the layer or the stamp ends here, which
   // makes this the one place worth saying it from.
   scheduleBrushSave();
+  if (!root) return;
   const brush = currentBrush();
-  const panel = el('reader-brush');
   for (const button of root.querySelectorAll('[data-preset]')) {
     const preset = PRESETS[Number(button.dataset.preset)];
     button.classList.toggle('on', Math.round(preset.h) === Math.round(brush.h)
@@ -4033,31 +4076,35 @@ function refreshBrushUI() {
     layers.title = `Writing on ${LAYER_NAMES[layer]}`;
     layers.setAttribute('aria-label', layers.title);
     layers.classList.toggle('on', hidden.size > 0);
+    const detail = layers.querySelector('.brush-row-detail');
+    if (detail) detail.textContent = LAYER_NAMES[layer] + (hidden.size ? ` · ${hidden.size} hidden` : '');
   }
-  if (!panel) return;
   // Named apart from the app's own --ink on purpose: setting that here would
   // repaint every label inside the panel in whatever colour the pen happens to
   // be, which is exactly what it did.
-  panel.style.setProperty('--brush-ink', brushCss(brush));
-  panel.style.setProperty('--brush-solid', brushCss({ ...brush, a: 1 }));
-  panel.style.setProperty('--brush-hue', `hsl(${Math.round(brush.h)} 100% 50%)`);
-
-  // ACROSS THE WHOLE READER, not just the panel: the nibs, the widths and the
-  // colours are now in two places at once — the row under the bar and the case
-  // behind the chevron — and a selected state painted in only one of them is
-  // how the two come to disagree about which pen you are holding.
+  for (const id of PANELS) {
+    const panel = el(id);
+    if (!panel) continue;
+    panel.style.setProperty('--brush-ink', brushCss(brush));
+    panel.style.setProperty('--brush-solid', brushCss({ ...brush, a: 1 }));
+    panel.style.setProperty('--brush-hue', `hsl(${Math.round(brush.h)} 100% 50%)`);
+  }
+  // ACROSS THE WHOLE READER: the nibs, the widths and the colours are in more
+  // than one place, and a selected state painted in only one of them is how
+  // two places come to disagree about which pen you are holding.
   for (const button of root.querySelectorAll('[data-nib]')) {
     const on = button.dataset.nib === brush.nib;
     button.classList.toggle('on', on);
     button.setAttribute('aria-pressed', String(on));
   }
-  for (const button of root.querySelectorAll('[data-size]')) {
-    const size = Number(button.dataset.size);
-    button.classList.toggle('on', Math.abs(size - brush.width) < 0.005);
+  for (const button of root.querySelectorAll('[data-dash]')) {
+    const on = button.dataset.dash === (brush.dash ?? 'solid');
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-pressed', String(on));
   }
-  // THE ROW'S THREE MARK THE NEAREST, not an exact match. It carries three of
-  // the six, so a width chosen from the full case would otherwise light none of
-  // them and the row would read as though no thickness were set at all.
+  // THE ROW'S THREE MARK THE NEAREST, not an exact match: a width chosen from
+  // the slider would otherwise light none of them and the row would read as
+  // though no thickness were set at all.
   {
     let best = null;
     for (const button of root.querySelectorAll('[data-rowsize]')) {
@@ -4071,34 +4118,46 @@ function refreshBrushUI() {
   for (const button of root.querySelectorAll('[data-colour]')) {
     button.classList.toggle('on', button.dataset.colour.toLowerCase() === hexOf(brush));
   }
-  for (const button of panel.querySelectorAll('[data-eraser]')) {
+  for (const button of root.querySelectorAll('[data-eraser]')) {
     button.classList.toggle('on', Math.abs(Number(button.dataset.eraser) - eraserWidth) < 0.005);
   }
-  // The rubber has no colour and no nib, and the pen has no rubber: the panel
-  // shows one or the other rather than both greyed out.
-  panel.classList.toggle('rubbing', tool === 'eraser');
+  const penPanel = el('reader-brush');
+  if (penPanel) {
+    // The rubber has no colour and no nib, and the pen has no rubber: the
+    // panel shows one or the other rather than both greyed out.
+    penPanel.classList.toggle('rubbing', tool === 'eraser');
+    const title = el('reader-brush-title');
+    if (title) {
+      title.textContent = tool === 'eraser' ? 'Eraser'
+        : (NIBS.find((n) => n.id === brush.nib)?.label ?? 'Pen');
+    }
+    const stabValue = el('reader-stab-value');
+    if (stabValue) stabValue.textContent = `${Math.round((brush.stab ?? 0) * 100)}%`;
+    const stab = el('reader-stab-rail');
+    if (stab) stab.style.setProperty('--at', `${Math.round((brush.stab ?? 0) * 100)}%`);
+  }
   refreshFingerButton();
-  const sizeWrap = panel.querySelector('.brush-size-wrap');
+  const overlay = el('reader-overlay');
+  if (overlay) {
+    overlay.classList.toggle('on', !!brush.overlay);
+    overlay.setAttribute('aria-pressed', String(!!brush.overlay));
+  }
+  const sizeWrap = root.querySelector('.brush-size-wrap');
   if (sizeWrap) sizeWrap.style.setProperty('--at', `${Math.round(sizeToRail(brush.width) * 100)}%`);
-  const hue = panel.querySelector('#reader-hue-rail');
+  const readout = el('reader-size-value');
+  if (readout) readout.textContent = millimetres(brush.width);
+  const hue = el('reader-hue-rail');
   if (hue) hue.style.setProperty('--at', `${Math.round((brush.h / 360) * 100)}%`);
-  const alpha = panel.querySelector('#reader-alpha-rail');
+  const alpha = el('reader-alpha-rail');
   if (alpha) alpha.style.setProperty('--at', `${Math.round(brush.a * 100)}%`);
-  const field = panel.querySelector('#reader-sv');
+  const field = el('reader-sv');
   if (field) {
     const hsv = hslToHsv(brush);
     field.style.setProperty('--sx', `${Math.round(hsv.s)}%`);
     field.style.setProperty('--sy', `${Math.round(100 - hsv.v)}%`);
   }
-  const hex = panel.querySelector('#reader-hex');
+  const hex = el('reader-hex');
   if (hex && document.activeElement !== hex) hex.value = hexOf(brush);
-  const readout = panel.querySelector('#reader-size-value');
-  if (readout) readout.textContent = brush.width.toFixed(brush.width < 0.1 ? 3 : 2);
-  const overlay = panel.querySelector('#reader-overlay');
-  if (overlay) {
-    overlay.classList.toggle('on', brush.overlay);
-    overlay.setAttribute('aria-pressed', String(brush.overlay));
-  }
   paintBrushPreview();
 }
 
@@ -4135,7 +4194,9 @@ function paintBrushPreview() {
   ctx.fillStyle = brushCss(brush);
   const width = Math.max(0.35, brush.width * staffPx());
   ctx.lineWidth = width;
-  inkRun(ctx, points, { nib: brush.nib }, width);
+  if (brush.dash === 'dashed') ctx.setLineDash([width * 3, width * 2.2]);
+  else if (brush.dash === 'dotted') ctx.setLineDash([0.01, width * 2.1]);
+  inkRun(ctx, points, { nib: brush.nib, dash: brush.dash }, width);
   ctx.restore();
 }
 
@@ -4664,6 +4725,7 @@ function renameThisScore() {
     score.name = name;
     const title = el('reader-title');
     if (title) title.textContent = name;
+    noteTab(score);
     announceLibraryChanged();
   };
   dialog.addEventListener('close', done);
@@ -4686,6 +4748,7 @@ async function deleteThisScore() {
   }
   const id = score.id;
   close();
+  dropTab(id);
   await deleteScore(id).catch(() => {});
   announceLibraryChanged();
 }
@@ -4944,6 +5007,15 @@ async function togglePainted() {
 // drawings, and at a stand you recognise the shape long before you read it.
 const ICONS = {
   close: '<path d="M6 6l12 12M18 6L6 18"/>',
+  home: '<path d="M4.5 11.5 12 5l7.5 6.5"/><path d="M6.5 10v9h11v-9"/><path d="M10 19v-4.5h4V19"/>',
+  pages: '<rect x="5" y="4" width="14" height="16" rx="2"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4"/>',
+  sharp: '<path d="M9.5 4v16M14.5 4v16"/><path d="M6 10l12-3M6 16.5l12-3"/>',
+  sliders: '<path d="M5 8h14M5 16h14"/><circle cx="9" cy="8" r="2.2" fill="currentColor" stroke="none"/>'
+    + '<circle cx="15" cy="16" r="2.2" fill="currentColor" stroke="none"/>',
+  pencil: '<path d="M5 19l1-4L16.5 4.5a1.6 1.6 0 0 1 2.3 0l.7.7a1.6 1.6 0 0 1 0 2.3L9 18z"/><path d="M14.5 6.5l3 3"/>',
+  ballpoint: '<path d="M6 18l1.5-4.5L16 5a1.4 1.4 0 0 1 2 0l1 1a1.4 1.4 0 0 1 0 2L10.5 16.5z"/><path d="M6 18l-1.5 1.5"/>',
+  fountain: '<path d="M6.5 17.5 10 14"/><path d="M10 14 8.5 9.5 17 4.5 19.5 7 14.5 15.5z"/><path d="M12.5 11.5a1.2 1.2 0 1 0 0.01 0"/>',
+  marker: '<path d="M6 20h9"/><path d="M8 16l7.5-7.5 3 3L11 19H8z"/><path d="M14 10l3 3"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   forward: '<path d="M9 5l7 7-7 7"/>',
   play: '<path d="M8 5.5l11 6.5-11 6.5z" fill="currentColor" stroke="none"/>',
@@ -5110,12 +5182,9 @@ function nibButton(nib) {
   button.type = 'button';
   button.className = 'brush-nib';
   button.dataset.nib = nib.id;
-  const mark = document.createElement('span');
-  mark.className = `brush-nib-mark is-${nib.id}`;
-  mark.setAttribute('aria-hidden', 'true');
   const label = document.createElement('span');
   label.textContent = nib.label;
-  button.append(mark, label);
+  button.append(icon(nib.id), label);
   button.setAttribute('aria-label', `${nib.label} nib`);
   button.addEventListener('click', () => {
     setBrush('nib', nib.id);
@@ -5191,7 +5260,7 @@ function buildMixer() {
   hex.id = 'reader-hex';
   hex.type = 'text';
   hex.spellcheck = false;
-  hex.setAttribute('aria-label', 'Colour, as hex');
+  hex.setAttribute('aria-label', 'Color, as hex');
   hex.addEventListener('input', () => {
     const hsl = hslFromHex(hex.value);
     if (hsl) setColour(hsl);
@@ -5296,20 +5365,14 @@ async function toggleTakeHere() {
 // moves, exactly as before, and it is a square rather than a dot — the
 // invariant the old note defended is untouched, because it was only ever about
 // the stop. Marking a fingering mid-take still has the stop under the hand.
+// The toolbar no longer leaves when a pen comes out — the floating row sits
+// under it — so the record button has one home and stays in it.
 function placeRecordButton() {
   const button = el('reader-record');
   if (!button || !root) return;
-  const inking = root.classList.contains('drawing') && takingNow;
-  const home = inking
-    ? root.querySelector('#reader-ink-bar')
-    : root.querySelector('#reader-top .reader-bar-right');
+  const home = root.querySelector('#reader-top .reader-bar-right');
   if (!home || button.parentElement === home) return;
-  // On the ink bar it goes straight after the tick, which is the other control
-  // there that is about leaving rather than about drawing.
-  const after = inking ? el('reader-done') : null;
-  if (after && after.parentElement === home) after.after(button);
-  else if (inking) home.prepend(button);
-  else home.insertBefore(button, el('reader-annotate'));
+  home.prepend(button);
 }
 
 function watchTake() {
@@ -5358,148 +5421,235 @@ function buildRecordButton() {
   return button;
 }
 
+// --- the chrome, after GoodNotes ---------------------------------------------
+//
+// Three strips, copied from the reference the reader was asked to copy:
+//
+//   THE TABS. Every part you have open, along the very top, the way a notes app
+//   keeps its documents: the house goes back to the shelf, a tab switches, its
+//   cross closes it, and the chevron on the tab you are reading opens the
+//   part's own menu.
+//   THE TOOLBAR. Where you are (page, turns, bookmarks), the tools in the
+//   middle (pen, highlighter, eraser, text, stamps, shapes, lasso), and on the
+//   right the things about the part as a whole (record, send, more).
+//   THE FLOATING ROW, only while a tool is in hand: undo and redo on a pill of
+//   their own, then the tools again, three thicknesses and four colours. The
+//   pen's chevron opens the pen case; the lit thickness opens the stroke
+//   settings; the dashed ring opens the colours.
+
+const TABS_KEY = 'readerTabs';
+let openTabs = [];   // [{ id, name }] — every part with a tab, in tab order
+
+function recallTabs() {
+  let saved = null;
+  try { saved = JSON.parse(globalThis.localStorage?.getItem(TABS_KEY) ?? 'null'); } catch { saved = null; }
+  openTabs = Array.isArray(saved)
+    ? saved.filter((t) => t && t.id != null && typeof t.name === 'string').slice(0, 24)
+    : [];
+}
+
+function rememberTabs() {
+  try { globalThis.localStorage?.setItem(TABS_KEY, JSON.stringify(openTabs)); } catch { /* fine */ }
+}
+
+// The part on the stand gets a tab if it has none, and keeps its place if it has.
+function noteTab(row) {
+  if (!row || row.id == null) return;
+  const tab = { id: row.id, name: row.name ?? 'Untitled' };
+  const at = openTabs.findIndex((t) => String(t.id) === String(row.id));
+  if (at >= 0) openTabs[at] = tab;
+  else openTabs.push(tab);
+  rememberTabs();
+  refreshTabs();
+}
+
+function dropTab(id) {
+  openTabs = openTabs.filter((t) => String(t.id) !== String(id));
+  rememberTabs();
+  refreshTabs();
+}
+
+// Switching keeps the reader up: the shelf is never shown between two parts.
+async function switchTab(id) {
+  if (!score || String(score.id) === String(id)) return;
+  let row = null;
+  try { row = await loadScore(id); } catch { row = null; }
+  if (!row) {
+    dropTab(id);
+    say('that part is no longer on the shelf');
+    return;
+  }
+  const keepSet = setlist;
+  const keepMove = moveSet;
+  try {
+    close({ keepOpen: true });
+    await openReader(row, { setlist: keepSet, onSetlistMove: keepMove });
+  } catch (err) {
+    say(saying('could not open that part', err));
+  }
+}
+
+async function closeTab(id) {
+  const wasActive = !!score && String(score.id) === String(id);
+  const at = openTabs.findIndex((t) => String(t.id) === String(id));
+  dropTab(id);
+  if (!wasActive) return;
+  const next = openTabs[Math.min(Math.max(0, at), openTabs.length - 1)];
+  if (next) await switchTab(next.id);
+  else close();
+}
+
+function refreshTabs() {
+  const list = el('reader-tab-list');
+  if (!list) return;
+  list.replaceChildren(...openTabs.map((t) => tabElement(t, !!score && String(score.id) === String(t.id))));
+  list.querySelector('.reader-tab.on')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+}
+
+function tabElement(tab, active) {
+  const node = document.createElement('div');
+  node.className = `reader-tab${active ? ' on' : ''}`;
+  node.dataset.scoreId = String(tab.id);
+  node.setAttribute('role', 'tab');
+  node.setAttribute('aria-selected', String(active));
+  const name = document.createElement('button');
+  name.type = 'button';
+  name.className = 'reader-tab-name';
+  const label = document.createElement('span');
+  label.className = 'reader-tab-label';
+  label.textContent = tab.name;
+  name.append(label);
+  if (active) {
+    const chevron = document.createElement('span');
+    chevron.className = 'reader-tab-chevron';
+    chevron.setAttribute('aria-hidden', 'true');
+    name.append(chevron);
+    name.setAttribute('aria-label', `${tab.name} — options`);
+    name.addEventListener('click', () => toggleMenu());
+  } else {
+    name.setAttribute('aria-label', `Switch to ${tab.name}`);
+    name.addEventListener('click', () => switchTab(tab.id));
+  }
+  const cross = iconButton(null, 'close', `Close ${tab.name}`, () => closeTab(tab.id),
+    { className: 'reader-tab-close' });
+  node.append(name, cross);
+  return node;
+}
+
+function buildTabs() {
+  const strip = document.createElement('div');
+  strip.id = 'reader-tabs';
+  const home = iconButton('reader-close', 'home', 'Back to the shelf', () => close(),
+    { className: 'reader-tab-home' });
+  const list = document.createElement('div');
+  list.id = 'reader-tab-list';
+  list.setAttribute('role', 'tablist');
+  strip.append(home, list);
+  return strip;
+}
+
+function group(className) {
+  const node = document.createElement('div');
+  node.className = className;
+  return node;
+}
+
 function buildTopBar() {
   const bar = document.createElement('div');
   bar.id = 'reader-top';
 
-  const left = document.createElement('div');
-  left.className = 'reader-bar-left';
-  left.append(
-    iconButton('reader-close', 'shelf', 'Back to the shelf', close),
-    iconButton('reader-back', 'back', 'The page before', previousPage),
-    iconButton('reader-forward', 'forward', 'The next page', nextPage),
-  );
-
-  const middle = document.createElement('div');
-  middle.className = 'reader-bar-middle';
-  const title = document.createElement('span');
-  title.id = 'reader-title';
+  const left = group('reader-bar-left');
   // "p. 7 of 21" is already the answer to "where am I", so it is also the way
-  // to say where you would rather be. A button rather than a label, and it
-  // looks like a label until it is worth pressing — nothing new to find, and
-  // nothing in the way of a part with three pages.
+  // to say where you would rather be: a button that looks like a label.
   const count = document.createElement('button');
   count.type = 'button';
   count.id = 'reader-count';
   count.addEventListener('click', openPageJump);
-  middle.append(title, count);
+  left.append(
+    iconButton('reader-pages', 'pages', 'Go to a page', openPageJump),
+    count,
+    iconButton('reader-back', 'back', 'The page before', previousPage),
+    iconButton('reader-forward', 'forward', 'The next page', nextPage),
+    iconButton('reader-bookmarks', 'bookmark', 'Bookmarks', openBookmarks),
+    // Only while the page is magnified — applyZoom shows and hides it.
+    iconButton('reader-reset-zoom', 'fit', 'Back to the whole page', resetZoom),
+  );
+  left.querySelector('#reader-reset-zoom').hidden = true;
 
-  const right = document.createElement('div');
-  right.className = 'reader-bar-right';
+  const tools = group('reader-bar-tools');
+  // The pen keeps the id every check and every shortcut reaches for: pressing
+  // it is how annotating starts.
+  const pen = toolButton('pen', 'pen', 'Pen');
+  pen.id = 'reader-annotate';
+  tools.append(
+    pen,
+    toolButton('highlighter', 'highlighter', 'Highlighter'),
+    toolButton('eraser', 'eraser', 'Eraser'),
+    toolButton('text', 'text', 'Type on the page'),
+    iconButton('reader-stamps', 'sharp', 'Stamp a sign on the page', openStampMenu),
+    iconButton('reader-shapes', 'shapes', 'Lines, boxes and rings', () => openShapeMenu()),
+    toolButton('lasso', 'lasso', 'Pick up marks'),
+  );
+
+  const right = group('reader-bar-right');
   right.append(
-    // NO PLAY BUTTON HERE. It was the first thing in this group and it is gone
-    // on instruction — "get rid of the play button at the top right when you
-    // open a score on the score tab". Playing the take is still one press away,
-    // in the More menu below, which is where the rest of what you can do to a
-    // take already lives.
-    // RECORD, HERE, BESIDE THE PENCIL — see buildRecordButton for what moved
-    // and what had to hold for it to be safe.
     buildRecordButton(),
-    iconButton('reader-annotate', 'pen', 'Annotate this page', () => setTool(lastInk)),
+    iconButton('reader-share', 'send', 'Send this part', openSend),
     iconButton('reader-menu-btn', 'more', 'More', toggleMenu),
   );
 
-  bar.append(left, middle, right);
+  // The name lives on the tab now; this stays for whatever still reads it.
+  const title = document.createElement('span');
+  title.id = 'reader-title';
+  title.className = 'sr-only';
+
+  bar.append(left, tools, right, title);
   return bar;
 }
 
+// THE ROW THAT COMES OUT WITH THE PEN — floating under the toolbar, dark, the
+// way the reference draws it: undo and redo on their own pill, then the tools,
+// three thicknesses and four colours on the other.
 function buildInkBar() {
   const bar = document.createElement('div');
   bar.id = 'reader-ink-bar';
-  // The ink you are holding, shown ON the pen rather than on a button of its
-  // own. There used to be a brush button here, and everything behind it is
-  // already one tap on the pen you are already holding — so it was a second
-  // door into the same room, taking up space in a bar that has none.
-  //
-  // There was also a little bar of colour under the pen showing the ink you
-  // were holding. The colours are on the bar three inches away and the pen
-  // case is one tap behind the pen itself, so it was a third place to be told
-  // the same thing — and at that size it read as a smudge on the button rather
-  // than as ink.
-  const pen = toolButton('pen', 'pen', 'Pen');
-  bar.append(
-    iconButton('reader-done', 'tick', 'Finished annotating', () => setTool(null)),
-    // The way to the next page WITHOUT putting the pen down.
-    //
-    // A tool now stays in your hand until you say otherwise, which is what a
-    // player marking fingerings through a movement wants — and it takes the
-    // page turns away, because while a tool is out a tap on the page is a
-    // mark. So the turns come back here, on the bar, where forScore puts them
-    // for the same reason: annotate this page, move on, carry on annotating,
-    // and reach for the tick only when you have actually finished.
-    iconButton('reader-ink-prev', '‹', 'Previous page', () => previousPage(),
-      { className: 'reader-tool reader-ink-page' }),
-    iconButton('reader-ink-next', '›', 'Next page', () => nextPage(),
-      { className: 'reader-tool reader-ink-page' }),
-    pen,
-    toolButton('highlighter', 'highlighter', 'Highlighter'),
-    toolButton('text', 'text', 'Type on the page'),
-    iconButton('reader-shapes', 'shapes', 'Lines, boxes and rings', openShapeMenu),
-    iconButton('reader-stamps', STAMPS[0].glyph, 'Stamp a sign on the page', openStampMenu),
-    toolButton('lasso', 'lasso', 'Pick up marks'),
-    toolButton('eraser', 'eraser', 'Rub out'),
-    // Whether a finger writes on the music or only works the app.
-    iconButton('reader-finger', 'finger', 'Let your finger write', toggleFingerInk),
-    // THE COLOURS AND THE UNDO PAIR HAVE MOVED DOWN, onto the row that appears
-    // with the tool. Both were on this bar because there was nowhere else to
-    // put them; there is now, and it is beside the pen they belong to.
-    iconButton('reader-clear', 'clear', 'Clear this page', clearPage),
-    iconButton('reader-layers', 'layers', 'Layers', openLayerMenu),
-    iconButton('reader-reset-zoom', 'fit', 'Back to the whole page', resetZoom),
-  );
-  bar.querySelector('#reader-reset-zoom').hidden = true;
-  return bar;
-}
 
-// THE ROW THAT COMES OUT WITH THE PEN.
-//
-// Asked for by name, with a picture: pick a tool and a second row appears under
-// the bar carrying that tool's own choices — which nib, how thick, what colour
-// — and the undo pair moves down into it, on a little pill of its own.
-//
-// It is two pills rather than one because they are two different things. Undo
-// and redo are about the PAGE and are the same two buttons whatever is in your
-// hand; everything to their right is about the TOOL and changes with it. A
-// single strip makes those look like one row of equals, and the pair then
-// drifts left and right as the tool's own controls change width — the two
-// buttons you reach for without looking move under your thumb.
-//
-// The full pen case is still behind the chevron on the nib you are holding:
-// every size rather than three, the whole palette, the mixer, and drawing
-// under the notes. This row is the handful worth a single tap.
-function buildInkRow() {
-  const row = document.createElement('div');
-  row.id = 'reader-ink-row';
-  row.hidden = true;
-
-  const history = document.createElement('div');
-  history.className = 'ink-pill is-history';
+  const history = group('ink-pill is-history');
   history.append(
+    iconButton('reader-done', 'tick', 'Put the tool down', () => setTool(null)),
     iconButton('reader-undo', 'undo', 'Undo', undo),
     iconButton('reader-redo', 'redo', 'Redo', redo),
   );
 
-  const main = document.createElement('div');
-  main.className = 'ink-pill is-main';
+  const main = group('ink-pill is-main');
+  const tools = group('ink-tools');
+  const pen = toolButton('pen', 'pen', 'Pen — tap again for the pen case');
+  pen.classList.add('has-chevron');
+  const chevron = document.createElement('span');
+  chevron.className = 'ink-chevron';
+  chevron.setAttribute('aria-hidden', 'true');
+  pen.append(chevron);
+  const highlighter = toolButton('highlighter', 'highlighter', 'Highlighter — tap again for its case');
+  highlighter.classList.add('has-chevron');
+  highlighter.append(chevron.cloneNode(true));
+  tools.append(
+    pen,
+    highlighter,
+    toolButton('eraser', 'eraser', 'Eraser — tap again for its sizes'),
+    toolButton('lasso', 'lasso', 'Pick up marks'),
+    iconButton(null, 'shapes', 'Lines, boxes and rings', (e) => openShapeMenu(e.currentTarget),
+      { className: 'reader-tool ink-shapes' }),
+  );
 
-  const nibs = document.createElement('div');
-  nibs.className = 'ink-nibs';
-  nibs.append(...NIBS.map(rowNib));
-
-  const widths = document.createElement('div');
-  widths.className = 'ink-widths';
-  // THREE, not the six behind the chevron. A row of six reads as a slider laid
-  // out flat and none of them is a decision; three is thin, medium and thick,
-  // which is what a hand reaching for a pen mid-bar actually wants.
+  const widths = group('ink-widths');
   widths.append(...ROW_WIDTHS.map(rowWidth));
 
-  const colours = document.createElement('div');
-  colours.className = 'ink-colours';
+  const colours = group('ink-colours');
   colours.append(...PRESETS.map((_, i) => presetSwatch(i)), rowCustomColour());
 
-  main.append(nibs, sep(), widths, sep(), colours);
-  row.append(history, main);
-  return row;
+  main.append(tools, sep(), widths, sep(), colours);
+  bar.append(history, main);
+  return bar;
 }
 
 function sep() {
@@ -5509,57 +5659,32 @@ function sep() {
   return line;
 }
 
-// The nib, drawn as the mark it makes — the same four marks the pen case uses,
-// so the thing you tapped there is the thing you recognise here.
-function rowNib(nib) {
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'ink-nib';
-  button.dataset.nib = nib.id;
-  button.title = nib.label;
-  button.setAttribute('aria-label', nib.label);
-  const mark = document.createElement('span');
-  mark.className = `brush-nib-mark is-${nib.id}`;
-  mark.setAttribute('aria-hidden', 'true');
-  const chevron = document.createElement('span');
-  chevron.className = 'ink-chevron';
-  chevron.setAttribute('aria-hidden', 'true');
-  button.append(mark, chevron);
-  // Tapping the nib you are already holding opens the whole case, which is the
-  // same gesture the tool button itself uses one row up.
-  button.addEventListener('click', () => {
-    if (currentBrush().nib === nib.id) toggleBrush();
-    else setBrush('nib', nib.id);
-  });
-  return button;
-}
-
+// Thin, medium, thick — and the one you are holding opens the stroke settings
+// when tapped again, which is where every width between them lives.
 function rowWidth(width) {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'ink-width';
   button.dataset.rowsize = String(width);
   button.style.setProperty('--line', `${Math.max(2, Math.round(2 + width * 9))}px`);
-  button.setAttribute('aria-label', `${width} staff spaces across`);
-  button.addEventListener('click', () => setBrush('width', width));
+  button.setAttribute('aria-label', `${millimetres(width)} — tap again for stroke settings`);
+  button.addEventListener('click', () => {
+    if (button.classList.contains('on')) openPanel('reader-stroke', button);
+    else setBrush('width', width);
+  });
   return button;
 }
 
 // The dashed ring at the end of the colours: the way to a colour that is not
-// one of the four, and the door to the mixer that was already there.
+// one of the four.
 function rowCustomColour() {
   const button = document.createElement('button');
   button.type = 'button';
   button.id = 'reader-ink-custom';
   button.className = 'ink-custom';
-  button.title = 'Another colour';
-  button.setAttribute('aria-label', 'Another colour');
-  button.addEventListener('click', () => {
-    openBrush();
-    const mixer = el('reader-mixer');
-    const custom = el('reader-custom');
-    if (mixer?.hidden && custom) custom.click();
-  });
+  button.title = 'Another color';
+  button.setAttribute('aria-label', 'Another color');
+  button.addEventListener('click', () => openPanel('reader-colours', button));
   return button;
 }
 
@@ -5577,34 +5702,145 @@ function buildSelectionBar() {
     // finds is a gesture nobody has.
     iconButton(null, '−', 'Smaller', () => scaleSelection(1 / 1.25), { className: 'reader-chip' }),
     iconButton(null, '+', 'Bigger', () => scaleSelection(1.25), { className: 'reader-chip' }),
-    iconButton(null, '🎨', 'Recolour them', recolourSelection, { className: 'reader-chip' }),
+    iconButton(null, '🎨', 'Recolor them', recolourSelection, { className: 'reader-chip' }),
     iconButton(null, 'Delete', 'Rub them out', deleteSelection, { className: 'reader-chip danger' }),
     iconButton(null, 'Done', 'Put them down', clearSelection, { className: 'reader-chip' }),
   );
   return bar;
 }
 
-// The pen, laid out the way a pen case is: which pen, how thick, what colour.
-// Three questions in that order, each answered by tapping the thing itself
-// rather than by aiming at a row of unlabelled sliders.
+function panelTitle(text, id = null) {
+  const h = document.createElement('h3');
+  if (id) h.id = id;
+  h.textContent = text;
+  return h;
+}
+
+function smallLabel(text) {
+  const span = document.createElement('span');
+  span.className = 'brush-label';
+  span.textContent = text;
+  return span;
+}
+
+// A row of the settings list: a label, and on the right a switch, a detail with
+// a chevron, or nothing.
+function listRow(id, label, { onClick, kind = 'plain', detail = '' } = {}) {
+  const row = document.createElement('button');
+  row.type = 'button';
+  row.className = `brush-row is-${kind}`;
+  if (id) row.id = id;
+  const text = document.createElement('span');
+  text.className = 'brush-row-label';
+  text.textContent = label;
+  row.append(text);
+  if (kind === 'switch') {
+    const sw = document.createElement('span');
+    sw.className = 'brush-switch';
+    sw.setAttribute('aria-hidden', 'true');
+    row.setAttribute('role', 'switch');
+    row.append(sw);
+  } else if (kind === 'next') {
+    const more = document.createElement('span');
+    more.className = 'brush-row-detail';
+    more.textContent = detail;
+    const next = document.createElement('span');
+    next.className = 'brush-next';
+    next.setAttribute('aria-hidden', 'true');
+    row.append(more, next);
+  }
+  row.addEventListener('click', onClick);
+  return row;
+}
+
+// THE PEN CASE: the nib's name, the mark it makes, which nib, how steady the
+// hand is, and the settings underneath — laid out like the reference's pen
+// panel.
 function buildBrushPanel() {
   const panel = document.createElement('div');
   panel.id = 'reader-brush';
-
-  const nibs = document.createElement('div');
-  nibs.className = 'brush-nibs';
-  nibs.append(...NIBS.map(nibButton));
+  panel.className = 'reader-panel';
 
   const preview = document.createElement('canvas');
   preview.id = 'reader-brush-preview';
   preview.setAttribute('aria-hidden', 'true');
 
-  const sizes = document.createElement('div');
-  sizes.className = 'brush-sizes';
+  const nibs = document.createElement('div');
+  nibs.className = 'brush-nibs';
+  nibs.append(...NIBS.map(nibButton));
+
+  // Stroke stabilisation: a card with its own label and value, and the rail.
+  const stab = document.createElement('div');
+  stab.className = 'brush-card';
+  const stabHead = document.createElement('div');
+  stabHead.className = 'brush-card-head';
+  const stabValue = document.createElement('span');
+  stabValue.id = 'reader-stab-value';
+  stabValue.className = 'brush-card-value';
+  stabHead.append(smallLabel('Stroke stabilization'), stabValue);
+  stab.append(stabHead, rail('reader-stab-rail', 'is-stab',
+    (t) => setBrush('stab', Math.round(t * 20) / 20)));
+
+  const list = document.createElement('div');
+  list.className = 'brush-list';
+  list.append(
+    listRow('reader-overlay', 'Draw under the notes', {
+      kind: 'switch', onClick: () => setBrush('overlay', !currentBrush().overlay),
+    }),
+    listRow('reader-finger', 'Finger draws', { kind: 'switch', onClick: toggleFingerInk }),
+    listRow('reader-layers', 'Layers', { kind: 'next', onClick: openLayerMenu }),
+    listRow('reader-clear', 'Clear this page', { kind: 'plain', onClick: clearPage }),
+  );
+  list.querySelector('#reader-clear').classList.add('danger');
+
+  // The rubber's own face. It has one question — how big — so it is one row of
+  // rings and nothing else: no nib, no colour, no stabilisation.
+  const rubber = document.createElement('div');
+  rubber.id = 'reader-eraser-sizes';
+  rubber.className = 'brush-sizes brush-erasers';
+  rubber.append(...ERASER_SIZES.map(eraserDot));
+
+  panel.append(panelTitle('Ballpoint', 'reader-brush-title'), preview, nibs, stab,
+    smallLabel('Settings'), list, rubber);
+  return panel;
+}
+
+// STROKE SETTINGS: solid, dashed or dotted, and the thickness as a slider —
+// the reference's popover, under the thickness you tapped.
+function buildStrokePanel() {
+  const panel = document.createElement('div');
+  panel.id = 'reader-stroke';
+  panel.className = 'reader-panel';
+
+  const head = document.createElement('div');
+  head.className = 'panel-head';
+  const badge = document.createElement('span');
+  badge.className = 'panel-icon';
+  badge.append(icon('sliders'));
+  head.append(badge, panelTitle('Stroke Settings'));
+
+  const kinds = document.createElement('div');
+  kinds.className = 'stroke-kinds';
+  for (const dash of DASHES) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'stroke-kind';
+    button.dataset.dash = dash;
+    const sample = document.createElement('span');
+    sample.className = 'stroke-sample';
+    sample.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = dash[0].toUpperCase() + dash.slice(1);
+    button.append(sample, label);
+    button.setAttribute('aria-label', `${label.textContent} line`);
+    button.addEventListener('click', () => setBrush('dash', dash));
+    kinds.append(button);
+  }
+
+  const sizeRow = document.createElement('div');
+  sizeRow.className = 'stroke-size-row';
   const value = document.createElement('span');
   value.id = 'reader-size-value';
-  sizes.append(...SIZE_DOTS.map(sizeDot), value);
-
   // The wedge is clipped to its own shape, so the handle rides in a wrapper
   // above it rather than being sliced off by the clip.
   const sizeWrap = document.createElement('div');
@@ -5614,6 +5850,18 @@ function buildBrushPanel() {
   sizeThumb.className = 'brush-thumb';
   sizeThumb.setAttribute('aria-hidden', 'true');
   sizeWrap.append(sizeRail, sizeThumb);
+  sizeRow.append(value, sizeWrap);
+
+  panel.append(head, kinds, smallLabel('Pen thickness'), sizeRow);
+  return panel;
+}
+
+// THE COLOURS: the full palette, and the mixer behind it for the colour that
+// is not on it.
+function buildColourPanel() {
+  const panel = document.createElement('div');
+  panel.id = 'reader-colours';
+  panel.className = 'reader-panel';
 
   const palette = document.createElement('div');
   palette.className = 'brush-palette';
@@ -5624,36 +5872,16 @@ function buildBrushPanel() {
   custom.type = 'button';
   custom.id = 'reader-custom';
   custom.className = 'brush-more';
-  custom.textContent = 'Mix a colour';
+  custom.textContent = 'Mix a color';
   custom.setAttribute('aria-expanded', 'false');
   custom.addEventListener('click', () => {
     mixer.hidden = !mixer.hidden;
     custom.setAttribute('aria-expanded', String(!mixer.hidden));
-    custom.textContent = mixer.hidden ? 'Mix a colour' : 'Hide the mixer';
+    custom.textContent = mixer.hidden ? 'Mix a color' : 'Hide the mixer';
     refreshBrushUI();
   });
 
-  const overlay = iconButton('reader-overlay', 'Under the notes', 'Draw underneath the notes',
-    () => setBrush('overlay', !currentBrush().overlay), { className: 'reader-chip' });
-
-  // Everything that shows the ink itself goes on the paper card.
-  const paper = document.createElement('div');
-  paper.className = 'brush-paper';
-  paper.append(preview, sizes, sizeWrap);
-
-  // The rubber's own panel. It has one question — how big — so it is one row
-  // of dots and nothing else: no nib, no colour, no mixer. Kept inside the same
-  // panel so the eraser opens the way the pen does, by tapping the tool you are
-  // already holding.
-  const rubber = document.createElement('div');
-  rubber.id = 'reader-eraser-sizes';
-  rubber.className = 'brush-sizes brush-erasers';
-  const rubberLabel = document.createElement('span');
-  rubberLabel.className = 'brush-eraser-label';
-  rubberLabel.textContent = 'Rubber';
-  rubber.append(rubberLabel, ...ERASER_SIZES.map(eraserDot));
-
-  panel.append(nibs, paper, palette, custom, mixer, overlay, rubber);
+  panel.append(panelTitle('Colors'), palette, custom, mixer);
   return panel;
 }
 
@@ -5663,7 +5891,7 @@ function eraserDot(width) {
   button.className = 'brush-dot brush-eraser-dot';
   button.dataset.eraser = String(width);
   button.style.setProperty('--dot', `${Math.round(6 + width * 3.2)}px`);
-  button.setAttribute('aria-label', `Rubber ${width} staff spaces across`);
+  button.setAttribute('aria-label', `Eraser ${width} staff spaces across`);
   button.addEventListener('click', () => setEraserWidth(width));
   return button;
 }
@@ -5711,8 +5939,11 @@ function build() {
   }, { className: 'reader-chip' });
   land.hidden = true;
 
-  root.append(sheet, ink, halfLine, buildTopBar(), buildInkBar(), buildInkRow(), buildBrushPanel(),
-    buildSelectionBar(), menu, line, land, upNext, lock, countdown, aidsElement());
+  root.append(sheet, ink, halfLine, buildTabs(), buildTopBar(), buildInkBar(), buildBrushPanel(),
+    buildStrokePanel(), buildColourPanel(), buildSelectionBar(), menu, line, land, upNext, lock,
+    countdown, aidsElement());
+  recallTabs();
+  refreshTabs();
   document.body.append(root);
 
   // The last word on selecting the music, said in JavaScript because CSS is
@@ -5941,7 +6172,7 @@ function build() {
     if (onChrome(e)) return;
     if (locked) return;      // the turn already happened on the way down
     if (isMenuOpen()) { closeMenu(); return; }
-    if (el('reader-brush')?.classList.contains('open')) { closeBrush(); return; }
+    if (anyPanelOpen()) { closeBrush(); return; }
     // A tap on the page hides the BAR. It does not put the pen down.
     //
     // It used to do both, and that was wrong in two directions at once. You
@@ -6249,10 +6480,17 @@ async function render() {
 // that argument. Here it is only asked, page by page, of the paper in hand.
 async function bandPages(target) {
   const out = [];
+  // A PDF nobody has read yet has no staves, so every page is one band whatever
+  // its crop turns out to be — and asking for the true crop would render every
+  // page before the first one appears. The guess is the whole page; the first
+  // draw measures the crop and draws the music cropped (see cropFor in
+  // paper.js). Only when there is no layout: with staves known the bands are
+  // cut between them, and the crop is already stored beside the layout.
+  const guess = paper.kind === 'pdf' && !layout;
   for (let p = 0; p < paper.count; p++) {
     const rects = bandsOfPage({
       staves: layout?.[p]?.staves ?? [],
-      crop: await paper.cropOf(p),
+      crop: await paper.cropOf(p, { guess }),
       size: await paper.sizeOf(p),
       target,
       zoom: readingZoom(),
@@ -6474,15 +6712,15 @@ const beingDrawn = new Map();
 const ROUGH = 0.34;
 const rough = new Set();
 
-function drawPaperPage(index, { quick = false } = {}) {
+function drawPaperPage(index, { quick = false, ahead = false } = {}) {
   const already = beingDrawn.get(index);
   if (already) return already;
-  const one = drawOnePage(index, quick).finally(() => beingDrawn.delete(index));
+  const one = drawOnePage(index, quick, ahead).finally(() => beingDrawn.delete(index));
   beingDrawn.set(index, one);
   return one;
 }
 
-async function drawOnePage(index, quick = false) {
+async function drawOnePage(index, quick = false, ahead = false) {
   const node = pageEls[index];
   const slice = slices[index];
   if (!paper || !node || !slice) return;
@@ -6500,6 +6738,7 @@ async function drawOnePage(index, quick = false) {
   const canvas = node.querySelector('canvas');
   const across = window.innerWidth / (spread ? 2 : 1);
   const mine = era;
+  const soft = quick && paper.kind !== 'pdf';
   // WHAT THIS DRAW PUT UP, from the draw itself.
   //
   // paper.js used to answer with `drewACard()` / `drewAThumb()` — two booleans
@@ -6525,8 +6764,25 @@ async function drawOnePage(index, quick = false) {
     // for some other reason — a resize, a sharpen — and replacing it with a
     // soft copy first would be a flicker rather than a fix.
     const cold = !drawn.has(index) || canvas.width <= 1;
+    // A PDF PAGE IS NEVER DRAWN ROUGH. The rough pass exists because decoding
+    // a twelve-megapixel photograph is the cost, and a third of the density is
+    // a ninth of the rasterising on top of it; a PDF page is rasterised by
+    // pdf.js at the size asked for, in its worker, and a phone-sized band is
+    // a fraction of a second sharp. Drawn rough, every page the look-ahead had
+    // prepared came up soft and was redrawn sharp 220ms after the turn — "it
+    // would be blurry for a second every time I switched pages". Sharp from
+    // the look-ahead, a turn onto a prepared page is a sharp page at once.
+    //
+    // AND THE LOOK-AHEAD DOES NOT TAKE THE STAND-IN. `instant` answers from the
+    // small copy where there is one, which is right when a finger is waiting
+    // and wrong when nobody is: a page prepared from its copy is a soft page,
+    // and `sharpenSoon` only sharpens what is on screen — so the look-ahead was
+    // filling the pages ahead with copies, and every turn onto one of them
+    // showed the copy and sharpened it a moment later. Nobody is waiting on
+    // the look-ahead; it renders the real page.
+    const instant = cold && !(ahead && paper.kind === 'pdf');
     drew = await paper.drawBand(slice.page, canvas, slice.rect, across, window.innerHeight,
-      quick ? ROUGH : 1, { instant: cold });
+      soft ? ROUGH : 1, { instant });
   } catch (err) {
     // The pages were rebuilt underneath this one — rotated, resized, a page
     // recropped. It drew on a canvas nobody can see any more, and it has
@@ -6603,7 +6859,7 @@ async function drawOnePage(index, quick = false) {
   // to do. It is marked ROUGH instead — which `drawn` needs to stay true for,
   // because `whenPagesReady` counts it — so the page is still owed a sharp draw
   // and the early return will not skip it.
-  if (quick || wasThumb || carded) rough.add(index);
+  if (soft || wasThumb || carded) rough.add(index);
   else rough.delete(index);
   // The canvas has just been given a size, which means the box the ink is
   // placed against has just changed — and on the paper path that box IS the
@@ -6614,7 +6870,7 @@ async function drawOnePage(index, quick = false) {
   dropDryInk();
   redraw(); // the ink layer measures the page it has just been given a size for
   // …and then the same page properly, once nobody is waiting on anything.
-  if (quick || wasThumb) sharpenSoon(index);
+  if (soft || wasThumb) sharpenSoon(index);
 }
 
 // The proper draw, after the rough one. Held back until the turns have stopped:
@@ -7347,6 +7603,8 @@ export async function openReader(row, {
   // may be "already recording" if the take was started from the other door.
   watchTake();
   score = row;
+  recallTabs();
+  noteTab(row);
   asPrinted = await wasReadFromPages(row).catch(() => false);
   take = analysed;
   setlist = programme;
@@ -7464,14 +7722,17 @@ export function readerState() {
   };
 }
 
-export function close() {
+export function close(opts = null) {
   if (!root || root.hidden) return;
+  // A tab switch closes the part but keeps the reader up: the shelf is never
+  // shown between two parts.
+  const keepOpen = opts?.keepOpen === true;
   // A mode left on is a mode somebody meets again without asking for it: the
   // next score opened would take a tap on the music as a tap on a note.
   if (correcting) setCorrecting(false);
   clearTimeout(saveTimer);
   if (score) saveAnnotations(score.id, strokes).catch(() => {});
-  root.hidden = true;
+  if (!keepOpen) root.hidden = true;
   closeMenu();
   closeBrush();
   // The layer, stamp and page-jump popups live in the body and are anchored to
@@ -7494,7 +7755,7 @@ export function close() {
   // across a reload of the module cannot come back wearing it.
   root.classList.remove('taking');
   for (const pop of document.querySelectorAll('.pick-pop.pages')) pop.remove();
-  delete document.documentElement.dataset.reading;
+  if (!keepOpen) delete document.documentElement.dataset.reading;
   unfollow?.();
   unfollow = null;
   clearSounding();
@@ -7523,6 +7784,7 @@ export function close() {
   slices = [];
   sheet.replaceChildren();
   score = null;
+  if (!keepOpen) refreshTabs();
   take = null;
   strokes = [];
   bars = new Map();

@@ -430,7 +430,7 @@ async function openPdf(data, password = null, known = {}) {
   // near is a full render with a finger waiting on it, which is the white
   // rectangle. A page rendered at 460 across costs a fraction of one rendered
   // for the glass, and it is drawn instantly while the real one is built.
-  const thumbs = thumbStore();
+  const thumbs = thumbStore(THUMB_WIDE_PDF);
   const gate = warmGate();
   let drewThumb = false;
   let warming = null;
@@ -445,7 +445,7 @@ async function openPdf(data, password = null, known = {}) {
         try {
           const page = await doc.getPage(i + 1);
           const base = page.getViewport({ scale: 1 });
-          const scale = Math.min(1, THUMB_WIDE / base.width);
+          const scale = Math.min(1.5, THUMB_WIDE_PDF / base.width);
           const small = scratch(Math.max(1, Math.round(base.width * scale)),
             Math.max(1, Math.round(base.height * scale)));
           await page.render({
@@ -465,12 +465,22 @@ async function openPdf(data, password = null, known = {}) {
   // Where the music is on this page. Measured off a thumbnail the first time,
   // which means RENDERING the page — so if it was measured when the score came
   // in, that answer is used and nothing is rendered at all.
-  async function cropFor(index) {
+  // What is already known about where the music sits, without rendering.
+  const cropKnown = (index) => crops.get(index) ?? known.crops?.[index] ?? null;
+  async function cropFor(index, { guess = false } = {}) {
     if (crops.has(index)) return crops.get(index);
     if (known.crops?.[index]) {
       crops.set(index, known.crops[index]);
       return crops.get(index);
     }
+    // A GUESS, WHEN ASKED FOR ONE: the whole page. Laying a part out asks every
+    // page where its music is, and answering by rendering each page is a render
+    // per page before anything at all appears — "it was slow to load". The
+    // reader lays out from the guess and the true crop is measured by the first
+    // draw of the page, which has to render it anyway. Not remembered as a
+    // measurement: `measured()` reports this page as unmeasured, so the next
+    // open asks again, and the draw answers.
+    if (guess) return { x: 0, y: 0, w: 1, h: 1 };
     const page = await doc.getPage(index + 1);
     const base = page.getViewport({ scale: 1 });
     const small = scratch(CROP_AT, Math.round(CROP_AT * (base.height / base.width)));
@@ -484,6 +494,7 @@ async function openPdf(data, password = null, known = {}) {
     return crops.get(index);
   }
   return {
+    kind: 'pdf',
     count: doc.numPages,
     warm,
     thumbsReady: () => thumbs.count(),
@@ -566,13 +577,22 @@ async function openPdf(data, password = null, known = {}) {
         if (spare) {
           drewThumb = true;
           const dpr = window.devicePixelRatio || 1;
-          const fit = Math.min(width / spare.w, height / spare.h);
-          const w = Math.max(1, Math.round(spare.w * fit));
-          const h = Math.max(1, Math.round(spare.h * fit));
+          // THE SAME CROP THE SHARP PAGE WILL HAVE, where it is known. Drawn
+          // whole, the stand-in was the full sheet with its margins, and the
+          // sharp page a moment later was the music alone, larger — which is
+          // "it would not be oriented to fit the page for a second and then
+          // would size". Nothing is rendered to find the crop here: a page
+          // whose crop has never been measured still goes up whole.
+          const crop = region(cropKnown(index) ?? { x: 0, y: 0, w: 1, h: 1 }, rect);
+          const sw = crop.w * spare.w;
+          const sh = crop.h * spare.h;
+          const fit = Math.min(width / sw, height / sh);
+          const w = Math.max(1, Math.round(sw * fit));
+          const h = Math.max(1, Math.round(sh * fit));
           const { context, pixels } = sizeToBand(canvas, w, h,
             dpr * withinReach(w * dpr, h * dpr));
           context.setTransform(pixels, 0, 0, pixels, 0, 0);
-          context.drawImage(spare.el, 0, 0, w, h);
+          context.drawImage(spare.el, crop.x * spare.w, crop.y * spare.h, sw, sh, 0, 0, w, h);
           return { thumb: true, card: false };
         }
       }
@@ -673,6 +693,13 @@ const DECODE_MAX = 1800;
 // and then keeps only what has been looked at most recently, which is the same
 // behaviour this had before for the ten pages it used to keep.
 const THUMB_WIDE = 460;
+// A PDF's stand-in is wider. A photographed page costs a twelve-megapixel
+// decode to make a copy of, and 460 was chosen against that; a PDF page is
+// rendered by pdf.js at whatever size is asked for, and at 720 across the copy
+// that goes up while the sharp page is built is close enough to sharp that a
+// jump onto an unvisited page no longer reads as "blurry for a second". The
+// same THUMB_PIXELS budget bounds it: 720x1018 is 0.73M, eight pages' worth.
+const THUMB_WIDE_PDF = 720;
 // The least a stand-in may be made of, as a fraction of what the screen would
 // take. `own` above is normally the binding term — the copy's own resolution —
 // and this is the floor under it for a page shown very small.
@@ -720,7 +747,7 @@ function warmGate() {
   };
 }
 
-function thumbStore() {
+function thumbStore(wide = THUMB_WIDE) {
   const held = new Map();
   let pixels = 0;
   const touch = (index) => {
@@ -749,7 +776,7 @@ function thumbStore() {
     put(index, image, w, h) {
       if (held.has(index)) { touch(index); return; }
       try {
-        const scale = Math.min(1, THUMB_WIDE / w);
+        const scale = Math.min(1, wide / w);
         const small = scratch(Math.max(1, Math.round(w * scale)), Math.max(1, Math.round(h * scale)));
         small.getContext('2d').drawImage(image, 0, 0, small.width, small.height);
         held.set(index, { el: small, w: small.width, h: small.height });
@@ -1036,6 +1063,7 @@ async function openImages(blobs, known = {}, key = null) {
   };
 
   return {
+    kind: 'images',
     count: blobs.length,
     warm,
     thumbsReady: () => thumbs.count(),
@@ -1253,6 +1281,72 @@ const SAVE_EVERY = 3;
 // being measured. On a laptop that is invisible. On an iPad it is the
 // occasional turn that hangs for a second and then catches up, which is
 // exactly what it looked like from the stand.
+// --- the reader, off the main thread ------------------------------------------
+//
+// One worker, made when first needed and kept. Reading a page there costs the
+// main thread a render and a bitmap hand-over — a few tens of milliseconds —
+// instead of the second or two of arithmetic that used to be the stall behind
+// "it takes a while to load before I can tap through the pages". Where a
+// worker cannot be had (no OffscreenCanvas, no module workers), the pass falls
+// back to reading gently on the main thread as it always did.
+let scanWorker = null;
+let scanWorkerBroken = false;
+let scanTicket = 0;
+const scanWaiting = new Map();
+
+function readerWorker() {
+  if (scanWorkerBroken) return null;
+  if (scanWorker) return scanWorker;
+  try {
+    if (typeof Worker !== 'function' || typeof OffscreenCanvas !== 'function'
+      || typeof createImageBitmap !== 'function') throw new Error('no worker here');
+    scanWorker = new Worker(new URL('../analysis/scan-worker.js', import.meta.url), { type: 'module' });
+    scanWorker.onmessage = (e) => {
+      const { id, found, error } = e.data ?? {};
+      const waiting = scanWaiting.get(id);
+      if (!waiting) return;
+      scanWaiting.delete(id);
+      if (error) waiting.reject(new Error(error));
+      else waiting.resolve(found);
+    };
+    scanWorker.onerror = (err) => {
+      // The worker itself failed to load or run: every page waiting on it is
+      // handed back to the main thread, and nothing asks it again.
+      scanWorkerBroken = true;
+      for (const waiting of scanWaiting.values()) waiting.reject(new Error(String(err?.message ?? 'worker failed')));
+      scanWaiting.clear();
+      scanWorker?.terminate?.();
+      scanWorker = null;
+    };
+    return scanWorker;
+  } catch {
+    scanWorkerBroken = true;
+    return null;
+  }
+}
+
+/**
+ * Read one drawn page, in the worker where there is one and gently here where
+ * there is not. `sheet` is a canvas holding the page at reading size.
+ */
+async function readSheet(sheet, readPageGently) {
+  const worker = readerWorker();
+  if (worker) {
+    try {
+      const bitmap = await createImageBitmap(sheet);
+      const id = ++scanTicket;
+      const found = await new Promise((resolve, reject) => {
+        scanWaiting.set(id, { resolve, reject });
+        worker.postMessage({ id, bitmap, width: sheet.width, height: sheet.height }, [bitmap]);
+      });
+      return found;
+    } catch {
+      if (scanWorkerBroken) { /* fall through to the main thread */ } else throw new Error('page could not be read');
+    }
+  }
+  return readPageGently(sheet, sheet.width, sheet.height, { pause: sliced() });
+}
+
 export async function readPages(
   payload, onProgress = null, onMeasured = null, standAside = null,
 ) {
@@ -1328,7 +1422,7 @@ export async function readPages(
       // round — the pages are read in the background and the turn is the thing
       // somebody is waiting for — and the pass still finishes; `watchLayouts`
       // refreshes the reader when it does.
-      found = await readPageGently(sheet, sheet.width, sheet.height, { pause: sliced() });
+      found = await readSheet(sheet, readPageGently);
       // …AND AGAIN, BIGGER, WHERE THE MUSIC IS SMALL.
       //
       // 1400 across is enough for a page with four or five systems on it and
@@ -1348,8 +1442,7 @@ export async function readPages(
         if (standAside) await standAside();
         await pages.draw(i, sheet, 2400 / dpr, 9000 / dpr, null, { plain: true });
         if (standAside) await standAside();
-        const closer = await readPageGently(sheet, sheet.width, sheet.height,
-          { pause: sliced() });
+        const closer = await readSheet(sheet, readPageGently);
         const heads = (read) => (read?.staves ?? [])
           .reduce((n, st) => n + (st.heads?.length ?? 0), 0);
         if (closer && heads(closer) >= heads(found)) found = closer;

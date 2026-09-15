@@ -339,7 +339,7 @@ export const LOOKS = [
   // line each so they cannot drift into showing one thing and saving another.
   {
     id: 'colour',
-    name: 'Colour',
+    name: 'Color',
     filter: 'none',
     // Three overlapping circles: colour, the way every app draws it.
     mark: '<circle cx="12" cy="8.6" r="4.4"/><circle cx="8.4" cy="15" r="4.4"/>'
@@ -347,7 +347,7 @@ export const LOOKS = [
   },
   {
     id: 'grey',
-    name: 'Grey',
+    name: 'Gray',
     filter: 'grayscale(1)',
     // A disc with one half filled — the contrast mark, and the one everybody
     // reads as "take the colour out".

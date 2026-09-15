@@ -3220,7 +3220,12 @@ export async function readPageGently(
 function* readSteps(source, naturalWidth, naturalHeight, width, judge) {
   const w = Math.max(1, Math.round(width));
   const h = Math.round(naturalHeight * (w / naturalWidth));
-  const canvas = document.createElement('canvas');
+  // In a worker there is no document, and an OffscreenCanvas draws the same
+  // pixels — see scan-worker.js, which runs this off the main thread so a page
+  // turn is never waiting behind a page being read.
+  const canvas = typeof document !== 'undefined'
+    ? document.createElement('canvas')
+    : new OffscreenCanvas(w, h);
   canvas.width = w;
   canvas.height = h;
   canvas.getContext('2d', { willReadFrequently: true }).drawImage(source, 0, 0, w, h);

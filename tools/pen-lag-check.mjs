@@ -104,9 +104,9 @@ async function oneStroke(tool) {
     if (!document.querySelector('#reader')?.classList.contains('drawing')) {
       document.querySelector('#reader-annotate')?.click();
     }
-    const nib = document.querySelector(`#reader-ink-row .ink-nib[data-nib="${want}"]`);
+    const nib = document.querySelector(`#reader-brush .brush-nib[data-nib="${want}"]`);
     nib?.click();
-    return document.querySelector('#reader-ink-row .ink-nib.on')?.dataset.nib ?? null;
+    return document.querySelector('#reader-brush .brush-nib.on')?.dataset.nib ?? null;
   }, tool);
   await wait(400);
   if (picked !== tool) {

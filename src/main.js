@@ -148,6 +148,10 @@ const tabs = initLiquidTabs({
       renderScoreTab().catch(() => {});
     }
     if (name === 'coach') renderCoach(document); // fresh habits every visit
+    // The metronome is a page, not a scroll — fitted by measuring, because the
+    // viewport height the media queries see is not the height a phone with a
+    // notch and a home bar actually gives it. See fitMetronomePage.
+    if (name === 'metronome') queueMicrotask(fitMetronomeSoon);
     // Deferred a tick, BOTH WAYS: the initial onShown fires while this module
     // is still initializing, and both of these read bindings declared further
     // down the file.
@@ -1922,10 +1926,10 @@ function setItemRow(set, scoreId, position) {
   // database, in tests/setlist-order.test.js.
   const rows = [];
   if (setMoveTo(position, -1, set.items.length) !== null) {
-    rows.push({ label: 'Earlier in the programme', onPick: () => move(-1) });
+    rows.push({ label: 'Earlier in the program', onPick: () => move(-1) });
   }
   if (setMoveTo(position, 1, set.items.length) !== null) {
-    rows.push({ label: 'Later in the programme', onPick: () => move(1) });
+    rows.push({ label: 'Later in the program', onPick: () => move(1) });
   }
   rows.push({
     label: 'Take it out',
@@ -2336,7 +2340,7 @@ async function refreshScoreTab() {
       ? 'No setlists yet. A setlist is the pieces of a recital or a lesson in the order'
         + ' they happen — make one from ⋯ on any piece.'
       : inSet
-        ? 'Nothing in this programme yet — add pieces from ⋯ on the Scores list.'
+        ? 'Nothing in this program yet — add pieces from ⋯ on the Scores list.'
         : scoreFilter && !inScore
           ? `Nothing here called “${scoreFilter}”.`
           : inScore
@@ -2448,6 +2452,41 @@ librarySearch?.addEventListener('input', () => {
 refreshLibrary();
 
 // --- metronome -------------------------------------------------------------
+
+// THE METRONOME IS A PAGE, NOT A SCROLL — and the page is measured, not assumed.
+//
+// The stylesheet shrinks the card under `@media (max-height: 780px)` and again
+// under 640, and `npm run metro:page` proves the page never scrolls at any
+// height a browser hands this app. The INSTALLED app is different: an iPhone
+// 15 reports 852px tall to the media query, and then the notch takes 59 of
+// them off the top and the home indicator 34 off the bottom — so the card
+// laid out for 852 sits in ~760 and the page scrolls by exactly the difference.
+// "the metronome tab on iphone lets you scroll up and down which is weird."
+//
+// So after the tab lands, the page is measured: if it would scroll, the same
+// shrink rules go on by CLASS (html.metro-tight, then html.metro-tighter —
+// twins of the two media blocks in index.html), until it does not. It runs
+// again on every resize and rotation, because both change the answer.
+function fitMetronomePage() {
+  const html = document.documentElement;
+  const pane = document.querySelector('#tab-metronome');
+  if (!pane?.classList.contains('active')) return;
+  html.classList.remove('metro-tight', 'metro-tighter');
+  const slack = () => html.scrollHeight - window.innerHeight;
+  if (slack() <= 0) return;
+  html.classList.add('metro-tight');
+  if (slack() <= 0) return;
+  html.classList.add('metro-tighter');
+}
+// Once now, and again when the tab's slide has finished and the fonts are in —
+// both change the card's height after the first measurement.
+function fitMetronomeSoon() {
+  requestAnimationFrame(fitMetronomePage);
+  setTimeout(fitMetronomePage, 450);
+}
+window.addEventListener('resize', fitMetronomeSoon);
+window.addEventListener('orientationchange', fitMetronomeSoon);
+document.fonts?.ready?.then(fitMetronomeSoon).catch(() => {});
 
 const bpmDisplay = document.querySelector('#bpm-display');
 const tempoNameEl = document.querySelector('#tempo-name');

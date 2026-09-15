@@ -130,7 +130,7 @@ function verdict(seen) {
     return ['Nothing touched the box. Tap the button and draw in it within four seconds.'];
   }
   lines.push(pen
-    ? 'Pencil: recognised as a pen.'
+    ? 'Pencil: recognized as a pen.'
     : `No pencil seen — this was drawn with ${[...seen.kinds].join(' and ') || 'nothing'}.`
       + ' Run it again with the Apple Pencil to answer the rest.');
   if (!pen) return lines;
