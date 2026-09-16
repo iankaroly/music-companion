@@ -90,11 +90,19 @@ function status(message, tone = '') {
   // a piece is open. Without the second one, a file refused from the Score
   // tab's own Load button was explained to an element on another screen —
   // which looked exactly like nothing happening.
+  //
+  // ONLY WHAT NEEDS SAYING. A plain summary — "Bach — 2 pages. Open it to
+  // read." — sat under the app's name on the Score tab and under the count-in
+  // on the Record tab for as long as a piece was selected, and it was asked
+  // to go: "get rid of the little text … that says the name of the recent
+  // score". What stays on the page is a problem (a tone) and work in progress
+  // (a message ending in "…"); everything else goes to the live region alone.
+  const worth = !!tone || /…$/.test(message);
   for (const id of ['score-hint', 'score-tab-hint']) {
     const hint = el(id);
     if (!hint) continue;
-    hint.textContent = message;
-    hint.dataset.tone = tone;
+    hint.textContent = worth ? message : '';
+    hint.dataset.tone = worth ? tone : '';
   }
   // And once more into the app's aria-live region, for a screen reader.
   const line = document.querySelector('#status');

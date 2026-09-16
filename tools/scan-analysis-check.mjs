@@ -83,11 +83,17 @@ const chosen = await page.evaluate(async (scoreId) => {
   await new Promise((r) => setTimeout(r, 600));
   return {
     waiting: reviewIsWaiting(),
-    status: document.querySelector('#score-hint')?.textContent?.slice(0, 140) ?? null,
+    // The summary is said to the live region only: the line under the count-in
+    // no longer carries a plain "name — N pages" for as long as a piece is
+    // chosen ("get rid of the little text … that says the name of the recent
+    // score"). Problems and work in progress still land on the page.
+    status: document.querySelector('#status')?.textContent?.slice(0, 140) ?? null,
+    onPage: document.querySelector('#score-hint')?.textContent?.trim() ?? '',
   };
 }, built.scoreId);
-check('choosing the scan says what it can and cannot do',
+check('choosing the scan says what it can and cannot do (to the live region)',
   typeof chosen.status === 'string' && chosen.status.length > 0, chosen.status);
+check('…and puts no summary line on the page', chosen.onPage === '', `on page: "${chosen.onPage}"`);
 
 // --- reopening the saved take, which is the thing being asked for ------------
 const reopened = await page.evaluate(async (recId) => {
@@ -238,8 +244,10 @@ check('a way to open the score is actually on screen, not merely in the document
   visibleWays.length > 0,
   `${reopened.ways.length} found, ${visibleWays.length} visible`
     + ` — ${reopened.ways.map((w) => `${w.where}:${w.shown ? 'shown' : 'hidden'}`).join(', ')}`);
-check('and it is on the same card as the line that tells you to press it',
-  reopened.hintShown === true && visibleWays.some((w) => w.where === 'record-card'),
+// The card carries the button on its own now: the line that used to name the
+// piece beside it is gone, on request, and the button says what it does.
+check('and it is on the Record tab\'s card, with no summary line beside it',
+  reopened.hintShown === false && visibleWays.some((w) => w.where === 'record-card'),
   `hint on screen=${reopened.hintShown}`);
 
 // --- and through to the page, which is where the take has to land ------------
