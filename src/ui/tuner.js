@@ -1,10 +1,7 @@
 import { freqToNote, midiToName } from '../analysis/note-utils.js';
-import { PitchCenterTracker } from '../analysis/vibrato.js';
+import { TunerLock } from '../analysis/tuner-lock.js';
 import { temperamentOffsetCents } from '../analysis/temperaments.js';
 import { intonationHue, intonationTolerance } from './chart-utils.js';
-
-const CONFIDENCE_FLOOR = 0.6;
-const RMS_FLOOR = 0.005;
 
 // Gauge geometry: pivot at (150,150) in a 300×170 viewBox; ±50 cents maps
 // to ±50° of needle sweep, like the hand of a clock.
@@ -100,7 +97,9 @@ export class Tuner {
     const gauge = buildGauge(root.querySelector('#gauge-svg'));
     this.needle = gauge.needle;
     this.arcs = gauge.arcs;
-    this.tracker = new PitchCenterTracker();
+    // What to show is decided there, not here: see tuner-lock.js for why a
+    // tuner that paints every reading bounces.
+    this.lock = new TunerLock();
     this.a4 = 440;
     this.transpose = 0;          // semitones added to DISPLAYED names (Bb instr = +2)
     this.temperament = 'equal';  // 'equal' | 'just' | 'pythagorean'
@@ -135,10 +134,8 @@ export class Tuner {
   }
 
   update(reading) {
-    const { frequency, confidence, rms } = reading;
-    const heard = frequency !== null && confidence >= CONFIDENCE_FLOOR && rms >= RMS_FLOOR;
-    if (!heard) {
-      this.tracker.reset();
+    const shown = this.lock.push(reading, this.a4);
+    if (!shown) {
       this.noteEl.textContent = '–';
       this.noteEl.dataset.state = 'idle';
       this.centsEl.textContent = 'listening';
@@ -149,8 +146,7 @@ export class Tuner {
       return;
     }
 
-    const midiFloat = 69 + 12 * Math.log2(frequency / this.a4);
-    const { centerMidiFloat, vibrato } = this.tracker.push({ midiFloat, time: reading.time });
+    const { centerMidiFloat, vibrato, frequency } = shown;
     const midi = Math.round(centerMidiFloat);
     // In a non-equal temperament, "in tune" sits offset from ET by the
     // degree's historical ratio — the needle centers on THAT target.
@@ -184,8 +180,8 @@ export class Tuner {
     //
     // The CENTS are left alone on purpose: a transposition renames by whole
     // semitones and does not move the reading's distance from the note.
-    const sec = reading.secondary;
-    if (sec?.frequency && sec.confidence >= CONFIDENCE_FLOOR) {
+    const sec = shown.secondary;
+    if (sec) {
       const s = freqToNote(sec.frequency, this.a4);
       this.secondEl.textContent = `double stop: + ${midiToName(s.midi + this.transpose)} ${
         s.cents >= 0 ? '+' : ''}${s.cents.toFixed(0)}¢`;

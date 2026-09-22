@@ -94,3 +94,99 @@ describe('the tuner names both notes of a double stop in one key', () => {
     expect(rig.nodes['#second'].textContent).toBe('');
   });
 });
+
+// THE DIAL HOLDS A NOTE. "It bugs back and forth and doesn't register the
+// pitch a lot of the time." Each case below is one of the shapes measured on
+// real playing through the tuner's own analyzer (tools/tuner-check.mjs), fed
+// at the analyzer's real rate: a reading every 512 samples at 48 kHz.
+describe('the tuner holds a note through what the analyzer gets wrong', () => {
+  const HOP = 512 / 48000;
+  const A3 = 220;
+  let rig;
+  beforeEach(() => { rig = stand(); });
+
+  // Feed a list of readings, one per hop, and record what the big note said
+  // after each.
+  function play(tuner, frames, from = 0) {
+    return frames.map((f, i) => {
+      tuner.update({ confidence: 0.95, rms: 0.05, secondary: null, ...f, time: from + i * HOP });
+      return rig.nodes['#note'].textContent;
+    });
+  }
+  const steady = (n, frequency = A3) => Array.from({ length: n }, () => ({ frequency }));
+
+  it('does not jump to a one-frame octave or phantom-fundamental error', () => {
+    const tuner = new Tuner(rig.root);
+    const shown = play(tuner, [
+      ...steady(20),
+      { frequency: A3 / 2 }, { frequency: A3 / 3 }, { frequency: A3 / 3 }, { frequency: A3 * 2 },
+      ...steady(20),
+    ]);
+    expect(shown.slice(10)).toEqual(Array(shown.length - 10).fill('A3'));
+  });
+
+  it('does not blank at a bow change where the confidence dips', () => {
+    const tuner = new Tuner(rig.root);
+    const shown = play(tuner, [
+      ...steady(20),
+      { frequency: null, confidence: 0.3 }, { frequency: null, confidence: 0.5 }, { frequency: A3, confidence: 0.5 },
+      ...steady(20),
+    ]);
+    expect(shown.slice(10).every((n) => n === 'A3')).toBe(true);
+  });
+
+  it('keeps the note when the analyzer calls a note change a double stop and swaps the halves', () => {
+    const tuner = new Tuner(rig.root);
+    const pair = (a, b) => ({ frequency: a, secondary: { frequency: b, confidence: 0.9 } });
+    const shown = play(tuner, [
+      ...steady(20, 698.5),
+      pair(784, 698.5), pair(784, 698.5), pair(698.5, 784), pair(698.5, 784), pair(784, 698.5),
+      ...steady(10, 698.5),
+    ]);
+    expect(shown.slice(10).every((n) => n === 'F5')).toBe(true);
+  });
+
+  it('shows a soft note a phone hears quietly', () => {
+    const tuner = new Tuner(rig.root);
+    const shown = play(tuner, steady(30).map((f) => ({ ...f, rms: 0.002 })));
+    expect(shown.at(-1)).toBe('A3');
+  });
+
+  it('moves to a new note once it has really been played, within a tenth of a second', () => {
+    const tuner = new Tuner(rig.root);
+    const shown = play(tuner, [...steady(20), ...steady(20, 246.94)]);
+    const at = shown.indexOf('B3');
+    expect(at).toBeGreaterThan(20);
+    expect((at - 20) * HOP).toBeLessThan(0.1);
+  });
+
+  it('goes back to listening once the playing stops, and at once when told to stop', () => {
+    const tuner = new Tuner(rig.root);
+    const shown = play(tuner, [...steady(20), ...Array(60).fill({ frequency: null, confidence: 0, rms: 0.0005 })]);
+    expect(shown.at(-1)).toBe('–');
+    play(tuner, steady(20), 10);
+    expect(rig.nodes['#note'].textContent).toBe('A3');
+    tuner.update({ frequency: null, confidence: 0, rms: 0 });
+    expect(rig.nodes['#note'].textContent).toBe('–');
+  });
+});
+
+// A new capture builds a new analyzer, whose readings start from zero again.
+// The strip over the music keeps one lock for the life of the page, so the
+// lock has to notice time going backwards or it holds the last take's note.
+describe('a new capture starts the lock afresh', () => {
+  it('does not carry the last session’s note or frames into the next', async () => {
+    const { TunerLock } = await import('../src/analysis/tuner-lock.js');
+    const lock = new TunerLock();
+    const HOP = 512 / 48000;
+    for (let i = 0; i < 30; i++) lock.push({ frequency: 220, confidence: 0.95, rms: 0.05, time: 100 + i * HOP });
+    let out;
+    for (let i = 0; i < 60; i++) out = lock.push({ frequency: null, confidence: 0, rms: 0.0005, time: 0.04 + i * HOP });
+    expect(out).toBeNull();
+    // 10 cents sharp now, and the reading must be of the new frames alone.
+    const sharp = 220 * 2 ** (10 / 1200);
+    for (let i = 0; i < 30; i++) lock.push({ frequency: 220, confidence: 0.95, rms: 0.05, time: 200 + i * HOP });
+    for (let i = 0; i < 30; i++) out = lock.push({ frequency: sharp, confidence: 0.95, rms: 0.05, time: 0.04 + i * HOP });
+    expect((out.centerMidiFloat - 57) * 100).toBeCloseTo(10, 1);
+  });
+});

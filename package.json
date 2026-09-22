@@ -88,6 +88,8 @@
     "scan:light": "node tools/lighting-check.mjs",
     "score:open": "node tools/pdf-open-check.mjs",
     "audio:fast": "node tools/fast-check.mjs",
+    "tuner:check": "node tools/tuner-check.mjs",
+    "tuner:mic": "node tools/tuner-mic-check.mjs",
     "scan:once": "node tools/scan-once-check.mjs",
     "scan:contrast": "node tools/contrast-check.mjs",
     "reader:top": "node tools/reader-top-check.mjs",

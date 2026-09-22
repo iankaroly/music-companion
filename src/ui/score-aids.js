@@ -16,7 +16,8 @@
 // into the recording machinery itself.
 
 import { Metronome, tempoName } from '../audio/metronome.js';
-import { freqToNote, midiToName } from '../analysis/note-utils.js';
+import { midiToName } from '../analysis/note-utils.js';
+import { TunerLock } from '../analysis/tuner-lock.js';
 import { intonationTolerance } from './chart-utils.js';
 
 const CLICK_KEY = 'readerClick';
@@ -398,6 +399,7 @@ export function showAids(which) {
 
 let heardAnything = false;
 let silence = null;
+const lock = new TunerLock();
 
 export function hideAids() {
   if (!strip) return;
@@ -422,21 +424,38 @@ export function feedReading(reading) {
     strip.__parts.listen.hidden = true;
   }
   const { noteOut, centsOut, needle } = strip.__parts;
-  const heard = reading?.frequency && reading.confidence >= 0.6 && reading.rms >= 0.005;
-  if (!heard) {
+  // Through the same lock as the tuner tab, so the strip holds a note through a
+  // bow change instead of blanking, and does not jump to the octave-down frame
+  // at every attack. It used to paint each reading raw — and at A4 = 440
+  // whatever the player had calibrated to, so the strip and the tab could read
+  // the same note a few cents apart.
+  const shown = lock.push(reading, calibratedA4());
+  if (!shown) {
     noteOut.textContent = '—';
     centsOut.textContent = 'listening…';
     needle.style.setProperty('--at', '50%');
     needle.dataset.tone = '';
     return;
   }
-  const { midi, cents } = freqToNote(reading.frequency);
+  const midi = Math.round(shown.centerMidiFloat);
+  const cents = (shown.centerMidiFloat - midi) * 100;
   noteOut.textContent = midiToName(midi);
   const off = Math.round(cents);
   centsOut.textContent = `${off > 0 ? '+' : ''}${off}`;
   needle.style.setProperty('--at', `${Math.max(0, Math.min(100, 50 + cents))}%`);
   needle.dataset.tone = Math.abs(cents) <= intonationTolerance() ? 'good'
     : (cents > 0 ? 'sharp' : 'flat');
+}
+
+
+// The same calibration main.js writes on every keystroke of the A4 field.
+function calibratedA4() {
+  try {
+    const v = Number(globalThis.localStorage?.getItem('a4'));
+    return Number.isFinite(v) && v >= 400 && v <= 450 ? v : 440;
+  } catch {
+    return 440;
+  }
 }
 
 // Everything let go of: the reader is closing.
