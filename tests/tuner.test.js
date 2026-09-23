@@ -190,3 +190,33 @@ describe('a new capture starts the lock afresh', () => {
     expect((out.centerMidiFloat - 57) * 100).toBeCloseTo(10, 1);
   });
 });
+
+// A VOICE THAT SLIDES. The dial used to average every note over 0.35s, which
+// is right for vibrato and wrong for a hum that moves: a real recording that
+// had slid from B3 to C4 still read "B3 +45" a quarter of a second later.
+describe('the tuner follows a voice that glides', () => {
+  it('names the new note within a tenth of a second of the pitch crossing the halfway line', () => {
+    const rig = stand();
+    const tuner = new Tuner(rig.root);
+    const HOP = 512 / 48000;
+    const B3 = 59;
+    let t = 0;
+    const sing = (midi) => {
+      tuner.update({ frequency: 440 * 2 ** ((midi - 69) / 12), confidence: 0.95, rms: 0.05, time: t, secondary: null });
+      t += HOP;
+      return rig.nodes['#note'].textContent;
+    };
+    for (let i = 0; i < 30; i++) sing(B3);
+    // 150ms glide up a semitone, then hold.
+    const glide = Math.round(0.15 / HOP);
+    let crossed = null;
+    let named = null;
+    for (let i = 1; i <= glide + 30; i++) {
+      const m = B3 + Math.min(1, i / glide);
+      if (crossed === null && m - B3 > 0.5) crossed = t;
+      if (sing(m) === 'C4' && named === null) named = t;
+    }
+    expect(named).not.toBeNull();
+    expect(named - crossed).toBeLessThan(0.1);
+  });
+});

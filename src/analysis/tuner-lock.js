@@ -68,6 +68,7 @@ const NEAR_S = 0.02;
 // and put the flashes back on the violin loop.
 const SHORT_S = 0.09;
 const HYSTERESIS = 0.12;       // semitones past the halfway line
+const BLEND_S = 0.15;             // how long the move between the two averages takes
 const HOLD_S = 0.35;
 const SECOND_SHOW_S = 0.04;
 const SECOND_HOLD_S = 0.2;
@@ -86,6 +87,9 @@ export class TunerLock {
     this.lastGood = -Infinity;
     this.candidate = null;     // { midiFloat, since, frames: [...] }
     this.recent = [];          // the last SHORT_S of frames on the dial's line
+    this.vibWeight = 0;        // 0 = follow the last SHORT_S, 1 = the vibrato centre
+    this.vibratoSeen = null;
+    this.lastFed = undefined;
     this.second = null;        // { frequency, midiFloat, since, last, shown }
     this.named = null;         // the integer note the dial is showing
     this.last = null;
@@ -150,13 +154,27 @@ export class TunerLock {
     const { vibrato } = this.tracker.push({ midiFloat, time });
     this.recent.push({ midiFloat, time });
     while (this.recent[0].time < time - SHORT_S) this.recent.shift();
-    const centerMidiFloat = vibrato
-      ? this.tracker.center()
-      : this.recent.reduce((s, f) => s + f.midiFloat, 0) / this.recent.length;
+    const short = this.recent.reduce((s, f) => s + f.midiFloat, 0) / this.recent.length;
+    // BLENDED, not switched. Whether there is vibrato is decided afresh on
+    // every frame and the answer flickers at the edges of a note, and swapping
+    // the 90ms average for the 0.35s one in a single frame threw the needle
+    // tens of cents with the name unchanged: MEASURED, same-name jumps of over
+    // 15¢ went from 0.2 a second to 3.0 on the singing recordings when the two
+    // were switched. The weight moves a frame's worth at a time, over BLEND_S.
+    const dt = this.lastFed === undefined ? 0 : Math.max(0, time - this.lastFed);
+    this.lastFed = time;
+    const step = dt / BLEND_S;
+    this.vibWeight = vibrato
+      ? Math.min(1, (this.vibWeight ?? 0) + step)
+      : Math.max(0, (this.vibWeight ?? 0) - step);
+    if (vibrato) this.vibratoSeen = vibrato;
+    const centerMidiFloat = this.vibWeight * this.tracker.center() + (1 - this.vibWeight) * short;
     if (this.named === null || Math.abs(centerMidiFloat - this.named) > 0.5 + HYSTERESIS) {
       this.named = Math.round(centerMidiFloat);
     }
-    this.last = { centerMidiFloat, vibrato, frequency };
+    // The vibrato line under the cents says what the weight says, so it does not
+    // blink on and off either.
+    this.last = { centerMidiFloat, vibrato: this.vibWeight > 0.5 ? this.vibratoSeen : null, frequency };
   }
 
   consider(midiFloat, frequency, time) {
@@ -176,6 +194,8 @@ export class TunerLock {
     this.tracker.reset();
     this.recent = [];
     this.named = null;
+    this.vibWeight = 0;
+    this.lastFed = undefined;
     for (const f of now.frames) this.feed(f.midiFloat, f.frequency, f.time);
     this.locked = true;
     this.lastGood = time;
