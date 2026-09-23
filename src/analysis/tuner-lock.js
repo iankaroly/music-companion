@@ -4,26 +4,41 @@ import { PitchCenterTracker } from './vibrato.js';
 //
 // "It bugs back and forth and doesn't register the pitch a lot of the time."
 // MEASURED on real playing (Apple's violin and trumpet loops through the
-// tuner's own Analyzer, `node tools/tuner-check.mjs`): the reading at a bow
-// change or a change of note is one to four frames of nonsense — an octave
-// down, a phantom common fundamental under two notes (235 Hz under 702 and
-// 791), a "double stop" whose two halves swap places every other frame — and
-// an attack whose confidence dips under the floor for a frame or two. The dial
-// used to paint every one of those, and blank itself to "listening" on every
-// dip: about three visible jumps a second on a player who was doing nothing
-// but play.
+// tuner's own Analyzer, `npm run tuner:check`): the reading at a bow change or
+// a change of note is one to four frames of nonsense — an octave down, a
+// phantom common fundamental under two notes (235 Hz under 702 and 791), a
+// "double stop" whose two halves swap places every other frame — and an attack
+// whose confidence dips under the floor for a frame or two. The dial used to
+// paint every one of those, and blank itself to "listening" on every dip:
+// about three visible jumps a second on a player who was doing nothing but
+// play.
 //
-// So a note is LOCKED, the way a hardware tuner locks:
+// So:
 //
-//   - a reading that agrees with the locked note (within ACCEPT semitones)
-//     keeps it, and is allowed a lower confidence than it takes to find one;
-//   - a reading that disagrees is a CANDIDATE, and only replaces the note once
-//     it has said the same thing for SWITCH_S — longer than any of the glitches
-//     measured, short enough that a real change of note lands at once;
-//   - a double stop's second voice counts: if the analyzer hands the note we
-//     are locked on back as the SECONDARY, that is the same note still sounding;
+//   - a reading far from the pitch on the dial (more than WIDE semitones — an
+//     octave, a fifth, a phantom) is a CANDIDATE, and only replaces it once it
+//     has said the same thing for SWITCH_S: longer than any glitch measured,
+//     short enough that a real leap lands at once;
+//   - a double stop's second voice counts: if the analyzer hands the note on
+//     the dial back as the SECONDARY, that is the same note still sounding;
 //   - silence, or a reading nobody believes, HOLDS the last note for HOLD_S
-//     before the dial goes back to listening, so a bow change is not a blank.
+//     before the dial goes back to listening, so a bow change or a consonant
+//     is not a blank.
+//
+// And WHERE the pitch is depends on whether it is moving on purpose:
+//
+//   - with VIBRATO, the centre of the last ~0.35s — a listener hears the middle
+//     of the swing, and a needle following the swing reads as out of tune;
+//   - WITHOUT it, the last SHORT_S. A voice slides and drifts all the time, and
+//     a 0.35s average of a hum that had moved from B3 to C4 still said "B3
+//     +45" a quarter of a second later. MEASURED against pYIN on a real
+//     recording of somebody humming a tune: see the commit that brought this
+//     in for the before and after.
+//
+// The NAME changes when the pitch is past the halfway line by HYSTERESIS, so a
+// note sung right on the boundary between two names does not flicker between
+// them. Cents are measured from the name shown, so they can read a little past
+// ±50 in that band — which is the truth about where the note is.
 //
 // Pure: readings in, a display state out. Both tuners — the tab and the strip
 // over a page of music — read the same lock, so they cannot disagree.
@@ -35,17 +50,24 @@ const KEEP_CONFIDENCE = 0.45;  // to go on believing the one already shown
 // sat on "listening" through the whole note. Confidence and the switch delay,
 // not loudness, are what keep room noise off the dial.
 const RMS_FLOOR = 0.0012;
-const ACCEPT = 0.6;            // semitones: past this, a frame is not ON the note
-// …but it can still be the same note. A singer's vibrato swings ±60-100¢ and
-// a gate at ±0.6 clipped its peaks: MEASURED, ±60¢ read 15-22¢ off-centre, and
-// ±100¢ flipped between neighbouring semitones 28 times in three seconds. So
-// anything within WIDE is fed to the average whole, and a move to the NEXT
-// semitone has to sit past the halfway line, on one side, for STEP_S — longer
-// than a vibrato spends out there (about 55ms of each cycle at ±100¢ and
-// 5.5 Hz) and still under a tenth of a second for a real half step.
+// Within this of the pitch on the dial, a reading is the same line of singing
+// or playing — vibrato up to ±100¢, a slide, a scoop. Past it, it is a leap or
+// a glitch, and has to prove itself.
 const WIDE = 1.5;
-const STEP_S = 0.09;
-const SWITCH_S = 0.06;         // a bigger jump: a new note, or a glitch
+const SWITCH_S = 0.06;
+// …unless it is NEAR. Every glitch measured lands an octave or more away (the
+// octave below, a third of the pitch, a phantom under two notes), and a sung
+// or played step rarely goes past a fourth. Holding a step to the full
+// SWITCH_S cost a hummed tune a third of every note: MEASURED against pYIN on
+// five real recordings of solo singing, the note on the dial was the note being
+// sung at that instant 85% of the time with 60ms, 89% with 20ms here — and the
+// violin and trumpet loops still show no flashes.
+const NEAR = 6.5;
+const NEAR_S = 0.02;
+// 90ms and not shorter: 60ms bought another point and a half on the singers
+// and put the flashes back on the violin loop.
+const SHORT_S = 0.09;
+const HYSTERESIS = 0.12;       // semitones past the halfway line
 const HOLD_S = 0.35;
 const SECOND_SHOW_S = 0.04;
 const SECOND_HOLD_S = 0.2;
@@ -63,8 +85,9 @@ export class TunerLock {
     this.locked = false;
     this.lastGood = -Infinity;
     this.candidate = null;     // { midiFloat, since, frames: [...] }
-    this.drift = null;         // the same, for a half step off the locked note
+    this.recent = [];          // the last SHORT_S of frames on the dial's line
     this.second = null;        // { frequency, midiFloat, since, last, shown }
+    this.named = null;         // the integer note the dial is showing
     this.last = null;
     this.seen = undefined;
   }
@@ -73,7 +96,8 @@ export class TunerLock {
   // time is the app saying "stop" rather than a frame of audio.
   //
   // Returns null when there is no note to show, otherwise
-  // { centerMidiFloat, vibrato, frequency, held, secondary }.
+  // { midi, centerMidiFloat, vibrato, frequency, held, secondary }, where
+  // `midi` is the note to NAME and centerMidiFloat - midi is the cents.
   push(reading, a4 = 440) {
     if (!reading || !Number.isFinite(reading.time)) {
       this.reset();
@@ -86,6 +110,7 @@ export class TunerLock {
     // so the hold never ran out) and averaged its old frames into the new one.
     if (this.seen !== undefined && time < this.seen) this.reset();
     this.seen = time;
+
     const loud = (reading.rms ?? 0) >= RMS_FLOOR;
     const voices = [];
     if (loud && reading.frequency) voices.push({ frequency: reading.frequency, confidence: reading.confidence });
@@ -94,13 +119,13 @@ export class TunerLock {
 
     let used = null;
     if (this.locked) {
-      const center = this.tracker.center();
+      const center = this.last.centerMidiFloat;
       used = voices.find((v) => v.confidence >= KEEP_CONFIDENCE
         && Math.abs(toMidi(v.frequency, a4) - center) <= WIDE);
       if (used) {
         this.lastGood = time;
         this.candidate = null;
-        this.stepped(toMidi(used.frequency, a4), used.frequency, time, center);
+        this.feed(toMidi(used.frequency, a4), used.frequency, time);
       }
     }
 
@@ -115,65 +140,46 @@ export class TunerLock {
 
     return {
       ...this.last,
+      midi: this.named,
       held: this.lastGood < time,
       secondary: this.secondVoice(reading, used, time),
     };
   }
 
-  // A half step up or down, told apart from vibrato by staying there.
-  //
-  // The frames past the halfway line are HELD BACK from the average while the
-  // question is open. Fed straight in, they dragged the average toward the new
-  // note until the new note was no longer past the halfway line from it — the
-  // run cancelled itself, and a quick half step (E to F at six notes a second)
-  // was never named at all. If the pitch comes back, they were vibrato peaks and
-  // go into the average after all; if it stays, they ARE the new note.
-  stepped(midiFloat, frequency, time, center) {
-    const off = midiFloat - center;
-    const d = this.drift;
-    if (Math.abs(off) <= ACCEPT) {
-      this.settle();
-      this.feed(midiFloat, frequency, time);
-      return;
-    }
-    if (d && Math.sign(off) !== d.side) this.settle();
-    if (!this.drift) this.drift = { side: Math.sign(off), since: time, frames: [] };
-    this.drift.frames.push({ midiFloat, time, frequency });
-    if (time - this.drift.since < STEP_S) return;
-    const frames = this.drift.frames;
-    this.drift = null;
-    this.tracker.reset();
-    for (const f of frames) this.feed(f.midiFloat, f.frequency, f.time);
-  }
-
-  // Held-back frames that turned out to be the same note after all.
-  settle() {
-    for (const f of this.drift?.frames ?? []) this.feed(f.midiFloat, f.frequency, f.time);
-    this.drift = null;
-  }
-
   feed(midiFloat, frequency, time) {
-    this.last = { ...this.tracker.push({ midiFloat, time }), frequency };
+    const { vibrato } = this.tracker.push({ midiFloat, time });
+    this.recent.push({ midiFloat, time });
+    while (this.recent[0].time < time - SHORT_S) this.recent.shift();
+    const centerMidiFloat = vibrato
+      ? this.tracker.center()
+      : this.recent.reduce((s, f) => s + f.midiFloat, 0) / this.recent.length;
+    if (this.named === null || Math.abs(centerMidiFloat - this.named) > 0.5 + HYSTERESIS) {
+      this.named = Math.round(centerMidiFloat);
+    }
+    this.last = { centerMidiFloat, vibrato, frequency };
   }
 
   consider(midiFloat, frequency, time) {
     const c = this.candidate;
-    if (c && Math.abs(midiFloat - c.midiFloat) <= ACCEPT) {
+    if (c && Math.abs(midiFloat - c.midiFloat) <= WIDE) {
       c.frames.push({ midiFloat, time, frequency });
       c.midiFloat = c.frames.reduce((s, f) => s + f.midiFloat, 0) / c.frames.length;
     } else {
       this.candidate = { midiFloat, since: time, frames: [{ midiFloat, time, frequency }] };
     }
     const now = this.candidate;
-    if (time - now.since < SWITCH_S) return;
+    const from = this.locked ? this.last.centerMidiFloat : null;
+    const near = from !== null && Math.abs(now.midiFloat - from) <= NEAR;
+    if (time - now.since < (near ? NEAR_S : SWITCH_S)) return;
     // Taken: the new note starts from what the candidate heard, not from one
     // frame, so its first cents reading is already an average.
     this.tracker.reset();
+    this.recent = [];
+    this.named = null;
     for (const f of now.frames) this.feed(f.midiFloat, f.frequency, f.time);
     this.locked = true;
     this.lastGood = time;
     this.candidate = null;
-    this.drift = null;
     this.second = null;
   }
 
@@ -187,12 +193,12 @@ export class TunerLock {
     let other = null;
     if (sec?.frequency && sec.confidence >= FIND_CONFIDENCE && (reading.rms ?? 0) >= RMS_FLOOR) {
       other = used?.frequency === sec.frequency ? reading.frequency : sec.frequency;
-      if (other && Math.abs(toMidi(other, 440) - toMidi(this.last.frequency, 440)) <= ACCEPT) other = null;
+      if (other && Math.abs(toMidi(other, 440) - toMidi(this.last.frequency, 440)) <= 0.6) other = null;
     }
     const s = this.second;
     if (other) {
       const m = toMidi(other, 440);
-      if (s && Math.abs(m - s.midiFloat) <= ACCEPT) {
+      if (s && Math.abs(m - s.midiFloat) <= 0.6) {
         s.frequency = other;
         s.midiFloat = m;
         s.last = time;

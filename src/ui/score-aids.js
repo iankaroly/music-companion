@@ -437,7 +437,7 @@ export function feedReading(reading) {
     needle.dataset.tone = '';
     return;
   }
-  const midi = Math.round(shown.centerMidiFloat);
+  const { midi } = shown;
   const cents = (shown.centerMidiFloat - midi) * 100;
   noteOut.textContent = midiToName(midi);
   const off = Math.round(cents);

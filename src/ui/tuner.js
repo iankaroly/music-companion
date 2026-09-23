@@ -146,8 +146,9 @@ export class Tuner {
       return;
     }
 
-    const { centerMidiFloat, vibrato, frequency } = shown;
-    const midi = Math.round(centerMidiFloat);
+    // Named by the lock, not rounded here: the lock holds a name a little past
+    // the halfway line so a note sung on the boundary does not flicker.
+    const { centerMidiFloat, vibrato, frequency, midi } = shown;
     // In a non-equal temperament, "in tune" sits offset from ET by the
     // degree's historical ratio — the needle centers on THAT target.
     const cents = (centerMidiFloat - midi) * 100
