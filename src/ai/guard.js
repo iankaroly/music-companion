@@ -25,6 +25,23 @@
 //     from pitch; a note called flat that the facts call sharp)
 //   - a confident answer about something the facts say was not measured
 //
+// A second verifier, working against the replies the real on-device model gave
+// (tools/ai-model/results), found what the red team above had not:
+//
+//   - "12.8¢ further" passing when the truth was 12.8¢ closer (a pattern that
+//     needed a letter before "further"), and the axis check giving up entirely
+//     when the facts held both directions, which is where swapped numbers live
+//     -> a direction word is now tied to the number beside it (8b)
+//   - a taste verdict with no digit passing on 10 of 13 questions, because the
+//     taste check ran only when the shaping caveat was in the facts -> it runs
+//     on every reply, and praise words ("great job", "went well") joined it
+//   - "twelve cents closer" built from the 12 that belongs to the vibrato
+//     -> a number must sit in a sentence about what the reply uses it for (8c)
+//   - "Yes, your vibrato is 27¢ wide" to "is my vibrato too wide", and an
+//     instrument, voice or key repeated from the question (violin, cello,
+//     soprano, "D Major") as if it had been measured (9b, 9c)
+//   - "Not measured." where there was a measurement (9d)
+//
 // What it cannot do is check that a sentence that is made only of true words
 // and true numbers means something true. "Your 9¢ was the 22¢ take" passes. The
 // model is told to use short sentences and the facts are shown under every
@@ -227,13 +244,24 @@ function compatible(reply, fact) {
 // listed in the test file.
 const AXES = {
   closeness: {
-    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|(?<!(?:room|scope|need|areas?) for )improvement|more accurate|more in tune|more consistent|more precise|more secure|tidier|stronger|progressed|gained)\b(?! look)/,
-    neg: /\b((?<=\w\s)further|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less precise|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|slipped|drifted)\b/,
+    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|(?<!(?:room|scope|need|areas?) for )improvement|more accurate|more in tune|more notes arrive in tune|less off(?: pitch)?|more consistent|more secure|tidier|stronger|progressed|gained)\b(?! look)/,
+    // "further" is the one word here that is also a discourse word ("further
+    // work", "for further questions", "Further, ..."), so it is kept out of those
+    // uses by what follows and precedes it. It used to be kept out by requiring a
+    // WORD character before it, `(?<=\w\s)`, which also kept it out after "¢",
+    // "%" and ")": "The Oct 22 take is 12.8¢ further from pitch" was not read as
+    // a direction at all, in a reply (so the flip of a true "closer" passed) or in
+    // the facts (so a true "further" was rejected as a change nobody measured).
+    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted)\b/,
   },
   steadiness: { pos: /\b(steadier|more steady|more stable)\b/, neg: /\b(shakier|less steady|less stable|wobblier|unsteadier)\b/ },
-  timing: { pos: /\b(tighter)\b/, neg: /\b(looser|sloppier)\b/ },
+  timing: { pos: /\b(tighter)\b/, neg: /\b(looser|sloppier|less tight)\b/ },
+  // "more precise" is said of pitch, of timing and of steadiness alike, so it has
+  // no axis of its own in the facts: it is held against whichever of those the
+  // facts do state (see PRECISION_OF).
+  precision: { pos: /\b(more precise|more exact)\b/, neg: /\b(less precise|less exact)\b/ },
   speed: { pos: /\b(faster|quicker|speeds? up|speeding up|rush(?:es|ed|ing)?)\b/, neg: /\b(slower|slows? down|slowing down|drag(?:s|ged|ging)?)\b/ },
-  width: { pos: /\b(wider|broader)\b/, neg: /\b(narrower)\b/ },
+  width: { pos: /\b(wider|broader|more wide)\b/, neg: /\b(narrower|less wide)\b/ },
   brightness: { pos: /\b(brighter)\b/, neg: /\b(darker|duller)\b/ },
   loudness: { pos: /\b(louder)\b/, neg: /\b(quieter|softer)\b/ },
   clarity: { pos: /\b(clearer|purer|cleaner)\b/, neg: /\b(rougher|breathier|muddier)\b/ },
@@ -251,7 +279,8 @@ const ABOUT_ERROR = /\b(error|off pitch|from pitch|cents off|out of tune)\b/;
 const NEGATORS = /\b(not|no|never|hardly|without|isn't|wasn't|didn't|doesn't|don't|aren't|weren't|cannot|can't)\b/;
 
 function leanOf(text, { negation }) {
-  const t = text.toLowerCase();
+  // "Further, ..." at the start of a sentence is a connective, not a direction
+  const t = text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1 ');
   const out = {};
   for (const [axis, { pos, neg }] of Object.entries(AXES)) {
     let p = false;
@@ -262,7 +291,7 @@ function leanOf(text, { negation }) {
         let flip = false;
         if (negation) {
           const before = t.slice(Math.max(0, m.index - 22), m.index);
-          flip = NEGATORS.test(before) && !/[.;!?]/.test(before.split(NEGATORS).pop());
+          flip = NEGATORS.test(before) && !/[.;!?](?!\d)/.test(before.split(NEGATORS).pop());
         }
         if (isPos !== flip) p = true; else n = true;
       }
@@ -311,6 +340,130 @@ function noteLeans(text) {
   return map;
 }
 
+// ---- which direction word belongs to which number ------------------------------
+
+// leanOf asks whether the facts lean one way on an axis AT ALL, and gives up
+// when they lean both ways ("9 notes landed closer, 1 note landed further"),
+// which is exactly where a reply can swap the two numbers. This asks the finer
+// question: the reply puts a direction word next to a number, the facts put the
+// same number next to a word on the same axis, and the two are on opposite
+// sides. "1 note landed closer" against "1 note landed further" is caught here
+// and nowhere else.
+//
+// A word belongs to the number nearest it inside one clause (a clause ends at
+// a full stop, colon, semicolon, comma, dash, or "and / but / so / which"); a
+// clause with a word and no number of its own hands the word to the last number
+// before it ("78% now — more notes arrive in tune") or, failing that, the first
+// number after it ("fewer: 78% of notes arrive in tune"). When the facts put
+// no word next to the number at all, nothing is said: the number is then
+// checked only by the rules above, because "the vibrato is 12¢ wide" and "12¢
+// closer" being the same 12 is a different fault (see topicsOfNumber).
+const AMOUNT = { pos: /\bmore\b/, neg: /\b(?:fewer|less)\b/ };
+// "more precise" is said of pitch, timing and steadiness alike
+const PRECISION_OF = ['closeness', 'timing', 'steadiness'];
+
+// -> [[start, end, opensSentence]]; a clause that opens a sentence (after a stop
+// or a colon) has no "previous clause" to lend it a number.
+function clauseSpans(lower) {
+  const spans = [];
+  let from = 0;
+  let opens = true;
+  let hard = true;
+  for (const m of lower.matchAll(/[.!?;:](?=\s|$)|\n|\s[—–-]\s|,(?!\d)|\s(?:and|but|while|whereas|so|which)\s/g)) {
+    spans.push([from, m.index, opens, hard]);
+    from = m.index + m[0].length;
+    opens = /^[.!?;:\n]/.test(m[0]);
+    hard = /^[.!?;\n]/.test(m[0]);
+  }
+  spans.push([from, lower.length, opens, hard]);
+  return spans.filter(([a, b]) => b > a);
+}
+
+// -> [{ v, cls, hits: [{ axis, pos }] }] for every number in a read() result
+function numbersWithDirections(R, { negation }) {
+  const lower = R.text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1        ');
+  const spans = clauseSpans(lower);
+  const out = R.tokens.map((t) => ({ ...t, hits: [] }));
+  const perClause = spans.map(([s, e, opens, hard]) => {
+    const seg = lower.slice(s, e);
+    const taken = [];
+    const hits = [];
+    const scan = (axis, re, isPos) => {
+      for (const m of seg.matchAll(new RegExp(re.source, 'g'))) {
+        const a = m.index;
+        const b = a + m[0].length;
+        if (taken.some(([x, y]) => a < y && b > x)) continue;
+        taken.push([a, b]);
+        let flip = false;
+        if (negation) {
+          const before = seg.slice(Math.max(0, a - 22), a);
+          flip = NEGATORS.test(before) && !/[.;!?](?!\d)/.test(before.split(NEGATORS).pop());
+        }
+        hits.push({ axis, pos: isPos !== flip, at: s + a, end: s + b });
+        // "more notes arrive in tune" is also a MORE, so a reply that says
+        // "fewer" next to the same number is on the other side of it ("less
+        // off pitch" is not: a lower error is the good side)
+        if (axis !== 'amount' && /^(more|less|fewer) /.test(m[0]) && !/ off\b/.test(m[0])) hits.push({ axis: 'amount', pos: m[0].startsWith('more') !== flip, at: s + a, end: s + b });
+      }
+    };
+    // the named axes first, so "more accurate" is closeness and not "more"
+    for (const [axis, { pos, neg }] of Object.entries(AXES)) { scan(axis, pos, true); scan(axis, neg, false); }
+    scan('amount', AMOUNT.pos, true);
+    scan('amount', AMOUNT.neg, false);
+    return { s, e, opens, hard, hits, tokens: out.filter((t) => t.index >= s && t.index < e) };
+  });
+  const give = (hit, tokens) => {
+    const nearest = [...tokens].sort((x, y) => {
+      const dx = x.end <= hit.at ? hit.at - x.end : x.index - hit.end;
+      const dy = y.end <= hit.at ? hit.at - y.end : y.index - hit.end;
+      return dx - dy || (x.end <= hit.at ? -1 : 1);
+    })[0];
+    nearest.hits.push({ axis: hit.axis, pos: hit.pos });
+  };
+  perClause.forEach((c, i) => {
+    if (c.hits.length === 0) return;
+    if (c.tokens.length > 0) { for (const h of c.hits) give(h, c.tokens); return; }
+    // a word with no number in its own clause: the number before it when that
+    // one has no word yet ("78% now - more notes arrive in tune"), else the
+    // number after it ("A3 flat, by 12 cents")
+    const prev = c.opens ? null : perClause[i - 1];
+    const next = perClause[i + 1];
+    const last = prev?.tokens.at(-1);
+    const target = last && last.hits.length === 0 ? last : next && !next.hard && next.tokens.length && next.tokens[0].hits.length === 0 ? next.tokens[0] : null;
+    if (target) for (const h of c.hits) target.hits.push({ axis: h.axis, pos: h.pos });
+  });
+  return out;
+}
+
+// numbers in the facts that a number in the reply could be quoting
+const quotes = (reply, fact) => near(reply.v, fact.v) && compatible(reply.cls, fact.cls);
+
+// ---- what a number is about --------------------------------------------------------
+
+// "twelve cents closer" was built from the 12 in "...at about 5.4 Hz and 12¢
+// wide": the number is in the facts, with a unit the reply also uses, and it is
+// the vibrato's. The number rules cannot see that, because they ask only
+// whether the digit (and its unit) exists somewhere. So a number that sits in a
+// clause about one thing in the reply must sit in a sentence about the same
+// thing in the facts.
+//
+// What it cannot see, and the test file says so: two numbers about the SAME
+// thing in the same sentence swapped ("9¢ now against 22¢ before" read back as
+// "22¢ now"), a number in the right sentence of the wrong TAKE, and a clause
+// with none of these words in it (nothing is said about it).
+const NUMBER_TOPICS = {
+  pitch: /\b(pitch|in tune|out of tune|sharp|flat|closer|nearer|further|farther|accura\w*|error|off|leans?|runs?)\b/,
+  vibrato: /\b(vibrato|wide|width|wider|narrow\w*|hz|hertz|speed|rate)\b/,
+  steadiness: /\b(stead\w*|wander\w*|wobbl\w*|shak\w*|stable)\b/,
+  arrival: /\b(settle\w*|arriv\w*|land\w*)\b/,
+  loudness: /\b(loud\w*|quiet\w*|soft\w*|dynamics?|volume|db|decibels?)\b/,
+  tempo: /\b(tempo|pulse|beats?|bpm|rush\w*|drag\w*|even\w*|timing|tight\w*|loose\w*|rhythm)\b/,
+  tone: /\b(clarity|bright\w*|dark\w*|breathy|rough|harmonics?|tone)\b/,
+  shaping: /\b(phras\w*|articulat\w*|legato|detach\w*|rubato|shap\w*|contrast\w*|swell\w*|repeat\w*|alike)\b/,
+  practice: /\b(streak|practis\w*|practic\w*|days?|week)\b/,
+};
+const topicsIn = (s) => new Set(Object.entries(NUMBER_TOPICS).filter(([, re]) => re.test(s)).map(([k]) => k));
+
 // ---- things the facts say were not measured ------------------------------------
 
 const HEDGE = /\bno [\w ]{0,30}(measurement|data|reading)s?\b|not measured|wasn't measured|weren't measured|could not|couldn't|cannot|can't|\bunable\b|no (data|measurement|steady|pulse)|not available|don't have|do not have|didn't|did not|isn't|aren't|not enough|too few|nothing|unmeasured|not able|only one|no saved/i;
@@ -345,19 +498,53 @@ const HEARING = [
   /\bi (listened|can hear|could hear|hear|noticed)\b|\blistened to\b/,
   /\b(sounds?|sounded|sounding) (like |as if )?(warm|rich|thin|tense|beautiful|great|good|lovely|nice|harsh|pinched|forced|relaxed|natural|musical|mushy|clean|full|dark|bright|wide|steady|even|smooth|rough|breathy|expressive)\b/,
 ];
-// Taste. The shaping facts (src/ai/musicality-facts.js) describe how a take is
-// shaped and carry a caveat that they are not a judgement of taste; a reply
-// that says the phrasing is beautiful, more musical or more expressive is a
-// verdict the measurements never made, and it has no digit for the number
-// rules to catch. Checked only when those facts are in the prompt, and a word
-// is allowed only if the FACTS use it (not the question: a player asking
-// "does it sound musical" must not be answered "yes, it is musical"). Found
-// by trying fourteen replies against the wired-up facts: three taste verdicts
-// without a digit passed the guard as it stood.
-const TASTE_FACTS = /not a judgement of taste/;
-const TASTE = /\b(beautiful(ly)?|lovely|gorgeous|musical(ly|ity)?|expressive(ly|ness)?|emotional(ly)?|soulful|soulless|lifeless|boring|dull|passionate|artistic(ally)?|well[- ]phrased|(better|poorly|badly|nicely|beautifully)[- ]phrased|(good|great|poor|bad|lovely|nice|wonderful|natural) (phrasing|shaping|articulation|rubato|feeling)|mechanical|robotic|stiff)\b/g;
+// Taste and praise. "Your playing was beautiful and very musical, with lovely
+// feeling." has no digit for the number rules to catch and no direction word for
+// the direction rules, and nothing the app measured says it. The first version
+// of this check ran only when the facts carried the shaping caveat ("not a
+// judgement of taste"), so it protected the questions about phrasing and let
+// the same sentence through on 10 of 13 other questions (summary, habits,
+// tone, tempo, trend). Now it runs on every reply, and a word is allowed only
+// if the FACTS use it: not the question (a player asking "does it sound
+// musical" must not be answered "yes, it is musical"), and not the caveat.
+//
+// Three kinds of word, because each needs its own shape to avoid catching a
+// description: words that are a verdict wherever they appear; a praise or
+// blame adjective in front of the thing it grades ("good phrasing", "great
+// intonation"); and a verdict after "is/was/sounds/went" ("your tone was
+// good", "it went well"). Direction words ("closer to pitch", "steadier") are
+// NOT here: those restate what the facts say and are held to them by the
+// direction rules.
+const TASTE_NOUNS = 'phrasing|shaping|articulation|rubato|feeling|playing|take|tone|intonation|sound|work|job|progress|improvement|session|practice|performance|result|results|rhythm|timing|pitch|vibrato|technique';
+const TASTE = new RegExp(`\\b(beautiful(?:ly)?|lovely|gorgeous|musical(?:ly|ity)?|expressive(?:ly|ness)?|emotional(?:ly)?|soulful|soulless|lifeless|boring|dull|passionate|artistic(?:ally)?|wonderful(?:ly)?|amazing(?:ly)?|impressive(?:ly)?|excellent(?:ly)?|perfect(?:ly)?|superb(?:ly)?|fantastic|brilliant(?:ly)?|terrific|outstanding|awesome|mechanical|robotic|stiff|well[- ]phrased|(?:better|poorly|badly|nicely|beautifully)[- ]phrased|(?:well|nicely) (?:done|played)|(?:good|great|nice) (?:job|work)|keep (?:it|up)|congratulations|bravo|(?:good|great|poor|bad|lovely|nice|wonderful|natural|fine|terrible|awful|strong|weak|solid|decent) (?:${TASTE_NOUNS})|(?:is|are|was|were|looks?|sounds?|sounded|seems?|seemed|feels?) (?:very |really |pretty |quite |so |fairly |rather )?(?:good|great|fine|ok|okay|alright|bad|poor|nice|terrible|awful|decent)|(?:went|go|goes|going|did|doing|played|playing|play|plays) (?:very |really |pretty |quite |so |fairly )?well)\\b`, 'g');
 
-const SPECULATION = /\b(probably|likely|presumably|perhaps|maybe|i guess|i'd guess|i suspect|might be|could be(?! (?:found|measured|read|compared|determined|told))|most likely)\b/;
+// Instruments and voice types, by name. An explicit list and not router.js's
+// PLAYS, which also holds "scale", "part", "range" and "solo": those are words a
+// description can use. "bass" alone is left out (a bass clef, a bass note).
+const PLAYERS = /\b(violin|viola|cello|violoncello|double bass|contrabass|bass guitar|guitar|ukulele|banjo|mandolin|harp|piano|keyboard|organ|flute|piccolo|oboe|clarinet|bassoon|saxophone|sax|trumpet|trombone|tuba|french horn|horn|cornet|euphonium|drums|percussion|soprano|mezzo|mezzo-soprano|contralto|alto|tenor|baritone|choir)\b/g;
+// "D Major", "F# minor", "Bb-major", never a bare "minor" (a minor difference).
+// The letter must be a capital, and an "A" that is the article ("A minor
+// difference ...") counts only when what follows is a thing a key is of.
+const KEYS = /\b([A-G][#♯♭b]?)[- ]([Mm]ajor|[Mm]inor)\b(?:\s+([a-z]+))?/g;
+const KEY_NOUNS = new Set(['scale', 'scales', 'key', 'arpeggio', 'arpeggios', 'chord', 'piece', 'etude', 'study', 'prelude', 'sonata', 'concerto', 'suite', 'triad', 'take', 'one', 'passage', 'exercise']);
+function keysIn(text) {
+  const out = [];
+  for (const m of clean(text).matchAll(KEYS)) {
+    if (m[1] === 'A' && m[3] && !KEY_NOUNS.has(m[3])) continue;
+    out.push(`${m[1]} ${m[2]}`.toLowerCase().replace('♯', '#').replace('♭', 'b'));
+  }
+  for (const m of clean(text).matchAll(/\bkey of ([A-G][#♯♭b]?)\b/g)) out.push(`key of ${m[1]}`.toLowerCase());
+  return out;
+}
+
+// A question that asks for a verdict, and a reply that gives one.
+const YES_NO_QUESTION = /^\s*(?:(?:so|ok|okay|hey|and|also|um)[,\s]+)*(?:is|am|are|was|were|do|does|did|have|has|had|can|could|should|would|will|isn't|aren't|wasn't|don't|doesn't|didn't)\b/;
+const JUDGEMENT = /\btoo \w+|\b(?:good|bad|fine|ok|okay|alright|correct|incorrect|right|wrong|great|decent|acceptable|terrible|awful|any good|in tune|out of tune|off|enough|ready|problem)\b/;
+const OPENS_WITH_VERDICT = /^\s*(?:(?:yes|yeah|yep|yup|correct|absolutely|definitely|indeed|exactly|sure|certainly)\b|(?:no|nope)\b\s*[,.!:;—-])/i;
+// "not measured", said of something
+const ABSENT = /\b(?:not measured|wasn't measured|was not measured|weren't measured|were not measured|isn't measured|no measurements?|not available|could not be measured|couldn't be measured|cannot be measured|can't be measured|nothing was measured)\b/i;
+
+const SPECULATION =/\b(probably|likely|presumably|perhaps|maybe|i guess|i'd guess|i suspect|might be|could be(?! (?:found|measured|read|compared|determined|told))|most likely)\b/;
 
 const sentences = (t) => t.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
 
@@ -474,7 +661,11 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const factsNeutral = /about the same|unchanged/i.test(factsText);
   for (const [axis, r] of Object.entries(replyLean)) {
     if (r.pos && r.neg) continue;
-    const f = factLean[axis];
+    let f = factLean[axis];
+    if (axis === 'precision') {
+      const held = PRECISION_OF.map((a) => factLean[a]).filter(Boolean);
+      f = held.length ? { pos: held.some((x) => x.pos), neg: held.some((x) => x.neg) } : undefined;
+    }
     if (axis === 'lead') {
       // sharp or flat is held per note when the facts name notes, below
       if (!f) add('direction', `${r.pos ? 'sharp' : 'flat'} (not in the measurements)`);
@@ -494,12 +685,49 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     }
   }
 
+  // 8b. a direction word next to a number, against the same number in the facts
+  const factNums = numbersWithDirections(F, { negation: false });
+  const replyNums = numbersWithDirections(R, { negation: true });
+  for (const r of replyNums) {
+    if (r.hits.length === 0) continue;
+    const there = factNums.filter((f) => quotes(r, f));
+    for (const h of r.hits) {
+      const axes = h.axis === 'precision' ? PRECISION_OF : [h.axis];
+      const theirs = there.flatMap((f) => f.hits).filter((x) => axes.includes(x.axis));
+      if (theirs.length > 0 && !theirs.some((x) => x.pos === h.pos)) {
+        add('direction', `${r.v}${r.cls ? ` ${r.cls}` : ''}: reply says ${h.pos ? 'up' : 'down'} (${h.axis}), measurements say ${h.pos ? 'down' : 'up'} for that number`);
+        break;
+      }
+    }
+  }
+
+  // 8c. a number that is in the facts, but about something else
+  const factSentences = (() => {
+    const cuts = [0];
+    for (const m of F.text.matchAll(/(?<=[.!?])\s+|\n+/g)) cuts.push(m.index + m[0].length);
+    cuts.push(F.text.length + 1);
+    return cuts.slice(0, -1).map((s, i) => ({ s, e: cuts[i + 1], topics: topicsIn(F.text.slice(s, cuts[i + 1]).toLowerCase()) }));
+  })();
+  const replyLower = R.text.toLowerCase();
+  const clauses = clauseSpans(replyLower);
+  for (const r of R.tokens) {
+    const clause = clauses.find(([s, e]) => r.index >= s && r.index < e);
+    if (!clause) continue;
+    const mine = topicsIn(replyLower.slice(clause[0], clause[1]));
+    if (mine.size === 0) continue;
+    const homes = F.tokens.filter((f) => quotes(r, f)).map((f) => factSentences.find((x) => f.index >= x.s && f.index < x.e));
+    if (homes.length === 0 || homes.some((x) => !x || x.topics.size === 0)) continue;
+    if (homes.every((x) => [...mine].every((t) => !x.topics.has(t)))) {
+      add('attached', `${r.v}${r.cls ? ` ${r.cls}` : ''} is in the measurements, but about ${[...homes[0].topics].join('/')} and the reply uses it for ${[...mine].join('/')}`);
+    }
+  }
+
   // 9. claims about the player's level, other players, or the best ever
   const lower = clean(text).toLowerCase();
   for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('superlative', m[0]); }
   for (const re of BENCHMARK) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('benchmark', m[0]); }
   for (const re of HEARING) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('hearing', m[0]); }
-  if (TASTE_FACTS.test(factsText)) {
+  {
     // the caveat itself says "how beautiful the tone is", which must not make
     // "beautiful" an allowed word
     const allowedTaste = factsLower.replace(/these describe the shaping[^.]*\./g, ' ');
@@ -507,6 +735,46 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   }
   const guess = lower.match(SPECULATION);
   if (guess) add('speculation', guess[0]);
+
+  // 9b. words from the question that the measurements never held. "is my Violin
+  // in tune" was answered "The Violin ... 9¢", "how is my Soprano range" with
+  // "The Soprano range is 10¢ sharp", and "how was my D Major scale" with "The D
+  // Major scale was 5¢ off": the measurements say nothing about an instrument, a
+  // voice or a key, so a reply that names one is repeating the player's premise
+  // as if it had been measured. Held to the FACTS only: a take called "Cello
+  // suite" has the word in its facts and may be called that.
+  for (const m of lower.matchAll(PLAYERS)) if (!factsLower.includes(m[0])) { add('premise', m[0]); break; }
+  for (const key of keysIn(text)) if (!factsLower.replace(/[- ]+/g, ' ').includes(key)) { add('premise', key); break; }
+
+  // 9c. a yes or a no to a question whose premise is a judgement. "is my
+  // vibrato too wide" is not a question the measurements can confirm: they say
+  // how wide it is, not whether that is too wide, and a reply that opens with
+  // "Yes, your vibrato is 27¢ wide" has turned a description into a verdict. The
+  // yes/no is allowed for a question about a change or a habit the facts DO say
+  // ("did I improve", "do I play sharp"); the direction rules hold those.
+  if (YES_NO_QUESTION.test(qLower) && JUDGEMENT.test(qLower) && OPENS_WITH_VERDICT.test(text)) add('premise', `"${text.slice(0, 12).trim()}" to a question about ${qLower.match(JUDGEMENT)[0]}`);
+
+  // 9d. "not measured" where something was. A bare "Not measured." to "how is my
+  // voice" (the facts held the pitch summary) and "Tone was not measured." with
+  // the tone measurements in front of it are the model giving up, and the player
+  // is told nothing is known about something that is. It is only an absence when
+  // the facts SAY so about that topic, or about anything at all when the reply
+  // names no topic.
+  const factLines = sentences(factsText);
+  for (const sentence of sentences(text)) {
+    // "X is not measured, but Y is steady": only X is the absence
+    for (const clause of sentence.split(/\b(?:but|however|although|though|yet|while)\b|[;—]/i)) {
+      if (!ABSENT.test(clause)) continue;
+      const topics = Object.keys(TOPICS).filter((t) => t !== 'everything' && TOPICS[t].test(clause));
+      if (clause.trim().split(/\s+/).length <= 4 && topics.length === 0) {
+        if (!factLines.some((f) => HEDGE.test(f))) add('absent', clause.trim());
+        continue;
+      }
+      for (const t of topics) {
+        if (TOPICS[t].test(factsText) && !factLines.some((f) => TOPICS[t].test(f) && HEDGE.test(f))) { add('absent', `${t}: "${clause.trim().slice(0, 60)}"`); break; }
+      }
+    }
+  }
 
   // 10. answering what was not measured. The hedge has to sit in the same
   // clause as the topic: "the pulse could not be found; you rush" is a hedge
@@ -538,6 +806,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     multiplier: 'a quantity spoken as a fraction or multiple',
     ordinal: 'a numbered bar or note not in the measurements',
     direction: 'a direction the measurements do not support',
+    attached: 'a measured number used for something else',
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
   }[first.kind];
