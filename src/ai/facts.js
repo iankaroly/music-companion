@@ -130,12 +130,36 @@ function compareFacts(a, b) {
 // into a lecture on phrasing, and nothing at all when either take's shaping was
 // not read (a comparison that says "could not be measured" twice is noise; the
 // player who asked about phrasing is told, by the musicality intent itself).
+//
+// Only the DIFFERENCES are folded in. Two lines of the shaping comparison say
+// that nothing was found ("are shaped about the same on everything that could
+// be measured in both", "could not be compared because it was not measured in
+// both"), and in a general comparison they landed straight after the pitch and
+// tone differences, so one answer said the takes were 13¢ closer, steadier and
+// wider and then that they were "about the same on everything". A plain
+// comparison has no use for a negative about a part it was not asked about.
+const SHAPING_NOTHING = /are shaped about the same on everything|^Could not be compared because it was not measured in both takes/;
 function shapingFolded(a, b) {
   if (!a.musicality || !b.musicality) return [];
   const rows = compareMusicalityFacts(a, b, { max: 3 });
   // drop the standing caveat; it is added once by the musicality intent when
   // the question was about shaping, and a pitch comparison does not need it
-  return rows.filter((r) => r !== MUSICALITY_CAVEAT);
+  return rows.filter((r) => r !== MUSICALITY_CAVEAT && !SHAPING_NOTHING.test(r));
+}
+
+// When the question IS about shaping and the takes are shaped alike, that is
+// the answer, but "on everything that could be measured" is a claim about the
+// pitch and the tone too, and the same answer has just listed those differing.
+// Said about the shaping measurements by name it is true, and with a pointer to
+// the differences above when there are some. (The sentence is built in
+// musicality-facts.js; it is reworded here, where the other facts are known.)
+const DIFFERENCE_WORDS = /\b(closer|further|steadier|shakier|wider|narrower|faster|slower|tighter|looser|clearer|brighter|darker|more notes|fewer notes)\b/;
+function scopedSame(rows, earlier) {
+  const differences = earlier.some((f) => DIFFERENCE_WORDS.test(f));
+  return rows.map((r) => r.replace(
+    /are shaped about the same on everything that could be measured in both\.$/,
+    `are shaped about the same on the shaping measurements (phrasing, articulation, tempo and repeated figures)${differences ? '; the differences above are not about shaping' : ''}.`,
+  ));
 }
 
 function worstFacts(take) {
@@ -248,9 +272,11 @@ export function factsFor({ question, intents = intentsOf(question), chosen, all,
       if (!intents.includes('compare') || chosen.length < 2) for (const t of chosen.slice(0, 2)) facts.push(...toneFacts(t));
     } else if (intent === 'tempo') facts.push(...tempoFacts(chosen[0]));
     else if (intent === 'musicality') {
-      if (intents.includes('compare') && chosen.length >= 2) facts.push(...compareMusicalityFacts(chosen[0], chosen[1], { question }));
+      if (intents.includes('compare') && chosen.length >= 2) facts.push(...scopedSame(compareMusicalityFacts(chosen[0], chosen[1], { question }), facts));
       else for (const t of chosen.slice(0, 2)) facts.push(...musicalityFacts(t, { question }));
     } else if (intent === 'trend') facts.push(...trendFacts(all, now));
   }
-  return { facts, used };
+  // The same sentence twice is never an answer. (Two intents that both reach the
+  // same builder can produce it; today none does, and this is the net.)
+  return { facts: [...new Set(facts)], used };
 }

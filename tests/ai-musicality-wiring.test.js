@@ -137,9 +137,15 @@ describe('the guard on shaping replies', () => {
     expect(checkReply('It reads as mechanical.', facts, Q).ok).toBe(false);
   });
 
-  test('a question about pitch is not subject to the taste rule', () => {
+  // This used to pin the OPPOSITE ("a question about pitch is not subject to the
+  // taste rule"): the check ran only when the facts carried the shaping caveat,
+  // so "Your tuning is lovely" passed on a pitch question. A verifier showed the
+  // same no-digit verdict passing on 10 of 13 questions; the rule now runs on
+  // every reply and tests/ai-guard-fixes.test.js covers all the intents.
+  test('a question about pitch is subject to the taste rule too', () => {
     const f = ['"Bach" (Oct 19): 24 notes heard, 9¢ off pitch on average, 40% of notes within 10¢.'];
-    expect(checkReply('Your tuning is lovely, 9¢ off on average.', f, 'how was my last take').ok).toBe(true);
+    expect(checkReply('Your tuning is lovely, 9¢ off on average.', f, 'how was my last take').ok).toBe(false);
+    expect(checkReply('Your tuning averaged 9¢ off.', f, 'how was my last take').ok).toBe(true);
   });
 
   // KNOWN GAP, pinned: a claim about a shaping measure that the facts say was

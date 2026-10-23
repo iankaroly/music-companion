@@ -200,6 +200,9 @@ export const ADVERSARIAL = [
   ['direction', 'SUM', 'D3 ran 9 cents flat.'],
   ['direction', 'SUM', 'You got closer to pitch in this take.'],
   ['direction', 'ONE', 'You improved since last time.'],
+  // were KNOWN_GAPS until the direction word was tied to the number it sits next to
+  ['direction', 'CMPS', 'You landed further on 9 notes and closer on 1 note.'],
+  ['attached', 'CMPS', 'Timing is 22 cents tighter on average.'],
   // answering what was not measured
   ['unmeasured', 'NOTONE', 'Your vibrato is wide and lively.'],
   ['unmeasured', 'NOTONE', 'Your vibrato sits at about 5 Hz.'],
@@ -222,9 +225,7 @@ export const KNOWN_GAPS = [
   ['TREND', 'You practised on all 7 days.', 'a true number used for a false claim'],
   ['TONE', 'Your vibrato is 5.4 Hz wide and 27 cents fast.', 'two true numbers on the wrong nouns'],
   ['CMP', 'Your older take was 9 cents off and your latest was 22 cents off, so you are 13 cents closer.', 'before and after swapped inside one sentence'],
-  ['CMPS', 'You landed further on 9 notes and closer on 1 note.', 'both directions are in the facts, so the words cannot be told apart'],
   ['CMP', 'The earlier take was 13 cents closer to pitch.', 'right words, wrong take'],
   ['CMPS', 'You landed further on most notes against the score.', 'closer AND further are both in the facts, so the direction words cannot be told apart'],
-  ['CMPS', 'Timing is 22 cents tighter on average.', '22 is also in the facts as cents (the older take\'s error), so the unit matches by coincidence'],
   ['TONE', 'The sound centres around the 4th harmonic.', 'the number is 3.5 rounded, which the rounding rule allows by design'],
 ];
