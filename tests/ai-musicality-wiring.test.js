@@ -111,7 +111,9 @@ describe('the guard on shaping replies', () => {
   test('keeps honest replies, in digits, spelled out and in the words of the facts', () => {
     expect(ok('Your Bach prelude has six phrases of about ten notes each, and the phrase ends are clearly marked.')).toBe(true);
     expect(ok('The 6 phrases all swell and fade, and the phrase-final notes are 1.5 times as long as the notes before them.')).toBe(true);
-    expect(ok('The loudest stretch is 1.4 dB above the quietest, so the loudness barely moves.')).toBe(true);
+    // The musicality fix replaced "loudest stretch is N dB above the quietest" (a range that grows with
+    // the number of runs) by the spread of their levels, so the honest reply quotes that figure.
+    expect(ok('The runs of eight notes vary in loudness by about 0.6 dB, so the loudness barely moves.')).toBe(true);
     expect(ok('It reads as lightly separated, evenly articulated and steady in tempo.')).toBe(true);
   });
 
