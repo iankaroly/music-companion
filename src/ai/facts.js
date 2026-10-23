@@ -89,7 +89,7 @@ function compareFacts(a, b) {
   if (a.scoreStats && b.scoreStats) {
     const cmp = compareTakes(a.scoreStats, b.scoreStats);
     if (cmp && cmp.perNote.length >= 5) {
-      out.push(`Note for note against the score (${cmp.perNote.length} notes in both): ${cmp.better} landed closer, ${cmp.worse} landed further, the rest about the same.`);
+      out.push(`Note for note against the score (${cmp.perNote.length} notes in both): ${cmp.better} note${cmp.better === 1 ? '' : 's'} landed closer, ${cmp.worse} note${cmp.worse === 1 ? '' : 's'} landed further, the rest about the same.`);
     }
     if (Number.isFinite(cmp?.msDelta)) {
       out.push(`Timing against the beat is ${round0(Math.abs(cmp.msDelta))} ms ${cmp.msDelta < 0 ? 'tighter' : 'looser'} on average.`);

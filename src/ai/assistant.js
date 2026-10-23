@@ -57,8 +57,34 @@ export async function modelStatus(model = null) {
 // The whole round trip. `load(id)` returns { notes, readings, audio?, sampleRate?, a4? }
 // for a stored take; it is only called for the takes the question is about and
 // only when the plan needs the audio-derived measurements.
+// What the player is told when the question is not one the app can answer from
+// its measurements. Written here, in code, and never by the model: a model asked
+// "what is the capital of France" answers it, and one asked "is my tone
+// beautiful" gives an opinion it has no way to hold. The sentence is short and
+// says what the app CAN be asked, so the refusal is also the way back in.
+// No digits in any of them, so the guard's rule about numbers has nothing to say.
+const ASKABLE = 'Try asking how your last take went, which notes are your weakest, or how it compares with the one before.';
+export function refusalFor(scope = {}) {
+  const base = 'I can only answer from what the app measured in your takes';
+  if (scope.kind === 'unmeasurable') {
+    return `${base}, and that is not something it measures. It can tell you how in tune, how steady, how even in time and how loud a take was, and what its vibrato and tone clarity measured; whether the playing is beautiful, expressive or right is for you and your teacher. ${ASKABLE}`;
+  }
+  if (scope.kind === 'unsupported') {
+    return `${base}, and ranking all of your takes against each other is not something it does yet. Ask about one take, or compare two of them. ${ASKABLE}`;
+  }
+  if (scope.kind === 'notfound') {
+    const label = String(scope.label ?? '').replace(/["\r\n]/g, ' ').trim().slice(0, 40);
+    return `${base}, and I could not find ${label ? `"${label}"` : 'that take'} in your library. ${ASKABLE}`;
+  }
+  return `${base}. That question is not about them. ${ASKABLE}`;
+}
+
 export async function answerQuestion({ question, library, load, qualityOf, rhythmReport, model = null, now = Date.now() }) {
-  const p = plan(question, library);
+  const p = plan(question, library, now);
+  if (p.scope && ['offtopic', 'unmeasurable', 'unsupported', 'notfound'].includes(p.scope.kind)) {
+    // Nothing is loaded and no model is asked: the refusal is the whole answer.
+    return { text: refusalFor(p.scope), facts: [], used: [], source: 'refusal', note: '', scope: p.scope.kind };
+  }
   const byId = new Map(library.map((t) => [t.id, t]));
   const chosen = p.takeIds.map((id) => byId.get(id)).filter(Boolean).map((t) => ({ ...t }));
 
@@ -87,7 +113,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
   try {
     const reply = await m.respond({ instructions: INSTRUCTIONS, prompt: promptFor(question, facts) });
     const text = String(reply?.text ?? '').trim();
-    const verdict = checkReply(text, facts, question);
+    const verdict = checkReply(text, facts, question, { takeCount: chosen.length });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };
     return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${verdict.reason}).`, stray: verdict.stray };
   } catch (err) {

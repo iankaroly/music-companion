@@ -8,6 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
+    "ai:eval": "node tests/ai-eval/run.mjs",
+    "ai:guard": "node tests/ai-eval/guard-report.mjs",
     "ios": "npm run build && npx cap sync ios && npx cap open ios",
     "ios:sync": "npm run build && npx cap sync ios",
     "reader:bench": "node tools/reader-bench-run.mjs",
