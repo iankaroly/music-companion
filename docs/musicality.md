@@ -17,7 +17,7 @@ could not support it. None is ever defaulted.
 | phrases found, how clearly marked | breaths, held notes and loudness restarts that agree | "6 phrases of about 10 notes" |
 | loudness shape of phrases | per phrase: swell-and-fade, build, die away, level, uneven | "of 6 phrases, 4 swell and fade, 2 stay level" |
 | contrast between phrases | spread of phrase loudness, in dB | "differ by about 3.7 dB" |
-| contrast between stretches | spread (standard deviation) of the loudness of consecutive runs of eight notes, from 32 notes up; the fallback when no phrases exist, labelled as stretches, never as phrasing. Not loudest-minus-quietest, which grows with the length of the take (see *Fixes after the verifier*) | "varies by about 1.1 dB" |
+| contrast between stretches | spread (standard deviation) of the loudness of consecutive runs of eight notes, from 32 notes up; the fallback when no phrases exist, labelled as stretches, never as phrasing. Not loudest-minus-quietest, which grows with the length of the take (see *Fixes after the verifier*) | "the runs of eight notes vary in loudness by about 1.1 dB (the standard deviation of their levels)" |
 | legato or detached | sounding length / time to the next note | "62% of the time to the next note" |
 | evenness of articulation | quartile range of that ratio | "even" / "varies" |
 | tempo flexibility, and whether it returns or drifts | local tempo curve, spread and first-third vs last-third | "moves by about 9% and comes back" |
@@ -80,7 +80,7 @@ described far less (`reliabilityOf`, `reliability.reason`):
 |---|---|---|
 | `quiet` | under half of the loud sound (readings within 20 dB of the take's own 90th-percentile level) falls inside a heard note | nothing: every descriptor withdrawn and the facts say most of the take was too quiet or unclear to hear |
 | `fragments` | 25% or more of the heard notes are under 80 ms | only legato-or-detached, recomputed from the notes of 80 ms or longer, low confidence; phrase counts, stretch loudness, phrase-end lengthening and dB figures are withdrawn |
-| `junk` | the median step between neighbouring notes is 9 semitones or more | the same as `fragments` |
+| `junk` | the median step between neighbouring notes is 9 semitones or more AND under a fifth of the five-note windows have their steps again elsewhere in the take (an octave drill or a wide arpeggio repeats; noise does not) | the same as `fragments` |
 | `outOfRange` | 25% or more of the notes lie outside a `range: {lowMidi, highMidi}` the caller passes | everything as before but at low confidence, and the facts say the pitch was probably read an octave off |
 
 Under 24 notes the number of phrases is not reported either, and a take of one
@@ -167,8 +167,9 @@ module now prints for the same four excerpts is in *Fixes after the verifier*.
 ## Fixes after the verifier (branch ai-fix-musicality)
 
 An independent verifier found seven faults in the version above. Every fix has
-a test that fails on 2b5b284 (`tests/musicality-fixes.test.js`: 23 of its 25
-tests fail on the old two files; the other two are regression guards) and a
+a test that fails on 2b5b284 (`tests/musicality-fixes.test.js`: 26 of its 28
+tests fail on the old two files; the other two are guards that a real drift and
+a wave are still found and that transposing changes nothing on ideal notes) and a
 check in `tools/musicality-synth-check.mjs`. Numbers below are from this
 round's runs; "ideal" is notes straight from the spec, "real" is the real
 Analyzer + NoteSegmenter.
@@ -223,36 +224,58 @@ figure" was any five notes with the same steps.** Removed: nothing ranks a row
 the descriptor, its label and its sentences say "matching five-note patterns".
 
 **5. The tempo ladder locked on half a beat and a drift was claimed from
-follower wander.** Zero-drift takes with a random jitter on every spacing, 100
-seeds per cell, ideal notes; cells are takes read / takes that claimed a drift:
+follower wander.** Takes with a random jitter on every spacing, 100 seeds per
+cell, ideal notes. Each cell is three counts of 100 takes, before → after: tempo
+shape read / claimed a drift / said "returns" or "steady".
+
+Zero true drift (every claim is false):
 
 | jitter | 6 phrases | 12 phrases | 24 phrases |
 |---|---|---|---|
-| 4% | 100/0 → 100/0 | 100/0 → 100/0 | 100/0 → 100/0 |
-| 8% | 100/1 → 100/0 | 100/0 → 100/0 | 100/0 → 100/0 |
-| 12% | 100/11 → 99/1 | 100/9 → 96/0 | 98/4 → 93/0 |
-| 20% | 39/25 → 35/0 | 27/15 → 23/0 | 22/9 → 14/0 |
+| 4% | 100/0/100 → 100/0/100 | 100/0/100 → 100/0/100 | 100/0/100 → 100/0/100 |
+| 8% | 100/1/99 → 99/0/99 | 100/0/100 → 100/0/100 | 100/0/100 → 100/0/100 |
+| 12% | 100/11/89 → 89/1/88 | 100/9/91 → 90/0/90 | 98/4/94 → 91/0/91 |
+| 20% | 39/25/14 → 12/0/12 | 27/15/12 → 11/0/11 | 22/9/13 → 8/0/8 |
 
-The one remaining false drift of 1200 (12% jitter, 6 phrases, +12%) is left in
-the table rather than tuned away. Real pipeline, 20 seeds per cell (cached
-heard takes, 240 takes): 15 false drifts before (3, 5 and 0 at 12% jitter; 5, 2
-and 0 at 20%), 0 after, with 13 fewer takes read in all (7 at 12% jitter, 5 at 20%,
-1 at 8%). The
-price is on true drifts at high jitter (ideal, drift 20%: 93/94/97 claimed
-before, 64/79/86 after at 12% jitter; drift 15%: 74/81/83 → 36/56/70; at 4%
-jitter 100/100 both) and on waves: a 15% tempo wave with 8% jitter is refused
-or read in 67-76 of 100 against 72-87 before, but is never called a drift
-(false drifts on the wave takes 38/17/24 → 0/0/0 at 8% jitter).
+True drift, 20% faster by the end (a claim is a detection; "returns/steady" is
+a false statement):
+
+| jitter | 6 phrases | 12 phrases | 24 phrases |
+|---|---|---|---|
+| 4% | 100/100/0 → 100/100/0 | 100/100/0 → 100/100/0 | 100/100/0 → 100/100/0 |
+| 8% | 100/99/1 → 99/98/1 | 100/100/0 → 100/100/0 | 100/100/0 → 99/99/0 |
+| 12% | 98/93/5 → 69/64/5 | 98/94/4 → 83/79/4 | 98/97/1 → 86/86/0 |
+
+True drift 15%: 12% jitter reads 97/74/23 → 59/36/23, 99/81/18 → 73/56/17,
+98/83/15 → 81/70/11 (8% jitter: 100/89/11 → 94/83/11, 100/95/5 → 98/93/5,
+100/100/0 → 97/97/0; 4%: 100/100/0 both). A 15% tempo WAVE with no drift, where
+a claim is false: 4% jitter 100/12/88, 99/18/81, 99/15/84 → 87/0/87, 80/0/80,
+83/0/83; 8% jitter 87/38/49, 72/17/55, 72/24/48 → 47/0/47, 52/0/52, 47/0/47.
+The wave's flexibility (the thing a wave is) is still read in 96-98 of 100 at 4%
+jitter (99-100 before) and 67-76 at 8% (72-87 before); what is refused more is
+the SHAPE, the word "returns", which now needs a drift reading that agrees
+before it is said.
+
+The cost, plainly: at 12% jitter a true 20% drift is claimed in 64, 79, 86 of
+100 takes against 93, 94, 97; and "refuse rather than guess" means the shape is
+refused in the rest, not turned into "returns". The ONE remaining false drift in
+the zero-drift table (12% jitter, 6 phrases, +12%) is left in rather than tuned
+away. Real pipeline, 20 seeds per cell (cached heard takes, 240 takes, the same
+specs): 15 false drifts before (3, 5 and 0 at 12% jitter; 5, 2 and 0 at 20%), 0
+after, with shape read in 48 of 60 at 12% (60 before) and 12 of 60 at 20% (22).
 
 What stops it: a drift is claimed only if (1) the beat the follower kept never
 steps by a factor of two (otherwise tempo shape AND flexibility are refused and
 say so; this is the seed-14 take that read "ends 49% slower"), (2) a second
-reading, every spacing taken against one fixed reference with no following,
-finds the same drift at least 8% and at least 3.5 standard errors, and (3)
-that drift shows in both the even- and odd-numbered spacings alone. The
-follower's reset was also tried at the octave nearest the last beat; that
-stopped the lock and wrecked tempo waves (12 of 60 read against 56), so it was
-reverted and the lock is caught afterwards.
+reading, every spacing of the commonest length taken against one fixed
+reference with no following, finds the same drift at least 8% and at least 3.5
+standard errors, and (3) that drift shows in both the even- and odd-numbered
+spacings alone. A follower drift of 8% or more that this does not back refuses
+the shape and says so (flexibility stays); the first cut called it "returns",
+which told 33 of 100 true-20%-drift takes at 12% jitter that the tempo comes
+back to where it began. The follower's reset was also tried at the octave
+nearest the last beat; that stopped the lock and wrecked tempo waves (12 of 60
+read against 56), so it was reverted and the lock is caught afterwards.
 
 *Transposition.* The module reads onset times only, and the ideal path gives the
 same tempo reading at every transposition (tested). Through the real pipeline,
@@ -270,13 +293,22 @@ floor*. A take 20 dB quieter (60 notes → 12 heard, coverage 9%) was "detached
 0.59"; it is now refused as too quiet. 12 dB quieter is still read in full
 (coverage 71%; a clean take reads 81%).
 
-**7. Junk and wrong-octave takes.** Random pitches (median step 14 semitones)
-are treated like fragments: legato-or-detached only, low confidence. A take
+**7. Junk and wrong-octave takes.** Random pitches (median step 14 semitones, no
+five-note window repeating) are treated like fragments: legato-or-detached only,
+low confidence. An octave drill, a wide arpeggio and a leaping figure (median
+step 12-14, every window repeating) are NOT, ideal and real (tested); the real
+mis-heard excerpts repeat 0-6% of their windows and still are. A take
 read two octaves low is flagged and lowered to low confidence when the caller
 passes a range (30% of its notes outside 36-88). `assistant.js` passes none, so
 THE RANGE CHECK IS INERT IN THE APP until its call to `musicalityOf` is given
 the instrument's range; `instruments.js` has families, not ranges. Under 24
 notes the number of phrases is no longer a finding.
+
+**The other suites.** `npm run ai:eval` is 163/163 development, 46/48 held-out and
+21/21 shaping questions on both 2b5b284 and now (run both ways); `npm run ask:card`
+is 47/47 now (headless shell on port 5199, no microphone; not re-run on 2b5b284,
+whose own commit message reports 47/47). Unit suite: 1474 of 1475 pass; the one
+failure is `tests/ai-musicality-wiring.test.js` line 114 (see *Wiring*).
 
 **The four real excerpts and eight held-out ones, through the same code.**
 Cached Analyzer + segmenter output, nothing re-tuned. Short = heard notes under
@@ -326,7 +358,8 @@ the failure `no-gaming-the-measure` exists to catch.
   - `flatStretchDb` 1 and `wideStretchDb` 3: from the flat synthetic floor.
   - `minCoverage` 0.5 ("most"), `ACTIVE_BELOW_DB` 20, `outOfRangeShare` 0.25
     (the existing short-note line's number), `junkStep` 9 (below random pitches'
-    11-14, above any tune's 2-3): chosen before any of the twelve real excerpts
+    11-14, above any tune's 2-3), `junkPatterned` 0.2 (a drill repeats every
+    window, random pitches none): chosen before any of the twelve real excerpts
     was run through them. `junkStep`'s TREATMENT was changed after the first four
     read 12-19 (withdraw everything → legato-or-detached only).
   - The false-drift gate (3.5 standard errors, 8%, replication in both halves,
@@ -349,8 +382,9 @@ Two things the verifier round leaves for the owners of those files. (1)
 { lowMidi, highMidi }` for the instrument in use or the out-of-range check never
 fires. (2) `tests/ai-musicality-wiring.test.js` line 114 quotes the old
 stretch figure ("The loudest stretch is 1.4 dB above the quietest"); the fact is
-now "the loudness of one run of eight notes to the next varies by about 0.6 dB",
-so that line fails until it quotes 0.6 dB.
+now "the runs of eight notes vary in loudness by about 0.6 dB (the standard deviation of their levels...)",
+so that line fails until it says, for example, "The runs of eight notes vary in
+loudness by about 0.6 dB, so the loudness barely moves."
 
 Left to whoever owns `router.js`, `facts.js` and `assistant.js`:
 

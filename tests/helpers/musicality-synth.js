@@ -47,6 +47,7 @@ export function buildSpec({
   drone = false,             // every note the same pitch
   randomPitch = false,       // pitches drawn at random across a wide range: junk, not a tune
   gainDb = 0,                // whole-take level shift, for a quiet recording
+  pattern = null,            // semitone offsets that repeat instead of the small tune (an octave drill is [0, 12], a wide arpeggio [0, 12, 24, 12])
 } = {}) {
   const rand = rng(seed);
   const spec = [];
@@ -71,7 +72,7 @@ export function buildSpec({
       const ratio = Math.min(1, Math.max(0.1, articulation + (rand() - 0.5) * 2 * articulationJitter));
       const long = k === perPhrase - 1 || ratio * local > 0.8;
       spec.push({
-        midi: midiShift + (drone ? 55 : randomPitch ? 40 + Math.floor(rand() * 40) : 55 + transpose + CYCLE[index % CYCLE.length]),
+        midi: midiShift + (drone ? 55 : randomPitch ? 40 + Math.floor(rand() * 40) : pattern ? 48 + pattern[index % pattern.length] : 55 + transpose + CYCLE[index % CYCLE.length]),
         start: t, dur: ratio * local, amp: db(level), phrase: p, pos: k,
         vib: vibrato === 'none' || !long ? null : { depth: 28, rate: 5.8, grows: vibrato === 'grows' },
       });

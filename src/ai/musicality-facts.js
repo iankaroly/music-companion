@@ -77,7 +77,7 @@ function noisyNote(take, m) {
   if (r.reason === 'quiet') {
     lines.push(`Only about ${round0(r.coverage * 100)}% of the sound in "${name}" was heard as notes (${m.noteCount} notes), so most of this take was too quiet or too unclear to hear and how it is shaped could not be measured.`);
   } else if (r.reason === 'junk') {
-    lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+    lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next and the steps hardly ever come round again, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'fragments') {
     lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   }

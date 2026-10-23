@@ -45,6 +45,12 @@ describe('1. loudness between stretches does not depend on how long the take is'
     expect(d(m, 'stretch-contrast').reason).toMatch(/32 notes/);
   });
 
+  test('the sentences say what the number is: a standard deviation of levels, not a successive difference or a range', () => {
+    const m = read({ phrases: 8, perPhrase: 8, shape: 'jump', peakDb: 6, seed: 2 });
+    expect(d(m, 'stretch-contrast').phrase).toMatch(/vary in loudness by about [\d.]+ dB \(the standard deviation of their levels/);
+    expect(d(m, 'stretch-contrast').phrase).not.toMatch(/to the next|loudest|quietest/);
+  });
+
   test('the phrase-contrast sentence no longer quotes a loudest-to-quietest range, which grows with the number of phrases', () => {
     const m = read({ shape: 'flat', phraseGainDb: [0, 6, -3], phrases: 12 });
     expect(d(m, 'phrase-contrast').phrase).not.toMatch(/loudest|quietest/);
@@ -166,6 +172,24 @@ describe('5. the tempo shape does not claim a drift the playing did not have', (
     for (const jitter of [0.12, 0.2]) for (const phrases of [6, 12, 24]) expect(claims({ phrases, jitter })).toBe(0);
   });
 
+  test('a drift the second reading does not back is refused, not called a return: a true 20% drift at 12% jitter says "returns" or "steady" in at most 8 of 100 takes', () => {
+    // The first cut of this fix dropped an unbacked drift into the returns/steady
+    // branch and so told 33 of 100 such takes that the tempo comes back to where
+    // it began; the 2b5b284 code did so in 5.
+    let calm = 0;
+    for (let seed = 1; seed <= 100; seed++) {
+      const t = d(read({ shape: 'flat', phrases: 6, perPhrase: 10, jitter: 0.12, seed, drift: 0.2 }), 'tempo-shape');
+      if (t.measured && (t.detail.kind === 'returns' || t.detail.kind === 'steady')) calm++;
+    }
+    expect(calm).toBeLessThanOrEqual(8);
+    let said = null;
+    for (let seed = 1; seed <= 100 && !said; seed++) {
+      const t = d(read({ shape: 'flat', phrases: 6, perPhrase: 10, jitter: 0.12, seed, drift: 0.2 }), 'tempo-shape');
+      if (!t.measured && /did not back that/.test(t.reason)) said = t.reason;
+    }
+    expect(said).toMatch(/seems to end (faster|slower) than it began/);
+  });
+
   test('the half-beat lock is refused, and says so', () => {
     const t = d(read({ shape: 'flat', phrases: 12, perPhrase: 10, jitter: 0.12, seed: 14 }), 'tempo-shape');
     expect(t.measured).toBe(false);
@@ -250,6 +274,15 @@ describe('7. a take whose pitches are wrong lowers confidence, and a handful of 
     expect(musicalityOf(take({ ...spec, midiShift: -24 })).reliability.outOfRange).toBe(false);
   });
 
+  test('an octave drill and a wide arpeggio are not junk, however wide their steps: they come round again', () => {
+    for (const pattern of [[0, 12], [0, 12, 24, 12], [0, 14, 2, 16]]) {
+      const m = read({ ...spec, pattern });
+      expect(m.reliability.medianStep).toBeGreaterThanOrEqual(12);
+      expect(m.reliability.reason).toBeNull();
+      expect(Object.values(m.descriptors).filter((x) => x.measured).length).toBeGreaterThan(8);
+    }
+  });
+
   test('random pitches are not a tune: low confidence throughout, and only legato-or-detached is given', () => {
     const m = read({ ...spec, randomPitch: true });
     expect(m.reliability.reason).toBe('junk');
@@ -262,6 +295,7 @@ describe('7. a take whose pitches are wrong lowers confidence, and a handful of 
     const m = read({ phrases: 1, perPhrase: 12, shape: 'arch' });
     expect(d(m, 'phrase-count').measured).toBe(false);
     expect(d(m, 'phrase-count').reason).toMatch(/at least 24/);
+    for (const k of ['phrase-shape', 'phrase-contrast', 'phrase-final-lengthening']) expect(d(read({ phrases: 2, perPhrase: 10, shape: 'arch', finalStretch: 1.5 }), k).measured).toBe(false);
     expect(musicalityFacts(named(m)).join(' ')).not.toMatch(/phrases of about|no clear phrase breaks/);
   });
 });

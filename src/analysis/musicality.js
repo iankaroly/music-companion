@@ -61,7 +61,8 @@ export const LIMITS = {
   wideStretchDb: 3,          //   …and at or above which the contrast between stretches is wide
   flatLengthening: 1.25,     // phrase-final note sounding this many times the notes before it or more is a lengthening; metronomic takes read up to 1.17 through the real pipeline
   minCoverage: 0.5,          // share of the loud sound that must have been heard as notes; below it most of the take was not heard
-  junkStep: 9,               // median semitones between neighbouring notes at or above which the pitches are not a tune (random pitches read 11-13)
+  junkPatterned: 0.2,        // …and fewer than this share of five-note windows have their steps again elsewhere in the take (a drill repeats; noise does not)
+  junkStep: 9,               // median semitones between neighbouring notes at or above which, with no patterned repeats, the pitches are not a tune (random pitches read 11-14)
   outOfRangeShare: 0.25,     // share of notes outside the range the caller gives, at or above which confidence is low throughout
   sameTimingPct: 4,          // a repeated figure whose timing differs by less than this is the same (at least)
   sameLoudnessDb: 1.5,
@@ -299,7 +300,7 @@ function dynamicsDescriptors(notes, levels, seg) {
     const means = usable.map((x) => mean(x.lv));
     const contrast = sd(means);
     out.push(got('phrase-contrast', 'loudness contrast between phrases', contrast, 'dB',
-      `phrases differ in loudness by about ${Math.round(contrast * 10) / 10} dB from one to the next`,
+      `the phrases vary in loudness by about ${Math.round(contrast * 10) / 10} dB (the standard deviation of their levels)`,
       usable.length, { ok: 3, good: 6 }));
   }
 
@@ -323,7 +324,7 @@ function dynamicsDescriptors(notes, levels, seg) {
     for (let i = 0; i + STRETCH_NOTES <= finite.length; i += STRETCH_NOTES) stretch.push(mean(finite.slice(i, i + STRETCH_NOTES).map((x) => x.l)));
     const spread = sd(stretch);
     out.push(got('stretch-contrast', 'loudness between stretches of the take', spread, 'dB',
-      `the loudness of one run of eight notes to the next varies by about ${Math.round(spread * 10) / 10} dB (read in runs of eight notes, not phrases)`,
+      `the runs of eight notes vary in loudness by about ${Math.round(spread * 10) / 10} dB (the standard deviation of their levels; read in runs of eight notes, not phrases)`,
       stretch.length, { ok: 4, good: 8 }));
   } else {
     out.push(missing('stretch-contrast', 'loudness between stretches of the take',
@@ -597,7 +598,17 @@ function tempoDescriptors(notes, seg, fl) {
       let kind;
       let phrase;
       const f = Math.round(flexPct);
-      if (Math.abs(drift) >= LIMITS.driftPct && (scored || driftBacked(fixedRef))) {
+      // A follower drift that the independent reading does not back is NOT
+      // called a return or steady either: "comes back to where it began" of a take
+      // that did end 15% faster is as false as a drift that never happened (the
+      // first cut of this fix did exactly that: of 100 takes with a true 20%
+      // drift at 12% jitter, 33 read 'returns' or 'steady' against 5 before). The
+      // flexibility stands; the shape is refused and says why.
+      const unbacked = !scored && Math.abs(drift) >= LIMITS.driftPct && !driftBacked(fixedRef);
+      if (unbacked) {
+        kind = null;
+        phrase = null;
+      } else if (Math.abs(drift) >= LIMITS.driftPct) {
         kind = drift > 0 ? 'speeds-up' : 'slows-down';
         phrase = `the tempo ends ${Math.round(Math.abs(drift))}% ${drift > 0 ? 'faster' : 'slower'} than it began (it drifts rather than returns)`;
       } else if (flexPct >= fl.steadyBelow) {
@@ -612,8 +623,10 @@ function tempoDescriptors(notes, seg, fl) {
           : flexPct >= fl.steadyBelow ? `the tempo gives a little, by about ${f}% around its middle`
             : `the tempo is steady, within about ${f}% of its middle`,
         kept.length, { ok: 12, good: 30, detail: { keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
-      out.push(got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length,
-        { ok: 12, good: 30, detail: { kind } }));
+      out.push(unbacked
+        ? missing('tempo-shape', 'whether the tempo returns or drifts', `the tempo seems to end ${drift > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`, kept.length)
+        : got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length,
+          { ok: 12, good: 30, detail: { kind } }));
     }
   }
 
@@ -944,24 +957,38 @@ function coverageOf(list, readings) {
   return heard / active.length;
 }
 
+// Share of the five-note windows whose steps occur again elsewhere in the take.
+function matchingShare(list) {
+  const keys = [];
+  for (let i = 0; i + 5 <= list.length; i++) keys.push(list.slice(i, i + 5).map((n, k, a) => (k ? Math.round(n.midi) - Math.round(a[k - 1].midi) : 0)).join(','));
+  const count = new Map();
+  for (const k of keys) count.set(k, (count.get(k) ?? 0) + 1);
+  return keys.length ? keys.filter((k) => count.get(k) > 1).length / keys.length : 0;
+}
+
 function reliabilityOf(list, readings, range) {
   const shortShare = list.filter((n) => n.end - n.start < 0.08).length / list.length;
   const coverage = coverageOf(list, readings);
   const steps = [];
   for (let i = 0; i + 1 < list.length; i++) steps.push(Math.abs(list[i + 1].midi - list[i].midi));
   const medianStep = median(steps);
+  // Wide steps that REPEAT are a drill, an octave exercise or a wide arpeggio,
+  // and every singer and wind player has them; wide steps that never come round
+  // again are noise (or a take the tracker could not follow). So "junk" needs both.
+  const patterned = matchingShare(list);
   const outside = range && Number.isFinite(range.lowMidi) && Number.isFinite(range.highMidi)
     ? list.filter((n) => Math.round(n.midi) < range.lowMidi || Math.round(n.midi) > range.highMidi).length / list.length
     : null;
   let reason = null;
   if (coverage !== null && coverage < LIMITS.minCoverage) reason = 'quiet';
-  else if (medianStep >= LIMITS.junkStep) reason = 'junk';
+  else if (medianStep >= LIMITS.junkStep && patterned < LIMITS.junkPatterned) reason = 'junk';
   else if (shortShare >= LIMITS.noisyShortShare) reason = 'fragments';
   const outOfRange = outside !== null && outside >= LIMITS.outOfRangeShare;
   return {
     shortNoteShare: shortShare,
     coverage,
     medianStep,
+    patternedShare: patterned,
     outOfRangeShare: outside,
     reason,
     outOfRange,
@@ -1019,8 +1046,8 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
   // reads at all, 'phrase-count' was the one thing it could say, and it said it
   // as a finding ('1 phrase, no breaks') of a take of one breath.
   if (list.length < 2 * MIN_NOTES) {
-    const why = `only ${list.length} notes; the number and marking of phrases needs at least ${2 * MIN_NOTES}`;
-    for (const k of ['phrase-count', 'phrase-definition']) by[k] = missing(k, by[k].label, why, list.length);
+    const why = `only ${list.length} notes; the number, marking, shape and ending of phrases needs at least ${2 * MIN_NOTES}`;
+    for (const k of ['phrase-count', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'phrase-final-lengthening']) by[k] = missing(k, by[k].label, why, list.length);
   }
 
   // ONE PITCH has no phrases to speak of: a breath in a drone is a breath, not
