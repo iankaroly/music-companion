@@ -165,6 +165,17 @@ const RELATIVE = new Set(['last', 'latest', 'first', 'previous', 'recent', 'newe
   'every', 'all', 'each', 'next', 'second', 'third', 'vibrato', 'tone', 'tempo', 'rhythm', 'timing', 'pitch', 'intonation', 'playing', 'practice', 'practise',
   'sound', 'dynamics', 'loudness', 'streak', 'progress', 'habits', 'habit', 'scale', 'scales', 'rushing', 'dragging', 'bow', 'posture', 'takes', 'take']);
 
+// Instruments, voices and the words of a key: capitalised or not, they describe
+// what the player plays, not which take. This app is for every instrument and
+// for singers, and a spot check found "is my Violin in tune" and "how is my
+// Soprano range" refused as an unknown take called Violin and Soprano. Tempo
+// markings (Allegro, Adagio) are deliberately NOT here: they are also movement
+// names, and "how was my Allegro" may well mean a take.
+const PLAYS = new Set(['violin', 'viola', 'cello', 'bass', 'double', 'contrabass', 'piano', 'keyboard', 'organ', 'harp', 'guitar', 'ukulele', 'banjo', 'mandolin',
+  'flute', 'piccolo', 'oboe', 'clarinet', 'bassoon', 'saxophone', 'sax', 'horn', 'trumpet', 'trombone', 'tuba', 'cornet', 'euphonium', 'drums', 'percussion',
+  'voice', 'vocal', 'vocals', 'soprano', 'mezzo', 'alto', 'contralto', 'tenor', 'baritone', 'treble', 'choir', 'major', 'minor', 'scale', 'scales', 'arpeggio',
+  'arpeggios', 'chord', 'chords', 'key', 'range', 'register', 'line', 'part', 'solo']);
+
 // The name the question gives a take that is NOT in the library, or null. Only
 // reached when no take was matched by name, so it cannot refuse "my Bach" while
 // a take called Bach exists.
@@ -176,7 +187,7 @@ function unknownName(question, takes) {
   const caps = original.match(/(?<!^)(?<![.?!]\s)\b[A-Z][\p{L}'-]{2,}/gu) ?? [];
   for (const raw of caps) {
     const w = raw.toLowerCase();
-    if (NOT_A_NAME.has(w) || RELATIVE.has(w) || isKnown(w)) continue;
+    if (NOT_A_NAME.has(w) || RELATIVE.has(w) || PLAYS.has(w) || isKnown(w)) continue;
     return raw;
   }
   // 2) "my X take", "the X recording", "take of X", "my X go/went"
@@ -191,7 +202,7 @@ function unknownName(question, takes) {
     if (!m) continue;
     const ws = wordsOf(m[1]);
     if (ws.length === 0 || ws.length > 3) continue;
-    if (ws.some((w) => RELATIVE.has(w) || /^\d+$/.test(w) || NAME_STOP.has(w) || NOT_A_NAME.has(w) || isKnown(w))) continue;
+    if (ws.some((w) => RELATIVE.has(w) || PLAYS.has(w) || /^\d+$/.test(w) || NAME_STOP.has(w) || NOT_A_NAME.has(w) || isKnown(w))) continue;
     return m[1];
   }
   return null;

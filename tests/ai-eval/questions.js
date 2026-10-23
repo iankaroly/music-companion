@@ -224,4 +224,17 @@ uns('three', 'which was my best take');
 uns('many', 'how many takes do I have');
 unm('three', 'did I breathe well');
 
+// ---------------------------------------------------------------- capitalised words that are not take names
+// A reviewer's probe, after the spot check: the unknown-take rule took any
+// capitalised word for a piece, so players naming their instrument, voice or key
+// were told their take could not be found. Every instrument and singers are the
+// point of the app. These five were refused (notfound) before the PLAYS list.
+c('three', 'how was my D Major scale', { i: ['summary'], t: [3], must: [/5¢ off pitch/] });
+c('three', 'is my Violin in tune', { i: ['summary'], t: [2], must: [BACH_NOW] });
+c('three', 'how is my Soprano range', { i: ['summary'], t: [2], must: [BACH_NOW] });
+c('three', 'did my Viola take go ok', { i: ['summary'], t: [2], must: [BACH_NOW] });
+c('three', 'how was the G Minor one', { i: ['summary'], t: [2], must: [BACH_NOW] });
+c('three', 'how is my Cello intonation', { i: ['summary'], t: [2], must: [BACH_NOW] });
+c('three', 'is my Bass line steady', { i: ['tone'], t: [2], must: [/could not be measured/] });
+
 export const QUESTIONS = cases.map((q, n) => ({ n: n + 1, ...q, library: LIBRARIES[q.lib] }));
