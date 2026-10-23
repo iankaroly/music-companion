@@ -209,7 +209,28 @@ async function ask(root, question) {
   }
 }
 
-function show(root, result) {
+// What the card prints, as separate lines. Pulled out of show() because the
+// card went blank on EVERY refusal: show() looped result.facts for any source
+// but the model, and a refusal ({ text: refusalFor(...), facts: [], source:
+// 'refusal' }) has no facts, only text, so an off-topic, unmeasurable,
+// unknown-take or unsupported question printed an empty box. answerQuestion
+// has four result shapes and each keeps its words in a different field:
+//   model         text is the wording (the facts go behind "based on")
+//   measurements  the facts are the answer, one line each
+//   refusal       text is the answer and facts is empty
+//   neither       a sentence, never a blank
+// The unit tests read result.text and never drew a refusal, and ask:card never
+// asked one, so nothing saw it.
+export const EMPTY_ANSWER = 'There was nothing to say about that. Nothing was sent anywhere; try asking another way.';
+export function answerLines(result) {
+  const facts = (result?.facts ?? []).map((f) => String(f ?? '').trim()).filter(Boolean);
+  const text = String(result?.text ?? '').trim();
+  if (result?.source === 'model') return [text || EMPTY_ANSWER];
+  if (facts.length) return facts;
+  return [text || EMPTY_ANSWER];
+}
+
+export function show(root, result) {
   const out = el(root, '#ask-out');
   const say = el(root, '#ask-answer');
   const wait = el(root, '#ask-wait');
@@ -226,8 +247,8 @@ function show(root, result) {
   if (result.source === 'model') {
     // The model's wording is the answer; the sentences it was given sit behind
     // "based on" so the player can check it against them.
-    say.textContent = result.text;
-    for (const f of result.facts) {
+    say.textContent = answerLines(result)[0];
+    for (const f of result.facts ?? []) {
       const li = document.createElement('li');
       li.textContent = f;
       list.append(li);
@@ -236,17 +257,17 @@ function show(root, result) {
     based.open = false;
     note.hidden = true;
   } else {
-    // No model, or its reply was set aside: the sentences ARE the answer, so a
-    // "based on" list underneath would only say the same thing twice.
-    for (const f of result.facts) {
+    // No model, its reply set aside, or a refusal: the lines ARE the answer, so
+    // a "based on" list underneath would only say the same thing twice.
+    for (const line of answerLines(result)) {
       const p = document.createElement('p');
-      p.textContent = f;
+      p.textContent = line;
       say.append(p);
     }
     based.hidden = true;
     // A standing "model unavailable" is already on the card's foot; only a
     // reply that was set aside or a model that failed mid-question is news.
-    const standing = !state.status?.available;
+    const standing = !state?.status?.available;
     note.hidden = standing || !result.note;
     note.textContent = result.note ? `Showing the measurements directly. ${result.note}` : '';
   }
