@@ -36,7 +36,19 @@ export async function nativeModel() {
   try {
     if (!globalThis.Capacitor?.isNativePlatform?.()) return null;
     const { registerPlugin } = await import('@capacitor/core');
-    native = registerPlugin('StandPartnerAI');
+    const plugin = registerPlugin('StandPartnerAI');
+    // NOT `return plugin`. A Capacitor plugin is a Proxy that answers EVERY
+    // property with a method, `then` included, so handing it back from an async
+    // function makes the promise treat it as a thenable and wait on a `then`
+    // that never settles: `await nativeModel()` hung forever and no question
+    // was ever answered. Found by tools/ask-check.mjs, which runs the real
+    // registerPlugin against a stand-in for the native bridge; the unit tests
+    // pass a plain object as the model and could not see it. A plain wrapper
+    // has no `then`.
+    native = {
+      availability: (...a) => plugin.availability(...a),
+      respond: (...a) => plugin.respond(...a),
+    };
     return native;
   } catch {
     return null;

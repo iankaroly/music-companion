@@ -8,6 +8,7 @@ import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
 import { intonationHue } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
 import { instrument } from '../analysis/instruments.js';
+import { renderAsk } from './ask.js';
 
 // The coach tab: personal intonation habits mined from the library.
 // Three cards — today's drill (act on it), the tendency map (see it),
@@ -42,6 +43,9 @@ export async function renderCoach(root) {
   try {
     recordings = await listRecordingsWithStats();
   } catch { /* blocked IndexedDB — treated as no data */ }
+  // Before the empty-library return below: the ask card says what it needs
+  // when there is nothing to ask about, rather than vanishing.
+  renderAsk(root, recordings).catch(() => {});
   const sessions = recordings.map((r) => ({
     date: r.date,
     name: r.name,
