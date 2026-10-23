@@ -53,19 +53,39 @@ public class StandPartnerAIPlugin: CAPPlugin, CAPBridgedPlugin {
             Task {
                 do {
                     guard case .available = SystemLanguageModel.default.availability else {
-                        call.reject("The on-device model is not available.")
+                        call.reject("The on-device model is not available.", "unavailable")
                         return
+                    }
+                    // The window is 4096 tokens for prompt and reply together
+                    // (measured on a Mac with the same framework: a prompt of
+                    // about 4200 tokens comes back as exceededContextWindowSize
+                    // in under a second). The page already keeps prompts well
+                    // under it (MAX_PROMPT_CHARS in assistant.js); this is the
+                    // second line, exact where the OS can count tokens.
+                    if #available(iOS 26.4, *) {
+                        let model = SystemLanguageModel.default
+                        let used = try await model.tokenCount(for: instructions + "\n" + prompt)
+                        if used + Self.maxReplyTokens > model.contextSize {
+                            call.reject(Self.tooLong, "exceededContextWindowSize")
+                            return
+                        }
                     }
                     // A fresh session every time: a question about one take
                     // must not be coloured by the last question about another.
                     let session = LanguageModelSession(instructions: instructions)
                     // Temperature 0 because this is putting numbers into
-                    // sentences, not writing; there is nothing to vary.
-                    let options = GenerationOptions(temperature: 0.0)
+                    // sentences, not writing; there is nothing to vary. The
+                    // cap is because one real question ("which bars should I
+                    // work on", asked of a take with no score) made the model
+                    // count bars upward for 49 seconds until the window was
+                    // full. A real answer is under a hundred tokens.
+                    let options = GenerationOptions(temperature: 0.0, maximumResponseTokens: Self.maxReplyTokens)
                     let response = try await session.respond(to: prompt, options: options)
                     call.resolve(["text": response.content])
+                } catch let error as LanguageModelSession.GenerationError {
+                    call.reject(Self.words(for: error), Self.code(for: error))
                 } catch {
-                    call.reject("The model could not answer: \(error.localizedDescription)")
+                    call.reject("The model could not answer: \(error.localizedDescription)", "other")
                 }
             }
             return
@@ -75,6 +95,49 @@ public class StandPartnerAIPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     #if canImport(FoundationModels)
+    private static let maxReplyTokens = 200
+    private static let tooLong = "There was too much to read to the on-device model at once."
+
+    // What the page shows as the note under a plain-measurements answer, so each
+    // is a sentence a player can read. The code is for the page and for logs.
+    @available(iOS 26.0, *)
+    private static func words(for error: LanguageModelSession.GenerationError) -> String {
+        switch error {
+        case .exceededContextWindowSize:
+            return tooLong
+        case .guardrailViolation:
+            // Seen on a harmless question ("how was the G Minor one"): the
+            // model's own safety filter declined it. Nothing to retry.
+            return "The on-device model declined to answer that."
+        case .unsupportedLanguageOrLocale:
+            return "The on-device model does not support this language."
+        case .assetsUnavailable:
+            return "The on-device model is not ready yet."
+        case .rateLimited:
+            return "The on-device model is busy; try again in a moment."
+        case .concurrentRequests:
+            return "The on-device model is already answering."
+        case .refusal:
+            return "The on-device model declined to answer that."
+        default:
+            return "The on-device model could not answer."
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private static func code(for error: LanguageModelSession.GenerationError) -> String {
+        switch error {
+        case .exceededContextWindowSize: return "exceededContextWindowSize"
+        case .guardrailViolation: return "guardrailViolation"
+        case .unsupportedLanguageOrLocale: return "unsupportedLanguageOrLocale"
+        case .assetsUnavailable: return "assetsUnavailable"
+        case .rateLimited: return "rateLimited"
+        case .concurrentRequests: return "concurrentRequests"
+        case .refusal: return "refusal"
+        default: return "other"
+        }
+    }
+
     @available(iOS 26.0, *)
     private static func words(for reason: SystemLanguageModel.Availability.UnavailableReason) -> String {
         switch reason {

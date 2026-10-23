@@ -1,0 +1,44 @@
+[
+  {
+    "text" : "The last take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 1080,
+    "id" : 0,
+    "ms" : 1187.8260374069214
+  },
+  {
+    "text" : "The last take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 1710,
+    "id" : 1,
+    "ms" : 1597.338080406189
+  },
+  {
+    "text" : "The last take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 2970,
+    "id" : 2,
+    "ms" : 3116.5019273757935
+  },
+  {
+    "promptTokens" : 4230,
+    "id" : 3,
+    "error" : "exceededContextWindowSize",
+    "ms" : 711.495041847229
+  },
+  {
+    "promptTokens" : 5490,
+    "id" : 4,
+    "error" : "exceededContextWindowSize",
+    "ms" : 1014.1719579696655
+  },
+  {
+    "promptTokens" : 7170,
+    "id" : 5,
+    "error" : "exceededContextWindowSize",
+    "ms" : 1393.98193359375
+  },
+  {
+    "promptTokens" : 10557,
+    "id" : 6,
+    "error" : "exceededContextWindowSize",
+    "ms" : 1932.597041130066
+  }
+]

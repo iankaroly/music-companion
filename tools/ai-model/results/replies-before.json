@@ -1,0 +1,782 @@
+[
+  {
+    "text" : "Your \"Elgar concerto\" is 18¢ off on average, and your \"Kol Nidrei\" is 10¢ off on average. That means your \"Kol Nidrei\" is 8¢ closer to pitch than your \"Elgar concerto\".",
+    "id" : 0,
+    "ms" : 1788.362979888916
+  },
+  {
+    "text" : "Your latest recording was 24 notes long.",
+    "id" : 1,
+    "ms" : 360.76605319976807
+  },
+  {
+    "text" : "You've been consistent, but not very much. You've been consistent in the sense that you've been practising, but not in the sense that you've been practising consistently. You've been practising on 3 of the last 7 days, and your streak is 1 day.",
+    "id" : 2,
+    "ms" : 1072.1330642700195
+  },
+  {
+    "text" : "Your phrasing is steady, with phrases that swell and fade.",
+    "id" : 3,
+    "ms" : 526.8020629882812
+  },
+  {
+    "text" : "You are worst at bar 2, where you were 11¢ off over 3 notes.",
+    "id" : 4,
+    "ms" : 538.9989614486694
+  },
+  {
+    "text" : "Your notes settle at a median of 90 ms.",
+    "id" : 5,
+    "ms" : 430.6919574737549
+  },
+  {
+    "text" : "Your last two Bach takes are 4¢ closer to pitch than your first two.",
+    "id" : 6,
+    "ms" : 488.8690710067749
+  },
+  {
+    "text" : "No steady pulse was found in \"Elgar concerto\".",
+    "id" : 7,
+    "ms" : 353.2259464263916
+  },
+  {
+    "text" : "Your tempo is 72 beats per minute.",
+    "id" : 8,
+    "ms" : 339.99109268188477
+  },
+  {
+    "text" : "You have not practised in 7 days, so you are not improving.",
+    "id" : 9,
+    "ms" : 417.1879291534424
+  },
+  {
+    "text" : "You have 24 notes heard, with an average pitch deviation of 9¢. 50% of the notes are within 10¢ of pitch. The note furthest from pitch was D3, 9¢ sharp on average over 6 times.",
+    "id" : 10,
+    "ms" : 853.2030582427979
+  },
+  {
+    "text" : "The notes furthest from pitch are D3, A3, and F3.",
+    "id" : 11,
+    "ms" : 462.44001388549805
+  },
+  {
+    "text" : "You should fix the D3 and A3 notes first. They are the furthest from pitch.",
+    "id" : 12,
+    "ms" : 484.42089557647705
+  },
+  {
+    "text" : "There is nothing to compare to.",
+    "id" : 13,
+    "ms" : 368.6169385910034
+  },
+  {
+    "text" : "The note furthest from pitch was D3, 9¢ sharp on average over 6 times.",
+    "id" : 14,
+    "ms" : 425.1539707183838
+  },
+  {
+    "text" : "Yes, you always miss D3.",
+    "id" : 15,
+    "ms" : 302.08003520965576
+  },
+  {
+    "text" : "The scales were played correctly, with 24 notes heard, 5¢ off pitch on average, and 100% of notes within 10¢.",
+    "id" : 16,
+    "ms" : 618.7939643859863
+  },
+  {
+    "text" : "Your last take was 17¢ sharp on average over 6 times.",
+    "id" : 17,
+    "ms" : 405.1780700683594
+  },
+  {
+    "text" : "Yes, your notes drift sharp.",
+    "id" : 18,
+    "ms" : 314.9920701980591
+  },
+  {
+    "text" : "You are worst at D3, A3, and F3.",
+    "id" : 19,
+    "ms" : 399.4910717010498
+  },
+  {
+    "text" : "The pitches that give you the most trouble are the D3, A3, and F3.",
+    "id" : 20,
+    "ms" : 461.2720012664795
+  },
+  {
+    "text" : "Yes, your timing is getting better. Your pulse is getting closer to 72 beats per minute, and your notes are getting closer to the beat.",
+    "id" : 21,
+    "ms" : 629.9179792404175
+  },
+  {
+    "text" : "No steady pulse could be found in \"Oct 20\".",
+    "id" : 22,
+    "ms" : 406.39495849609375
+  },
+  {
+    "text" : "Your last take was the Bach prelude from October 19. It was 9¢ sharp on average over 6 times.",
+    "id" : 23,
+    "ms" : 538.5609865188599
+  },
+  {
+    "text" : "Yes, your vibrato is 27¢ wide.",
+    "id" : 24,
+    "ms" : 426.023006439209
+  },
+  {
+    "text" : "Your last two Bach takes are more musical. Your last take has more notes in tune, more phrases that swell and fade in, more detached notes, and more lengthening at phrase ends.",
+    "id" : 25,
+    "ms" : 1056.725025177002
+  },
+  {
+    "text" : "The scales were run 5¢ off pitch on average.",
+    "id" : 26,
+    "ms" : 363.96801471710205
+  },
+  {
+    "text" : "Your last two Bach takes are very similar. Your Oct 19 take is 5¢ closer to pitch than your Oct 13 take. Your Oct 19 take is also 22 ms tighter on average than your Oct 13 take.",
+    "id" : 27,
+    "ms" : 973.2329845428467
+  },
+  {
+    "text" : "Your last take was 9¢ sharp on average over 6 times.",
+    "id" : 28,
+    "ms" : 406.216025352478
+  },
+  {
+    "text" : "The Bach prelude was played with 24 notes, 9¢ off pitch on average, and 50% of notes within 10¢. The note furthest from pitch was D3, 9¢ sharp on average over 6 times.",
+    "id" : 29,
+    "ms" : 793.05100440979
+  },
+  {
+    "text" : "The phrasing in your scales could not be measured.",
+    "id" : 30,
+    "ms" : 358.5999011993408
+  },
+  {
+    "text" : "Your sound is bright. Brightness is defined as the sound's centre sitting around the 3.5th harmonic.",
+    "id" : 31,
+    "ms" : 576.1159658432007
+  },
+  {
+    "text" : "Yes, you are rushing. The tempo increased from 72 beats per minute to 86 beats per minute.",
+    "id" : 32,
+    "ms" : 509.16802883148193
+  },
+  {
+    "text" : "Your scales were 24 notes, 5¢ off pitch on average, and 100% of notes within 10¢.",
+    "id" : 33,
+    "ms" : 510.0499391555786
+  },
+  {
+    "text" : "You are usually flat on A3.",
+    "id" : 34,
+    "ms" : 308.5819482803345
+  },
+  {
+    "text" : "Your last session was not ok. You heard 24 notes, 9¢ off pitch on average, and 50% of notes within 10¢.",
+    "id" : 35,
+    "ms" : 597.7740287780762
+  },
+  {
+    "ms" : 959.7009420394897,
+    "text" : "Today, you played the Bach prelude, which was 24 notes long. You heard 8¢ off pitch on average, and 100% of the notes were within 10¢. The note furthest from pitch was D3, which was 8¢ sharp on average over 6 times.",
+    "id" : 36
+  },
+  {
+    "ms" : 637.6550197601318,
+    "text" : "Your vibrato is on 70% of notes held 0.4 s or longer, at about 5.4 Hz and 27¢ wide.",
+    "id" : 37
+  },
+  {
+    "ms" : 335.940957069397,
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "id" : 38
+  },
+  {
+    "ms" : 652.042031288147,
+    "text" : "Your Cello intonation is slightly flat. The average pitch was 9¢ off, and the furthest note from pitch was D3, 9¢ sharp.",
+    "id" : 39
+  },
+  {
+    "ms" : 401.6200304031372,
+    "text" : "Bar 3 is 32¢ off over 3 notes.",
+    "id" : 40
+  },
+  {
+    "ms" : 515.5729055404663,
+    "text" : "Your last etude was 7.5¢ off pitch on average, and 63% of the notes were within 10¢.",
+    "id" : 41
+  },
+  {
+    "ms" : 792.3049926757812,
+    "text" : "Sarabande was played with 24 notes, 12¢ off pitch on average, and 50% of notes within 10¢. The note furthest from pitch was D3, 12¢ sharp on average over 6 times.",
+    "id" : 42
+  },
+  {
+    "ms" : 378.9949417114258,
+    "text" : "Your articulation is even from note to note.",
+    "id" : 43
+  },
+  {
+    "ms" : 309.76402759552,
+    "text" : "Your average error was 9¢.",
+    "id" : 44
+  },
+  {
+    "ms" : 337.57495880126953,
+    "text" : "It was not measured.",
+    "id" : 45
+  },
+  {
+    "ms" : 959.0080976486206,
+    "text" : "The Bach prelude was played with 24 notes, with an average pitch deviation of 9¢. 50% of the notes were within 10¢ of pitch. The note furthest from pitch was D3, which was 9¢ sharp on average over 6 times.",
+    "id" : 46
+  },
+  {
+    "ms" : 623.263955116272,
+    "text" : "Yes, your violin is in tune. The average pitch was 9¢ off, and 50% of the notes were within 10¢.",
+    "id" : 47
+  },
+  {
+    "ms" : 482.71095752716064,
+    "text" : "Yes, you are playing out of tune on the D3, A3, and F3 notes.",
+    "id" : 48
+  },
+  {
+    "ms" : 448.3320713043213,
+    "text" : "No steady pulse was found in \"Bach prelude\", so I cannot say whether your playing is even.",
+    "id" : 49
+  },
+  {
+    "ms" : 595.5410003662109,
+    "text" : "The Bach prelude was not good. The average pitch was 9¢ sharp, and 50% of the notes were within 10¢.",
+    "id" : 50
+  },
+  {
+    "ms" : 932.075023651123,
+    "text" : "Your last 3 takes were similar to the previous ones. The average pitch was 10¢ off, and 50% of the notes were within 10¢. The note furthest from pitch was D3, and it was sharp on average over 6 times.",
+    "id" : 51
+  },
+  {
+    "ms" : 512.4270915985107,
+    "text" : "Yes, you are improving. Your tone is steadier and your vibrato is closer to pitch.",
+    "id" : 52
+  },
+  {
+    "ms" : 401.10695362091064,
+    "text" : "Your last take was 9¢ sharp on average over 6 times.",
+    "id" : 53
+  },
+  {
+    "ms" : 296.15211486816406,
+    "text" : "The sound was not measured.",
+    "id" : 54
+  },
+  {
+    "ms" : 304.0670156478882,
+    "text" : "Yes, you tend to play sharp.",
+    "id" : 55
+  },
+  {
+    "ms" : 543.4339046478271,
+    "text" : "Yes, you are better than last time. Your average pitch error is 13¢ closer to pitch.",
+    "id" : 56
+  },
+  {
+    "ms" : 377.3629665374756,
+    "text" : "Rubato is not measured.",
+    "id" : 57
+  },
+  {
+    "ms" : 788.1839275360107,
+    "text" : "You've been practising on 3 of the last 7 days, and your current streak is 1 day. Your first measured day was 22¢ off, and your latest measured day was 9¢ off.",
+    "id" : 58
+  },
+  {
+    "ms" : 509.13405418395996,
+    "text" : "Yes, your timing is off. Your tempo is speeding up, and the notes are getting closer to the beat.",
+    "id" : 59
+  },
+  {
+    "ms" : 335.9020948410034,
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "id" : 60
+  },
+  {
+    "ms" : 456.60507678985596,
+    "text" : "The second prelude was 13¢ closer to pitch than the first.",
+    "id" : 61
+  },
+  {
+    "ms" : 449.31793212890625,
+    "text" : "Your pitch habits are to run D3 sharp and A3 flat.",
+    "id" : 62
+  },
+  {
+    "ms" : 397.95899391174316,
+    "text" : "Yesterday's take was 11¢ sharp on average over 6 times.",
+    "id" : 63
+  },
+  {
+    "ms" : 592.4509763717651,
+    "text" : "The tuning is not good. The average pitch was 9¢ sharp, and the furthest note was 9¢ sharp.",
+    "id" : 64
+  },
+  {
+    "ms" : 507.53700733184814,
+    "text" : "Yes, you are improving. Your tone is steadier and your vibrato is closer to pitch.",
+    "id" : 65
+  },
+  {
+    "ms" : 717.88489818573,
+    "text" : "Your last two Bach takes are 13¢ closer to pitch than your first take. D3 and A3 are both 9¢ closer to pitch than your first take.",
+    "id" : 66
+  },
+  {
+    "ms" : 307.25204944610596,
+    "text" : "Your rhythm is 86% even.",
+    "id" : 67
+  },
+  {
+    "ms" : 507.62009620666504,
+    "text" : "It is not too flat or mechanical.",
+    "id" : 68
+  },
+  {
+    "ms" : 339.0589952468872,
+    "text" : "Your Soprano range is 24 notes.",
+    "id" : 69
+  },
+  {
+    "ms" : 567.6809549331665,
+    "text" : "Your scale take was 24 notes, 5¢ off pitch on average, and 100% of notes within 10¢.",
+    "id" : 70
+  },
+  {
+    "ms" : 290.956974029541,
+    "text" : "Not measured.",
+    "id" : 71
+  },
+  {
+    "id" : 72,
+    "text" : "Your last take was 13¢ closer to pitch than the one before.",
+    "ms" : 458.67300033569336
+  },
+  {
+    "id" : 73,
+    "text" : "Yes, you are getting better over time. Your tone is steadier and your vibrato is closer to pitch.",
+    "ms" : 504.95803356170654
+  },
+  {
+    "id" : 74,
+    "text" : "You practised \"Kol Nidrei\" yesterday.",
+    "ms" : 370.8230257034302
+  },
+  {
+    "id" : 75,
+    "text" : "Bach prelude, Oct 19 is 13¢ closer to pitch than Bach prelude, Oct 14.",
+    "ms" : 570.5959796905518
+  },
+  {
+    "id" : 76,
+    "text" : "Yes, your vibrato width has changed. It was 18¢ before, and 27¢ now.",
+    "ms" : 616.7891025543213
+  },
+  {
+    "id" : 77,
+    "text" : "You go wrong on the D3 and A3 notes. They are both 9¢ sharp, and you played them 6 times.",
+    "ms" : 626.5170574188232
+  },
+  {
+    "id" : 78,
+    "text" : "Yes, the bass line is steady.",
+    "ms" : 303.38799953460693
+  },
+  {
+    "id" : 79,
+    "text" : "The G Minor one was 1¢ sharp on average.",
+    "ms" : 394.96302604675293
+  },
+  {
+    "id" : 80,
+    "text" : "The notes are all 9¢ sharp, so they are all out of tune.",
+    "ms" : 483.4359884262085
+  },
+  {
+    "id" : 81,
+    "text" : "Your scales rhythm was inconsistent.",
+    "ms" : 302.5779724121094
+  },
+  {
+    "id" : 82,
+    "text" : "Your last take was 7¢ sharp on average over 6 times.",
+    "ms" : 398.7640142440796
+  },
+  {
+    "id" : 83,
+    "text" : "The \"Bach prelude\" is shaped with phrases that swell and fade, with clear phrase endings, and with phrases that differ in loudness by about 0 dB on average. It is also articulated evenly from note to note, with notes sounding for 60% of the time to the next note, and with a steady tempo.",
+    "ms" : 1441.2500858306885
+  },
+  {
+    "id" : 84,
+    "text" : "The Bach prelude has moved closer to pitch.",
+    "ms" : 435.5510473251343
+  },
+  {
+    "id" : 85,
+    "text" : "You were 9¢ off pitch on average.",
+    "ms" : 401.00908279418945
+  },
+  {
+    "id" : 86,
+    "text" : "Your tone is clear, as it reads 88 out of 100.",
+    "ms" : 495.5029487609863
+  },
+  {
+    "id" : 87,
+    "text" : "Your current streak is 1 day.",
+    "ms" : 337.09394931793213
+  },
+  {
+    "id" : 88,
+    "text" : "Your vibrato is not measured.",
+    "ms" : 364.7869825363159
+  },
+  {
+    "id" : 89,
+    "text" : "Your voice is slightly flat on average, with 9¢ off pitch on average.",
+    "ms" : 459.41007137298584
+  },
+  {
+    "id" : 90,
+    "text" : "Your last two etudes had the same average pitch error.",
+    "ms" : 392.27497577667236
+  },
+  {
+    "id" : 91,
+    "text" : "Your intonation was off by an average of 9¢.",
+    "ms" : 426.10299587249756
+  },
+  {
+    "id" : 92,
+    "text" : "Your vibrato is 27¢ wide.",
+    "ms" : 471.47810459136963
+  },
+  {
+    "id" : 93,
+    "text" : "Your vibrato is on 70% of notes held 0.4 s or longer, at about 5.4 Hz and 27¢ wide.",
+    "ms" : 628.4030675888062
+  },
+  {
+    "id" : 94,
+    "text" : "Your trouble spots are the notes furthest from pitch in \"Bach prelude\": D3 (9¢ sharp, 6 times), A3 (9¢ sharp, 6 times), F3 (9¢ sharp, 6 times).",
+    "ms" : 723.5519886016846
+  },
+  {
+    "id" : 95,
+    "text" : "You are 5¢ closer to pitch on the Oct 19 recording. You landed 9 notes closer to the score and 22 ms tighter on average.",
+    "ms" : 715.9980535507202
+  },
+  {
+    "id" : 96,
+    "text" : "Yes, your last take is worse than the previous one. Your last take has a higher average pitch error than the previous one.",
+    "ms" : 603.1590700149536
+  },
+  {
+    "id" : 97,
+    "text" : "No, you are not always flat on A. You are flat 12¢ on A3, but you are sharp 14¢ on D3.",
+    "ms" : 616.252064704895
+  },
+  {
+    "id" : 98,
+    "text" : "Kol Nidrei went well, with 24 notes heard, 10¢ off pitch on average, and 50% of notes within 10¢.",
+    "ms" : 596.3889360427856
+  },
+  {
+    "id" : 99,
+    "text" : "This week's pitch error is 10¢ closer to pitch than last week's.",
+    "ms" : 450.77502727508545
+  },
+  {
+    "id" : 100,
+    "text" : "Your pitch accuracy is 9¢ off on average.",
+    "ms" : 342.7480459213257
+  },
+  {
+    "id" : 101,
+    "text" : "Your Elgar concerto was 18¢ off pitch on average, and 0% of the notes were within 10¢.",
+    "ms" : 542.4489974975586
+  },
+  {
+    "id" : 102,
+    "text" : "Last time, the average pitch error was 10¢. This time, the average pitch error is 13¢ closer to pitch.",
+    "ms" : 599.6010303497314
+  },
+  {
+    "id" : 103,
+    "text" : "You did well! You heard 24 notes, and 50% of them were within 10¢ of pitch. The note furthest from pitch was D3, and it was sharp on average 9¢ over 6 times.",
+    "ms" : 901.9159078598022
+  },
+  {
+    "id" : 104,
+    "text" : "Not measured.",
+    "ms" : 478.0099391937256
+  },
+  {
+    "id" : 105,
+    "text" : "You were 9¢ off pitch on average.",
+    "ms" : 401.0509252548218
+  },
+  {
+    "id" : 106,
+    "text" : "Bar 3, bar 4, and bar 2 need work.",
+    "ms" : 370.84901332855225
+  },
+  {
+    "id" : 107,
+    "text" : "You are struggling with bars 3, 4, and 2.",
+    "ms" : 427.16705799102783
+  },
+  {
+    "text" : "Your vibrato is on 78% of notes in the scales, at about 5.4 Hz and 27¢ wide.",
+    "id" : 108,
+    "ms" : 628.9750337600708
+  },
+  {
+    "text" : "Your vibrato is not measured.",
+    "id" : 109,
+    "ms" : 371.44792079925537
+  },
+  {
+    "text" : "Yes, you got tighter with the beat.",
+    "id" : 110,
+    "ms" : 408.0160856246948
+  },
+  {
+    "text" : "Yes, you are improving. Your pitch error is 10¢ closer to pitch than it was last week.",
+    "id" : 111,
+    "ms" : 561.8990659713745
+  },
+  {
+    "text" : "You play sharp.",
+    "id" : 112,
+    "ms" : 284.19601917266846
+  },
+  {
+    "text" : "Your last two Bach takes are 13¢ closer to pitch than the previous ones.",
+    "id" : 113,
+    "ms" : 484.41195487976074
+  },
+  {
+    "text" : "You should work on bars 1, 2, and 3.",
+    "id" : 114,
+    "ms" : 427.7290105819702
+  },
+  {
+    "text" : "Your worst notes are D3 and A3.",
+    "id" : 115,
+    "ms" : 339.36309814453125
+  },
+  {
+    "text" : "Your D Major scale was 24 notes, 5¢ off pitch on average, and 100% of notes within 10¢.",
+    "id" : 116,
+    "ms" : 534.0750217437744
+  },
+  {
+    "text" : "Your playing is moderately dynamic. Your loudness range is 12 dB, and neighbouring notes differ by 1.8 dB.",
+    "id" : 117,
+    "ms" : 602.5609970092773
+  },
+  {
+    "text" : "Your Bach prelude, Oct 19, is 13¢ closer to pitch than your Oct 14. D3 and A3 are both 9¢ closer to pitch than they were on the Oct 14.",
+    "id" : 118,
+    "ms" : 858.2210540771484
+  },
+  {
+    "text" : "Your last take was 9¢ sharp on average over 6 times.",
+    "id" : 119,
+    "ms" : 402.3139476776123
+  },
+  {
+    "text" : "The newer Bach take is cleaner than the older one.",
+    "id" : 120,
+    "ms" : 426.92601680755615
+  },
+  {
+    "text" : "Your last two Bach takes are 13¢ closer to pitch on average. D3 and A3 are both 9¢ closer to pitch on average. Your pitch steadiness is 3.1¢ better now. You have 78% of your notes in tune on arrival now, compared to 55% before. Your time to settle is 90ms faster now, compared to 140ms before. Your vibrato width is 9¢ wider now, compared to 18¢ before.",
+    "id" : 121,
+    "ms" : 1614.9510145187378
+  },
+  {
+    "text" : "Today was good. You heard 24 notes, and 100% of them were within 10¢ of pitch. The furthest note from pitch was D3, which was 7¢ sharp on average over 6 times.",
+    "id" : 122,
+    "ms" : 881.1599016189575
+  },
+  {
+    "text" : "The Bach prelude was played with 24 notes, 9¢ off pitch on average, and 50% of notes within 10¢. The note furthest from pitch was D3, 9¢ sharp on average over 6 times.",
+    "id" : 123,
+    "ms" : 766.8470144271851
+  },
+  {
+    "text" : "You played 24 notes.",
+    "id" : 124,
+    "ms" : 316.39301776885986
+  },
+  {
+    "text" : "Today's average pitch error is 4¢ closer to pitch than yesterday's. D3 and A3 are both 7¢ closer to pitch than yesterday.",
+    "id" : 125,
+    "ms" : 682.3080778121948
+  },
+  {
+    "text" : "No steady pulse was found in \"Bach prelude\".",
+    "id" : 126,
+    "ms" : 334.27703380584717
+  },
+  {
+    "text" : "Tone was not measured.",
+    "id" : 127,
+    "ms" : 413.4000539779663
+  },
+  {
+    "text" : "No steady pulse was found in \"Bach prelude\".",
+    "id" : 128,
+    "ms" : 335.31689643859863
+  },
+  {
+    "text" : "Your singing was 24 notes long, with an average pitch deviation of 9¢. 50% of the notes were within 10¢ of pitch. The note furthest from pitch was D3, which was 9¢ sharp on average over 6 times.",
+    "id" : 129,
+    "ms" : 931.4950704574585
+  },
+  {
+    "text" : "Your last take was 8¢ sharp on average over 6 times.",
+    "id" : 130,
+    "ms" : 406.46302700042725
+  },
+  {
+    "text" : "Your last take was 24 notes long, with an average pitch deviation of 9¢. 50% of the notes were within 10¢ of pitch. The note furthest from pitch was D3, which was 9¢ sharp on average over 6 times.",
+    "id" : 131,
+    "ms" : 963.1119966506958
+  },
+  {
+    "text" : "You are playing at a loudness of 12 dB.",
+    "id" : 132,
+    "ms" : 490.31901359558105
+  },
+  {
+    "text" : "No, you are not flat on the D.",
+    "id" : 133,
+    "ms" : 344.2150354385376
+  },
+  {
+    "text" : "Your held notes are fairly steady, with a pitch wander of 3.1¢.",
+    "id" : 134,
+    "ms" : 549.32701587677
+  },
+  {
+    "text" : "You are worst at the notes that are furthest from pitch, which are D3 and A3.",
+    "id" : 135,
+    "ms" : 496.52695655822754
+  },
+  {
+    "text" : "Scales, Oct 18 is 8¢ closer to pitch than last time. D3 and A3 are both 8¢ closer to pitch than last time.",
+    "id" : 136,
+    "ms" : 681.9280385971069
+  },
+  {
+    "text" : "Your Kol Nidrei was 24 notes long, with an average pitch shift of 10¢. 50% of the notes were within 10¢ of pitch. The note furthest from pitch was D3, which was 10¢ sharp on average over 6 times.",
+    "id" : 137,
+    "ms" : 963.5229110717773
+  },
+  {
+    "text" : "Yes, you play sharp.",
+    "id" : 138,
+    "ms" : 317.20590591430664
+  },
+  {
+    "text" : "Bach prelude was 4¢ further from pitch than scales.",
+    "id" : 139,
+    "ms" : 430.0490617752075
+  },
+  {
+    "text" : "Not measured.",
+    "id" : 140,
+    "ms" : 286.79895401000977
+  },
+  {
+    "text" : "Yes, you play sharp.",
+    "id" : 141,
+    "ms" : 285.383939743042
+  },
+  {
+    "text" : "Your last take was 12¢ sharp on average over 6 times.",
+    "id" : 142,
+    "ms" : 399.58393573760986
+  },
+  {
+    "text" : "Your practice went well, with a 1-day streak. You were 22¢ off on the first day and 9¢ off on the last day.",
+    "id" : 143,
+    "ms" : 650.1480340957642
+  },
+  {
+    "id" : 144,
+    "text" : "Your last take was 9¢ sharp on average over 6 times.",
+    "ms" : 404.68597412109375
+  },
+  {
+    "id" : 145,
+    "text" : "Last time, phrases in \"Bach prelude, Oct 14\" were 0% loud, while now they are 100%. Phrases in \"Bach prelude, Oct 19\" are 1.5× longer than last time.",
+    "ms" : 1101.181983947754
+  },
+  {
+    "id" : 146,
+    "text" : "Legato is the term for playing notes smoothly without gaps. In the Bach prelude, notes sound for 60% of the time to the next note, which is the opposite of legato.",
+    "ms" : 856.0550212860107
+  },
+  {
+    "id" : 147,
+    "text" : "No steady pulse could be found in \"Bach prelude\", so I cannot say whether it rushes or drags.",
+    "ms" : 425.75597763061523
+  },
+  {
+    "id" : 148,
+    "text" : "Yes, your Viola took the Bach prelude well. You heard 24 notes, and 50% of them were within 10¢ of pitch. The note furthest from pitch was D3, but it was only 9¢ sharp on average over 6 times.",
+    "ms" : 989.4269704818726
+  },
+  {
+    "id" : 149,
+    "text" : "Yes, your vibrato is faster. Time to settle decreased from 140 ms to 90 ms.",
+    "ms" : 583.8390588760376
+  },
+  {
+    "id" : 150,
+    "text" : "Yes, you have practised this month.",
+    "ms" : 334.33306217193604
+  },
+  {
+    "id" : 151,
+    "text" : "Your last two takes were very similar. Both were 4¢ closer to pitch than the previous take. Both D3 and A3 were also closer to pitch than the previous take.",
+    "ms" : 822.8570222854614
+  },
+  {
+    "id" : 152,
+    "text" : "Your last phrases are shaped similarly to the \"Bach prelude\" in that they are evenly articulated, steady in tempo, and have phrases that swell and fade. They differ in loudness by about 0 dB on average, with the loudest stretch being 1.4 dB above the quietest.",
+    "ms" : 1099.5219945907593
+  },
+  {
+    "id" : 153,
+    "text" : "Yes, you improved. Your average pitch error decreased from 22¢ to 13¢.",
+    "ms" : 620.6051111221313
+  },
+  {
+    "id" : 154,
+    "text" : "Tone was not measured.",
+    "ms" : 420.54104804992676
+  },
+  {
+    "id" : 155,
+    "text" : "No steady pulse could be found in \"Bach prelude\", so I cannot say whether it rushes or drags.",
+    "ms" : 419.5899963378906
+  }
+]

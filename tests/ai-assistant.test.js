@@ -112,6 +112,27 @@ describe('answerQuestion', () => {
     expect(r.text).toMatch(/could not be measured/);
   });
 
+  test('a reply that prints the prompt back or stops mid-sentence is set aside', async () => {
+    const say = (text) => ({ availability: async () => ({ available: true }), respond: async () => ({ text }) });
+    const echo = await answerQuestion({ ...base, question: 'how was my last take', model: say('MEASUREMENTS:\n- "Scales" (Oct 17): 24 notes heard, 5¢ off pitch on average.\nYour last take was 5¢ off.') });
+    expect(echo.source).toBe('measurements');
+    expect(echo.note).toMatch(/repeated the prompt/);
+    const cut = await answerQuestion({ ...base, question: 'how was my last take', model: say('Your last take was 9¢ off pitch on average, and 24 notes') });
+    expect(cut.source).toBe('measurements');
+    expect(cut.note).toMatch(/cut off/);
+  });
+
+  test('a prompt over the context budget is never sent to the model', async () => {
+    let called = false;
+    const spy = { availability: async () => ({ available: true }), respond: async () => { called = true; return { text: 'Fine.' }; } };
+    // a take named with 8000 characters is the cheapest way to make the facts longer than the window
+    const huge = rec(9, `Etude ${'x'.repeat(8000)}`, 0.1, 4);
+    const r = await answerQuestion({ ...base, library: [huge], question: 'how was my last take', model: spy });
+    expect(called).toBe(false);
+    expect(r.source).toBe('measurements');
+    expect(r.note).toMatch(/too much/);
+  });
+
   test('a one-take library cannot be compared and says so', async () => {
     const r = await answerQuestion({ ...base, library: [library[0]], question: 'compare to last time', model: absent });
     expect(r.text).toMatch(/Only one take/);

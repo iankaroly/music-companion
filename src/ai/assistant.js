@@ -17,13 +17,31 @@ import { checkReply } from './guard.js';
 import { musicalityOf } from '../analysis/musicality.js';
 import { MUSICALITY_INSTRUCTION } from './musicality-facts.js';
 
+// Rewritten after running the eval questions through the real on-device model
+// (tools/ai-model/README.md). What the first wording did at temperature 0, and
+// which line below answers it:
+//   - "9¢ sharp on average over 6 times" is one note's figure; it came back as
+//     the whole take's ("your last take was 9¢ sharp over 6 times")
+//   - playing called "good", "not good", "in tune", "went well" on no evidence
+//   - its own subtraction ("90 ms faster" from 140 and 90, "18¢ wider")
+//   - a steadier tone and a closer vibrato invented for a question about progress
+// Rules alone moved little; examples did, with two costs found by running them.
+// An example laid out like the prompt (MEASUREMENTS: / QUESTION:) made the model
+// print the prompt back before its answer in 11 of 104 replies, so the examples
+// are prose. And a figure inside a rule or example is a figure the model copies
+// into an answer where it does not belong ("over 6 times" turned up in answers
+// about a different habit), so the examples use numbers no real measurement
+// produces and the rules quote none.
 export const INSTRUCTIONS = [
   'You are the practice coach inside a music practice app. A player asked a question about their own recordings.',
-  'You are given MEASUREMENTS. Answer using only those.',
-  'Rules: use only numbers that appear in the measurements, copied exactly. Never calculate, estimate or round a number yourself.',
-  'If the measurements do not cover what was asked, say plainly that it was not measured. Do not guess.',
-  'Tone, vibrato and loudness are descriptions, not grades: say what changed, not whether it is good, unless a measurement says closer to pitch or steadier.',
-  'Answer in two to four short sentences in plain words. No lists, no headings, no advice that a measurement does not support.',
+  'You are given MEASUREMENTS written by the app. Answer the QUESTION using only those, in one to three short plain sentences. Start with the answer. Never repeat the measurements list or the question.',
+  'Reuse the wording of the measurement sentences and change as little as you can. Pick the ones that answer the question. Never turn a figure into a different claim.',
+  'Copy each figure exactly as written, with its unit and the words it belongs to. Never add, subtract, round or compare numbers yourself. When something changed, give the two figures, "from this to that", never the difference.',
+  'A figure about one note belongs to that note. The take as a whole has its own figure. Never give a note\'s figure as the take\'s.',
+  'Never say the playing is good, bad, fine, ok, well, correct, in tune or out of tune. Give the figures and let the player judge.',
+  'Say "not measured" only when no measurement is about the thing asked. If one is, use it.',
+  'Do not repeat an instrument, key, piece or day from the question unless the measurements contain it.',
+  'Example: the measurements say an etude was 31¢ off pitch on average with 20% of notes within 10¢, and its furthest note was E4, 44¢ sharp on average over 3 times. Asked "how was my last take" or "was the etude any good", you answer: "The etude was 31¢ off pitch on average, and 20% of notes were within 10¢. Its furthest note was E4, 44¢ sharp."',
 ].join('\n');
 
 // The standing rules, plus the musicality rule only when shaping facts are in
@@ -34,8 +52,45 @@ export function instructionsFor(intents = []) {
   return shaping ? `${INSTRUCTIONS}\n${MUSICALITY_INSTRUCTION}` : INSTRUCTIONS;
 }
 
+// A tag on the facts that a small model confuses, saying which part of the
+// playing the sentence is about. Digit-free on purpose (the guard reads the
+// reply against the facts, never the prompt, so a tag cannot make a number
+// legal). Found by running the real model: given "The note furthest from pitch
+// was D3, 9¢ sharp on average over 6 times." after the take's own average, it
+// answered "how was my last take" with "Your last take was 9¢ sharp on average
+// over 6 times" in 7 of 104 replies, through five rewrites of the instructions.
+export function scopeTag(fact) {
+  if (/notes heard/.test(fact)) return '[the whole take] ';
+  if (/^The note furthest from pitch was/.test(fact)) return '[one note only] ';
+  if (/^[A-G][#b]?\d moved from/.test(fact)) return '[one note only] ';
+  if (/^Average pitch error:/.test(fact)) return '[the two takes compared] ';
+  return '';
+}
+
 export function promptFor(question, facts) {
-  return `MEASUREMENTS:\n${facts.map((f) => `- ${f}`).join('\n')}\n\nQUESTION: ${question}`;
+  return `MEASUREMENTS:\n${facts.map((f) => `- ${scopeTag(f)}${f}`).join('\n')}\n\nQUESTION: ${question}\n\nAnswer in one to three sentences, only from the measurements above.`;
+}
+
+// The on-device model reads 4096 tokens in all, prompt and reply together
+// (SystemLanguageModel.contextSize). Measured here with the real model on
+// facts repeated to length: a 8877-character instructions-plus-prompt (2970
+// tokens) answered, a 12459-character one (4230 tokens) came back as
+// exceededContextWindowSize in under a second. The longest real prompt in the
+// 156 eval questions is 3181 characters (867 tokens). The budget sits between,
+// with room for the reply, and what is over it is shown as the plain
+// measurements instead of being sent to fail.
+export const MAX_PROMPT_CHARS = 7000;
+
+// A reply that is not a finished answer, whatever its numbers say. The plugin
+// caps the reply length, because one question ("which bars should I work on",
+// asked of a take with no score) ran the model for 49 s counting bars up to the
+// end of the window; the cap cuts such a reply off mid-sentence. And a reply
+// that begins by printing the prompt back is the instructions talking, not an
+// answer.
+export function unfinished(text) {
+  if (/MEASUREMENTS:|QUESTION:|ANSWER:/.test(text)) return 'the reply repeated the prompt';
+  if (!/[.!?)"”]$/.test(text)) return 'the reply was cut off';
+  return '';
 }
 
 // The native model, if this build has one. Loaded on demand so the web bundle
@@ -135,9 +190,17 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     return { text: plain, facts, used, source: 'measurements', note: status.available ? '' : status.reason };
   }
 
+  const instructions = instructionsFor(p.intents);
+  const prompt = promptFor(question, facts);
+  if (instructions.length + prompt.length > MAX_PROMPT_CHARS) {
+    return { text: plain, facts, used, source: 'measurements', note: 'There was too much to read to the on-device model at once, so these are the measurements as they stand.' };
+  }
+
   try {
-    const reply = await m.respond({ instructions: instructionsFor(p.intents), prompt: promptFor(question, facts) });
+    const reply = await m.respond({ instructions, prompt });
     const text = String(reply?.text ?? '').trim();
+    const bad = text ? unfinished(text) : '';
+    if (bad) return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${bad}).`, stray: [] };
     const verdict = checkReply(text, facts, question, { takeCount: chosen.length });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };
     return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${verdict.reason}).`, stray: verdict.stray };
