@@ -10,6 +10,12 @@ import Capacitor
 // Tabs with more content than screen still scroll normally. They just stop at
 // their ends instead of overshooting.
 class MainViewController: CAPBridgeViewController {
+    // A plugin that lives in the app target rather than in a package is not
+    // found by Capacitor's package scan; it has to be handed to the bridge.
+    override func capacitorDidLoad() {
+        bridge?.registerPluginInstance(StandPartnerAIPlugin())
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
         webView?.scrollView.bounces = false
