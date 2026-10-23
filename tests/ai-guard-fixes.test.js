@@ -37,6 +37,15 @@ describe('direction: a word that says the opposite of the number it is next to',
     expect(checkReply('The Oct 22 take is 12.8¢ closer to pitch.', further).ok).toBe(false);
   });
 
+  test('"further on average" and "further on D3" are directions (found by review: an exclusion for "further on in the piece" hid them)', () => {
+    expect(checkReply('The Oct 22 take is 12.8¢ further on average.', closer, '', { takeCount: 2 }).ok).toBe(false);
+    expect(checkReply('On average the Oct 22 take is 12.8¢ further.', closer, '', { takeCount: 2 }).ok).toBe(false);
+    const lean = ['The note furthest from pitch was D3, 14¢ sharp on average over 6 times.'];
+    expect(checkReply('D3 is 14¢ flatter on D3.', lean).ok).toBe(false);
+    expect(checkReply('D3 is 14¢ sharper on average.', lean).ok).toBe(true);
+    expect(checkReply('Further on in the piece, the Oct 22 take is 12.8¢ closer.', closer).ok).toBe(true);
+  });
+
   test('"further" as a connective is not a direction', () => {
     expect(checkReply('Further, the Oct 22 take is 12.8¢ closer.', closer).ok).toBe(true);
     expect(checkReply('For further detail, see the 12.8¢ difference: closer.', closer).ok).toBe(true);
@@ -250,7 +259,7 @@ describe('a yes or a no to a question whose premise is a judgement', () => {
     const v = checkReply('Yes, your vibrato is 27¢ wide.', tone.facts, 'is my vibrato too wide', { takeCount: 1 });
     expect(v.ok).toBe(false);
     expect(kinds(v)).toContain('premise');
-    for (const r of ['No, it is not too wide.', 'Yes, it is.', 'Absolutely, 27¢ is wide.']) expect(checkReply(r, tone.facts, 'is my vibrato too wide', { takeCount: 1 }).ok, r).toBe(false);
+    for (const r of ['No, it is not too wide.', 'Yes, it is.', 'Absolutely, 27¢ is wide.', 'Yes your vibrato is 27¢ wide.', 'Yeah it is 27¢ wide.']) expect(checkReply(r, tone.facts, 'is my vibrato too wide', { takeCount: 1 }).ok, r).toBe(false);
   });
   test('the description alone is fine, and so is a yes about something the facts state', () => {
     expect(checkReply('Your vibrato is 27¢ wide, at about 5.4 Hz.', tone.facts, 'is my vibrato too wide', { takeCount: 1 }).ok).toBe(true);

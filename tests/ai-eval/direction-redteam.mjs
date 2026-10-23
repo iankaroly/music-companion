@@ -33,7 +33,7 @@ export const SCENARIOS = [
     n: '12.8', units: true,
     wrong: ['further', 'farther', 'worse', 'declined', 'more off pitch', 'less accurate', 'less in tune'],
     right: ['closer', 'nearer', 'better', 'improved', 'more accurate', 'less off pitch'],
-    shapes: ['The Oct 22 take is {N} {W}.', 'It is {N} {W} than the Oct 17 take.', 'You are {W} by {N}.', '{N} {W}, comparing the two takes.'],
+    shapes: ['The Oct 22 take is {N} {W}.', 'It is {N} {W} than the Oct 17 take.', 'You are {W} by {N}.', '{N} {W}, comparing the two takes.', 'On average the Oct 22 take is {N} {W}.', 'The Oct 22 take is {N} {W} on average.'],
   },
   {
     name: 'further',
@@ -41,7 +41,7 @@ export const SCENARIOS = [
     n: '12.8', units: true,
     wrong: ['closer', 'nearer', 'better', 'improved', 'more accurate', 'less off pitch', 'more in tune'],
     right: ['further', 'farther', 'worse', 'declined', 'more off pitch', 'less accurate'],
-    shapes: ['The Oct 22 take is {N} {W}.', 'It is {N} {W} than the Oct 17 take.', 'You are {W} by {N}.', '{N} {W}, comparing the two takes.'],
+    shapes: ['The Oct 22 take is {N} {W}.', 'It is {N} {W} than the Oct 17 take.', 'You are {W} by {N}.', '{N} {W}, comparing the two takes.', 'On average the Oct 22 take is {N} {W}.', 'The Oct 22 take is {N} {W} on average.'],
   },
   {
     name: 'lean',
@@ -49,7 +49,7 @@ export const SCENARIOS = [
     n: '14', units: true,
     wrong: ['flatter', 'flat'],
     right: ['sharper', 'sharp'],
-    shapes: ['D3 is {N} {W}.', 'D3 runs {N} {W} on average.', 'The furthest note, D3, is {W} by {N}.', '{N} {W} on D3.'],
+    shapes: ['D3 is {N} {W}.', 'D3 runs {N} {W} on average.', 'The furthest note, D3, is {W} by {N}.', '{N} {W} on D3.', 'It is {W} on D3 by {N}.'],
   },
   {
     name: 'lean-flat',
@@ -57,7 +57,7 @@ export const SCENARIOS = [
     n: '12', units: true,
     wrong: ['sharper', 'sharp'],
     right: ['flatter', 'flat'],
-    shapes: ['A3 is {N} {W}.', 'A3 runs {N} {W} on average.', 'The furthest note, A3, is {W} by {N}.', '{N} {W} on A3.'],
+    shapes: ['A3 is {N} {W}.', 'A3 runs {N} {W} on average.', 'The furthest note, A3, is {W} by {N}.', '{N} {W} on A3.', 'It is {W} on A3 by {N}.'],
   },
   {
     name: 'wider',
@@ -172,9 +172,14 @@ function expand(sc, words) {
 
 // Sentences written by hand AFTER the generated set, in phrasings the lexicon
 // was not built around, against the "closer" facts (the truth is 12.8¢ closer).
-// Written to find what a generator that cycles through known words cannot:
-// they were run against the guard before anything was added for them, and the
-// ones it missed are in the test file as they were found.
+// Written to find what a generator that cycles through known words cannot.
+// WHAT HAPPENED TO THEM, because this is a development set and not a held-out
+// one: 10 of the 16 contradictions escaped the guard at 2b5b284; 7 escaped it
+// after the work on the generated set; five of those 7 were then fixed BY
+// LOOKING AT THEM (a negation ending at a decimal point, "more out of tune",
+// "lost ... accuracy", "accuracy/intonation fell"), which leaves 2 of 16 and
+// makes that 2 the only number here that was not tuned against. Those two are
+// pinned in tests/ai-guard-fixes.test.js.
 const CLOSER_FACTS = SCENARIOS[0].facts;
 export const FREEFORM_WRONG = [
   'Compared with Oct 17, the Oct 22 take sits 12.8¢ further out.',

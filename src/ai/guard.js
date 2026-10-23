@@ -252,7 +252,7 @@ const AXES = {
     // "%" and ")": "The Oct 22 take is 12.8¢ further from pitch" was not read as
     // a direction at all, in a reply (so the flip of a true "closer" passed) or in
     // the facts (so a true "further" was rejected as a change nobody measured).
-    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help|on)\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted)\b/,
+    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted)\b/,
   },
   steadiness: { pos: /\b(steadier|more steady|more stable)\b/, neg: /\b(shakier|less steady|less stable|wobblier|unsteadier)\b/ },
   timing: { pos: /\b(tighter)\b/, neg: /\b(looser|sloppier|less tight)\b/ },
@@ -540,7 +540,7 @@ function keysIn(text) {
 // A question that asks for a verdict, and a reply that gives one.
 const YES_NO_QUESTION = /^\s*(?:(?:so|ok|okay|hey|and|also|um)[,\s]+)*(?:is|am|are|was|were|do|does|did|have|has|had|can|could|should|would|will|isn't|aren't|wasn't|don't|doesn't|didn't)\b/;
 const JUDGEMENT = /\btoo \w+|\b(?:good|bad|fine|ok|okay|alright|correct|incorrect|right|wrong|great|decent|acceptable|terrible|awful|any good|in tune|out of tune|off|enough|ready|problem)\b/;
-const OPENS_WITH_VERDICT = /^\s*(?:yes|yeah|yep|yup|no|nope|correct|absolutely|definitely|indeed|exactly|sure|certainly)\b\s*[,.!:;—-]/i;
+const OPENS_WITH_VERDICT = /^\s*(?:(?:yes|yeah|yep|yup|correct|absolutely|definitely|indeed|exactly|sure|certainly)\b|(?:no|nope)\b\s*[,.!:;—-])/i;
 // "not measured", said of something
 const ABSENT = /\b(?:not measured|wasn't measured|was not measured|weren't measured|were not measured|isn't measured|no measurements?|not available|could not be measured|couldn't be measured|cannot be measured|can't be measured|nothing was measured)\b/i;
 
