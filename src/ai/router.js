@@ -80,7 +80,16 @@ const COMPARE = /compar|versus|\bvs\b|differen|better|worse|improv|chang|last ti
 // suggests ("am I getting better over time" is a trend).
 const COMPARE_EXPLICIT = /compar|versus|\bvs\b|\bthan\b|last time|previous|the one before|since (my|the|that|this) (last|previous|first)/;
 const TREND = /trend|progress|over time|this week|last week|this month|last month|month|streak|getting better|improving|improvement|am i improv|lately|recently|these days|so far|consisten/;
+// How a take is SHAPED rather than how in tune it is. Kept narrower than
+// MUSICALITY_PATTERN in musicality-facts.js on purpose: that one also catches
+// "tempo", "dynamic", "consistent", "steady" and "shape", which already belong
+// to the tempo and tone rules and would have pulled every pulse and loudness
+// question into a third set of facts. Words that ask for a VERDICT on taste
+// ("expressive", "emotional", "beautiful") are not here either; they stay in
+// UNMEASURABLE below and are refused.
+const MUSICALITY = /musical|phras|articulat|legato|staccato|detach|rubato|mechanical|robotic|lifeless|monoton|with feeling|feeling|\bshaping\b|swell|crescendo|diminuendo|\bcharacter\b|connected|smooth|\bstiff\b|repeated (figure|phrase|passage)|same way (each|every)|plays? it the same/;
 const INTENTS = [
+  ['musicality', MUSICALITY],
   ['worst', /worst|hardest|struggl|trouble|problem|mistake|wrong|out of tune|which (notes|bars?|measures?|pitches)|where (am|do|did)|weak|need(s)? (work|fixing|attention)|\bfix\b|work on|focus on|most (errors|mistakes)/],
   ['habits', /habit|\btend|always|usually|typically|\bpull|\blean|sharp|flat/],
   ['tone', /tone|vibrato|bright|dark|\bsound|quality|clear|breath|rough|dynamic|loud|soft|volume|wobbl|shak|wander|held note|arriv|land|settl/],
@@ -103,6 +112,17 @@ export function intentsOf(question, takes = []) {
 
   // "steady" is tone (steadiness inside a held note) unless it is about the pulse
   if (/stead(y|i)/.test(q) && !topic.tempo) topic.tone = true;
+
+  // "is it too flat or mechanical" asks about lifeless playing, and "flat" there
+  // is not a pitch habit; "sharp", "pitch" or "in tune" would still make it one.
+  if (topic.habits && topic.musicality && !/sharp|habit|pitch|in tune|tend|always|usually/.test(q)) topic.habits = false;
+  // "smooth" and "connected" are articulation; "even" in "evenly connected"
+  // stays with them and does not also ask about the pulse
+  if (topic.tempo && topic.musicality && !/tempo|rhythm|beat|rush|drag|timing|pulse|metronome|bpm|in time|fast|slow/.test(q)) topic.tempo = false;
+
+  // "does it sound musical" is about shaping; "sound" there is not a request for
+  // the tone readings, nor is "dynamic" in "dynamic shaping"
+  if (topic.tone && topic.musicality && !/tone|vibrato|bright|dark|quality|clear|rough|loud|soft|volume|wobbl|shak|wander|held note|arriv|land|settl/.test(q)) topic.tone = false;
 
   let compare = COMPARE.test(q);
   let trend = TREND.test(q);
@@ -134,7 +154,10 @@ const OFFTOPIC = new RegExp([
 // numbers; it has no way to hear whether any of it is beautiful, and it never
 // sees a hand, a bow or a posture.
 const UNMEASURABLE = new RegExp([
-  'beautiful|lovely|gorgeous|\\bpretty\\b|move (people|me|the audience)|audience|\\bas good as\\b|\\bbow(ing|ed)?\\b|musical(ity)?\\b|musicianship|expressive|emotion|\\bphrasing|interpretation|artistic|talent|\\bstyle\\b|stage presence',
+  // "musical" and "phrasing" as TOPICS are measured now (src/analysis/musicality.js
+  // says how a take is shaped); what stays refused is the verdict on the player
+  // ("am I musical", "do I have talent") and on taste ("expressive", "emotional").
+  'beautiful|lovely|gorgeous|\\bpretty\\b|move (people|me|the audience)|audience|\\bas good as\\b|\\bbow(ing|ed)?\\b|\\b(am|are) (i|we) (a |an |very |really )?musical|musicianship|expressive|emotion|interpretation|artistic|talent|\\bstyle\\b|stage presence',
   '\\bgrade\\b|rate (my|this|me)|score me|out of (ten|10|100)|audition|\\bexam\\b|professional|\\bpros?\\b|better than (other|everyone|most|anyone)|compared to (other|everyone|anyone|the best)',
   'sounds? (good|nice|great|bad|ugly|terrible|amazing|awful)',
   '\\bbreath(e|ed|ing)?\\b|posture|fingering|hand (position|shape|frame)|embouchure|breathing|breath support|diction|pronunciation|lyric',
@@ -323,13 +346,17 @@ export function needsOf(intents) {
   return {
     quality: intents.includes('tone') || intents.includes('compare'),
     rhythm: intents.includes('tempo'),
+    // Shaping is read from the same decoded take as the tone, so it costs no
+    // second decode: a comparison already loads the audio for quality, and the
+    // phrase-level comparison rides along with it.
+    musicality: intents.includes('musicality') || intents.includes('compare'),
   };
 }
 
 export function plan(question, takes, now = Date.now()) {
   const scope = scopeOf(question, takes, now);
   if (scope.kind !== 'answer' && scope.kind !== 'nodata') {
-    return { intents: [], takeIds: [], needs: { quality: false, rhythm: false }, scope };
+    return { intents: [], takeIds: [], needs: { quality: false, rhythm: false, musicality: false }, scope };
   }
   const intents = intentsOf(question, takes);
   const chosen = takesFor(question, takes, intents, now);

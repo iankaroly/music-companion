@@ -163,7 +163,9 @@ the failure `no-gaming-the-measure` exists to catch.
   has since been run on the label onsets that motivated it; neither was run on
   any held-out recording.
 
-## Wiring it into the assistant (not done here)
+## Wiring it into the assistant (done on branch ai-integrated)
+
+Wired as below, with two differences: the router pattern is a narrower one of its own (MUSICALITY_PATTERN also catches tempo, dynamic, consistent, steady and shape, which belong to other intents), and a plain comparison folds the three largest shaping differences in. The guard also rejects taste words (beautiful, musical, expressive, lifeless...) when these facts are in the prompt. The original plan:
 
 Left to whoever owns `router.js`, `facts.js` and `assistant.js`:
 

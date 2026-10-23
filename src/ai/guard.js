@@ -345,6 +345,18 @@ const HEARING = [
   /\bi (listened|can hear|could hear|hear|noticed)\b|\blistened to\b/,
   /\b(sounds?|sounded|sounding) (like |as if )?(warm|rich|thin|tense|beautiful|great|good|lovely|nice|harsh|pinched|forced|relaxed|natural|musical|mushy|clean|full|dark|bright|wide|steady|even|smooth|rough|breathy|expressive)\b/,
 ];
+// Taste. The shaping facts (src/ai/musicality-facts.js) describe how a take is
+// shaped and carry a caveat that they are not a judgement of taste; a reply
+// that says the phrasing is beautiful, more musical or more expressive is a
+// verdict the measurements never made, and it has no digit for the number
+// rules to catch. Checked only when those facts are in the prompt, and a word
+// is allowed only if the FACTS use it (not the question: a player asking
+// "does it sound musical" must not be answered "yes, it is musical"). Found
+// by trying fourteen replies against the wired-up facts: three taste verdicts
+// without a digit passed the guard as it stood.
+const TASTE_FACTS = /not a judgement of taste/;
+const TASTE = /\b(beautiful(ly)?|lovely|gorgeous|musical(ly|ity)?|expressive(ly|ness)?|emotional(ly)?|soulful|soulless|lifeless|boring|dull|passionate|artistic(ally)?|well[- ]phrased|(better|poorly|badly|nicely|beautifully)[- ]phrased|(good|great|poor|bad|lovely|nice|wonderful|natural) (phrasing|shaping|articulation|rubato|feeling)|mechanical|robotic|stiff)\b/g;
+
 const SPECULATION = /\b(probably|likely|presumably|perhaps|maybe|i guess|i'd guess|i suspect|might be|could be(?! (?:found|measured|read|compared|determined|told))|most likely)\b/;
 
 const sentences = (t) => t.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
@@ -487,6 +499,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('superlative', m[0]); }
   for (const re of BENCHMARK) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('benchmark', m[0]); }
   for (const re of HEARING) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('hearing', m[0]); }
+  if (TASTE_FACTS.test(factsText)) {
+    // the caveat itself says "how beautiful the tone is", which must not make
+    // "beautiful" an allowed word
+    const allowedTaste = factsLower.replace(/these describe the shaping[^.]*\./g, ' ');
+    for (const m of lower.matchAll(TASTE)) if (!allowedTaste.includes(m[0])) { add('taste', m[0]); break; }
+  }
   const guess = lower.match(SPECULATION);
   if (guess) add('speculation', guess[0]);
 
@@ -521,6 +539,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     ordinal: 'a numbered bar or note not in the measurements',
     direction: 'a direction the measurements do not support',
     unmeasured: 'an answer about something that was not measured',
+    taste: 'a verdict on taste that the measurements do not make',
   }[first.kind];
   return { ok: false, stray, reason, problems };
 }

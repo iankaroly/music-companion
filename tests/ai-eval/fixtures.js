@@ -6,6 +6,9 @@
 // below has exactly nine notes that got closer. Nothing is random and nothing
 // is derived from the code under test.
 
+import { musicalityOf } from '../../src/analysis/musicality.js';
+import { buildSpec, idealTake } from '../helpers/musicality-synth.js';
+
 export const DAY = 24 * 60 * 60 * 1000;
 export const NOW = new Date(2026, 9, 20, 12).getTime(); // Tue 20 Oct 2026, noon
 
@@ -13,7 +16,7 @@ const NAMES = ['D3', 'A3', 'F3', 'G3'];
 
 // 24 notes, six of each pitch. Each pitch alternates bias-2 / bias+2, so its
 // mean is exactly bias + its own offset and its spread is exactly 2.
-export function rec(id, name, daysAgo, bias, { offsets = {}, scoreStats = null, quality = null, rhythm = null, empty = false } = {}) {
+export function rec(id, name, daysAgo, bias, { offsets = {}, scoreStats = null, quality = null, rhythm = null, musicality = null, empty = false } = {}) {
   const noteStats = empty ? [] : Array.from({ length: 24 }, (_, i) => {
     const pitch = NAMES[i % 4];
     return { midi: 50 + (i % 4), name: pitch, cents: bias + (offsets[pitch] ?? 0) + (Math.floor(i / 4) % 2 ? 2 : -2) };
@@ -22,7 +25,7 @@ export function rec(id, name, daysAgo, bias, { offsets = {}, scoreStats = null, 
     id, name, date: NOW - daysAgo * DAY, duration: 30, noteStats, landingStats: [], scoreStats,
     // What loading the stored audio would have produced. The runner attaches
     // these only when the router asked for them, as assistant.js does.
-    _quality: quality, _rhythm: rhythm,
+    _quality: quality, _rhythm: rhythm, _musicality: musicality,
   };
 }
 
@@ -48,7 +51,22 @@ const QUALITY_NEW = {
   landing: { cleanShare: 0.78, medianSettleMs: 90, medianOnsetCents: 7 },
 };
 
+// Shaping that was BUILT IN rather than read off a recording: the older Bach
+// take is metronomic (flat loudness, every note joined, no give at phrase
+// ends); the newer one swells and fades inside each phrase, plays detached and
+// leans on the last note. musicalityOf reads each from the notes a perfect
+// Analyzer would hand over, so the descriptors are the module's and the
+// questions test the wiring around them.
+const SHAPED_OLD = musicalityOf(idealTake(buildSpec({ shape: 'flat', articulation: 0.95, phrases: 6, perPhrase: 10, period: 0.5 })));
+const SHAPED_NEW = musicalityOf(idealTake(buildSpec({ shape: 'arch', articulation: 0.6, finalStretch: 1.5, phrases: 6, perPhrase: 10, period: 0.5 })));
+
 export const LIBRARIES = {
+  // the same three as three, with the shaping that loading the take would read
+  phrased: [
+    rec(1, 'Bach prelude', 6, 22, { musicality: SHAPED_OLD, quality: QUALITY_OLD }),
+    rec(2, 'Bach prelude', 1, 9, { musicality: SHAPED_NEW, quality: QUALITY_NEW }),
+    rec(3, 'Scales', 3, 5, { musicality: null }),
+  ],
   // two takes of one piece and a scale, no score behind any of them
   three: [
     rec(1, 'Bach prelude', 6, 22),

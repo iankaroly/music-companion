@@ -32,10 +32,14 @@ export function exampleQuestions(library) {
   // question from the one the chip says.
   out.push('How did my latest take go?');                     // summary
   out.push('How is the tone and vibrato in my latest take?'); // tone (decodes audio)
+  // How the take is shaped, beside the pitch questions: phrasing, articulation
+  // and tempo give, read from the notes with no second decode (decodes audio).
+  out.push('How is the phrasing in my latest take?');         // musicality
   out.push('Which notes am I worst at?');                     // worst
   if (usable.length >= 2) out.push('Which notes do I tend to play sharp or flat?'); // habits
   else out.push('Do I rush or drag?');                        // tempo (decodes audio)
-  // Four is the most that fits in two rows at 320 wide without turning the card
+  // Four is the most that fits; with two or more takes the worst-notes and the
+  // sharp-or-flat questions fall off the end, and they are still one typed line away in two rows at 320 wide without turning the card
   // into a menu.
   return out.slice(0, MAX_EXAMPLES);
 }
@@ -148,20 +152,26 @@ async function ask(root, question) {
 
   // The decode is the only slow part and it is only done for the takes the plan
   // names, so the player can be told how many that is before it starts.
-  const p = plan(question, state.library);
-  const wantsAudio = p.needs.quality || p.needs.rhythm;
+  // Planned INSIDE the try below, not here: plan() reads the clock, and a throw
+  // out here left the card on "working it out" forever with the field held.
+  // (Found by ask:card when the router's new plan(question, takes, now) met this
+  // call; each branch passed alone.)
+  let p = null;
   let n = 0;
   const load = async (id) => {
     n += 1;
     const t = state.library.find((x) => x.id === id);
     const who = t?.name?.trim() ? `“${t.name.trim()}”` : 'a take';
-    wait.textContent = `listening back to ${who} (${n} of ${p.takeIds.length})…`;
+    wait.textContent = `listening back to ${who} (${n} of ${p?.takeIds.length ?? 1})…`;
     await frame();
     return loadRecording(id);
   };
 
   try {
     await frame();
+    const now = Date.now();
+    p = plan(question, state.library, now);
+    const wantsAudio = p.needs.quality || p.needs.rhythm || p.needs.musicality;
     // The same model the assistant would have found, with one addition: the
     // line under the spinner changes when the measuring is done and the model
     // has the sentences, so the wait never reads "listening back" while the
@@ -178,7 +188,7 @@ async function ask(root, question) {
       qualityOf,
       rhythmReport,
       model,
-      now: Date.now(),
+      now,
     });
     if (token !== state.token) return; // a newer question owns the card
     show(root, result);

@@ -39,3 +39,13 @@ describe('evaluation set (held-out questions)', () => {
     expect(held.summary.answerEndToEnd).toBeGreaterThanOrEqual(90);
   });
 });
+
+// Questions about how a take is shaped, added when the musicality measurements
+// were wired in. A development set (written while wiring), see the file.
+import { MUSICALITY_QUESTIONS } from './musicality-questions.js';
+const shaped = evaluate(MUSICALITY_QUESTIONS);
+describe('evaluation set (shaping questions)', () => {
+  test.each(shaped.rows.map((m) => [m.q.n, m.q.lib, m.q.q, m]))('#%i [%s] %s', (_n, _l, _q, m) => {
+    expect(m.allOk, why(m)).toBe(true);
+  });
+});

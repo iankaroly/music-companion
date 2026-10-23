@@ -29,13 +29,13 @@ describe('the ask card examples', () => {
   test('every example is read by the router as the question it was written to be', () => {
     const lib = [take(1, 'Bach', 3), take(2, 'Bach', 1)];
     const asked = exampleQuestions(lib);
-    expect(asked.map((q) => plan(q, lib).intents.join('+'))).toEqual(['compare', 'summary', 'tone', 'worst']);
+    expect(asked.map((q) => plan(q, lib).intents.join('+'))).toEqual(['compare', 'summary', 'tone', 'musicality']);
     // the comparison reads the newest take first, then the one before it
     expect(plan(asked[0], lib).takeIds).toEqual([2, 1]);
 
     const solo = [take(1, 'Bach', 1)];
     expect(exampleQuestions(solo).map((q) => plan(q, solo).intents.join('+')))
-      .toEqual(['summary', 'tone', 'worst', 'tempo']);
+      .toEqual(['summary', 'tone', 'musicality', 'worst']);
   });
 });
 

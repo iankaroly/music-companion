@@ -15,6 +15,7 @@ import { plan } from '../../src/ai/router.js';
 import { factsFor } from '../../src/ai/facts.js';
 import { QUESTIONS } from './questions.js';
 import { HELDOUT } from './heldout.js';
+import { MUSICALITY_QUESTIONS } from './musicality-questions.js';
 import { NOW } from './fixtures.js';
 
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
@@ -31,6 +32,7 @@ export function runCase(q) {
   for (const t of chosen) {
     if (p.needs.quality) t.quality = t._quality;
     if (p.needs.rhythm) t.rhythm = t._rhythm;
+    if (p.needs.musicality) t.musicality = t._musicality;
   }
   let facts = [];
   if (scope === 'answer' || scope === 'nodata') {
@@ -117,4 +119,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   printReport(evaluate(), { quiet });
   console.log('\n=== held-out set (heldout.js; written after the fit) ===');
   printReport(evaluate(HELDOUT), { quiet });
+  console.log('\n=== shaping questions (musicality-questions.js; written while wiring, so a development set) ===');
+  printReport(evaluate(MUSICALITY_QUESTIONS), { quiet });
 }

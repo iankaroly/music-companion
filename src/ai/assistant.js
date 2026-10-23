@@ -14,6 +14,8 @@
 import { plan, intentsOf } from './router.js';
 import { factsFor } from './facts.js';
 import { checkReply } from './guard.js';
+import { musicalityOf } from '../analysis/musicality.js';
+import { MUSICALITY_INSTRUCTION } from './musicality-facts.js';
 
 export const INSTRUCTIONS = [
   'You are the practice coach inside a music practice app. A player asked a question about their own recordings.',
@@ -23,6 +25,14 @@ export const INSTRUCTIONS = [
   'Tone, vibrato and loudness are descriptions, not grades: say what changed, not whether it is good, unless a measurement says closer to pitch or steadier.',
   'Answer in two to four short sentences in plain words. No lists, no headings, no advice that a measurement does not support.',
 ].join('\n');
+
+// The standing rules, plus the musicality rule only when shaping facts are in
+// the prompt: it forbids "more musical" and advice about taste, which would be
+// noise in an answer about pitch.
+export function instructionsFor(intents = []) {
+  const shaping = intents.includes('musicality') || intents.includes('compare');
+  return shaping ? `${INSTRUCTIONS}\n${MUSICALITY_INSTRUCTION}` : INSTRUCTIONS;
+}
 
 export function promptFor(question, facts) {
   return `MEASUREMENTS:\n${facts.map((f) => `- ${f}`).join('\n')}\n\nQUESTION: ${question}`;
@@ -100,7 +110,9 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
   const byId = new Map(library.map((t) => [t.id, t]));
   const chosen = p.takeIds.map((id) => byId.get(id)).filter(Boolean).map((t) => ({ ...t }));
 
-  if ((p.needs.quality || p.needs.rhythm) && load) {
+  // One load per take, then everything the plan needs is computed from that one
+  // decode: tone from the audio, shaping and pulse from the notes and readings.
+  if ((p.needs.quality || p.needs.rhythm || p.needs.musicality) && load) {
     for (const t of chosen) {
       try {
         const data = await load(t.id);
@@ -109,6 +121,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
           t.quality = qualityOf({ notes: data.notes, readings: data.readings, audio: data.samples ?? null, sampleRate: data.sampleRate, a4: data.a4 ?? 440 });
         }
         if (p.needs.rhythm && rhythmReport) t.rhythm = rhythmReport(data.notes);
+        if (p.needs.musicality) t.musicality = musicalityOf({ notes: data.notes, readings: data.readings, a4: data.a4 ?? 440 });
       } catch { /* an unreadable take just has no tone or rhythm facts */ }
     }
   }
@@ -123,7 +136,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
   }
 
   try {
-    const reply = await m.respond({ instructions: INSTRUCTIONS, prompt: promptFor(question, facts) });
+    const reply = await m.respond({ instructions: instructionsFor(p.intents), prompt: promptFor(question, facts) });
     const text = String(reply?.text ?? '').trim();
     const verdict = checkReply(text, facts, question, { takeCount: chosen.length });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };

@@ -14,6 +14,7 @@ import { aggregateTendencies, dailyScores, weeklyReport } from '../analysis/coac
 import { compareQuality } from '../analysis/quality.js';
 import { compareTakes } from '../analysis/score-history.js';
 import { intentsOf } from './router.js';
+import { musicalityFacts, compareMusicalityFacts, CAVEAT as MUSICALITY_CAVEAT } from './musicality-facts.js';
 
 const round0 = (v) => Math.round(v);
 const round1 = (v) => (Math.round(v * 10) / 10).toString();
@@ -124,6 +125,19 @@ function compareFacts(a, b) {
   return out;
 }
 
+// How the two takes are SHAPED, folded into a general comparison. Only the few
+// largest differences, because a plain "how does this compare" should not turn
+// into a lecture on phrasing, and nothing at all when either take's shaping was
+// not read (a comparison that says "could not be measured" twice is noise; the
+// player who asked about phrasing is told, by the musicality intent itself).
+function shapingFolded(a, b) {
+  if (!a.musicality || !b.musicality) return [];
+  const rows = compareMusicalityFacts(a, b, { max: 3 });
+  // drop the standing caveat; it is added once by the musicality intent when
+  // the question was about shaping, and a pitch comparison does not need it
+  return rows.filter((r) => r !== MUSICALITY_CAVEAT);
+}
+
 function worstFacts(take) {
   const per = take.scoreStats?.perNote ?? [];
   const bars = new Map();
@@ -223,14 +237,20 @@ export function factsFor({ question, intents = intentsOf(question), chosen, all,
   for (const intent of intents) {
     if (intent === 'summary') for (const t of chosen.slice(0, 2)) facts.push(...summaryFacts(t));
     else if (intent === 'compare') {
-      if (chosen.length >= 2) facts.push(...compareFacts(chosen[0], chosen[1]));
+      if (chosen.length >= 2) {
+        facts.push(...compareFacts(chosen[0], chosen[1]));
+        if (!intents.includes('musicality')) facts.push(...shapingFolded(chosen[0], chosen[1]));
+      }
       else facts.push('Only one take is saved, so there is nothing to compare it with.', ...summaryFacts(chosen[0]));
     } else if (intent === 'worst') facts.push(...worstFacts(chosen[0]));
     else if (intent === 'habits') facts.push(...habitFacts(chosen.length > 1 ? chosen : all));
     else if (intent === 'tone') {
       if (!intents.includes('compare') || chosen.length < 2) for (const t of chosen.slice(0, 2)) facts.push(...toneFacts(t));
     } else if (intent === 'tempo') facts.push(...tempoFacts(chosen[0]));
-    else if (intent === 'trend') facts.push(...trendFacts(all, now));
+    else if (intent === 'musicality') {
+      if (intents.includes('compare') && chosen.length >= 2) facts.push(...compareMusicalityFacts(chosen[0], chosen[1], { question }));
+      else for (const t of chosen.slice(0, 2)) facts.push(...musicalityFacts(t, { question }));
+    } else if (intent === 'trend') facts.push(...trendFacts(all, now));
   }
   return { facts, used };
 }

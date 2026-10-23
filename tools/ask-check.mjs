@@ -372,9 +372,15 @@ const cardFits = (page) => page.evaluate(() => {
   const s = await read(page);
   check('one take: no comparison chip, still four questions', s.chips.length === 4 && !s.chips.some((c) => /compare/.test(c)), s.chips.join(' | '));
   await settle(page);
-  await page.evaluate(() => [...document.querySelectorAll('.ask-chip')].find((c) => /Do I rush/.test(c.textContent)).click());
+  await page.evaluate(() => [...document.querySelectorAll('.ask-chip')].find((c) => /phrasing in my latest/.test(c.textContent)).click());
   const r = await waitDone(page);
-  check('one take: the rhythm chip answers (honestly, even if no pulse was found)', r.state === 'answer' && /Pulse|pulse/.test(r.answer), r.answer.slice(0, 140));
+  check('one take: the phrasing chip answers from the stored take (honestly, even if too little could be read)',
+    r.state === 'answer' && /phrase|shaped|shaping|reads as|could not be measured/i.test(r.answer), r.answer.slice(0, 200));
+  await settle(page);
+  await type(page, 'Do I rush or drag?');
+  await page.keyboard.press('Enter');
+  const r2 = await waitDone(page);
+  check('one take: a typed rhythm question still answers (honestly, even if no pulse was found)', r2.state === 'answer' && /Pulse|pulse/.test(r2.answer), r2.answer.slice(0, 140));
   await ctx.close();
 }
 
