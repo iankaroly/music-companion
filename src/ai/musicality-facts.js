@@ -67,8 +67,24 @@ function show(d) {
 const sentence = (s) => (/[.!?]$/.test(s) ? s : `${s}.`);
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// Why a take could not be trusted, in the take's own words. The first three are
+// reasons the shaping was not read (or only its legato-or-detached part was);
+// the last only lowers confidence.
 function noisyNote(take, m) {
-  return `${round0(m.reliability.shortNoteShare * 100)}% of the notes heard in "${label(take)}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so treat what follows as rough.`;
+  const r = m.reliability;
+  const name = label(take);
+  const lines = [];
+  if (r.reason === 'quiet') {
+    lines.push(`Only about ${round0(r.coverage * 100)}% of the sound in "${name}" was heard as notes (${m.noteCount} notes), so most of this take was too quiet or too unclear to hear and how it is shaped could not be measured.`);
+  } else if (r.reason === 'junk') {
+    lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+  } else if (r.reason === 'fragments') {
+    lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+  }
+  if (r.outOfRange) {
+    lines.push(`${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside the range of the instrument, which usually means the pitch was read an octave off, so treat what follows as rough.`);
+  }
+  return lines;
 }
 
 // Facts for one take. `take.musicality` is the result of musicalityOf.
@@ -79,14 +95,22 @@ export function musicalityFacts(take, { question = '', max = 8 } = {}) {
   const wanted = new Set(topicsOf(question).flatMap((g) => GROUPS[g]));
   const out = [];
   const c = m.descriptors.character;
-  if (m.reliability?.noisy) out.push(noisyNote(take, m));
+  if (m.reliability?.noisy) out.push(...noisyNote(take, m));
+  if (m.reliability?.unreadable) {
+    // Nothing else is said: a description of a take that was not heard is a description of the misreading.
+    return [out[0], CAVEAT];
+  }
+  if (m.onePitch) out.push(`Every note in "${label(take)}" is the same pitch, so there is no phrase-level reading of it; only its timing and articulation are described.`);
   if (c?.measured) {
     out.push(sentence(`"${label(take)}" (${when(take)}) reads as ${c.phrase}`));
   }
   const measured = Object.values(m.descriptors).filter((d) => d.measured && d.key !== 'character' && wanted.has(d.key));
   for (const d of measured.slice(0, max)) {
     const base = `In "${label(take)}", ${d.phrase}`;
-    out.push(sentence(d.confidence === 'low' ? `${base} (based on only ${d.n}, so take it lightly)` : base));
+    // A take already flagged as misheard says so once, above; its low confidence
+    // is not about how many things the number was counted from.
+    const lightly = m.reliability?.noisy ? ' (take it lightly)' : ` (based on only ${d.n}, so take it lightly)`;
+    out.push(sentence(d.confidence === 'low' ? `${base}${lightly}` : base));
   }
   const missing = Object.values(m.descriptors).filter((d) => !d.measured && d.key !== 'character' && wanted.has(d.key));
   if (measured.length === 0) {
@@ -113,13 +137,13 @@ export function compareMusicalityFacts(a, b, { question = '', max = 6 } = {}) {
   const rows = compareMusicality(b.musicality, a.musicality).filter((r) => wanted.has(r.key));
   const real = rows.filter((r) => r.verdict !== 'unmeasured' && r.verdict !== 'about the same');
   const out = [];
-  for (const t of [a, b]) if (t.musicality.reliability?.noisy) out.push(noisyNote(t, t.musicality));
+  for (const t of [a, b]) if (t.musicality.reliability?.noisy) out.push(...noisyNote(t, t.musicality));
   for (const r of real.slice(0, max)) {
     const d = (a.musicality.descriptors[r.key] ?? b.musicality.descriptors[r.key]);
     const before = show({ ...d, value: r.before });
     const after = show({ ...d, value: r.after });
-    // The verdict is a phrase on its own ("more detached", "repeated figures
-    // less alike in timing"), so it goes in brackets rather than after a verb it
+    // The verdict is a phrase on its own ("more detached", "matching five-note
+    // patterns played less alike in timing"), so it goes in brackets rather than after a verb it
     // would not fit. These sentences reach the player as they stand when no
     // model is available.
     out.push(`${cap(r.label)}: "${lb}" ${before}, "${la}" ${after} (${r.verdict} in "${la}").`);
@@ -131,12 +155,8 @@ export function compareMusicalityFacts(a, b, { question = '', max = 6 } = {}) {
   if (skipped.length) {
     out.push(`Could not be compared because it was not measured in both takes: ${skipped.slice(0, 4).map((r) => r.label).join(', ')}.`);
   }
-  // The make-up of a take is not a ranking, but sameness of a repeated figure
-  // is the one thing a repeat asks for, and it is the one place to say so.
-  const closer = real.filter((r) => r.better === true).map((r) => r.label);
-  const further = real.filter((r) => r.better === false).map((r) => r.label);
-  if (closer.length) out.push(`${cap(closer.join(' and '))} came out more alike between repeats in "${la}", which is what repeating a figure asks for.`);
-  if (further.length) out.push(`${cap(further.join(' and '))} came out less alike between repeats in "${la}".`);
+  // No row says which way is better. Whether two matching five-note patterns
+  // should be played alike is for the player and the teacher to say.
   out.push(CAVEAT);
   return out;
 }

@@ -42,6 +42,11 @@ export function buildSpec({
   repeatVariation = 0.12,
   vibrato = 'none',          // 'none' | 'steady' | 'grows'
   baseDb = -26, seed = 1,
+  jitter = 0,                // random +- fraction on each note's spacing ONLY (loudness and pitch untouched): a player's own unsteadiness
+  midiShift = 0,             // transposes the whole take; timing must not care
+  drone = false,             // every note the same pitch
+  randomPitch = false,       // pitches drawn at random across a wide range: junk, not a tune
+  gainDb = 0,                // whole-take level shift, for a quiet recording
 } = {}) {
   const rand = rng(seed);
   const spec = [];
@@ -55,16 +60,18 @@ export function buildSpec({
       let local = period * (1 + wave * Math.sin((2 * Math.PI * index) / 17)) * (1 - drift * (index / total));
       if (k === perPhrase - 1) local *= finalStretch;
       if (!sameRepeats) local *= 1 + (rand() - 0.5) * 2 * repeatVariation;
+      if (jitter) local *= 1 + (rand() - 0.5) * 2 * jitter;
       let level = baseDb;
       if (shape === 'arch') level += peakDb * Math.sin(Math.PI * u);
       else if (shape === 'build') level += peakDb * u;
       else if (shape === 'jump') level += (rand() - 0.5) * 2 * peakDb;
       if (phraseGainDb) level += phraseGainDb[p % phraseGainDb.length];
       if (!sameRepeats) level += (rand() - 0.5) * 2 * repeatVariation * 12;
+      level += gainDb;
       const ratio = Math.min(1, Math.max(0.1, articulation + (rand() - 0.5) * 2 * articulationJitter));
       const long = k === perPhrase - 1 || ratio * local > 0.8;
       spec.push({
-        midi: 55 + transpose + CYCLE[index % CYCLE.length],
+        midi: midiShift + (drone ? 55 : randomPitch ? 40 + Math.floor(rand() * 40) : 55 + transpose + CYCLE[index % CYCLE.length]),
         start: t, dur: ratio * local, amp: db(level), phrase: p, pos: k,
         vib: vibrato === 'none' || !long ? null : { depth: 28, rate: 5.8, grows: vibrato === 'grows' },
       });
@@ -99,6 +106,20 @@ export function idealTake(spec, hop = 1024 / 44100) {
       : { time: t, frequency: 0, confidence: 0, rms: 0.0003 });
   }
   return { notes, readings };
+}
+
+// The same note list with every onset and end moved by a random few
+// milliseconds, the SAME milliseconds at any tempo: the pipeline's own error is
+// a fixed time, so this is what makes an identical performance at two tempos
+// read differently in the share-of-a-note measures. (An ideal take has none, and
+// so cannot show a threshold that ignores the tempo.)
+export function wobbleOnsets(take, ms, seed) {
+  const rand = rng(seed);
+  const notes = take.notes.map((n) => {
+    const j = ((rand() - 0.5) * 2 * ms) / 1000;
+    return { ...n, start: n.start + j, end: n.end + j + (((rand() - 0.5) * 2 * ms) / 1000) * 0.5 };
+  });
+  return { notes, readings: take.readings };
 }
 
 export function renderAudio(spec, sr = 44100) {

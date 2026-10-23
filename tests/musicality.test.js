@@ -129,19 +129,20 @@ describe('repeated figures and pitch expression', () => {
   });
 });
 
-describe('character, and the word mechanical', () => {
-  test('a metronomic flat take is called mechanical, legato or detached', () => {
+describe('character, and the plain description of a take that does not move', () => {
+  test('a metronomic flat take is described as very evenly timed and even in loudness, legato or detached, and never graded', () => {
     for (const articulation of [0.97, 0.5]) {
       const c = d(read({ shape: 'flat', articulation }), 'character');
-      expect(c.mechanical).toBe(true);
-      expect(c.phrase).toMatch(/^mechanical/);
+      expect(c.veryEven).toBe(true);
+      expect(c.phrase).toMatch(/^very evenly timed and even in loudness/);
+      expect(c.phrase).not.toMatch(/mechanical|flat|lifeless|robotic/);
     }
   });
 
   test('any one sign of shaping withdraws it', () => {
     for (const opts of [{ shape: 'arch' }, { shape: 'flat', wave: 0.15 }, { shape: 'flat', articulation: 0.7, articulationJitter: 0.25 },
       { shape: 'flat', finalStretch: 1.5, phraseGainDb: [0, 5, -3] }]) {
-      expect(d(read(opts), 'character').mechanical).toBe(false);
+      expect(d(read(opts), 'character').veryEven).toBe(false);
     }
   });
 
@@ -161,7 +162,7 @@ describe('too little to read', () => {
       expect(x.value).toBeNull();
       expect(x.reason).toMatch(/only 6 notes/);
     }
-    expect(m.descriptors.character.mechanical).toBe(false);
+    expect(m.descriptors.character.veryEven).toBe(false);
     expect(musicalityOf({ notes: [], readings: [] })).toBeNull();
   });
 });
@@ -189,17 +190,21 @@ describe('comparison', () => {
     const rows = compareMusicality(flat, arch);
     const shape = rows.find((r) => r.key === 'phrase-shape');
     expect(shape.verdict).toBe('more phrases that swell and fade');
-    expect(shape.better).toBeUndefined();
-    expect(rows.filter((r) => r.better !== undefined).every((r) => r.key.startsWith('repeat'))).toBe(true);
+    // no row of any kind says which way is better; a row that moved says which way the NUMBER went
+    expect(rows.every((r) => !('better' in r))).toBe(true);
+    expect(shape.direction).toBe('higher');
   });
 
-  test('a repeated figure played more alike the second time is marked as closer, and the reverse as further', () => {
+  test('matching five-note patterns played more alike the second time are described as more alike, and the reverse as less, with no ranking', () => {
     const varied = read({ shape: 'arch', sameRepeats: false });
     const same = read({ shape: 'arch' });
     const toSame = compareMusicality(varied, same).find((r) => r.key === 'repeat-timing');
     const toVaried = compareMusicality(same, varied).find((r) => r.key === 'repeat-timing');
-    expect(toSame.better).toBe(true);
-    expect(toVaried.better).toBe(false);
+    expect(toSame.verdict).toBe('matching five-note patterns played more alike in timing');
+    expect(toSame.direction).toBe('lower');
+    expect(toVaried.verdict).toBe('matching five-note patterns played less alike in timing');
+    expect(toVaried.direction).toBe('higher');
+    expect('better' in toSame || 'better' in toVaried).toBe(false);
   });
 
   test('something unmeasured in either take is reported as unmeasured, never as a change', () => {
@@ -247,7 +252,7 @@ describe('facts for the assistant', () => {
     expect(text).not.toMatch(/ has (more|less|fewer|repeated|a )/);
     const varied = { id: 6, name: 'Etude', date: a.date, musicality: read({ shape: 'arch', sameRepeats: false }) };
     const same = { id: 7, name: 'Etude', date: a.date - DAY, musicality: read({ shape: 'arch' }) };
-    expect(compareMusicalityFacts(varied, same).join(' ')).toMatch(/\(repeated figures less alike in timing in /);
+    expect(compareMusicalityFacts(varied, same).join(' ')).toMatch(/\(matching five-note patterns played less alike in timing in /);
   });
 
   test('a take that could not be measured is said so, not described', () => {
