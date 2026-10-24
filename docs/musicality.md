@@ -20,7 +20,7 @@ could not support it. None is ever defaulted.
 | contrast between stretches | spread (standard deviation) of the loudness of consecutive runs of eight notes, from 32 notes up; the fallback when no phrases exist, labelled as stretches, never as phrasing. Not loudest-minus-quietest, which grows with the length of the take (see *Fixes after the verifier*) | "the runs of eight notes vary in loudness by about 1.1 dB (the standard deviation of their levels)" |
 | legato or detached | sounding length / time to the next note | "62% of the time to the next note" |
 | evenness of articulation | quartile range of that ratio | "even" / "varies" |
-| tempo flexibility, and whether it returns or drifts | local tempo curve, spread and first-third vs last-third | "moves by about 9% and comes back" |
+| tempo flexibility, and whether it returns or drifts | local tempo curve: spread in windows of 24 spacings, and the whole-curve trend (see *Round 3*) | "moves by about 9% and comes back" |
 | lengthening at phrase ends | last note's length against the notes before it | "1.5 times as long" |
 | matching five-note patterns | any two runs of five notes with the same steps (a sequence or an arpeggio counts, so this is not "repeated passages"): timing and loudness differences | "timing differs by about 2%" |
 | vibrato opening up | on notes held 0.8 s or more, early half vs late half | "usually starts plain and opens up" |
@@ -300,8 +300,9 @@ step 12-14, every window repeating) are NOT, ideal and real (tested); the real
 mis-heard excerpts repeat 0-6% of their windows and still are. A take
 read two octaves low is flagged and lowered to low confidence when the caller
 passes a range (30% of its notes outside 36-88). `assistant.js` passes none, so
-THE RANGE CHECK IS INERT IN THE APP until its call to `musicalityOf` is given
-the instrument's range; `instruments.js` has families, not ranges. Under 24
+THE RANGE CHECK WAS INERT IN THE APP (round 3 gives it a generic range to fall
+back on and exports `rangeFor(family)`; `assistant.js` still passes none, see
+*Round 3*); `instruments.js` has families, not ranges. Under 24
 notes the number of phrases is no longer a finding.
 
 **The other suites.** `npm run ai:eval` is 163/163 development, 46/48 held-out and
@@ -333,6 +334,193 @@ nothing real is quiet. The `junk` step line (9) cannot tell random notes (step
 that the pitches are not a tune, not that nobody played one. With a range of
 36-96 the sarabandes' notes outside it are 43% (2220) and 30% (2296), the
 figures that prompted fault 7.
+
+## Round 3 (branch ai-fix-musicality2, from 26c4196)
+
+A skeptic's list, worked in priority order. Each number below was run on this
+code and on 26c4196's on the same takes; "pairs with a false difference" means
+two takes of one unchanged player (shifted in time, length, pitch or level) that
+the comparison said differ on some row. The sweep scripts are in the session
+scratchpad, not the repo; the checks that stay are `tests/musicality-round3.test.js`
+(35 tests, 28 of which fail on 26c4196; the seven that pass there are controls
+that a fix must not break: no cut in a breath-free take, a constant tempo is
+steady, a true wave is still moving, a quiet gap after each note is read, two
+lengths of one player do not compare as a tempo change, and two real-vibrato
+reads) and the `round 3` section of
+`node tools/musicality-synth-check.mjs` (real Analyzer + segmenter).
+
+**1. "About the same" was said of nothing.** `compareMusicalityFacts` printed
+"shaped about the same on everything that could be measured in both" for two
+takes that were both refused as too quiet, for a 14-note take against an 80-note
+one, and when a topic filter had hidden the row that differed. It now says "about
+the same" only when at least one wanted row was read in both, names those rows
+("on phrases found, typical phrase length, ..."), and otherwise says nothing was
+measured in both so it cannot say whether they are shaped alike. `facts.js`
+needed two regex edits to follow (the plain-comparison fold and the pointer to
+differences), and `tests/ai-facts-compare.test.js` was updated to the new
+wording.
+
+**2. Phrase count between takes of different lengths.** 72 of 80 pairs of one
+simulated player (every phrase ten notes) at 3, 4, 6, 8 and 12 phrases said
+"more, shorter phrases". The count is compared only when the takes are within a
+fifth in note count, and a new row, typical phrase length in notes, is compared
+always (two notes or a quarter, whichever is more). Now 0 of 80. A player who
+really phrases in fives instead of tens is still told so.
+
+**3. The breath bar was in seconds.** A flat performance with a breath of 0.6 of
+a note, 8 phrases of 8, through the real pipeline: 8 phrases at 0.4 s a note,
+2-5 by seed at 0.35 s, 1 at 0.3 s (the skeptic's numbers). The bar is now 0.4 of
+the local spacing beyond the take's usual silence with a 0.12 s floor.
+
+| family (real Analyzer + segmenter, 16 seeds, 6 tempos 0.3-0.7 s) | 26c4196 | now |
+|---|---|---|
+| skeptic's: breath 0.6 note, 8 x 8, slurred, 6% jitter, 240 pairs | 136 pairs with a false phrase difference | 0 |
+| breath 0.7 note, 6 x 10, 4% jitter, 240 pairs | 15 | 0 |
+| breath 1.0 note, 8 x 8, 240 pairs | 0 | 0 |
+| HELD OUT (breath 0.55 / 0.8 / 1.5 notes, arched, new seeds), 54 pairs | 12 | 0 |
+| no breath at all, 0.12-0.6 s a note, 112 takes: false phrase cuts | 0 | 0 |
+
+Two takes with a note spacing under 0.28 s are not compared on their phrases at
+all (`FASTEST_BEAT_SEC`): at 0.2 s a note the same player finds 1-8 phrases by seed
+and no bar fixes that, because the pipeline's own onset error is as big as the
+breath. WORTH KNOWING: the floor was 0.08 s first (every breath found from 0.25
+s a note) and was raised to 0.12 after the seven real cello excerpts showed 11-33
+silences of 0.08-0.2 s each in 45 s (bow changes), against 0-9 of 0.2 s or more.
+The seven excerpts' phrase cuts are 79 on 26c4196, 136 at a floor of 0.08, 117
+at 0.12, 99 at 0.2. Whether 117 is right for real playing is NOT known: the
+MusicNet labels have no silence of 0.12 s anywhere in the seven excerpts, so
+they cannot say where phrases end. The excerpts are all refused by the junk or
+fragments gate today, so none of this is printed for them.
+
+**4. Pitch wobble in the quiet tail read as vibrato opening up.** Frames more than
+about 9 dB under the note's own peak are dropped, 16 frames must be left, and a
+single sine wave at 3.5-9.5 Hz must explain at least half of the wobble (the
+vibrato measure's own confidence; calibrated on simulated stretches: white
+wobble of 8 cents passes 0.5%, 0.1% and 0% at 16, 24 and 40 frames, a 28-cent
+vibrato 100%, one that opens up from nothing 96-99.5%). The frames dropped are
+only those AFTER the note's loudest frame: a note that swells into its peak keeps
+its quiet start, and a first cut that dropped quiet frames wherever they fell read a
+vibrato that opens up on a 36 dB swell as "about the same width" (48 of 48 notes). A
+staccato line in a 3 s hall (real pipeline, 22 long notes) went from a vibrato found
+on 12 of them, 7 of those "opens up" (the commit message of 4ae1975 says "12 of 22"
+for what is 7 of 12), to none found; a decaying tone with room noise went from
+"opens up" on 9, 14, 10 and 19 of 32 long notes (four of six configurations; the
+other two were already clean or too quiet) to none. Each half alone is not enough:
+with the confidence removed 2 of the 4 decaying configurations that misread still
+did (8 and 18 notes); with the tail kept, 1 of 22 hall notes still read as vibrato.
+Clean vibrato through the real pipeline reads as before (100% opening, 0% steady,
+at levels 0 and -6 dB).
+
+**5. The range check and the hum.** `assistant.js` passes no range, so the check
+never ran. Without a range, `musicalityOf` now uses `GENERIC_RANGE` (E1-G7, 28-103)
+and, only then, treats a note more than three octaves from the take's median as
+outside; `rangeFor('strings' | 'winds' | 'brass' | 'voice' | 'keys')` is exported
+for a caller that knows the family, and the facts say "any instrument's or voice's
+range" when none was given. That catches only pitch nobody makes (a 20 Hz
+rumble), not a cello read an octave low (still inside E1-G7); `assistant.js` still
+has to pass `rangeFor(family)` for that. A 60 Hz hum with a little drift run
+through the real pipeline is 133-228 "notes" with no silence; three of four
+takes had read as "one continuous stretch", "6 phrases" or "8 phrases". A new
+reason, `unbroken`, fires when under 2% of the readings are more than 12 dB under
+the take's loud level (hum 0-0.3%, seven real cello excerpts 8.5-21%) AND the
+10th percentile of the loudness is within 3 dB of the 90th (hum 1.7 dB, real
+cello 11-14 dB), and withdraws every descriptor with the reason in words. The
+second condition came from review: with the first alone a long slur with no
+breath that swells and fades (real pipeline: 1.2% of readings 12 dB down, 6.9 dB
+between its percentiles) was withdrawn whole and told it was "not what playing is
+like"; it is read now, and the sentence for a hum says only what was measured.
+
+**6. The tempo.** (a) The follower could lock on two thirds or three quarters of
+a beat (not only half or double). TRIED AND WRONG: refusing a step of 0.32-0.69
+of an octave between neighbouring runs of four spacings (a 15% tempo wave steps
+0.41), and then requiring it to arrive at one note (the spacing after a breath
+jumps that much anyway). What works: three spacings in a row near the take's
+commonest length that the follower gave a rung other than one. Of 60,000
+constant-tempo takes (jitter up to 20%, 8 or 15 ms onset error) 2,111 are
+refused by it; 26c4196 read 1,220 of those as "free" (median 19%, p90 30%) and 509
+as returns/steady. (b) The drift is the line through the whole smoothed curve
+with an independent second reading, not the first third against the last. A
+true +11% accelerando, 20 takes through the real pipeline: 3 "speeds up", 6
+"returns", 8 "steady", 3 refused on 26c4196, now 17 "speeds up", 2 "leans
+faster", 1 refused. -9%: none right and 11 "returns" + 6 "steady" on 26c4196, now
+18 "slows down" and 2 "leans slower". +25%: 20 of 20 both. Constant tempo: 20 of
+20 steady both. "Comes back to where it began" is said only when the curve ends
+within 4% of where it began; a wave that stops elsewhere is "moves ... not said to
+come back". A drift line must explain 40% of the curve's movement to be a drift
+rather than a wave. COST: waves of 15% are read in 33 of 40 takes at 80 notes
+(36 on 26c4196); waves of 20% in 9 of 40 (31 on 26c4196), because the lock check
+reads them as a lock; a constant-tempo player with 8% jitter has the shape
+refused as unbacked in 14% of takes (1% on 26c4196) and described as "moves ...
+not said to come back" in 13%.
+
+**7. The length bias.** Tempo flexibility is read in windows of 24 spacings and
+pooled, refused below 24 steady spacings, and carries its standard error (1 over
+the square root of two thirds of the spacings: 29% at 28 notes, 5% at 672). The
+same playing (spacings off by up to 4%) read 2.29 at 28 notes and 2.63 at 672 on
+26c4196 (1.66 at 14), now 2.43 and 2.60 (the 14-note take is refused). A player
+at +-9% was "steady" in 12 of 40 takes of 56 notes and 0 of 40 of 448 (the
+seeds of the unit test; 13 of 40 on the sweep's own), now 4 and 0, with the rest saying "on the edge between steady and giving a little". The
+comparison needs 1.5 combined standard errors to call a flexibility different.
+REPEAT TIMING: the number is not length-biased (identical playing reads 3.8-4.05%
+at +-4% jitter and 5.4-6.0% at +-8% from 16 notes to 320; the number of matching
+pairs changes but its median does not), but its WORD flipped: at +-6% jitter
+"alike" in 80% of 28-note takes and 98% of 672-note ones, "different" in 20% of
+the short ones. It now carries a standard error (1.25 sd over the square root of a
+quarter of the pairs, because neighbouring pairs share notes: with every pair
+counted the error was half the number's real spread across 200 seeds, with a
+quarter it matches, ratio 0.9-1.1 from 20 to 96 notes) and a number within one of
+it of the line says "on the edge between alike and different": "different" in 8%
+of 20-note takes, 2.5% of 32-note ones. Not done: repeat loudness (not asked) and
+a take of 320+ notes, which uses only its first 60 pairs. (Repeat LOUDNESS looked
+biased in the same sweep, 2.9 dB at 16 notes against 0.01 at 320, but that was
+my own take: one arch across the whole take, so the repeats sat at different
+heights of it.)
+
+**8. The sweep: length x tempo x transposition x level, the real pipeline.** A flat
+player, 4 lengths (24-192 notes) x 2 tempos x 3 transpositions x 2 levels x 3 seeds
+= 144 takes, and then a second grid of different seeds, tempos, shifts and gains
+(held out for the fix this found). Pairs with a false difference:
+
+| axis | 26c4196 grid 1 | now | 26c4196 grid 2 | now |
+|---|---|---|---|---|
+| transposition (144 pairs) | 21 | 2 | 22 | 1 |
+| level (72) | 11 | 0 | 1 | 0 |
+| tempo (72) | 17 | 0 | 7 | 0 |
+| length (108) | 104 | 0 | 108 | 0 |
+
+The transposition, level and tempo leaks were all `phrase-definition`, the mean
+of one score per phrase end (67 or 100 each): with two or three ends one end more
+or less cued moves it by 33 or 17. Its comparison bar now grows with how few ends
+there are (two standard errors of 17/sqrt(ends)); the grid-1 numbers were seen
+before that bar was set, grid 2 was not. Found and not fixed: (i) among the
+448 tempo-only pairs of the fast family (0.2-0.7 s) 7 still differ, 4 on
+tempo flexibility ("a steadier tempo", a 0.2-0.25 s take reading 6-8% from timing
+noise alone) and 3 on articulation; (ii) a take of 24 notes now has no tempo
+spread and no tempo shape unless it drifts (it had both); (iii) a take of
+constant loudness (within 3 dB between its percentiles) with no quiet reading at
+all is called unbroken whatever made it, so a synthetic flat legato line with no
+breath and no dip, or a held organ note, is unreadable too (real cello is never
+like that; the sentence says only what was measured).
+
+**The real excerpts.** The four earlier (2220, 2222, 2296, 2298) and three more
+(2218 suite 3 allemande, 2221 suite 3 bourree, 2295 suite 4 courante), 45 s from
+60 s in. THE THREE "NEW" ONES ARE NOT NEW: they were among the eight held-out
+movements of the previous round, and no movement of this recording set has not
+been run. All seven are refused by `junk` (six) or `fragments` (one) before and
+after, so nothing about phrases, tempo or vibrato is printed for any of them, and
+the only number that moves is legato-or-detached, by 0.01-0.02 on four of the
+seven (0.73 to 0.75, 0.88 to 0.89, 0.97 to 0.98, 0.74 to 0.75), because it excludes
+the links at phrase cuts and the cuts moved. These excerpts therefore validate none
+of the seven fixes. They are not held out for the breath floor: its change from
+0.08 to 0.12 s was made after looking at all seven. Three windows no earlier run
+used (2293 suite 4 prelude, 2297 suite 4 bourree and 2219 suite 3 courante, 45 s
+from 150 s in; the same recordings, other audio) were run once, after the code was
+frozen: all three are refused by `junk` on both versions and print only
+legato-or-detached (0.85, 0.80 and 0.82 on 26c4196; 0.86, 0.80 and 0.83 now). With
+the gate bypassed (a diagnostic, not the product) the phrase counts go from 13, 18
+and 16 to 17, 23 and 26, tempo is refused for mixed note values on both, and
+phrase-end lengthening reads 1.76x, 0.87x and 1.17x on 26c4196 against 1.76x, 0.79x
+and 1.49x now.
 
 ## Which thresholds were set after seeing real data
 

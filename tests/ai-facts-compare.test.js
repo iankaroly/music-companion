@@ -35,8 +35,11 @@ describe('a comparison does not contradict itself about shaping', () => {
     expect(r.intents).toEqual(['compare', 'musicality']);
     const same = r.facts.filter((f) => /shaped about the same/.test(f));
     expect(same).toHaveLength(1);
-    expect(same[0]).not.toMatch(/on everything/);
-    expect(same[0]).toMatch(/shaping measurements \(phrasing, articulation, tempo and repeated figures\); the differences above are not about shaping\.$/);
+    expect(same[0]).not.toMatch(/everything/);
+    // it names the rows it is about, and points at the differences above
+    // (a question about phrasing is not asked about articulation, and the line does not claim it)
+    expect(same[0]).toMatch(/shaped about the same on phrases found, .* and lengthening at phrase ends; the differences above are not about shaping\.$/);
+    expect(same[0]).not.toMatch(/legato|tempo/);
     // and the line sits after the differences it points at
     expect(r.facts.findIndex((f) => /closer to pitch/.test(f))).toBeLessThan(r.facts.indexOf(same[0]));
   });
@@ -45,7 +48,8 @@ describe('a comparison does not contradict itself about shaping', () => {
     const twin = [rec(1, 'Bach prelude', 6, 9, { musicality: SAME, quality: QUALITY }), rec(2, 'Bach prelude', 1, 9, { musicality: SAME, quality: QUALITY })];
     const r = runCase({ q: 'compare my phrasing with last time', library: twin });
     const same = r.facts.find((f) => /shaped about the same/.test(f));
-    expect(same).toMatch(/repeated figures\)\.$/);
+    expect(same).toMatch(/and lengthening at phrase ends\.$/);
+    expect(same).not.toMatch(/differences above/);
   });
 
   test('takes whose shaping DID differ still list the differences in a plain comparison', () => {

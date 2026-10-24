@@ -40,10 +40,10 @@ const MIN_CONF = 0.6;          // the same pitched-frame floor quality.js and th
 // Thresholds. See the header: set from the synthetic noise floors, in advance
 // of the real recordings, and written down in docs/musicality.md.
 export const LIMITS = {
-  restGapSec: 0.1,           // a silence this much longer than the take's usual one (and long against the tempo) can end a phrase
+  restGapSec: 0.05,          // a silence this much longer than the take's usual one (and long against the tempo) can end a phrase; a small floor only: the bar is the take's own spacing (restGapBeats)
   restGapBeats: 0.35,        //   …as a share of the local note spacing
-  breathGapSec: 0.2,         // a silence this much longer than usual is a breath on its own
-  breathGapBeats: 0.5,
+  breathGapSec: 0.12,        // a silence this much longer than usual is a breath on its own; a floor under the take's own spacing (breathGapBeats), not the bar itself
+  breathGapBeats: 0.4,       //   …as a share of the local note spacing (0.5 missed a breath of 0.6 of a note at every tempo under 0.35 s a note; 0.35 cut a ragged take once in 150; see the header of segmentPhrases)
   longNote: 1.7,             // a note spaced this many times the local spacing is a long note
   levelReset: 4,             // dB: loudness steps up after a fall = a new start
   flatPhraseDb: 2.5,         // a phrase whose loudness moves less than this is level
@@ -53,7 +53,9 @@ export const LIMITS = {
   shapeDb: 2,                // how far loudness must climb and fall to be an arch
   steadyTempo: 4,            // % spread of the local tempo that still reads as steady (at least; see floorsFor)
   freeTempo: 9,              // % spread above which the tempo is clearly moving (at least)
-  driftPct: 8,               // % faster or slower at the end than the start = drift
+  driftPct: 8,               // % faster or slower at the end than the start (the whole-curve trend, backed by a second reading) = drift
+  driftR2: 0.4,              // share of the movement of the smoothed tempo curve a straight line must explain for it to be a drift and not a wave
+  leanPct: 4,                //   …and from here to driftPct a slight drift; under it the tempo ends where it began
   legato: 0.85,              // sounding length / spacing at or above = connected
   detached: 0.55,            // at or below = clearly separated
   evenArticulation: 0.12,    // spread (quartile range) of that ratio that reads as even (at least; see floorsFor)
@@ -64,6 +66,9 @@ export const LIMITS = {
   junkPatterned: 0.2,        // …and fewer than this share of five-note windows have their steps again elsewhere in the take (a drill repeats; noise does not)
   junkStep: 9,               // median semitones between neighbouring notes at or above which, with no patterned repeats, the pitches are not a tune (random pitches read 11-14)
   outOfRangeShare: 0.25,     // share of notes outside the range the caller gives, at or above which confidence is low throughout
+  unbrokenQuiet: 0.02,       // share of readings more than 12 dB under the loud level below which the sound never stopped at all (real cello: 8.5-21%, a 60 Hz hum: 0-0.3%)
+  unbrokenSpreadDb: 3,       //   …AND under which the 10th percentile of the loudness sits under the 90th: a hum is within 1.7 dB, a long slur that swells and fades is 6.9 dB, real cello 11-14 dB
+  unbrokenReadings: 100,     // readings (about 2.3 s) needed before that is a statement about the take
   sameTimingPct: 4,          // a repeated figure whose timing differs by less than this is the same (at least)
   sameLoudnessDb: 1.5,
   leanCents: 4,              // difference in where notes sit after rising vs falling steps
@@ -181,6 +186,31 @@ function segmentPhrases(notes, levels) {
   // in the second. (Measured on the first version, which compared the gap to
   // the beat: a 0.35 s breath at 0.6 s a note was not found at all.)
   const usual = Math.max(0, median(notes.slice(0, -1).map((x, i) => notes[i + 1].start - x.end)) ?? 0);
+
+  // THE BREATH BAR IS THE TAKE'S OWN SPACING, not a number of seconds. The first
+  // version asked for a silence of at least 0.2 s (and 0.1 s for half a cue), so
+  // the same performance scaled in time found its phrases at 0.4 s a note and
+  // lost them at 0.3: with a breath of 0.6 of a note, eight phrases of eight
+  // came back as 8 at 0.4 s, 2-5 by seed at 0.35 s and 1 at 0.3 s, and 136 of
+  // 240 pairs of one player at two tempos said "more, shorter phrases" (16
+  // seeds, six tempos from 0.3 to 0.7 s, through the real Analyzer and
+  // segmenter). The bar is now 0.4 of the local spacing beyond the take's usual
+  // silence, with a floor of 0.12 s. 0.5 of a note was tried first and still
+  // missed the breath below 0.35 s (9 of 16 takes right at 0.3 s); 0.35 and 0.3
+  // cut a ragged breath-free take (one in 150, two in 150). At 0.4: no false cut
+  // in 150 ragged, stretched, uneven and arched breath-free takes, none in 112
+  // through the real pipeline from 0.12 to 0.6 s a note, and 16 of 16 right from
+  // 0.3 s a note. THE FLOOR WAS 0.08 s FIRST (all 16 right from 0.25 s) and was
+  // raised because real cello is full of silences of 0.08-0.2 s beyond the usual
+  // one (11-33 in 45 s of each of seven excerpts, against 0-9 of 0.2 s or more)
+  // that are bow changes and not breaths: the seven excerpts came to 136 phrase
+  // cuts at 0.08 s, 125 at 0.1, 117 at 0.12, 99 at 0.2, against 79 before this
+  // change; 0.12 keeps every tempo of 0.3 s a note and slower. Below that the
+  // instrument cannot see a breath of 0.6 of a note (see FASTEST_BEAT_SEC), and the
+  // comparison says nothing about phrases. WHETHER 117 IS RIGHT FOR THE REAL
+  // PLAYING IS NOT KNOWN: the labels of MusicNet are continuous (no silence of 0.12 s
+  // anywhere in the seven excerpts), so they say nothing about where the
+  // phrases end.
 
   const cuts = [];
   for (let i = 0; i + 1 < n; i++) {
@@ -458,68 +488,124 @@ export function tempoCurveOf(notes) {
   return kept.map((k, i) => ({ t: k.t, period: k.period, smooth: 2 ** median(logs.slice(Math.max(0, i - 2), i + 3)) }));
 }
 
-// THE FOLLOWER CAN BE WRONG ABOUT THE BEAT AND NOT KNOW IT. Three ways, each
+// THE FOLLOWER CAN BE WRONG ABOUT THE BEAT AND NOT KNOW IT. Four ways, each
 // measured on takes built with no drift at all (jitter of 4-20% on every
 // spacing, 20 seeds at each of 6, 12 and 24 phrases; see docs/musicality.md):
 // it locks on half or double the beat after a breath (a step of an exact factor
-// of two in the period); it random-walks, because each spacing is judged against
-// the last two accepted and the track wanders by more than the playing does
-// (false drifts of 13-21% at 20% jitter); and a small sample of noisy spacings
-// gives a difference between the first and last third that is inside its own
-// noise. So a drift is claimed only when (1) the period never steps by a factor
-// of two, (2) a SECOND reading, every spacing snapped against one fixed
-// reference with no following at all, finds a drift of the same sign and about
-// the same size, and (3) that second reading's drift is at least three times its
-// own standard error. The standard error is taken from the SECOND reading
-// because its spacings are independent draws; the follower's track is
-// autocorrelated, so a standard error computed on it was too small (measured at
-// 8% jitter: the z score of a zero-drift take had a standard deviation of 1.9
-// to 4.2 where it should have been 1, and reached 28).
+// of two in the period); it locks on a rung that is NOT a factor of two (two
+// thirds or three quarters of a beat: a run of spacings that came out short
+// snaps to the 1.5 or 4/3 rung and the track stays there for 14 notes, then
+// slips back, which read 'free, 23%' of a metronomic take); it random-walks,
+// because each spacing is judged against the last two accepted and the track
+// wanders by more than the playing does (false drifts of 13-21% at 20% jitter);
+// and a small sample of noisy spacings gives a difference between the start and
+// the end that is inside its own noise. So a drift is claimed only when (1) the
+// period never steps by a rung's ratio between neighbouring runs, (2) a SECOND
+// reading, every spacing snapped against one fixed reference with no following at
+// all, finds a trend of the same sign and about the same size, and (3) that second
+// reading's trend is at least three and a half times its own standard error. The
+// standard error is taken from the SECOND reading because its spacings are
+// independent draws; the follower's track is autocorrelated, so a standard error
+// computed on it was too small (measured at 8% jitter: the z score of a
+// zero-drift take had a standard deviation of 1.9 to 4.2 where it should have
+// been 1, and reached 28).
 // Fail (1) or (2) and neither the shape nor the flexibility is printed, because
 // a track that jumped or wandered has a spread that is the follower's.
 const SNAP_FIXED = 0.25;   // octaves; wider than SNAP because no following keeps the reference near
+
+// THE TREND IS THE WHOLE CURVE, NOT ITS THIRDS. The drift was the difference of
+// the medians of the first and last third of the smoothed curve with an 8% bar.
+// A steady acceleration of 11% from first note to last differs by two thirds of
+// that between its thirds (7.3%), under the bar, so the take was 'steady' (8 of
+// 20 takes through the real pipeline) or 'returns' (6 of 20) and said so in
+// words that mean it ends where it began. 'Slowing by 9%' read 'returns' in 11
+// of 20. The line through the whole curve (least squares of the log period on
+// time, read as the change from the first note to the last along that line)
+// recovers the 11%, and a standard error comes with it.
+function trendOf(pts) {
+  const n = pts.length;
+  if (n < 8) return null;
+  const mt = mean(pts.map((p) => p.t));
+  const my = mean(pts.map((p) => p.y));
+  let sxx = 0;
+  let sxy = 0;
+  for (const p of pts) { sxx += (p.t - mt) ** 2; sxy += (p.t - mt) * (p.y - my); }
+  if (!(sxx > 0)) return null;
+  const slope = sxy / sxx;
+  let rss = 0;
+  for (const p of pts) rss += (p.y - my - slope * (p.t - mt)) ** 2;
+  const se = Math.sqrt(rss / (n - 2) / sxx);
+  const span = pts[n - 1].t - pts[0].t;
+  // positive = faster at the end (a shorter period)
+  const drift = (2 ** (-slope * span) - 1) * 100;
+  return { drift, z: se > 0 ? Math.abs(slope) / se : Infinity, seDrift: se * span * Math.LN2 * 100 };
+}
+
+// How much of the movement of the smoothed curve a straight line through it
+// explains. A drift is one-way and a line explains most of it (an 11% speed-up
+// with 4% jitter: 0.8); a wave is not, and a line through a few cycles of one
+// explains next to none of it however the cycles happen to end (a 15% wave:
+// under 0.1), which is what keeps a tempo wave from being called a drift
+// because it stopped at a different phase from where it started.
+function lineR2(ts, ys) {
+  const mt = mean(ts);
+  const my = mean(ys);
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < ts.length; i++) { sxx += (ts[i] - mt) ** 2; sxy += (ts[i] - mt) * (ys[i] - my); syy += (ys[i] - my) ** 2; }
+  return sxx > 0 && syy > 0 ? (sxy * sxy) / (sxx * syy) : 0;
+}
 
 function fixedReference(notes) {
   const valid = [];
   for (let i = 0; i + 1 < notes.length; i++) {
     const v = notes[i + 1].start - notes[i].start;
-    if (v > 0.04) valid.push(v);
+    if (v > 0.04) valid.push({ t: notes[i].start, v });
   }
-  const ref = median(valid);
+  const ref = median(valid.map((x) => x.v));
   if (!ref) return null;
   // Only the spacings of the take's own commonest length, not the whole
   // ladder: with every rung allowed, a breath's spacing (1.7-1.9 beats) snapped
   // to the 1.5 or 2 rung and was read as a note a tenth off the beat, and the
   // handful of them in each third made one zero-drift take in a hundred 'end
   // 15% slower' at 20% jitter.
-  const lg = [];
-  for (const v of valid) if (Math.abs(Math.log2(v / ref)) <= SNAP_FIXED) lg.push(Math.log2(v));
-  if (lg.length < MIN_NOTES || lg.length < 0.5 * valid.length) return null;
-  const thirds = (v) => {
-    const third = Math.max(3, Math.floor(v.length / 3));
-    const a = v.slice(0, third);
-    const b = v.slice(-third);
-    const sigma = (x) => (quantile(x, 0.75) - quantile(x, 0.25)) / 1.349;
-    // A median's variance is about 1.57 sigma^2 / n.
-    const se = Math.sqrt((1.57 * (sigma(a) ** 2 + sigma(b) ** 2)) / third);
-    const diff = median(a) - median(b);
-    return { drift: (2 ** diff - 1) * 100, z: se > 0 ? Math.abs(diff) / se : Infinity };
-  };
-  const main = thirds(lg);
-  // REPLICATION: the same drift must show in the even-numbered spacings and in
+  const pts = [];
+  for (const x of valid) if (Math.abs(Math.log2(x.v / ref)) <= SNAP_FIXED) pts.push({ t: x.t, y: Math.log2(x.v) });
+  if (pts.length < MIN_NOTES || pts.length < 0.5 * valid.length) return null;
+  const main = trendOf(pts);
+  if (!main) return null;
+  // REPLICATION: the same trend must show in the even-numbered spacings and in
   // the odd-numbered ones taken alone, each of which is an independent half of
   // the data. One zero-drift take in sixty at 20% jitter passed everything else
   // (-15%, a step half way along that its own sample noise produced).
-  const halves = [lg.filter((_, i) => i % 2 === 0), lg.filter((_, i) => i % 2 === 1)].map(thirds);
-  return { ...main, replicates: halves.every((h) => Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.driftPct) };
+  const halves = [pts.filter((_, i) => i % 2 === 0), pts.filter((_, i) => i % 2 === 1)].map(trendOf);
+  return { ...main, replicates: halves.every((h) => h && Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.leanPct) };
 }
 
-// A drift is only worth the word when the independent reading backs it.
-function driftBacked(fixed) {
-  return !!fixed && Math.abs(fixed.drift) >= LIMITS.driftPct && fixed.z >= 3.5 && fixed.replicates;
-}
+// A trend is only worth a word when the independent reading backs it. A scored
+// take has no second reading to ask: each spacing is already over its written
+// beats, so its own line is the evidence.
+const trendBacked = (t, scored) => !!t && t.z >= 3.5 && (scored || t.replicates);
 
-function tempoRefusal(kept, driftPct, fixedRef) {
+// THE FOLLOWER ON THE WRONG RUNG, CHECKED ON THE PERIOD TRACK ITSELF. Only a step
+// of an exact factor of two between neighbouring runs of four was caught before,
+// and some of 100,000 random constant-tempo takes read 'free' at 12-32% from a
+// lock on 2/3 or 3/4 of a beat: a run of short spacings made the follower take
+// the next ones for a dotted value, and its period sat 30% low for 14 notes. TRIED
+// AND WRONG: refusing any step of 0.32-0.69 of an octave (the size of a ratio
+// between two rungs) between neighbouring runs: a tempo wave of 15% steps by up
+// to 0.41 between them, as far as a lock does, so waves went (the test that 'a
+// 15% wave is still a wave' failed). TRIED AND WRONG TOO: requiring the step to
+// arrive at one note (a jump of 0.25 or more between neighbouring spacings),
+// because the spacing after a breath is divided by the 1.5 or 2 rung and jumps
+// that much in an ordinary take.
+// What a lock does that nothing else does is take the take's COMMONEST spacing
+// for something other than one beat. Every spacing within a quarter of an octave
+// of the median spacing is what the take's own beat looks like (a tempo wave
+// of 15% keeps its spacings inside that), so three in a row that the follower
+// assigned any other rung to is the follower being on the wrong one.
+function tempoRefusal(notes, kept, trendMain, fixedRef) {
   const lg = kept.map((k) => Math.log2(k.period));
   const W = 4;
   for (let k = W; k + W <= lg.length; k++) {
@@ -528,18 +614,76 @@ function tempoRefusal(kept, driftPct, fixedRef) {
       return 'the beat the follower kept jumped by a factor of two part way through, which is how it loses a half or double beat, so no tempo shape is claimed';
     }
   }
+  const spacings = [];
+  for (let i = 0; i + 1 < notes.length; i++) {
+    const v = notes[i + 1].start - notes[i].start;
+    if (v > 0.04) spacings.push(v);
+  }
+  const common = median(spacings);
+  let run = 0;
+  for (const k of kept) {
+    const own = Math.abs(Math.log2(k.period * k.rung / common)) <= SNAP_FIXED;
+    run = own && k.rung !== 1 ? run + 1 : 0;
+    if (run >= 3) {
+      return 'the follower took the take\'s commonest spacing for a different note value (two thirds, three quarters, half or double of a beat) for several notes running, which is how it loses the beat, so no tempo shape is claimed';
+    }
+  }
   const fixed = fixedRef ? fixedRef.drift : null;
+  const main = trendMain ? trendMain.drift : null;
   // The two readings pointing opposite ways by more than a few per cent is the
   // estimate disagreeing with itself. A follower that merely claims more than
   // the fixed reading backs is not refused: it just does not get to say 'drift'
-  // (see driftBacked). TRIED AND WRONG: refusing whenever they differed by more
+  // (see trendBacked). TRIED AND WRONG: refusing whenever they differed by more
   // than a third; a 15% tempo wave, which is exactly the give this module is
   // for, was refused in 14-52% of takes at 4-8% jitter, because a wave's first
   // and last third differ by an amount that depends on its phase.
-  if (fixed !== null && Math.abs(driftPct) >= 4 && Math.abs(fixed) >= 4 && Math.sign(fixed) !== Math.sign(driftPct)) {
+  if (fixed !== null && main !== null && Math.abs(main) >= 4 && Math.abs(fixed) >= 4 && Math.sign(fixed) !== Math.sign(main)) {
     return 'the tempo estimate disagreed with itself between two ways of reading the same spacings, so no tempo shape is claimed';
   }
   return null;
+}
+
+// TEMPO FLEXIBILITY DOES NOT DEPEND ON HOW LONG THE TAKE IS. It was the spread
+// between the 10th and 90th percentile of the smoothed curve, which for a
+// quantile of N points reaches further the more points there are: the same
+// playing (each spacing off by up to 2%) read 1.2% at 14 notes and 2.0% at 672,
+// and at +-9% a player was called steady in 76% of 14-note takes and 0% of 672-note
+// ones. It is now read in windows of 24 spacings (smoothed inside each window,
+// half a window apart), pooled as a variance: every window is the same
+// estimator whatever the length, and a take with fewer than 24 spacings is
+// refused rather than read at a length where the number is not stable. The
+// number also carries its standard error (about 1 over the square root of
+// two thirds of the spacings, as measured: 29% at 28 notes, 5% at 672), and the
+// WORD is only 'steady' or 'gives a little' when the whole of the number plus or
+// minus that is on one side of the line; otherwise it says it is on the edge.
+const FLEX_WINDOW = 24;
+
+function flexOf(logs) {
+  const n = logs.length;
+  if (n < FLEX_WINDOW) return null;
+  const starts = [];
+  for (let s = 0; s + FLEX_WINDOW <= n; s += FLEX_WINDOW / 2) starts.push(s);
+  if (starts.at(-1) + FLEX_WINDOW < n) starts.push(n - FLEX_WINDOW);
+  const vars = starts.map((s) => {
+    const w = logs.slice(s, s + FLEX_WINDOW);
+    const sm = w.map((x, k) => median(w.slice(Math.max(0, k - 2), k + 3)));
+    const m = mean(sm);
+    return sm.reduce((a, x) => a + (x - m) ** 2, 0) / (sm.length - 1);
+  });
+  const spreadOct = 1.2816 * Math.sqrt(mean(vars));
+  const pct = (2 ** spreadOct - 1) * 100;
+  return { pct, se: pct / Math.sqrt((2 * n) / 3), windows: starts.length };
+}
+
+// The word for a flexibility, with its uncertainty.
+function flexWord(flex, fl) {
+  const lo = flex.pct - flex.se;
+  const hi = flex.pct + flex.se;
+  if (hi < fl.steadyBelow) return 'steady';
+  if (lo >= fl.freeAbove) return 'free';
+  if (lo >= fl.steadyBelow && hi < fl.freeAbove) return 'gives';
+  // the band reaches across a line: say which line the number is nearer to
+  return Math.abs(flex.pct - fl.steadyBelow) <= Math.abs(flex.pct - fl.freeAbove) ? 'edge-steady' : 'edge-free';
 }
 
 function tempoDescriptors(notes, seg, fl) {
@@ -583,50 +727,91 @@ function tempoDescriptors(notes, seg, fl) {
     out.push(missing('tempo-shape', 'whether the tempo returns or drifts', why, kept.length));
   } else {
     const logs = kept.map((k) => Math.log2(k.period));
-    const sm = logs.map((x, k) => median(logs.slice(Math.max(0, k - 2), k + 3)));
-    const spreadOct = (quantile(sm, 0.9) - quantile(sm, 0.1)) / 2;
-    const flexPct = (2 ** spreadOct - 1) * 100;
-    // Positive drift = faster at the end (shorter period).
-    const third = Math.max(3, Math.floor(sm.length / 3));
-    const drift = (2 ** (median(sm.slice(0, third)) - median(sm.slice(-third))) - 1) * 100;
+    const trendMain = trendOf(kept.map((k) => ({ t: k.t, y: Math.log2(k.period) })));
     const fixedRef = scored ? null : fixedReference(notes);
-    const refusal = scored ? null : tempoRefusal(kept, drift, fixedRef);
+    const refusal = scored ? null : tempoRefusal(notes, kept, trendMain, fixedRef);
     if (refusal) {
       out.push(missing('tempo-flexibility', 'how much the tempo moves', refusal, kept.length));
       out.push(missing('tempo-shape', 'whether the tempo returns or drifts', refusal, kept.length));
     } else {
-      let kind;
-      let phrase;
-      const f = Math.round(flexPct);
-      // A follower drift that the independent reading does not back is NOT
-      // called a return or steady either: "comes back to where it began" of a take
-      // that did end 15% faster is as false as a drift that never happened (the
-      // first cut of this fix did exactly that: of 100 takes with a true 20%
-      // drift at 12% jitter, 33 read 'returns' or 'steady' against 5 before). The
-      // flexibility stands; the shape is refused and says why.
-      const unbacked = !scored && Math.abs(drift) >= LIMITS.driftPct && !driftBacked(fixedRef);
-      if (unbacked) {
-        kind = null;
-        phrase = null;
-      } else if (Math.abs(drift) >= LIMITS.driftPct) {
+      const flex = flexOf(logs);
+      const word = flex ? flexWord(flex, fl) : null;
+      const f = flex ? Math.round(flex.pct) : null;
+      // The trend that is believed: the independent reading's when there is one.
+      const trend = scored ? trendMain : fixedRef;
+      const backed = trendBacked(trend, scored);
+      const drift = trend ? trend.drift : trendMain ? trendMain.drift : 0;
+      const big = Math.abs(drift);
+      const sm = logs.map((x, k) => median(logs.slice(Math.max(0, k - 2), k + 3)));
+      const driftLike = lineR2(kept.map((k) => k.t), sm) >= LIMITS.driftR2;
+      // How far the end of the curve is from its start, medians of the first and
+      // last sixth of the smoothed curve: what "comes back to where it began"
+      // is checked against.
+      const edge = Math.max(3, Math.floor(sm.length / 6));
+      const endGap = (2 ** (median(sm.slice(0, edge)) - median(sm.slice(-edge))) - 1) * 100;
+      const apart = Math.abs(endGap);
+      // A wave: the tempo moves by more than steady playing does (so there is a
+      // movement for the end to differ by) and no line explains it. A curve that
+      // is steady and still seems to end 4% or more from its start is a drift that
+      // was not backed, or noise, and is not described as ending where it began.
+      const waveLike = !!flex && word !== 'steady' && word !== 'edge-steady' && !driftLike;
+      // A drift the second reading does not back is NOT called a return or
+      // steady either: "comes back to where it began" of a take that did end 15%
+      // faster is as false as a drift that never happened (the first cut of an
+      // earlier fix did exactly that: of 100 takes with a true 20% drift at 12%
+      // jitter, 33 read 'returns' or 'steady' against 5 before). So a curve a
+      // line explains (driftLike) that seems to end 4% or more away from where it
+      // began, which nothing backs, is refused. A wave is not driftLike and is
+      // judged by where it ends: 'comes back' only within 4% of the start.
+      let kind = null;
+      let phrase = '';
+      if (backed && driftLike && big >= LIMITS.driftPct) {
         kind = drift > 0 ? 'speeds-up' : 'slows-down';
-        phrase = `the tempo ends ${Math.round(Math.abs(drift))}% ${drift > 0 ? 'faster' : 'slower'} than it began (it drifts rather than returns)`;
-      } else if (flexPct >= fl.steadyBelow) {
-        kind = 'returns';
-        phrase = `the tempo moves by about ${f}% around its middle and comes back to where it began`;
-      } else {
+        phrase = `the tempo ends ${Math.round(big)}% ${drift > 0 ? 'faster' : 'slower'} than it began (it drifts rather than returns)`;
+      } else if (backed && driftLike && big >= LIMITS.leanPct) {
+        kind = drift > 0 ? 'leans-faster' : 'leans-slower';
+        phrase = `the tempo ends ${Math.round(big)}% ${drift > 0 ? 'faster' : 'slower'} than it began (a slight drift, not a return)`;
+      } else if ((driftLike || !waveLike) && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct) {
+        kind = null;
+      } else if (!flex) {
+        kind = null;
+      } else if (word === 'steady') {
         kind = 'steady';
-        phrase = `the tempo stays steady, within about ${f}% of its middle`;
+        phrase = `the tempo ends where it began (within ${Math.max(Math.round(apart), 1)}%) and stays steady throughout`;
+      } else if (apart >= LIMITS.leanPct) {
+        kind = 'moves';
+        phrase = `the tempo moves by about ${f}% around its middle, and its end differs from its start by about ${Math.round(apart)}%, so it is not said to come back to where it began`;
+      } else if (word === 'edge-steady') {
+        kind = 'level';
+        phrase = `the tempo ends within ${Math.max(Math.round(apart), 1)}% of where it began, and how much it moves in between (about ${f}%) is on the edge between steady and giving a little`;
+      } else {
+        kind = 'returns';
+        phrase = `the tempo moves by about ${f}% around its middle and comes back to where it began (it ends within ${Math.max(Math.round(apart), 1)}% of the start)`;
       }
-      out.push(got('tempo-flexibility', 'how much the tempo moves', flexPct, '%',
-        flexPct >= fl.freeAbove ? `the tempo is free, moving by about ${f}% around its middle`
-          : flexPct >= fl.steadyBelow ? `the tempo gives a little, by about ${f}% around its middle`
-            : `the tempo is steady, within about ${f}% of its middle`,
-        kept.length, { ok: 12, good: 30, detail: { keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
-      out.push(unbacked
-        ? missing('tempo-shape', 'whether the tempo returns or drifts', `the tempo seems to end ${drift > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`, kept.length)
-        : got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length,
-          { ok: 12, good: 30, detail: { kind } }));
+      if (flex) {
+        // The spread is read inside windows of 24 spacings, so a steady
+        // acceleration is invisible to it; say so beside it, not after it.
+        const drifting = kind === 'speeds-up' || kind === 'slows-down' || kind === 'leans-faster' || kind === 'leans-slower';
+        const flexPhrase = {
+          steady: `the tempo is steady, within about ${f}% of its middle`,
+          gives: `the tempo gives a little, by about ${f}% around its middle`,
+          free: `the tempo is free, moving by about ${f}% around its middle`,
+          'edge-steady': `the tempo moves by about ${f}% around its middle, which is on the edge between steady and giving a little`,
+          'edge-free': `the tempo moves by about ${f}% around its middle, which is on the edge between giving a little and free`,
+        }[word] + (drifting ? ' (not counting its drift through the take)' : '');
+        out.push(got('tempo-flexibility', 'how much the tempo moves', flex.pct, '%', flexPhrase, kept.length,
+          { ok: 12, good: 30, detail: { word, se: flex.se, windows: flex.windows, keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
+      } else {
+        out.push(missing('tempo-flexibility', 'how much the tempo moves',
+          `only ${kept.length} steady spacings; the spread of the tempo is read in windows of ${FLEX_WINDOW} so that it does not depend on how long the take is, and needs at least that many`, kept.length));
+      }
+      out.push(kind
+        ? got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length, { ok: 12, good: 30, detail: { kind } })
+        : missing('tempo-shape', 'whether the tempo returns or drifts',
+          (driftLike || !waveLike) && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct
+            ? `the tempo seems to end ${(Math.abs(trendMain?.drift ?? 0) > big ? trendMain.drift : drift) > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`
+            : `no drift was found, but with only ${kept.length} steady spacings the spread of the tempo is not read, so whether it returns or holds is not claimed`,
+          kept.length));
     }
   }
 
@@ -647,7 +832,7 @@ function tempoDescriptors(notes, seg, fl) {
   if (ratios.length >= 3) {
     const m = median(ratios);
     out.push(got('phrase-final-lengthening', 'lengthening at phrase ends', m, '×',
-      `phrase-final notes are ${Math.round(m * 10) / 10} times as long as the notes before them (a written long note counts too without a score)`,
+      `phrase-final notes are ${m.toFixed(1)} times as long as the notes before them (a written long note counts too without a score)`,
       ratios.length, { ok: 3, good: 6 }));
   } else {
     out.push(missing('phrase-final-lengthening', 'lengthening at phrase ends', `only ${ratios.length} phrase ends with enough notes before them; needs at least three`, ratios.length));
@@ -658,6 +843,7 @@ function tempoDescriptors(notes, seg, fl) {
 // --- repeated figures ---------------------------------------------------------
 
 const FIGURE = 5;   // notes in a figure
+const REPEAT_PAIRS_PER_INDEPENDENT = 4;   // see repeatDescriptors: with 1 the carried error was half of the number's real spread across seeds (200 seeds, 20 to 96 notes, four jitters), with 4 it matches
 
 function repeatDescriptors(notes, levels, seg, fl) {
   const cutAfter = new Set(seg.cuts.map((c) => c.after));
@@ -714,11 +900,25 @@ function repeatDescriptors(notes, levels, seg, fl) {
   // It is not 'a repeated passage', and nothing here says whether being alike is
   // what the music asks for: that is the player's and the teacher's to say.
   const t = median(timing);
+  // THE WORD CARRIES ITS UNCERTAINTY, like the tempo's. The median of the pairs'
+  // timing differences does not move with the length of the take (3.8-4.05% at +-4%
+  // jitter from 16 notes to 320), but its spread does, and a player near the line
+  // was 'alike' in 80% of 28-note takes and 98% of 672-note ones (+-6% jitter) and
+  // 45% against 23% (+-9%): the word flipped on identical playing. The standard
+  // error of a median (1.25 sd over the square root of the pairs, with the pairs
+  // counted at REPEAT_PAIRS_PER_INDEPENDENT of them to the independent one because
+  // neighbouring pairs share notes) is carried, and a number within one of it of
+  // the line is 'on the edge' and not either word.
+  const se = timing.length > 1 ? (1.2533 * sd(timing)) / Math.sqrt(timing.length / REPEAT_PAIRS_PER_INDEPENDENT) : 0;
+  const word = t + se < fl.sameBelow ? 'alike' : t - se >= fl.sameBelow ? 'different' : 'edge';
+  const tShown = Math.round(t * 10) / 10;
   out.push(got('repeat-timing', 'timing of matching five-note patterns', t, '%',
-    t < fl.sameBelow
-      ? `matching five-note patterns are timed nearly alike each time (timing differs by about ${Math.round(t * 10) / 10}%)`
-      : `matching five-note patterns are timed differently each time (timing differs by about ${Math.round(t * 10) / 10}%)`,
-    timing.length, { ok: 4, good: 10, detail: { paceDiffPct: median(pace), sameBelow: fl.sameBelow } }));
+    {
+      alike: `matching five-note patterns are timed nearly alike each time (timing differs by about ${tShown}%)`,
+      different: `matching five-note patterns are timed differently each time (timing differs by about ${tShown}%)`,
+      edge: `matching five-note patterns are timed on the edge between alike and different each time (timing differs by about ${tShown}%)`,
+    }[word],
+    timing.length, { ok: 4, good: 10, detail: { paceDiffPct: median(pace), sameBelow: fl.sameBelow, word, se } }));
   if (loud.length >= 4) {
     const l = median(loud);
     out.push(got('repeat-loudness', 'loudness of matching five-note patterns', l, 'dB',
@@ -732,36 +932,91 @@ function repeatDescriptors(notes, levels, seg, fl) {
 
 // --- pitch expression ---------------------------------------------------------
 
+// The pitch frames inside a note. Each carries its loudness, because what a
+// pitch tracker reports from the near-silent tail of a note is not pitch.
 function framesIn(note, readings, a4) {
   const out = [];
   for (const r of readings ?? []) {
     if (r.time < note.start) continue;
     if (r.time >= note.end) break;
     if (!(r.frequency > 0) || !(r.confidence >= MIN_CONF)) continue;
-    out.push({ t: r.time, c: 1200 * Math.log2(r.frequency / a4) });
+    out.push({ t: r.time, c: 1200 * Math.log2(r.frequency / a4), rms: r.rms });
   }
   return out;
 }
 
-// Half the peak-to-peak swing of a stretch of pitch, after the slope is taken
-// out, and whether it crosses its own middle at a vibrato's rate.
-function swingOf(frames) {
-  if (frames.length < 6) return null;
+// THE VIBRATO MEASURE'S OWN CONFIDENCE. A stretch of pitch is a vibrato when a
+// single steady sine wave at a vibrato's rate (3.5-9.5 Hz) explains at least
+// half of how the pitch moves about its own slope (r2), and the wave is at least
+// 10 cents wide. The first version asked only for a wide enough swing that
+// crossed its middle at about a vibrato's rate, which random wobble does by
+// chance: calibrated on simulated stretches of 16, 24 and 40 frames, white
+// wobble of 8 cents passed 0.5%, 0.1% and 0% of the time at an r2 of 0.5, and a
+// real 28-cent vibrato with 5 cents of noise 100% of the time (a vibrato that
+// opens up from nothing, the hardest real case, 96-99.5%).
+const VIB_R2 = 0.5;
+const VIB_CENTS = 10;
+
+function sineFit(frames, rates) {
   const n = frames.length;
-  const mt = mean(frames.map((f) => f.t));
+  const t0 = frames[0].t;
+  const t = frames.map((f) => f.t - t0);
+  const mt = mean(t);
   const mc = mean(frames.map((f) => f.c));
   let num = 0;
   let den = 0;
-  for (const f of frames) { num += (f.t - mt) * (f.c - mc); den += (f.t - mt) ** 2; }
+  for (let i = 0; i < n; i++) { num += (t[i] - mt) * (frames[i].c - mc); den += (t[i] - mt) ** 2; }
   const slope = den > 0 ? num / den : 0;
-  const dev = frames.map((f) => f.c - mc - slope * (f.t - mt));
-  const width = (Math.max(...dev) - Math.min(...dev)) / 2;
-  let crossings = 0;
-  for (let i = 1; i < n; i++) if (Math.sign(dev[i]) !== Math.sign(dev[i - 1])) crossings++;
-  const span = frames[n - 1].t - frames[0].t;
-  const rate = span > 0 ? crossings / 2 / span : 0;
-  return { width, vib: width >= 10 && rate >= 3.5 && rate <= 9.5 };
+  const dev = frames.map((f, i) => f.c - mc - slope * (t[i] - mt));
+  const total = dev.reduce((x, y) => x + y * y, 0);
+  let best = { r2: 0, amp: 0, rate: 0 };
+  for (const rate of rates) {
+    let ss = 0; let cc = 0; let sc = 0; let ys = 0; let yc = 0;
+    for (let i = 0; i < n; i++) {
+      const w = 2 * Math.PI * rate * t[i];
+      const si = Math.sin(w);
+      const co = Math.cos(w);
+      ss += si * si; cc += co * co; sc += si * co; ys += dev[i] * si; yc += dev[i] * co;
+    }
+    const det = ss * cc - sc * sc;
+    if (Math.abs(det) < 1e-9) continue;
+    const p = (ys * cc - yc * sc) / det;
+    const q = (yc * ss - ys * sc) / det;
+    const r2 = total > 0 ? (p * ys + q * yc) / total : 0;
+    if (r2 > best.r2) best = { r2, amp: Math.hypot(p, q), rate };
+  }
+  return { ...best, dev, t };
 }
+
+const VIB_RATES = Array.from({ length: 25 }, (_, k) => 3.5 + 0.25 * k);
+
+// The width of the wave at a GIVEN rate in a part of the note (the rate is the
+// whole note's: a half of a note is too short to find its own).
+function widthAt(part, rate) {
+  const t0 = part[0].t;
+  const m = mean(part.map((f) => f.c));
+  let ss = 0; let cc = 0; let sc = 0; let ys = 0; let yc = 0;
+  for (const f of part) {
+    const w = 2 * Math.PI * rate * (f.t - t0);
+    const si = Math.sin(w);
+    const co = Math.cos(w);
+    const y = f.c - m;
+    ss += si * si; cc += co * co; sc += si * co; ys += y * si; yc += y * co;
+  }
+  const det = ss * cc - sc * sc;
+  if (Math.abs(det) < 1e-9) return 0;
+  return Math.hypot((ys * cc - yc * sc) / det, (yc * ss - ys * sc) / det);
+}
+
+// A QUIET TAIL IS NOT PITCH. A struck or plucked note (piano, guitar, harp) dies
+// away, and so does a note in a hall once the bow has stopped, and the pitch
+// tracker's reading from the last of it wanders by 10-20 cents at no vibrato's
+// rate in particular. The first version read that wander as a vibrato that was
+// plain for the first half of the note and wide for the second: 7 of 12 long
+// notes of a staccato line in a 3 s hall said "opens up". Frames more than about
+// 9 dB below the note's own peak are therefore left out, and the note needs 16
+// frames (0.37 s) left, and a sine wave that explains half of what is left.
+const QUIET_TAIL = 0.35;   // of the note's own peak level (about -9 dB)
 
 function vibratoGrowth(notes, readings, a4) {
   const rows = [];
@@ -771,12 +1026,24 @@ function vibratoGrowth(notes, readings, a4) {
     longNotes++;
     // The first and last sixth of a note are scoop and release, not vibrato.
     const trim = (note.end - note.start) / 6;
-    const fr = framesIn({ start: note.start + trim, end: note.end - trim }, readings, a4);
+    const all = framesIn(note, readings, a4);
+    const lit = all.filter((f) => Number.isFinite(f.rms));
+    const peak = Math.max(0, ...lit.map((f) => f.rms));
+    // ONLY AFTER THE PEAK. A note that swells into its loudest part (messa di
+    // voce, a crescendo with a vibrato that opens) is quiet at its start and its
+    // plain early half is the half that shows the vibrato opening; the tail that
+    // is dropped is the one after the note has been at its loudest.
+    const peakAt = lit.length ? lit.reduce((best, f) => (f.rms > best.rms ? f : best)).t : note.start;
+    const fr = all.filter((f) => f.t >= note.start + trim && f.t < note.end - trim && (!(peak > 0) || f.t <= peakAt || !(f.rms < QUIET_TAIL * peak)));
     if (fr.length < 16) continue;
+    const whole = sineFit(fr, VIB_RATES);
+    if (!(whole.r2 >= VIB_R2)) continue;
     const half = Math.floor(fr.length / 2);
-    const early = swingOf(fr.slice(0, half));
-    const late = swingOf(fr.slice(half));
-    if (!early || !late || (!early.vib && !late.vib)) continue;
+    const early = { vib: false, width: widthAt(fr.slice(0, half), whole.rate) };
+    const late = { vib: false, width: widthAt(fr.slice(half), whole.rate) };
+    early.vib = early.width >= VIB_CENTS;
+    late.vib = late.width >= VIB_CENTS;
+    if (!early.vib && !late.vib) continue;
     const grows = late.vib && (!early.vib || late.width >= 1.4 * early.width);
     const fades = early.vib && (!late.vib || early.width >= 1.4 * late.width);
     rows.push(grows ? 'grows' : fades ? 'fades' : 'steady');
@@ -857,7 +1124,18 @@ function characterOf(by) {
 
   if (art) parts.push(art.value >= LIMITS.legato ? 'connected' : art.value <= (art.detail.detachedAt ?? LIMITS.detached) ? 'detached' : 'lightly separated');
   if (even && art) parts.push(even.value <= even.detail.evenBelow ? 'evenly articulated' : 'varied in articulation');
-  if (tempo) parts.push(tempo.value >= tempo.detail.freeAbove ? 'free in tempo' : tempo.value >= tempo.detail.steadyBelow ? 'giving a little in tempo' : 'steady in tempo');
+  const driftKind = drift?.detail?.kind;
+  if (driftKind === 'speeds-up' || driftKind === 'leans-faster') parts.push('getting faster through the take');
+  else if (driftKind === 'slows-down' || driftKind === 'leans-slower') parts.push('getting slower through the take');
+  else if (tempo) {
+    parts.push({
+      steady: 'steady in tempo',
+      gives: 'giving a little in tempo',
+      free: 'free in tempo',
+      'edge-steady': 'steady to slightly giving in tempo',
+      'edge-free': 'giving a little to free in tempo',
+    }[tempo.detail.word]);
+  }
   if (shape) {
     const top = shape.detail.dominant;
     if (top === 'arch' && shape.detail.counts.arch / shape.n >= 0.4) parts.push('with phrases that swell and fade');
@@ -880,14 +1158,14 @@ function characterOf(by) {
   // take reads through the real pipeline (up to 1.17, so 1.25), no contrast
   // between phrases or stretches, even articulation, matching patterns alike.
   const moves = [];
-  if (tempo && tempo.value >= tempo.detail.steadyBelow) moves.push('tempo');
-  if (drift && drift.detail.kind !== 'steady') moves.push('tempo');
+  if (tempo && tempo.detail.word !== 'steady') moves.push('tempo');
+  if (drift && drift.detail.kind !== 'steady' && drift.detail.kind !== 'level') moves.push('tempo');
   if (shape && shape.detail.counts.level !== shape.n) moves.push('phrase shape');
   if (ends && ends.value >= LIMITS.flatLengthening) moves.push('phrase ends');
   if (contrast && contrast.value >= LIMITS.flatStretchDb) moves.push('phrase loudness');
   if (dyn && dyn.value >= LIMITS.flatStretchDb) moves.push('loudness');
   if (even && even.value > even.detail.evenBelow) moves.push('articulation');
-  if (rep && rep.value >= rep.detail.sameBelow) moves.push('matching patterns');
+  if (rep && rep.detail.word !== 'alike') moves.push('matching patterns');
   if (repLoud && repLoud.value >= LIMITS.sameLoudnessDb) moves.push('matching patterns');
   if (vib && vib.value >= 25) moves.push('vibrato');
   const veryEven = !!(tempo && shape && ends) && moves.length === 0;
@@ -937,9 +1215,28 @@ function characterOf(by) {
 //
 // RANGE: a take read an octave too low (30-43% of the notes of a real sarabande
 // were below any cello's range) makes every pitch-dependent descriptor, and the
-// matching of patterns, the tracker's. The module has no idea what instrument is
-// held, so the caller passes the range of the one that is, and without it this
-// check is silent.
+// matching of patterns, the tracker's. This check was DEAD IN PRODUCTION: it ran
+// only on a `range` the caller passed, and the assistant passed none. Without
+// one it now uses GENERIC_RANGE (below), which only catches pitch no instrument
+// or voice makes; a caller that knows the instrument family passes rangeFor(id)
+// and gets the tighter, honest check.
+//
+// UNBROKEN: a 60 Hz hum, run through the real Analyzer and segmenter, comes back
+// as 130-230 'notes' a pitch tracker drew along its drift (midi 20-47), with no
+// silence anywhere, and was described as 'one continuous stretch' (in one take of
+// four as eight phrases of ten notes, from the loudness wobbling a little). The
+// sound of a hum does not get quiet between notes, and music does: the share of
+// readings more than 12 dB under the take's loud level is 8.5-21% on seven real
+// cello excerpts and 0-0.3% on four hum takes. THAT ALONE WAS TOO WIDE: a long
+// slur with no breath in it that swells and fades has 1.2% of its readings that
+// quiet, and was withdrawn whole and called 'not what playing is like'. So the
+// loudness must also stay within 3 dB between its 10th and 90th percentile (hum
+// 1.7, the swelling slur 6.9, real cello 11-14). Where both hold there is no
+// breath, rest or restart to find a phrase from, and the phrases are said to be
+// unreadable, and so is the rest of the shaping. WHAT STILL TRIPS IT, and is
+// listed as such: a perfectly constant-level legato line with no dip at all (a
+// synthetic one; a held organ note or a drone); the sentence says only what was
+// measured and not that it was not playing.
 const ACTIVE_BELOW_DB = 20;
 
 function coverageOf(list, readings) {
@@ -966,6 +1263,41 @@ function matchingShare(list) {
   return keys.length ? keys.filter((k) => count.get(k) > 1).length / keys.length : 0;
 }
 
+// What a caller who does not know the instrument should expect: from the lowest
+// double bass string (E1) to the top of a piccolo or a piano (G7). Wide on
+// purpose, so that it catches only pitch no instrument or voice makes (a pitch
+// tracker following mains hum or a rumble); the families below are the tighter
+// ranges for a caller that knows which is held.
+export const GENERIC_RANGE = { lowMidi: 28, highMidi: 103 };
+export const RANGE_BY_FAMILY = {
+  strings: { lowMidi: 28, highMidi: 100 },   // double bass E1 to violin E7
+  winds: { lowMidi: 34, highMidi: 108 },     // bassoon Bb1 to piccolo C8
+  brass: { lowMidi: 28, highMidi: 96 },      // tuba E1 to a high trumpet
+  voice: { lowMidi: 36, highMidi: 96 },      // bass C2 to a soprano's top
+  keys: { lowMidi: 21, highMidi: 108 },      // the piano
+};
+export function rangeFor(familyId) {
+  return RANGE_BY_FAMILY[familyId] ?? GENERIC_RANGE;
+}
+// A solo line almost never leaves its own median by three octaves; a take whose
+// notes do is being followed badly. Used only when no range was given.
+const SPREAD_SEMITONES = 36;
+
+// Share of readings more than 12 dB under the take's own loud level (the 90th
+// percentile). A reading with no loudness at all is silence.
+function quietShare(readings) {
+  const rs = (readings ?? []).filter((r) => Number.isFinite(r?.time));
+  if (rs.length < LIMITS.unbrokenReadings) return null;
+  const rms = rs.map((r) => (r.rms > 0 ? r.rms : 0));
+  const level = quantile(rms, 0.9);
+  if (!(level > 0)) return null;
+  const low = quantile(rms, 0.1);
+  return {
+    share: rs.filter((r) => !(r.rms >= level / 10 ** (12 / 20))).length / rs.length,
+    spreadDb: low > 0 ? 20 * Math.log10(level / low) : Infinity,
+  };
+}
+
 function reliabilityOf(list, readings, range) {
   const shortShare = list.filter((n) => n.end - n.start < 0.08).length / list.length;
   const coverage = coverageOf(list, readings);
@@ -976,16 +1308,25 @@ function reliabilityOf(list, readings, range) {
   // and every singer and wind player has them; wide steps that never come round
   // again are noise (or a take the tracker could not follow). So "junk" needs both.
   const patterned = matchingShare(list);
-  const outside = range && Number.isFinite(range.lowMidi) && Number.isFinite(range.highMidi)
-    ? list.filter((n) => Math.round(n.midi) < range.lowMidi || Math.round(n.midi) > range.highMidi).length / list.length
-    : null;
+  const given = !!range && Number.isFinite(range.lowMidi) && Number.isFinite(range.highMidi);
+  const bounds = given ? range : GENERIC_RANGE;
+  const centre = median(list.map((n) => n.midi));
+  const outside = list.filter((n) => {
+    const m = Math.round(n.midi);
+    return m < bounds.lowMidi || m > bounds.highMidi || (!given && Math.abs(n.midi - centre) > SPREAD_SEMITONES);
+  }).length / list.length;
+  const quiet = quietShare(readings);
   let reason = null;
   if (coverage !== null && coverage < LIMITS.minCoverage) reason = 'quiet';
   else if (medianStep >= LIMITS.junkStep && patterned < LIMITS.junkPatterned) reason = 'junk';
   else if (shortShare >= LIMITS.noisyShortShare) reason = 'fragments';
-  const outOfRange = outside !== null && outside >= LIMITS.outOfRangeShare;
+  else if (quiet !== null && quiet.share < LIMITS.unbrokenQuiet && quiet.spreadDb < LIMITS.unbrokenSpreadDb) reason = 'unbroken';
+  const outOfRange = outside >= LIMITS.outOfRangeShare;
   return {
     shortNoteShare: shortShare,
+    quietShare: quiet ? quiet.share : null,
+    levelSpreadDb: quiet ? quiet.spreadDb : null,
+    rangeGiven: given,
     coverage,
     medianStep,
     patternedShare: patterned,
@@ -993,7 +1334,7 @@ function reliabilityOf(list, readings, range) {
     reason,
     outOfRange,
     noisy: reason !== null || outOfRange,
-    unreadable: reason === 'quiet',
+    unreadable: reason === 'quiet' || reason === 'unbroken',   // every descriptor withdrawn
   };
 }
 
@@ -1066,7 +1407,9 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
     : characterOf(by);
 
   if (reliability.unreadable) {
-    by = withdrawn(by, 'most of the take was too quiet or unclear to hear as notes');
+    by = withdrawn(by, reliability.reason === 'unbroken'
+      ? 'the loudness stayed within a few dB and never dropped between notes, so there are no breaths or restarts to read how the take is shaped from (a hum or a held tone does this)'
+      : 'most of the take was too quiet or unclear to hear as notes');
   } else if (reliability.reason === 'fragments' || reliability.reason === 'junk') {
     // WHAT SURVIVES FRAGMENT-DROPPING ON REAL DATA is whether the notes run
     // together or are separated (legato against detached, from the notes of 80 ms
@@ -1113,19 +1456,75 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
 // as `better`, and its facts said that is what repeating a figure asks for;
 // 'repeated figure' was any five notes with the same steps, so a sequence the
 // composer wrote differently twice was graded for being played as written.)
+// HOW MANY PHRASES IS A FACT ABOUT HOW LONG THE TAKE IS. A player who phrases in
+// tens of notes finds 3 phrases in a 30-note take and 8 in an 80-note one, and
+// the comparison called every such pair "more, shorter phrases" (72 of 80 pairs
+// of one simulated player at 3, 4, 6, 8 and 12 phrases, every phrase ten notes).
+// The count is therefore compared only between takes of about the same number of
+// notes (within a fifth), and what is compared otherwise is the typical phrase
+// length in notes, which does not grow with the take. A row that cannot be
+// compared fairly is left out altogether: it is not "unmeasured" (it was
+// measured) and not "about the same" (nothing was shown to be the same).
+const LENGTH_WITHIN = 1.25;
+const lengthsComparable = (a, b) => {
+  const hi = Math.max(a.noteCount, b.noteCount);
+  const lo = Math.min(a.noteCount, b.noteCount);
+  return lo > 0 && hi / lo <= LENGTH_WITHIN && breathsVisible(a, b);
+};
+// BREATHS TOO SHORT TO SEE. At a note spacing under about 0.3 s the pipeline's
+// own timing error (a few tens of milliseconds on each onset) is as large as a
+// breath of 0.6 of a note, so the same performance finds 1-8 phrases by seed at
+// 0.2 s a note and all 8 from 0.3 s on (16 seeds each; 70 of 448 tempo-only
+// pairs said "more, shorter phrases" with a 0.2 s take in them). Two takes are
+// compared on their phrases only when neither is faster than that.
+const FASTEST_BEAT_SEC = 0.28;
+const breathsVisible = (a, b) => !(a.beatSec < FASTEST_BEAT_SEC || b.beatSec < FASTEST_BEAT_SEC);
+// With one phrase found, "the phrase length" is the length of the take.
+const phraseLengthOf = (m) => {
+  const d = m.descriptors['phrase-count'];
+  return d?.measured && d.value >= 2 ? d.detail.medianNotes : null;
+};
+
+// +1 speeding up, -1 slowing, 0 neither; null for a tempo that moves with no
+// drift to speak of (a wave that stopped somewhere else), which is no reading.
+const driftClassOf = (m) => {
+  const d = m.descriptors['tempo-shape'];
+  if (!d?.measured) return null;
+  const k = d.detail.kind;
+  if (k === 'speeds-up' || k === 'leans-faster') return 1;
+  if (k === 'slows-down' || k === 'leans-slower') return -1;
+  return k === 'moves' ? null : 0;
+};
+
 const COMPARE = [
-  { key: 'phrase-count', get: (m) => m.descriptors['phrase-count'], small: 1.5, abs: true, up: 'more, shorter phrases', down: 'fewer, longer phrases' },
+  { key: 'phrase-count', small: 1.5, abs: true, up: 'more, shorter phrases', down: 'fewer, longer phrases', onlyIf: lengthsComparable },
+  // The typical phrase length in notes. Its own unit and its own floor: two
+  // notes or a quarter, whichever is more, because one cut more or less in a
+  // phrase of ten moves the median by one or two.
+  { key: 'phrase-length', src: 'phrase-count', label: 'typical phrase length', unit: 'notes', valueFrom: phraseLengthOf, onlyIf: breathsVisible, small: 2, rel: 0.25, up: 'longer phrases', down: 'shorter phrases' },
   // 30, not 20: phrase-definition moves in steps of a third of a point per phrase
   // end, and 14 ms of onset error on one performance at two tempos moved it by
   // 20 (three ends of five losing a cue) and, twice in sixty pairs, by 27.
-  { key: 'phrase-definition', small: 30, up: 'more clearly marked phrase ends', down: 'less clearly marked phrase ends' },
+  // It is the mean of one score per phrase end, each 67 or 100 in practice
+  // (a breath alone, or a breath and a second cue), so with two or three phrase
+  // ends one end more or less cued moves it by 33 or 17. The same player,
+  // transposed or at a lower level, differed by 30 or more in 21 of 144 pairs
+  // through the real pipeline, and every one of them had fewer than five ends.
+  // The bar now grows with how few ends there are (seFrom, 2 standard errors).
+  { key: 'phrase-definition', small: 30, seFrom: (d) => 17 / Math.sqrt(Math.max(1, d.n)), up: 'more clearly marked phrase ends', down: 'less clearly marked phrase ends' },
   { key: 'phrase-shape', small: 20, up: 'more phrases that swell and fade', down: 'fewer phrases that swell and fade' },
   { key: 'phrase-contrast', small: 0.8, up: 'more phrasing contrast', down: 'less phrasing contrast' },
   { key: 'stretch-contrast', small: 1, up: 'more loudness contrast across the take', down: 'less loudness contrast across the take' },
   { key: 'articulation', small: 0.1, up: 'more connected', down: 'more detached' },
   { key: 'articulation-evenness', small: 0.06, up: 'less even articulation', down: 'more even articulation' },
   { key: 'tempo-flexibility', small: 2.5, up: 'a freer tempo', down: 'a steadier tempo' },
-  { key: 'phrase-final-lengthening', small: 0.25, up: 'more lengthening at phrase ends', down: 'less lengthening at phrase ends' },
+  // Whether the tempo drifts through the take was not compared at all: an
+  // accelerando against a steady take came out "shaped about the same on how much
+  // the tempo moves". It is compared as a class (speeding up, level, slowing),
+  // never as the number, which for a wave is only where it happened to stop.
+  { key: 'tempo-drift', src: 'tempo-shape', label: 'whether the tempo drifts', unit: '', valueFrom: driftClassOf, small: 0.5, up: 'the tempo drifts faster over the take', down: 'the tempo drifts slower over the take' },
+  // (phrase ends are found from breaths, so this row is as blind as the count under FASTEST_BEAT_SEC)
+  { key: 'phrase-final-lengthening', small: 0.25, up: 'more lengthening at phrase ends', down: 'less lengthening at phrase ends', onlyIf: breathsVisible },
   { key: 'repeat-timing', small: 1.5, up: 'matching five-note patterns played less alike in timing', down: 'matching five-note patterns played more alike in timing' },
   { key: 'repeat-loudness', small: 0.8, up: 'matching five-note patterns played less alike in loudness', down: 'matching five-note patterns played more alike in loudness' },
   { key: 'vibrato-growth', small: 25, up: 'vibrato opens up more on long notes', down: 'vibrato opens up less on long notes' },
@@ -1150,21 +1549,33 @@ export function compareMusicality(before, after) {
   if (!before || !after) return [];
   const out = [];
   for (const c of COMPARE) {
-    const a = before.descriptors[c.key];
-    const b = after.descriptors[c.key];
-    const label = (b ?? a)?.label ?? c.key;
-    const unit = (b ?? a)?.unit ?? '';
-    if (!a?.measured || !b?.measured) {
-      out.push({ key: c.key, label, unit, before: a?.measured ? a.value : null, after: b?.measured ? b.value : null, change: null, verdict: 'unmeasured' });
+    if (c.onlyIf && !c.onlyIf(before, after)) continue;
+    const a = before.descriptors[c.src ?? c.key];
+    const b = after.descriptors[c.src ?? c.key];
+    const label = c.label ?? (b ?? a)?.label ?? c.key;
+    const unit = c.unit ?? (b ?? a)?.unit ?? '';
+    const va = c.valueFrom ? c.valueFrom(before) : (a?.measured ? a.value : null);
+    const vb = c.valueFrom ? c.valueFrom(after) : (b?.measured ? b.value : null);
+    if (va === null || vb === null) {
+      // A phrase length of a take with a single phrase is no reading at all
+      // (see phraseLengthOf), not an unmeasured one: nothing is said.
+      if (c.valueFrom && a?.measured && b?.measured) continue;
+      out.push({ key: c.key, label, unit, before: va, after: vb, change: null, verdict: 'unmeasured' });
       continue;
     }
-    const delta = b.value - a.value;
+    const delta = vb - va;
     const floorOf = FLOOR_OF[c.key];
     const floor = floorOf ? Math.max(0, ...[before, after].map((m) => (m.floors ? floorOf(m.floors) : 0))) : 0;
-    const small = Math.max(c.small, floor);
+    // A reading that carries its own standard error (the tempo's spread: 29%
+    // of itself at 28 notes, 5% at 672) cannot call a difference smaller than
+    // one and a half times the two errors together: the same playing at two
+    // lengths is not a change.
+    const se = Math.hypot(a?.detail?.se ?? 0, b?.detail?.se ?? 0);
+    const seRow = c.seFrom ? Math.hypot(c.seFrom(a), c.seFrom(b)) : 0;
+    const small = Math.max(c.small, floor, 1.5 * se, 2 * seRow, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
     const moved = Math.abs(delta) >= small;
     const verdict = !moved ? 'about the same' : delta > 0 ? c.up : c.down;
-    const row = { key: c.key, label, unit, before: a.value, after: b.value, change: delta, verdict };
+    const row = { key: c.key, label, unit, before: va, after: vb, change: delta, verdict };
     if (moved) row.direction = delta > 0 ? 'higher' : 'lower';
     out.push(row);
   }

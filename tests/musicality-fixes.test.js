@@ -184,7 +184,9 @@ describe('5. the tempo shape does not claim a drift the playing did not have', (
     expect(calm).toBeLessThanOrEqual(8);
     let said = null;
     for (let seed = 1; seed <= 100 && !said; seed++) {
-      const t = d(read({ shape: 'flat', phrases: 6, perPhrase: 10, jitter: 0.12, seed, drift: 0.2 }), 'tempo-shape');
+      // (a drift of 11%, not 20%: with the whole-curve trend the 20% one is found in 87 takes of 100 and
+      // there is hardly anything left unbacked to refuse; at 11% and this much jitter 13 are)
+      const t = d(read({ shape: 'flat', phrases: 6, perPhrase: 10, jitter: 0.12, seed, drift: 0.1 }), 'tempo-shape');
       if (!t.measured && /did not back that/.test(t.reason)) said = t.reason;
     }
     expect(said).toMatch(/seems to end (faster|slower) than it began/);
@@ -200,7 +202,13 @@ describe('5. the tempo shape does not claim a drift the playing did not have', (
     for (let seed = 1; seed <= 20; seed++) {
       expect(d(read({ shape: 'flat', phrases: 12, perPhrase: 10, jitter: 0.04, seed, drift: 0.2 }), 'tempo-shape').detail.kind).toBe('speeds-up');
     }
-    expect(d(read({ shape: 'flat', phrases: 12, perPhrase: 10, wave: 0.15 }), 'tempo-shape').detail.kind).toBe('returns');
+    // A wave is not a drift. Whether it is said to COME BACK depends on where it
+    // stops: this one ends 5% from where it began, so the shape is 'moves' and says
+    // it is not claimed to return (round 3: 'returns' only within 4% of the start).
+    const wave = d(read({ shape: 'flat', phrases: 12, perPhrase: 10, wave: 0.15 }), 'tempo-shape');
+    expect(['returns', 'moves']).toContain(wave.detail.kind);
+    expect(wave.detail.kind).toBe('moves');
+    expect(wave.phrase).toMatch(/not said to come back/);
   });
 
   test('transposing a take changes nothing about its tempo reading (the module reads onset times only)', () => {

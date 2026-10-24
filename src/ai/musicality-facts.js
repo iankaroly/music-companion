@@ -35,9 +35,9 @@ export const MUSICALITY_INSTRUCTION = 'Musicality measurements describe how a ta
 export const CAVEAT = 'These describe the shaping of the playing from what could be measured; they are not a judgement of taste or of how beautiful the tone is.';
 
 const GROUPS = {
-  phrasing: ['phrase-count', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'stretch-contrast', 'phrase-final-lengthening'],
+  phrasing: ['phrase-count', 'phrase-length', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'stretch-contrast', 'phrase-final-lengthening'],
   articulation: ['articulation', 'articulation-evenness'],
-  tempo: ['tempo-flexibility', 'tempo-shape', 'phrase-final-lengthening'],
+  tempo: ['tempo-flexibility', 'tempo-shape', 'tempo-drift', 'phrase-final-lengthening'],
   repeats: ['repeat-timing', 'repeat-loudness'],
   expression: ['vibrato-growth', 'pitch-lean'],
 };
@@ -58,10 +58,16 @@ function show(d) {
   const v = d.value;
   if (d.key === 'articulation' || d.key === 'articulation-evenness') return `${round0(v * 100)}%`;
   if (d.unit === 'dB') return `${round1(v)} dB`;
+  if (d.key === 'tempo-drift') return v > 0 ? 'speeding up' : v < 0 ? 'slowing' : 'level';
+  if (d.unit === 'notes') return `${round0(v)} notes`;
   if (d.unit === '×') return `${round1(v)}×`;
   if (d.unit === '¢') return `${round1(v)}¢`;
   if (d.unit === '%') return `${round0(v)}%`;
   return round1(v);
+}
+
+function listOf(items) {
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
 const sentence = (s) => (/[.!?]$/.test(s) ? s : `${s}.`);
@@ -80,9 +86,13 @@ function noisyNote(take, m) {
     lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next and the steps hardly ever come round again, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'fragments') {
     lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+  } else if (r.reason === 'unbroken') {
+    lines.push(`The loudness of "${name}" stayed within a few dB and never dropped between notes (${m.noteCount} notes heard), as a hum or a held tone does, so how it is shaped could not be read: there are no breaths or restarts to find a phrase from.`);
   }
   if (r.outOfRange) {
-    lines.push(`${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside the range of the instrument, which usually means the pitch was read an octave off, so treat what follows as rough.`);
+    lines.push(r.rangeGiven
+      ? `${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside the range of the instrument, which usually means the pitch was read an octave off, so treat what follows as rough.`
+      : `${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside any instrument's or voice's range or far from the rest of the line, which usually means the pitch tracker was following something that is not playing, so treat what follows as rough.`);
   }
   return lines;
 }
@@ -139,17 +149,30 @@ export function compareMusicalityFacts(a, b, { question = '', max = 6 } = {}) {
   const out = [];
   for (const t of [a, b]) if (t.musicality.reliability?.noisy) out.push(...noisyNote(t, t.musicality));
   for (const r of real.slice(0, max)) {
-    const d = (a.musicality.descriptors[r.key] ?? b.musicality.descriptors[r.key]);
-    const before = show({ ...d, value: r.before });
-    const after = show({ ...d, value: r.after });
+    // the row carries its own key and unit (typical phrase length is a row
+    // made from the phrase-count descriptor and is in notes, not a count)
+    const before = show({ key: r.key, unit: r.unit, value: r.before });
+    const after = show({ key: r.key, unit: r.unit, value: r.after });
     // The verdict is a phrase on its own ("more detached", "matching five-note
     // patterns played less alike in timing"), so it goes in brackets rather than after a verb it
     // would not fit. These sentences reach the player as they stand when no
     // model is available.
     out.push(`${cap(r.label)}: "${lb}" ${before}, "${la}" ${after} (${r.verdict} in "${la}").`);
   }
+  // "ABOUT THE SAME" IS A CLAIM ABOUT ROWS THAT WERE MEASURED IN BOTH TAKES, AND
+  // IT NAMES THEM. The first wording said "on everything that could be measured
+  // in both" and printed it when nothing had been: two takes that were both too
+  // quiet to read, a 14-note take against an 80-note one, or a question about
+  // tempo that filtered out the row that did differ. So the line is said only
+  // when at least one wanted row was read in both, it lists exactly those rows,
+  // and when none was it says that nothing could be compared instead.
   if (real.length === 0) {
-    out.push(`"${la}" and "${lb}" are shaped about the same on everything that could be measured in both.`);
+    const same = rows.filter((r) => r.verdict === 'about the same');
+    if (same.length > 0) {
+      out.push(`"${la}" and "${lb}" are shaped about the same on ${listOf(same.map((r) => r.label))}.`);
+    } else {
+      out.push(`Nothing about how "${la}" and "${lb}" are shaped was measured in both takes, so I cannot say whether they are shaped alike.`);
+    }
   }
   const skipped = rows.filter((r) => r.verdict === 'unmeasured');
   if (skipped.length) {
