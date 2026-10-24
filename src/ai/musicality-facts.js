@@ -83,7 +83,7 @@ function noisyNote(take, m) {
   if (r.reason === 'quiet') {
     lines.push(`Only about ${round0(r.coverage * 100)}% of the sound in "${name}" was heard as notes (${m.noteCount} notes), so most of this take was too quiet or too unclear to hear and how it is shaped could not be measured.`);
   } else if (r.reason === 'junk') {
-    lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next and the steps hardly ever come round again, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+    lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next and steps this large hardly ever come round again, which is unusual in a tune (it can also be a very wide-leaping line, which this cannot tell apart from a misreading), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'fragments') {
     lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'unbroken') {
@@ -112,7 +112,9 @@ export function musicalityFacts(take, { question = '', max = 8 } = {}) {
   }
   if (m.onePitch) out.push(`Every note in "${label(take)}" is the same pitch, so there is no phrase-level reading of it; only its timing and articulation are described.`);
   if (c?.measured) {
-    out.push(sentence(`"${label(take)}" (${when(take)}) reads as ${c.phrase}`));
+    // the character sentence repeats the legato-or-detached reading, so it carries the same caution
+    const doubted = m.reliability?.noisy || m.reliability?.doubtful;
+    out.push(sentence(`"${label(take)}" (${when(take)}) reads as ${c.phrase}${doubted ? ' (take it lightly)' : ''}`));
   }
   const measured = Object.values(m.descriptors).filter((d) => d.measured && d.key !== 'character' && wanted.has(d.key));
   for (const d of measured.slice(0, max)) {
@@ -120,7 +122,8 @@ export function musicalityFacts(take, { question = '', max = 8 } = {}) {
     // A take already flagged as misheard says so once, above; its low confidence
     // is not about how many things the number was counted from.
     const lightly = m.reliability?.noisy ? ' (take it lightly)' : ` (based on only ${d.n}, so take it lightly)`;
-    out.push(sentence(d.confidence === 'low' ? `${base}${lightly}` : base));
+    // a phrase that already says so itself (the legato-or-detached one does) is not told twice
+    out.push(sentence(d.confidence === 'low' && !/take it lightly/.test(d.phrase) ? `${base}${lightly}` : base));
   }
   const missing = Object.values(m.descriptors).filter((d) => !d.measured && d.key !== 'character' && wanted.has(d.key));
   const unlisted = measured.length - Math.min(measured.length, max);

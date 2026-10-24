@@ -26,6 +26,21 @@ const NUMS = (n) => [`${n}¢`, `${n} ¢`, `${n} cents`, `${n}`];
 // name; facts; the number the reply attaches the word to (and its units, for
 // the formats that carry one); words that CONTRADICT the facts; words that
 // restate them
+// WHAT THE 12 ESCAPES OF 204 ON 'FURTHER' WERE (tier 'unseen', measured on a7305c3): all
+// twelve are ONE phrase, "came right", in the three unseen shapes times four ways of writing
+// the number ("The take came right by 12.8¢.", "...: 12.8 against before.", "It came right,
+// 12.8 from before."), said against facts that say the take is 12.8¢ FURTHER from pitch.
+// That is a real lie, not a harmless one: "came right" means improved. It escaped because
+// the conservative default recognises a word that reads as a direction by its SHAPE (-er,
+// -ed, -ing, a verb of motion), and "came right" has none of them. The other two words of
+// the same set ("cleaned up", "homed in") were caught only because "cleaned" and "homed"
+// end in -ed. "came right", "came good", "came together" and "came round" are now refused
+// beside a number whose fact carries a direction (src/ai/guard.js, one line); the cost is
+// that the honest twin "came right" under the 'closer' facts is refused as well: the unseen
+// tier's honest twins wrongly rejected went from 324 to 336 of 336 (the 12 are exactly those),
+// which that tier already accepts as the price of the default. The shape rule is still blind
+// to any other direction said in two plain words with no -ed, -er or -ing in either; this set
+// has not tried any, and cannot say how many exist.
 export const SCENARIOS = [
   {
     name: 'closer',
