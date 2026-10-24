@@ -74,6 +74,7 @@ describe('words in a take\'s name are not measurements', () => {
 });
 
 describe('a quoted word is not a take name', () => {
+  // regression guards on this repair's own change (blanking every quote hid these); at ceab50d all but 'sounds "warm"' were already refused
   // Only the facts' own take names are set aside when a reply is read for taste,
   // direction and superlatives; a verdict in quotation marks is still a verdict.
   test.each([
@@ -92,8 +93,9 @@ describe('a quoted word is not a take name', () => {
   });
 });
 
-describe('a parenthesis with a figure in it is not exempt', () => {
-  test('a copied parenthesis that carries digits is still read', () => {
+describe('a copied parenthesis with a figure in it stays in the check', () => {
+  // a regression guard on the narrowing of the caveat exemption, not a case that failed at ceab50d
+  test('an honest copy passes and a mixed-up one does not', () => {
     const facts = ['D3 runs 14¢ sharp (spread ±2¢, 6 times).'];
     expect(checkReply('D3 runs 14¢ sharp (spread ±2¢, 6 times).', facts, '', { takeCount: 1 }).ok).toBe(true);
     // the 6 times is D3's; given to the take's average in the same copied parenthesis it must still be read
