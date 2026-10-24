@@ -64,6 +64,8 @@ export const LIMITS = {
   junkPatterned: 0.2,        // …and fewer than this share of five-note windows have their steps again elsewhere in the take (a drill repeats; noise does not)
   junkStep: 9,               // median semitones between neighbouring notes at or above which, with no patterned repeats, the pitches are not a tune (random pitches read 11-14)
   outOfRangeShare: 0.25,     // share of notes outside the range the caller gives, at or above which confidence is low throughout
+  unbrokenQuiet: 0.02,       // share of readings more than 12 dB under the loud level below which the sound never stopped at all: a hum, not playing (real cello: 8.5-21%, a 60 Hz hum: 0-0.3%)
+  unbrokenReadings: 100,     // readings (about 2.3 s) needed before that is a statement about the take
   sameTimingPct: 4,          // a repeated figure whose timing differs by less than this is the same (at least)
   sameLoudnessDb: 1.5,
   leanCents: 4,              // difference in where notes sit after rising vs falling steps
@@ -1015,9 +1017,21 @@ function characterOf(by) {
 //
 // RANGE: a take read an octave too low (30-43% of the notes of a real sarabande
 // were below any cello's range) makes every pitch-dependent descriptor, and the
-// matching of patterns, the tracker's. The module has no idea what instrument is
-// held, so the caller passes the range of the one that is, and without it this
-// check is silent.
+// matching of patterns, the tracker's. This check was DEAD IN PRODUCTION: it ran
+// only on a `range` the caller passed, and the assistant passed none. Without
+// one it now uses GENERIC_RANGE (below), which only catches pitch no instrument
+// or voice makes; a caller that knows the instrument family passes rangeFor(id)
+// and gets the tighter, honest check.
+//
+// UNBROKEN: a 60 Hz hum, run through the real Analyzer and segmenter, comes back
+// as 130-230 'notes' a pitch tracker drew along its drift (midi 20-47), with no
+// silence anywhere, and was described as 'one continuous stretch' (in one take of
+// four as eight phrases of ten notes, from the loudness wobbling a little). The
+// sound of a hum does not get quiet between notes, and music does: the share of
+// readings more than 12 dB under the take's loud level is 8.5-21% on seven real
+// cello excerpts and 0-0.3% on four hum takes. Below 2% there is no breath, rest
+// or restart to find a phrase from, so the phrases are said to be unreadable and
+// so is the rest of the shaping, which would be a description of a hum.
 const ACTIVE_BELOW_DB = 20;
 
 function coverageOf(list, readings) {
@@ -1044,6 +1058,36 @@ function matchingShare(list) {
   return keys.length ? keys.filter((k) => count.get(k) > 1).length / keys.length : 0;
 }
 
+// What a caller who does not know the instrument should expect: from the lowest
+// double bass string (E1) to the top of a piccolo or a piano (G7). Wide on
+// purpose, so that it catches only pitch no instrument or voice makes (a pitch
+// tracker following mains hum or a rumble); the families below are the tighter
+// ranges for a caller that knows which is held.
+export const GENERIC_RANGE = { lowMidi: 28, highMidi: 103 };
+export const RANGE_BY_FAMILY = {
+  strings: { lowMidi: 28, highMidi: 100 },   // double bass E1 to violin E7
+  winds: { lowMidi: 34, highMidi: 108 },     // bassoon Bb1 to piccolo C8
+  brass: { lowMidi: 28, highMidi: 96 },      // tuba E1 to a high trumpet
+  voice: { lowMidi: 36, highMidi: 96 },      // bass C2 to a soprano's top
+  keys: { lowMidi: 21, highMidi: 108 },      // the piano
+};
+export function rangeFor(familyId) {
+  return RANGE_BY_FAMILY[familyId] ?? GENERIC_RANGE;
+}
+// A solo line almost never leaves its own median by three octaves; a take whose
+// notes do is being followed badly. Used only when no range was given.
+const SPREAD_SEMITONES = 36;
+
+// Share of readings more than 12 dB under the take's own loud level (the 90th
+// percentile). A reading with no loudness at all is silence.
+function quietShare(readings) {
+  const rs = (readings ?? []).filter((r) => Number.isFinite(r?.time));
+  if (rs.length < LIMITS.unbrokenReadings) return null;
+  const level = quantile(rs.map((r) => (r.rms > 0 ? r.rms : 0)), 0.9);
+  if (!(level > 0)) return null;
+  return rs.filter((r) => !(r.rms >= level / 10 ** (12 / 20))).length / rs.length;
+}
+
 function reliabilityOf(list, readings, range) {
   const shortShare = list.filter((n) => n.end - n.start < 0.08).length / list.length;
   const coverage = coverageOf(list, readings);
@@ -1054,16 +1098,24 @@ function reliabilityOf(list, readings, range) {
   // and every singer and wind player has them; wide steps that never come round
   // again are noise (or a take the tracker could not follow). So "junk" needs both.
   const patterned = matchingShare(list);
-  const outside = range && Number.isFinite(range.lowMidi) && Number.isFinite(range.highMidi)
-    ? list.filter((n) => Math.round(n.midi) < range.lowMidi || Math.round(n.midi) > range.highMidi).length / list.length
-    : null;
+  const given = !!range && Number.isFinite(range.lowMidi) && Number.isFinite(range.highMidi);
+  const bounds = given ? range : GENERIC_RANGE;
+  const centre = median(list.map((n) => n.midi));
+  const outside = list.filter((n) => {
+    const m = Math.round(n.midi);
+    return m < bounds.lowMidi || m > bounds.highMidi || (!given && Math.abs(n.midi - centre) > SPREAD_SEMITONES);
+  }).length / list.length;
+  const quiet = quietShare(readings);
   let reason = null;
   if (coverage !== null && coverage < LIMITS.minCoverage) reason = 'quiet';
   else if (medianStep >= LIMITS.junkStep && patterned < LIMITS.junkPatterned) reason = 'junk';
   else if (shortShare >= LIMITS.noisyShortShare) reason = 'fragments';
-  const outOfRange = outside !== null && outside >= LIMITS.outOfRangeShare;
+  else if (quiet !== null && quiet < LIMITS.unbrokenQuiet) reason = 'unbroken';
+  const outOfRange = outside >= LIMITS.outOfRangeShare;
   return {
     shortNoteShare: shortShare,
+    quietShare: quiet,
+    rangeGiven: given,
     coverage,
     medianStep,
     patternedShare: patterned,
@@ -1071,7 +1123,7 @@ function reliabilityOf(list, readings, range) {
     reason,
     outOfRange,
     noisy: reason !== null || outOfRange,
-    unreadable: reason === 'quiet',
+    unreadable: reason === 'quiet' || reason === 'unbroken',   // every descriptor withdrawn
   };
 }
 
@@ -1144,7 +1196,9 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
     : characterOf(by);
 
   if (reliability.unreadable) {
-    by = withdrawn(by, 'most of the take was too quiet or unclear to hear as notes');
+    by = withdrawn(by, reliability.reason === 'unbroken'
+      ? 'the sound never got quieter between notes, so there are no breaths or restarts to read how the take is shaped from (a hum or a held tone is like this to a pitch tracker)'
+      : 'most of the take was too quiet or unclear to hear as notes');
   } else if (reliability.reason === 'fragments' || reliability.reason === 'junk') {
     // WHAT SURVIVES FRAGMENT-DROPPING ON REAL DATA is whether the notes run
     // together or are separated (legato against detached, from the notes of 80 ms

@@ -85,9 +85,13 @@ function noisyNote(take, m) {
     lines.push(`The notes heard in "${name}" jump about by a median of ${round0(r.medianStep)} semitones from one to the next and the steps hardly ever come round again, which is rare in a tune and usually means the pitch tracker was misreading it, so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'fragments') {
     lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
+  } else if (r.reason === 'unbroken') {
+    lines.push(`The sound in "${name}" never got quieter between notes (${m.noteCount} notes heard), which is what a hum or a held tone is like to a pitch tracker and not what playing is like, so how it is shaped could not be read: there are no breaths or restarts to find a phrase from.`);
   }
   if (r.outOfRange) {
-    lines.push(`${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside the range of the instrument, which usually means the pitch was read an octave off, so treat what follows as rough.`);
+    lines.push(r.rangeGiven
+      ? `${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside the range of the instrument, which usually means the pitch was read an octave off, so treat what follows as rough.`
+      : `${round0(r.outOfRangeShare * 100)}% of the notes heard in "${name}" fell outside any instrument's or voice's range or far from the rest of the line, which usually means the pitch tracker was following something that is not playing, so treat what follows as rough.`);
   }
   return lines;
 }

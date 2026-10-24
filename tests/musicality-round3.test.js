@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'vitest';
-import { musicalityOf, compareMusicality } from '../src/analysis/musicality.js';
+import { musicalityOf, compareMusicality, GENERIC_RANGE, rangeFor } from '../src/analysis/musicality.js';
 import { musicalityFacts, compareMusicalityFacts } from '../src/ai/musicality-facts.js';
 import { buildSpec, idealTake, wobbleOnsets } from './helpers/musicality-synth.js';
 
@@ -142,6 +142,70 @@ describe('3. phrases are found at the take\'s own spacing, not at a number of se
   });
 });
 
+describe('5. a range is always checked, and a sound that never stops is not read as phrases', () => {
+  // A 60 Hz hum through the real Analyzer + segmenter is 130-230 'notes' a pitch
+  // tracker drew along its drift, abutting, with the loudness never dipping:
+  // tools/musicality-synth-check.mjs makes that one. Here the same shape by hand.
+  const hum = (count, { dips = false, base = 35 } = {}) => {
+    const notes = [];
+    const readings = [];
+    let t = 0;
+    let m = base;
+    for (let i = 0; i < count; i++) {
+      m = Math.max(base - 3, Math.min(base + 3, m + [1, -1, 0, 1, -1, -1, 1][i % 7]));
+      const dur = 0.4 + 0.1 * (i % 5);
+      notes.push({ start: t, end: t + dur, midi: m, cents: 0 });
+      for (let r = t; r < t + dur; r += 0.0232) readings.push({ time: r, frequency: 440 * 2 ** ((m - 69) / 12), confidence: 0.9, rms: 0.03 });
+      if (dips) for (let r = t + dur; r < t + dur + 0.08; r += 0.0232) readings.push({ time: r, frequency: 0, confidence: 0, rms: 0.0004 });
+      t += dur + (dips ? 0.08 : 0);
+    }
+    return { notes, readings };
+  };
+
+  test('a hum is said to be unreadable, not "one continuous stretch" or a number of phrases', () => {
+    const m = musicalityOf(hum(60));
+    expect(m.reliability.reason).toBe('unbroken');
+    expect(d(m, 'phrase-count').measured).toBe(false);
+    expect(d(m, 'phrase-count').reason).toMatch(/never got quieter between notes/);
+    for (const k of ['phrase-shape', 'tempo-flexibility', 'articulation', 'stretch-contrast']) expect(d(m, k).measured, k).toBe(false);
+    expect(d(m, 'character').measured).toBe(false);
+  });
+
+  test('the sentence a player sees says the phrases cannot be read from it', () => {
+    const text = musicalityFacts({ id: 1, name: 'Hum', date: Date.UTC(2026, 9, 20), musicality: musicalityOf(hum(60)) }, { question: 'how is my phrasing' }).join(' ');
+    expect(text).toMatch(/never got quieter between notes/);
+    expect(text).toMatch(/hum or a held tone/);
+    expect(text).not.toMatch(/continuous stretch|phrases of about/);
+  });
+
+  test('the same notes with a quiet gap after each are an ordinary take and are still read', () => {
+    const m = musicalityOf(hum(60, { dips: true }));
+    expect(m.reliability.reason).toBe(null);
+    expect(d(m, 'articulation').measured).toBe(true);
+  });
+
+  test('with no range given, pitch no instrument makes is checked against the generic range', () => {
+    const rumble = hum(60, { base: 14, dips: true });          // 20 Hz: below any instrument or voice
+    const m = musicalityOf(rumble);
+    expect(m.reliability.outOfRange).toBe(true);
+    expect(m.reliability.rangeGiven).toBe(false);
+    expect(musicalityOf(hum(60, { base: 50, dips: true })).reliability.outOfRange).toBe(false);
+    expect(GENERIC_RANGE.lowMidi).toBeLessThanOrEqual(28);
+    // and the facts say so without naming an instrument that nobody gave
+    const text = musicalityFacts({ id: 1, name: 'Rumble', date: Date.UTC(2026, 9, 20), musicality: m }).join(' ');
+    expect(text).toMatch(/outside any instrument's or voice's range/);
+  });
+
+  test('a caller that knows the family passes its range and gets the tighter check', () => {
+    // a take heard an octave and more too low for a voice: fine for a double bass
+    const low = hum(60, { base: 30, dips: true });
+    expect(musicalityOf({ ...low, range: rangeFor('voice') }).reliability.outOfRange).toBe(true);
+    expect(musicalityOf({ ...low, range: rangeFor('strings') }).reliability.outOfRange).toBe(false);
+    expect(musicalityOf({ ...low, range: rangeFor('voice') }).reliability.rangeGiven).toBe(true);
+    expect(rangeFor('nothing')).toEqual(GENERIC_RANGE);
+  });
+});
+
 describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato that opens up', () => {
   // Piano, guitar and harp notes die away, and a pitch tracker's reading of the
   // last of one wanders by 10-20 cents at about a vibrato's rate: the plain
@@ -158,7 +222,7 @@ describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato 
   });
 
   test('the same notes with a real vibrato that opens up are still read as opening', () => {
-    const m = read({ phrases: 6, perPhrase: 8, period: 2.0, articulation: 1.0, shape: 'flat', vibrato: 'grows', breath: 0.1 });
+    const m = read({ phrases: 6, perPhrase: 8, period: 2.0, articulation: 0.9, shape: 'flat', vibrato: 'grows', breath: 0.1 });
     expect(d(m, 'vibrato-growth').measured).toBe(true);
     expect(d(m, 'vibrato-growth').value).toBeGreaterThanOrEqual(80);
   });
