@@ -13,17 +13,10 @@
 // every figure is written through round0/round1 here, as in facts.js.
 
 import { compareMusicality } from '../analysis/musicality.js';
+import { takeLabel as label, whenOf as when, pairLabels } from './labels.js';
 
 const round0 = (v) => Math.round(v);
 const round1 = (v) => (Math.round(v * 10) / 10).toString();
-
-function label(take) {
-  return take.name?.trim() || new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function when(take) {
-  return new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 
 // For the router: questions that are about shaping and not about pitch. Kept
 // here beside the sentences they lead to; wiring it in is one line in router.js.
@@ -46,11 +39,16 @@ const GROUPS = {
 export function topicsOf(question) {
   const q = String(question ?? '').toLowerCase();
   const found = [];
-  if (/phras|contrast|shap|swell|crescendo|diminuendo|dynamic|loud|arch/.test(q)) found.push('phrasing');
-  if (/articulat|legato|staccato|detach|connected|smooth/.test(q)) found.push('articulation');
-  if (/tempo|rubato|rush|drag|free|stiff|rigid|steady/.test(q)) found.push('tempo');
-  if (/alike|consisten|same way|repeat|again/.test(q)) found.push('repeats');
-  if (/vibrato|leaning|express/.test(q)) found.push('expression');
+  // Every pattern starts on a word boundary. They were bare substrings, and
+  // "again" is inside "against", "arch" inside "march" and "search", "free" inside
+  // "carefree": "how musical was my take against last week" was read as a
+  // question about repeated patterns only, and a comparison then dropped five
+  // rows that had been measured in both takes.
+  if (/\b(phras|contrast|shap|swell|crescendo|diminuendo|dynamic|loud)|\barch(es|ed|ing)?\b/.test(q)) found.push('phrasing');
+  if (/\b(articulat|legato|staccato|detach|connected|smooth)/.test(q)) found.push('articulation');
+  if (/\b(tempo|rubato|rush|drag|stiff|rigid|stead)|\bfree(ly|dom)?\b/.test(q)) found.push('tempo');
+  if (/\b(alike|consisten|repeat)|\bsame way\b|\bagain\b/.test(q)) found.push('repeats');
+  if (/\b(vibrato|leaning|express)/.test(q)) found.push('expression');
   return found.length ? found : Object.keys(GROUPS);
 }
 
@@ -64,6 +62,30 @@ function show(d) {
   if (d.unit === '¢') return `${round1(v)}¢`;
   if (d.unit === '%') return `${round0(v)}%`;
   return round1(v);
+}
+
+// What each reading's count is a count OF. "based on only 5, so take it
+// lightly" left a player and a model to guess whether that was notes, phrases
+// or pairs, and the counts are of different things.
+const COUNTED_OF = {
+  'phrase-count': ['phrase', 'phrases'],
+  'phrase-definition': ['phrase end', 'phrase ends'],
+  'phrase-shape': ['phrase', 'phrases'],
+  'phrase-contrast': ['phrase', 'phrases'],
+  'stretch-contrast': ['stretch', 'stretches'],
+  articulation: ['note-to-note link', 'note-to-note links'],
+  'articulation-evenness': ['note-to-note link', 'note-to-note links'],
+  'tempo-flexibility': ['steady spacing', 'steady spacings'],
+  'tempo-shape': ['steady spacing', 'steady spacings'],
+  'phrase-final-lengthening': ['phrase end', 'phrase ends'],
+  'repeat-timing': ['pair of matching patterns', 'pairs of matching patterns'],
+  'repeat-loudness': ['matching pattern', 'matching patterns'],
+  'vibrato-growth': ['long note with vibrato', 'long notes with vibrato'],
+  'pitch-lean': ['step in the smaller direction', 'steps in the smaller direction'],
+};
+function countOf(d) {
+  const [one, many] = COUNTED_OF[d.key] ?? ['reading', 'readings'];
+  return `${d.n} ${d.n === 1 ? one : many}`;
 }
 
 function listOf(items) {
@@ -114,14 +136,14 @@ export function musicalityFacts(take, { question = '', max = 8 } = {}) {
   if (c?.measured) {
     // the character sentence repeats the legato-or-detached reading, so it carries the same caution
     const doubted = m.reliability?.noisy || m.reliability?.doubtful;
-    out.push(sentence(`"${label(take)}" (${when(take)}) reads as ${c.phrase}${doubted ? ' (take it lightly)' : ''}`));
+    out.push(sentence(`"${label(take)}"${when(take) ? ` (${when(take)})` : ''} reads as ${c.phrase}${doubted ? ' (take it lightly)' : ''}`));
   }
   const measured = Object.values(m.descriptors).filter((d) => d.measured && d.key !== 'character' && wanted.has(d.key));
   for (const d of measured.slice(0, max)) {
     const base = `In "${label(take)}", ${d.phrase}`;
     // A take already flagged as misheard says so once, above; its low confidence
     // is not about how many things the number was counted from.
-    const lightly = m.reliability?.noisy ? ' (take it lightly)' : ` (based on only ${d.n}, so take it lightly)`;
+    const lightly = m.reliability?.noisy ? ' (take it lightly)' : ` (based on only ${countOf(d)}, so take it lightly)`;
     // a phrase that already says so itself (the legato-or-detached one does) is not told twice
     out.push(sentence(d.confidence === 'low' && !/take it lightly/.test(d.phrase) ? `${base}${lightly}` : base));
   }
@@ -150,9 +172,7 @@ export function compareMusicalityFacts(a, b, { question = '', max = 6 } = {}) {
   if (!a.musicality || !b.musicality) {
     return ['The shaping of both takes could not be measured, so I cannot compare how they are phrased.'];
   }
-  const same = label(a) === label(b);
-  const la = same ? `${label(a)}, ${when(a)}` : label(a);
-  const lb = same ? `${label(b)}, ${when(b)}` : label(b);
+  const [la, lb] = pairLabels(a, b);
   const wanted = new Set(topicsOf(question).flatMap((g) => GROUPS[g]));
   const rows = compareMusicality(b.musicality, a.musicality).filter((r) => wanted.has(r.key));
   const real = rows.filter((r) => r.verdict !== 'unmeasured' && r.verdict !== 'about the same');

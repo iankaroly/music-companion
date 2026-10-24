@@ -133,6 +133,9 @@ const confidenceOf = (n, ok, good) => (n >= good ? 'good' : n >= ok ? 'ok' : 'lo
 // One descriptor. `measured: false` is a plain statement that this could not be
 // read from this take, with the reason, and carries no number — a caller must
 // never have to guess whether a null means zero.
+// "only 1 notes" is wrong and the reason is read aloud to the player.
+const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
 function got(key, label, value, unit, phrase, n, { ok = 6, good = 12, detail = {} } = {}) {
   return { key, label, measured: true, value, unit, phrase, n, confidence: confidenceOf(n, ok, good), detail };
 }
@@ -166,6 +169,8 @@ function levelsOf(notes, readings) {
 }
 
 // --- phrases ------------------------------------------------------------------
+
+const TIE = 1e-9;
 
 // A phrase ends where several independent things agree: a silence that is long
 // for the tempo, a note held longer than its neighbours, a loudness that
@@ -220,9 +225,16 @@ function segmentPhrases(notes, levels) {
     const beat = local(i);
     const cues = [];
     let score = 0;
-    if (gap >= Math.max(LIMITS.breathGapSec, LIMITS.breathGapBeats * beat)) { cues.push('rest'); score += 2; }
-    else if (gap >= Math.max(LIMITS.restGapSec, LIMITS.restGapBeats * beat)) { cues.push('rest'); score += 1; }
-    if (ioi[i] >= LIMITS.longNote * beat && ioi[i] >= 0.25) { cues.push('long'); score += 1; }
+    // Each test below is "at least": a spacing that is exactly the limit (the
+    // default synthetic take has a phrase end of exactly 1.7 beats, and 1.7 is
+    // the limit) sat on the tie, and the float error in start times that were
+    // the same performance shifted by a clock offset decided which side it fell
+    // on. Shifting one take by 123.456 s moved phrase definition from 87% to
+    // 80%. TIE is far below any real timing (a microsecond of a second) and far
+    // above the error of adding two doubles near 3600.
+    if (gap >= Math.max(LIMITS.breathGapSec, LIMITS.breathGapBeats * beat) - TIE) { cues.push('rest'); score += 2; }
+    else if (gap >= Math.max(LIMITS.restGapSec, LIMITS.restGapBeats * beat) - TIE) { cues.push('rest'); score += 1; }
+    if (ioi[i] >= LIMITS.longNote * beat - TIE && ioi[i] >= 0.25 - TIE) { cues.push('long'); score += 1; }
     const a = [levels[i - 1], levels[i]].filter(Number.isFinite);
     const b = [levels[i + 1], levels[i + 2]].filter(Number.isFinite);
     if (a.length && b.length && mean(b) - mean(a) >= LIMITS.levelReset) { cues.push('reset'); score += 1; }
@@ -381,7 +393,7 @@ function articulationDescriptors(notes, seg, fl) {
     gaps.push(notes[i + 1].start - notes[i].end);
   }
   if (ratios.length < MIN_NOTES) {
-    const why = `only ${ratios.length} note-to-note links; needs at least ${MIN_NOTES}`;
+    const why = `only ${plural(ratios.length, 'note-to-note link')}; needs at least ${MIN_NOTES}`;
     return [missing('articulation', 'legato or detached', why, ratios.length), missing('articulation-evenness', 'how even the articulation is', why, ratios.length)];
   }
   const mid = median(ratios);
@@ -718,7 +730,7 @@ function flexWord(flex, fl) {
 
 function tempoDescriptors(notes, seg, fl) {
   if (notes.length < MIN_NOTES) {
-    const why = `only ${notes.length} notes; needs at least ${MIN_NOTES}`;
+    const why = `only ${plural(notes.length, 'note')}; needs at least ${MIN_NOTES}`;
     return [missing('tempo-flexibility', 'how much the tempo moves', why, notes.length),
       missing('tempo-shape', 'whether the tempo returns or drifts', why, notes.length),
       missing('phrase-final-lengthening', 'lengthening at phrase ends', why, notes.length)];
@@ -848,14 +860,14 @@ function tempoDescriptors(notes, seg, fl) {
           { ok: 12, good: 30, detail: { word, se: flex.se, windows: flex.windows, keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
       } else {
         out.push(missing('tempo-flexibility', 'how much the tempo moves',
-          `only ${kept.length} steady spacings; the spread of the tempo is read in windows of ${FLEX_WINDOW} so that it does not depend on how long the take is, and needs at least that many`, kept.length));
+          `only ${plural(kept.length, 'steady spacing')}; the spread of the tempo is read in windows of ${FLEX_WINDOW} so that it does not depend on how long the take is, and needs at least that many`, kept.length));
       }
       out.push(kind
         ? got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length, { ok: 12, good: 30, detail: { kind } })
         : missing('tempo-shape', 'whether the tempo returns or drifts',
           (driftLike || !waveLike) && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct
             ? `the tempo seems to end ${(Math.abs(trendMain?.drift ?? 0) > big ? trendMain.drift : drift) > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`
-            : `no drift was found, but with only ${kept.length} steady spacings the spread of the tempo is not read, so whether it returns or holds is not claimed`,
+            : `no drift was found, but with only ${plural(kept.length, 'steady spacing')} the spread of the tempo is not read, so whether it returns or holds is not claimed`,
           kept.length));
     }
   }
@@ -880,7 +892,7 @@ function tempoDescriptors(notes, seg, fl) {
       `phrase-final notes are ${m.toFixed(1)} times as long as the notes before them (a written long note counts too without a score)`,
       ratios.length, { ok: 3, good: 6 }));
   } else {
-    out.push(missing('phrase-final-lengthening', 'lengthening at phrase ends', `only ${ratios.length} phrase ends with enough notes before them; needs at least three`, ratios.length));
+    out.push(missing('phrase-final-lengthening', 'lengthening at phrase ends', (ratios.length === 1 ? 'only 1 phrase end has enough notes before it; needs at least three' : `only ${ratios.length} phrase ends have enough notes before them; needs at least three`), ratios.length));
   }
   return out;
 }
@@ -971,7 +983,7 @@ function repeatDescriptors(notes, levels, seg, fl) {
         ? `matching five-note patterns have nearly the same loudness shape each time (differing by about ${Math.round(l * 10) / 10} dB)`
         : `matching five-note patterns are shaped differently in loudness each time (differing by about ${Math.round(l * 10) / 10} dB)`,
       loud.length, { ok: 4, good: 10 }));
-  } else out.push(missing('repeat-loudness', 'loudness of matching five-note patterns', `only ${loud.length} matching five-note patterns with a loudness reading; needs at least four`, loud.length));
+  } else out.push(missing('repeat-loudness', 'loudness of matching five-note patterns', `only ${plural(loud.length, 'matching five-note pattern')} with a loudness reading; needs at least four`, loud.length));
   return out;
 }
 
@@ -979,9 +991,22 @@ function repeatDescriptors(notes, levels, seg, fl) {
 
 // The pitch frames inside a note. Each carries its loudness, because what a
 // pitch tracker reports from the near-silent tail of a note is not pitch.
+//
+// Readings are in time order (levelsOf relies on it too), so the first one in
+// the note is found by bisection. This used to scan from the first reading for
+// every long note, which made a take cost notes times readings: 5000 notes of
+// 1.2 s (about 266,000 readings) took 1.1 s, against a budget of one second.
 function framesIn(note, readings, a4) {
   const out = [];
-  for (const r of readings ?? []) {
+  const rs = readings ?? [];
+  let lo = 0;
+  let hi = rs.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (rs[mid].time < note.start) lo = mid + 1; else hi = mid;
+  }
+  for (let k = lo; k < rs.length; k++) {
+    const r = rs[k];
     if (r.time < note.start) continue;
     if (r.time >= note.end) break;
     if (!(r.frequency > 0) || !(r.confidence >= MIN_CONF)) continue;
@@ -1101,7 +1126,7 @@ function expressionDescriptors(notes, readings, seg, a4) {
   const { rows, longNotes } = vibratoGrowth(notes, readings, a4);
   if (rows.length < 4) {
     out.push(missing('vibrato-growth', 'vibrato opening up on long notes',
-      longNotes < 4 ? `only ${longNotes} notes held ${LONG_NOTE_SEC} s or longer; needs at least four`
+      longNotes < 4 ? `only ${plural(longNotes, 'note')} held ${LONG_NOTE_SEC} s or longer; needs at least four`
         : `vibrato was found on only ${rows.length} of ${longNotes} long notes; needs at least four`, rows.length));
   } else {
     const c = (k) => rows.filter((r) => r === k).length;
@@ -1469,7 +1494,7 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
   // reads at all, 'phrase-count' was the one thing it could say, and it said it
   // as a finding ('1 phrase, no breaks') of a take of one breath.
   if (list.length < 2 * MIN_NOTES) {
-    const why = `only ${list.length} notes; the number, marking, shape and ending of phrases needs at least ${2 * MIN_NOTES}`;
+    const why = `only ${plural(list.length, 'note')}; the number, marking, shape and ending of phrases needs at least ${2 * MIN_NOTES}`;
     for (const k of ['phrase-count', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'phrase-final-lengthening']) by[k] = missing(k, by[k].label, why, list.length);
   }
 
