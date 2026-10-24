@@ -91,13 +91,17 @@ function installNative(mode) {
       if (plugin !== 'StandPartnerAI') throw new Error(`unexpected plugin ${plugin}`);
       if (method === 'availability') {
         window.__native.availabilityCalls += 1;
+        // answers once, then never again: the call a question makes on its own
+        if (mode === 'hangavail' && window.__native.availabilityCalls > 1) return new Promise(() => {});
+        // the first status takes a while to come back
+        if (mode === 'slowstatus' && window.__native.availabilityCalls === 1) await new Promise((r) => setTimeout(r, 4000));
         return mode === 'unavailable'
           ? { available: false, reason: 'Apple Intelligence is turned off.' }
           : { available: true };
       }
       window.__native.respondCalls += 1;
       window.__native.prompts.push(options.prompt);
-      await new Promise((r) => setTimeout(r, 350));
+      await new Promise((r) => setTimeout(r, mode === 'slowmodel' ? 2500 : 350));
       if (mode === 'failing') throw new Error('The model stopped before it answered.');
       if (mode === 'lying') return { text: 'You improved by 47 cents and nailed 9 notes more than before.' };
       // honest: the first measurement, as a sentence, using nothing it was not given
@@ -185,20 +189,20 @@ async function seed(page, which) {
 
 // A fresh page per scenario: `evaluateOnNewDocument` scripts accumulate, and
 // the stub of one scenario would otherwise leak into the next.
-async function open({ mode, library, width = 390, height = 844, theme = 'light', mobile = true }) {
+async function open({ mode, library, width = 390, height = 844, theme = 'light', mobile = true, coach = true }) {
   const ctx = await browser.createBrowserContext();
   const page = await ctx.newPage();
   const probes = { crossOrigin: [], errors: [], armed: false };
   await page.setViewport({ width, height, deviceScaleFactor: 2, hasTouch: mobile, isMobile: mobile });
   await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: theme }]);
   await page.evaluateOnNewDocument(installNative, mode);
-  await page.evaluateOnNewDocument((t) => {
+  await page.evaluateOnNewDocument((t, coach) => {
     try {
       localStorage.setItem('mc-theme', t);
       // the welcome card and tour belong to a first launch, not to this check
-      localStorage.setItem('tab', 'coach');
+      localStorage.setItem('tab', coach ? 'coach' : 'library');
     } catch { /* blocked */ }
-  }, theme);
+  }, theme, coach);
   await page.setRequestInterception(true);
   page.on('request', (req) => {
     const url = req.url();
@@ -226,7 +230,7 @@ async function open({ mode, library, width = 390, height = 844, theme = 'light',
     document.querySelector('#tour')?.remove();
   });
   // the Coach tab, pressed until it takes (the app restores the last tab AFTER load)
-  await page.evaluate(async () => {
+  if (coach) await page.evaluate(async () => {
     for (let i = 0; i < 20; i += 1) {
       if (document.querySelector('#tab-coach')?.classList.contains('active')) break;
       document.querySelector('.tab-btn[data-tab="coach"]')?.click();
@@ -328,8 +332,8 @@ const cardFits = (page) => page.evaluate(() => {
     return {
       label: label?.textContent.trim(),
       sendName: send.getAttribute('aria-label') ?? send.textContent.trim(),
-      status: document.querySelector('#ask-out').getAttribute('role'),
-      live: document.querySelector('#ask-out').getAttribute('aria-live'),
+      status: (document.querySelector('#ask-live') ?? document.querySelector('#ask-out')).getAttribute('role'),
+      live: (document.querySelector('#ask-live') ?? document.querySelector('#ask-out')).getAttribute('aria-live'),
       form: document.querySelector('#ask-form').getAttribute('role'),
       inputType: input.type,
       fontPx: parseFloat(getComputedStyle(input).fontSize),
@@ -617,6 +621,76 @@ for (const [theme, width, height, mobile, tag] of [
   await shot(page, `answer-${tag}`);
   const dark = await page.evaluate(() => document.documentElement.dataset.theme);
   check(`${tag}: the theme really was ${theme}`, dark === theme, dark);
+  await ctx.close();
+}
+
+// ═══ 10. availability() never comes back ═══════════════════════════════════
+// It is called on every question and had no clock: the card stayed on "working
+// it out" with the field and the button held, and leaving the tab did not help.
+{
+  const { page, ctx } = await open({ mode: 'hangavail', library: 'two' });
+  await settle(page);
+  await type(page, 'How did my latest take go?');
+  const t0 = Date.now();
+  await page.keyboard.press('Enter');
+  const s = await waitDone(page, 14000);
+  const took = Date.now() - t0;
+  check('hung availability: the card answers from the measurements instead of waiting for ever',
+    s.state === 'answer' && /notes heard/.test(s.answer) && !s.inputDisabled && !s.sendDisabled && took < 12000, `${s.state} after ${took} ms: ${s.answer.slice(0, 60)}`);
+  check('hung availability: the player is told the model did not answer', /did not answer/.test(s.note + s.model), `${s.note} | ${s.model}`);
+  await ctx.close();
+}
+
+// ═══ 11. a chip pressed during a question; focus; the live region ═══════════
+{
+  const { page, ctx } = await open({ mode: 'slowmodel', library: 'two' });
+  await settle(page);
+  await type(page, 'How was my last take?');
+  await page.keyboard.press('Enter');
+  await sleep(600);
+  const mid = await page.evaluate(() => {
+    const chips = [...document.querySelectorAll('.ask-chip')];
+    chips.at(-1).click(); // a disabled button ignores this; an enabled one used to rewrite the field
+    return { value: document.querySelector('#ask-input').value, disabled: chips.map((c) => c.disabled), live: document.querySelector('#ask-live')?.textContent ?? '' };
+  });
+  check('chip during a question: the field still holds the question that was asked', mid.value === 'How was my last take?', mid.value);
+  check('chip during a question: the examples are held while it runs', mid.disabled.length > 0 && mid.disabled.every(Boolean), mid.disabled.join(','));
+  check('chip during a question: a screen reader is told it is working', /working/i.test(mid.live), mid.live);
+  const s = await waitDone(page, 15000);
+  const after = await page.evaluate(() => ({
+    active: document.activeElement?.id ?? document.activeElement?.tagName,
+    disabled: [...document.querySelectorAll('.ask-chip')].map((c) => c.disabled),
+    live: document.querySelector('#ask-live')?.textContent ?? '',
+  }));
+  check('after the answer: the examples are back', after.disabled.every((d) => !d), after.disabled.join(','));
+  check('after the answer: keyboard focus is back in the field', after.active === 'ask-input', after.active);
+  check('after the answer: the live region carries the answer', s.state === 'answer' && after.live.length > 20 && after.live.includes(s.answer.slice(0, 30)), after.live.slice(0, 80));
+  await ctx.close();
+}
+
+// ═══ 12. a question asked before the first status comes back ═══════════════
+{
+  // opened on another tab, so the first status request is the one the Coach tab
+  // makes when it is opened below, and its answer is slow
+  const { page, ctx } = await open({ mode: 'slowstatus', library: 'two', coach: false });
+  const seen = [];
+  await page.evaluate(() => {
+    window.__feet = [];
+    const f = document.querySelector('#ask-model');
+    new MutationObserver(() => window.__feet.push(f.hidden ? '' : f.textContent)).observe(f, { childList: true, characterData: true, subtree: true, attributes: true });
+    window.__native.availabilityCalls = 0;
+  });
+  await settle(page);
+  await page.evaluate(() => document.querySelector('.tab-btn[data-tab="coach"]').click());
+  await sleep(500);
+  await page.evaluate(() => [...document.querySelectorAll('.ask-chip')].find((c) => /compare/.test(c.textContent)).click());
+  const s = await waitDone(page, 14000);
+  await sleep(4500);
+  const feet = await page.evaluate(() => window.__feet);
+  seen.push(...feet);
+  check('early question: it is answered', s.state === 'answer' && /Average pitch error/.test(s.answer), s.answer.slice(0, 60));
+  check('early question: the line under the card never says the phone cannot run the model',
+    !seen.some((f) => /can't run|Showing the measurements directly/.test(f)), seen.join(' | '));
   await ctx.close();
 }
 

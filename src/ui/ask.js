@@ -1,5 +1,5 @@
 import { loadRecording } from '../store/db.js';
-import { answerQuestion, modelStatus, nativeModel } from '../ai/assistant.js';
+import { answerQuestion, modelStatus, nativeModel, within, QUESTION_TIMEOUT_MS } from '../ai/assistant.js';
 import { plan } from '../ai/router.js';
 import { qualityOf } from '../analysis/quality.js';
 import { rhythmReport } from '../analysis/rhythm.js';
@@ -77,14 +77,34 @@ export function modelLine(status) {
 // reason, and anything else (a refusal, a comparison on a phone that has the
 // model) says nothing, because nothing about the model happened.
 export function footerFor(status, result) {
+  // Before the first status has come back nothing is known about the model, and
+  // saying it "can't run" on a phone that can was wrong for as long as the
+  // plugin took to answer; the late redraw in renderAsk fills the line in.
+  if (status == null && result?.source !== 'model') return '';
   if (result?.source === 'model') return 'Worded by Apple\'s on-device model; every number in it was checked against the measurements.';
   if (result?.source === 'measurements' && !status?.available) return modelLine(status);
   return '';
 }
 
-let state = null; // { library, status, busy, token }
+let state = null; // { library, status, busy, token, last }
 
 function el(root, id) { return root.querySelector(id); }
+
+// The announcement for a screen reader. #ask-out goes from hidden to visible in
+// the same tick as its content arrives, and a live region that appears with its
+// text already in it is not reliably announced; this one is always there.
+function announce(root, text) {
+  const live = el(root, '#ask-live');
+  if (live) live.textContent = text;
+}
+
+// While a question runs, the examples are not offered: pressing one wrote its
+// text into the field and then did nothing, leaving a question on the screen
+// that was never asked beside an answer to another.
+function setBusy(root, busy) {
+  const chips = el(root, '#ask-examples');
+  if (chips?.querySelectorAll) for (const b of chips.querySelectorAll('button')) b.disabled = busy;
+}
 
 export async function renderAsk(root, library) {
   const card = el(root, '#ask-card');
@@ -116,7 +136,9 @@ export async function renderAsk(root, library) {
     b.type = 'button';
     b.className = 'ask-chip';
     b.textContent = q;
+    b.disabled = state.busy;
     b.addEventListener('click', () => {
+      if (state.busy) return;
       input.value = q;
       ask(root, q);
     });
@@ -137,8 +159,18 @@ export async function renderAsk(root, library) {
   // Awaited after the card is drawn so the tab never waits for the plugin.
   state.status = await modelStatus();
   const foot = el(root, '#ask-model');
-  foot.textContent = modelLine(state.status);
-  foot.hidden = false;
+  const out = el(root, '#ask-out');
+  if (state.last && out?.dataset.state === 'answer') {
+    // An answer is already on the card (a question asked before the status came
+    // back): its own line is the right one, and this write used to replace it
+    // with the standing "measurements directly" line.
+    const line = footerFor(state.status, state.last);
+    foot.textContent = line;
+    foot.hidden = !line;
+  } else if (out?.dataset.state !== 'thinking' && out?.dataset.state !== 'error') {
+    foot.textContent = modelLine(state.status);
+    foot.hidden = false;
+  }
 }
 
 async function ask(root, question) {
@@ -153,7 +185,11 @@ async function ask(root, question) {
   const note = el(root, '#ask-note');
   const token = ++state.token;
 
+  // Disabling the field drops keyboard focus to the page; remember where it was
+  // so it can be put back when the answer arrives.
+  const prior = root.ownerDocument?.activeElement ?? globalThis.document?.activeElement ?? null;
   state.busy = true;
+  setBusy(root, true);
   input.disabled = true;
   send.disabled = true;
   out.hidden = false;
@@ -164,6 +200,7 @@ async function ask(root, question) {
   note.hidden = true;
   wait.hidden = false;
   wait.textContent = 'working it out…';
+  announce(root, 'Working it out.');
 
   // The decode is the only slow part and it is only done for the takes the plan
   // names, so the player can be told how many that is before it starts.
@@ -196,7 +233,7 @@ async function ask(root, question) {
       availability: () => native.availability(),
       respond: (o) => { wait.textContent = 'putting it into words…'; return native.respond(o); },
     };
-    const result = await answerQuestion({
+    const result = await within(() => answerQuestion({
       question,
       library: state.library,
       load: wantsAudio ? load : null,
@@ -204,7 +241,7 @@ async function ask(root, question) {
       rhythmReport,
       model,
       now,
-    });
+    }), QUESTION_TIMEOUT_MS, 'That took too long.');
     if (token !== state.token) return; // a newer question owns the card
     show(root, result);
   } catch (err) {
@@ -214,14 +251,20 @@ async function ask(root, question) {
     say.textContent = 'That did not work. Nothing was sent anywhere; try asking again.';
     note.hidden = false;
     note.textContent = String(err?.message ?? err);
+    announce(root, `${say.textContent} ${note.textContent}`);
     const foot = el(root, '#ask-model');
     if (foot) { foot.textContent = ''; foot.hidden = true; }
   } finally {
     if (token === state.token) {
       state.busy = false;
+      setBusy(root, false);
       const has = state.library.some((t) => (t.noteStats?.length ?? 0) > 0);
       input.disabled = !has;
       send.disabled = !has;
+      // back to where the player was, unless they have moved on (a tap
+      // elsewhere leaves focus on something other than the page itself)
+      const doc = globalThis.document;
+      if (prior?.isConnected && doc && (doc.activeElement === doc.body || doc.activeElement == null)) prior.focus?.({ preventScroll: true });
     }
   }
 }
@@ -257,6 +300,7 @@ export function show(root, result, status = state?.status) {
   const note = el(root, '#ask-note');
 
   out.dataset.state = 'answer';
+  if (state) state.last = result;
   wait.hidden = true;
   say.replaceChildren();
   list.replaceChildren();
@@ -306,4 +350,5 @@ export function show(root, result, status = state?.status) {
   const names = [...counts].map(([u, c]) => (c > 1 ? `${u} (${c} takes)` : u));
   from.hidden = names.length === 0;
   from.textContent = names.length ? `from: ${names.join(', ')}` : '';
+  announce(root, answerLines(result).join(' '));
 }

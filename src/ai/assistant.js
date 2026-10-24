@@ -123,6 +123,26 @@ export function promptFor(question, facts) {
 // measurements instead of being sent to fail.
 export const MAX_PROMPT_CHARS = 7000;
 export const MODEL_TIMEOUT_MS = 30000;
+// respond() was the only call with a clock on it. availability() runs on EVERY
+// question (and again when the card draws) and a decode of a stored take runs
+// before any measurement: either one that never came back left the card on
+// "working it out" with the field and the button disabled, and leaving the tab
+// and returning did not help because the card redraws from the same busy state.
+// Only an app restart cleared it. Reproduced against the built bundle with a
+// bridge whose availability() answered once and then hung.
+export const AVAILABILITY_TIMEOUT_MS = 5000;
+export const LOAD_TIMEOUT_MS = 60000;
+// Everything one question may take, end to end; ask.js uses it as the last net.
+export const QUESTION_TIMEOUT_MS = 120000;
+
+// `make` is called inside, so a call that throws at once is a rejection too.
+export function within(make, ms, message) {
+  let timer;
+  return Promise.race([
+    Promise.resolve().then(make),
+    new Promise((_, no) => { timer = setTimeout(() => no(new Error(message)), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
 
 // A reply that is not a finished answer, whatever its numbers say. The plugin
 // caps the reply length, because one question ("which bars should I work on",
@@ -177,7 +197,7 @@ export async function modelStatus(model = null) {
         ? 'The on-device model could not be reached.'
         : 'the on-device wording is part of the iPhone and iPad app.' };
     }
-    const s = await m.availability();
+    const s = await within(() => m.availability(), AVAILABILITY_TIMEOUT_MS, 'The on-device model did not answer.');
     return { available: !!s?.available, reason: s?.reason ?? '' };
   } catch (err) {
     return { available: false, reason: String(err?.message ?? err) };
@@ -251,7 +271,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
   if ((p.needs.quality || p.needs.rhythm || p.needs.musicality) && load) {
     for (const t of chosen) {
       try {
-        const data = await load(t.id);
+        const data = await within(() => load(t.id), LOAD_TIMEOUT_MS, 'Reading the recording took too long.');
         if (!data) continue;
         if (p.needs.quality && qualityOf) {
           t.quality = qualityOf({ notes: data.notes, readings: data.readings, audio: data.samples ?? null, sampleRate: data.sampleRate, a4: data.a4 ?? 440 });
