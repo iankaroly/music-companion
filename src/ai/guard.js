@@ -306,7 +306,7 @@ const CHANGE_UP = /\b(increas(?:ed|es|ing|e)|rose|rising|grew|growing|climbed)\b
 const CHANGE_DOWN = /\b(decreas(?:ed|es|ing|e)|dropped|fell|fallen|shrank|shrunk)\b/g;
 const ERR_SMALLER = /\b(smaller|lower|reduced|shrunk)\b/g;
 const ERR_BIGGER = /\b(bigger|larger|higher|greater)\b/g;
-const ABOUT_ERROR = /\b(error|off pitch|from pitch|cents off|out of tune)\b/;
+const ABOUT_ERROR = /\b(error|from pitch|cents off|out of tune)\b/;
 const NEGATORS = /\b(not|no|never|hardly|without|isn't|wasn't|didn't|doesn't|don't|aren't|weren't|cannot|can't)\b/;
 
 function leanOf(text, { negation }) {
@@ -549,6 +549,72 @@ const HEARING = [
 const TASTE_NOUNS = 'phrasing|shaping|articulation|rubato|feeling|playing|take|tone|intonation|sound|work|job|progress|improvement|session|practice|performance|result|results|rhythm|timing|pitch|vibrato|technique';
 const TASTE = new RegExp(`\\b(beautiful(?:ly)?|lovely|gorgeous|musical(?:ly|ity)?|expressive(?:ly|ness)?|emotional(?:ly)?|soulful|soulless|lifeless|boring|dull|passionate|artistic(?:ally)?|wonderful(?:ly)?|amazing(?:ly)?|impressive(?:ly)?|excellent(?:ly)?|perfect(?:ly)?|superb(?:ly)?|fantastic|brilliant(?:ly)?|terrific|outstanding|awesome|mechanical|robotic|stiff|well[- ]phrased|(?:better|poorly|badly|nicely|beautifully)[- ]phrased|(?:well|nicely) (?:done|played)|(?:good|great|nice) (?:job|work)|keep (?:it|up)|congratulations|bravo|(?:good|great|poor|bad|lovely|nice|wonderful|natural|fine|terrible|awful|strong|weak|solid|decent) (?:${TASTE_NOUNS})|(?:is|are|was|were|looks?|sounds?|sounded|seems?|seemed|feels?) (?:very |really |pretty |quite |so |fairly |rather )?(?:good|great|fine|ok|okay|alright|bad|poor|nice|terrible|awful|decent)|(?:went|go|goes|going|did|doing|played|playing|play|plays) (?:very |really |pretty |quite |so |fairly )?well)\\b`, 'g');
 
+// Verdicts with no digit and no direction word. "Your intonation is solid",
+// "your pitch is accurate", "no problems here", "you nailed it", "your playing was
+// in tune" give the number rules nothing to read, and TASTE above knew "good",
+// "great" and "fine" and not "solid", "accurate" or "clean". Three shapes, all
+// rejected unless the FACTS say the same thing:
+//   - a copula and an adjective, "X is ADJ": the facts must have ADJ in a
+//     sentence that is about X. Asking only whether the facts contain the word
+//     let "your vocal range is wide" ride on the vibrato's "27¢ wide" and "your
+//     playing was in tune" ride on "notes arrive in tune within 60 ms".
+//   - a stock phrase ("nailed it", "no problems", "steady progress", "too fast"):
+//     the facts must contain the phrase itself.
+//   - an adverb on a verb of playing ("played it accurately").
+// "X is 27¢ wide" is a description and is not matched: a number between the
+// copula and the adjective is a measurement, which the number rules hold. The
+// facts are read without their parentheses, because "(lower can mean breathy or
+// rough)" is a caveat about what a low clarity can mean and not a statement that
+// the tone is breathy.
+const EVAL_ADJ = 'breathy|raspy|muddy|nasal|pinched|forced|mushy|airy|scratchy|solid|accurate|inaccurate|precise|exact|reliable|consistent|inconsistent|steady|unsteady|stable|secure|insecure|clean|clear|warm|cold|rich|full|thin|bright|dark|dull|wide|narrow|broad|tight|loose|even|uneven|smooth|rough|strong|weak|healthy|controlled|confident|hesitant|shaky|wobbly|sloppy|messy|tidy|harsh|tense|relaxed|natural|lively|lovely|on pitch|on point|on target|spot on|in tune|out of tune|in time|out of time|fast|slow|quick|loud|quiet|soft|excellent|impressive|polished|rounded|focused|resonant|expressive|musical|sweet|pure|stiff|correct|incorrect|fine|good|great|ok|okay|poor|bad|decent|nice';
+const COPULA = `(?:is|are|was|were|am|'s|'re|isn't|aren't|wasn't|weren't|looks?|looked|sounds?|sounded|seems?|seemed|feels?|felt|stays?|stayed|remains?|remained|came out|comes out|came across|comes across|has been|have been|had been|become|became|becomes|getting|got|gets)`;
+const INTENSIFIER = `(?:(?:not|never|very|really|pretty|quite|so|fairly|rather|extremely|incredibly|remarkably|particularly|especially|generally|mostly|largely|still|also|always|usually|consistently|just|too|a bit|a little|somewhat|reasonably|perfectly|nicely|overall|all in all)\\s+)*`;
+const PREDICATE = new RegExp(`((?:\\b[a-z][a-z'-]*\\s+){0,3})\\b${COPULA}\\s+${INTENSIFIER}(?:(?:the|a|an)\\s+)?(${EVAL_ADJ})\\b`, 'g');
+// "too fast", "too wide": a judgement of degree. Held to the exact phrase.
+const TOO_X = /\btoo (?!few\b|much\b|many\b)([a-z]+)/g;
+const STOCK = [
+  /\bnail(?:ed|ing|s)? it\b/, /\bspot on\b/, /\bon point\b/, /\bon the (?:mark|money|right track)\b/, /\bright track\b/, /\bright direction\b/,
+  /\bno (?:problems?|issues?|concerns?|worries|faults?|complaints?|mistakes?|errors?|trouble)\b/, /\bnothing (?:to worry about|wrong|to fix|to improve)\b/, /\bnot a (?:problem|concern|worry)\b/,
+  /\ball (?:good|fine|well)\b/, /\beverything (?:is|was|looks|sounds) (?:in tune|fine|good|great)\b/, /\bkeep (?:going|it up)\b/, /\byou(?:'re| are) getting there\b/,
+  /\b(?:steady|solid|clear|real|great|good|noticeable|visible|significant|big|huge|major|slow|rapid|fast|consistent|continued|measurable) (?:progress|improvement|gains?)\b/,
+  /\b(?:making|show(?:ing|s)?|shown) (?:progress|improvement)\b/,
+];
+const ATTRIBUTIVE = new RegExp(`\\b(solid|accurate|precise|clean|warm|steady|reliable|secure|confident|tidy|rich|full|healthy|controlled|consistent|tight|polished|focused|even|smooth|strong) (intonation|pitch|tuning|tone|sound|playing|vibrato|rhythm|timing|technique|take|performance|range|phrasing|bowing|breath|control|foundation)\\b`, 'g');
+const ADVERB_ON_PLAYING = /\b(?:play(?:ed|ing|s)?|sang|sing(?:ing|s)?|perform(?:ed|ing|s)?|did|nailed) (?:it |that |this |them |the \w+ |your \w+ )?(accurately|cleanly|precisely|reliably|confidently|solidly|steadily|beautifully|perfectly|flawlessly|in tune|on pitch|in time)\b/g;
+const DETERMINERS = new Set(['your', 'the', 'my', 'this', 'that', 'these', 'those', 'a', 'an', 'and', 'but', 'so', 'then', 'now', 'overall', 'also', 'both', 'all', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'is', 'are']);
+const PRONOUNS = new Set(['it', 'this', 'that', 'they', 'there', 'which', 'what', 'everything', 'something', 'anything']);
+const headStem = (w) => w.replace(/s$/, '');
+
+// -> ["intonation is solid", ...] the verdicts in `text` that `factsText` does not make
+function verdictsIn(text, factsText) {
+  const noParens = factsText.replace(/\([^)]*\)/g, ' ').toLowerCase();
+  const sents = noParens.split(/(?<=[.!?])\s+|[\n;]+/).filter(Boolean);
+  const has = (re) => sents.some((s) => re.test(s));
+  const word = (w) => new RegExp(`\\b${w.replace(/ /g, '\\s+')}\\b`);
+  const out = [];
+  const lower = clean(text).toLowerCase().replace(/'/g, "'");
+  for (const m of lower.matchAll(PREDICATE)) {
+    // "so I cannot say whether your playing is even": a word inside a whether-
+    // or if-clause is being asked about, not asserted
+    if (/\b(?:whether|if)\b[^.;!?]*$/.test(lower.slice(Math.max(0, m.index - 60), m.index + m[1].length))) continue;
+    const adj = m[2];
+    const lead = m[1].trim().split(/\s+/).filter(Boolean);
+    while (lead.length && DETERMINERS.has(lead[0])) lead.shift();
+    const headWord = lead.at(-1);
+    const head = headWord && !PRONOUNS.has(headWord) ? headStem(headWord) : null;
+    // the subject "you" / "I" / "we" is not a thing the facts are about
+    const onlyAdj = head === null;
+    const adjRe = word(adj);
+    const said = onlyAdj ? has(adjRe) : sents.some((s) => adjRe.test(s) && new RegExp(`\\b${head}`).test(s));
+    if (!said) out.push(`${headWord ? `${headWord} ` : ''}${m[0].trim().split(/\s+/).slice(lead.length ? -1 : 0).join(' ')}`.trim());
+  }
+  for (const m of lower.matchAll(TOO_X)) if (!noParens.includes(m[0])) out.push(m[0]);
+  for (const re of STOCK) { const m = lower.match(re); if (m && !noParens.includes(m[0])) out.push(m[0]); }
+  for (const m of lower.matchAll(ATTRIBUTIVE)) if (!noParens.includes(m[0])) out.push(m[0]);
+  for (const m of lower.matchAll(ADVERB_ON_PLAYING)) if (!noParens.includes(m[1])) out.push(m[0]);
+  return [...new Set(out)];
+}
+
 // Instruments and voice types, by name. An explicit list and not router.js's
 // PLAYS, which also holds "scale", "part", "range" and "solo": those are words a
 // description can use. "bass" alone is left out (a bass clef, a bass note).
@@ -779,6 +845,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     const allowedTaste = factsLower.replace(/these describe the shaping[^.]*\./g, ' ');
     for (const m of lower.matchAll(TASTE)) if (!allowedTaste.includes(m[0])) { add('taste', m[0]); break; }
   }
+  {
+    // a question that asks "is my vibrato too wide" is not the facts: the words
+    // must come from the measurements, as with taste
+    const v = verdictsIn(text, factsText);
+    if (v.length) add('verdict', v[0]);
+  }
   const guess = lower.match(SPECULATION);
   if (guess) add('speculation', guess[0]);
 
@@ -856,6 +928,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
     echo: 'text copied from the prompt',
+    verdict: 'a verdict on the playing that the measurements do not make',
     count: 'a number of days or takes used for something the measurements do not state',
   }[first.kind];
   return { ok: false, stray, reason, problems };

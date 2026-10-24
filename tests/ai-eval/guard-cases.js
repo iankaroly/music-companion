@@ -69,7 +69,12 @@ export const HONEST = [
   ['CMPS', 'Against the score, 9 of the 12 notes landed closer and 1 landed further; the rest were about the same. Your average error is 17¢ against 22¢ before, 5¢ closer.'],
   ['CMPS', 'Timing against the beat is 22 ms tighter on average, and the pitch error is 5¢ closer to the pitch than last time.'],
   ['CMPS', 'You are 5 cents closer overall: 17 cents now, 22 cents before. Tone and vibrato were not measured for both takes.'],
-  ['HAB', 'Across your 3 takes, D3 runs 14¢ sharp and A3 runs 12¢ flat. Both are consistent, with a spread of about 2¢.'],
+  // "Both are consistent, with a spread of about 2¢." stood here until the guard
+  // began to reject an evaluative predicate the facts do not use ("consistent" is
+  // one: the facts give the spread, not a judgement of it). That is a deliberate
+  // false rejection, counted in the commit message, and the sentence keeps its
+  // numbers without the verdict.
+  ['HAB', 'Across your 3 takes, D3 runs 14¢ sharp and A3 runs 12¢ flat. Both have a spread of about 2¢.'],
   ['HAB', 'You tend to play D3 sharp, by 14 cents on average, and A3 flat, by 12 cents. That held over 18 repetitions of each.'],
   ['HAB', 'D3 is your sharp note at 14¢, and A3 is your flat one at 12¢.'],
   ['SUM', 'Your latest take, Oct 19, averaged 9 cents from pitch over 24 notes, and 50% of the notes were within 10 cents.'],
