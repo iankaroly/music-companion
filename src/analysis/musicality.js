@@ -40,10 +40,10 @@ const MIN_CONF = 0.6;          // the same pitched-frame floor quality.js and th
 // Thresholds. See the header: set from the synthetic noise floors, in advance
 // of the real recordings, and written down in docs/musicality.md.
 export const LIMITS = {
-  restGapSec: 0.1,           // a silence this much longer than the take's usual one (and long against the tempo) can end a phrase
+  restGapSec: 0.05,          // a silence this much longer than the take's usual one (and long against the tempo) can end a phrase; a small floor only: the bar is the take's own spacing (restGapBeats)
   restGapBeats: 0.35,        //   …as a share of the local note spacing
-  breathGapSec: 0.2,         // a silence this much longer than usual is a breath on its own
-  breathGapBeats: 0.5,
+  breathGapSec: 0.08,        // a silence this much longer than usual is a breath on its own; a floor under the take's own spacing (breathGapBeats), not the bar itself
+  breathGapBeats: 0.4,       //   …as a share of the local note spacing (0.5 missed a breath of 0.6 of a note at every tempo under 0.35 s a note; 0.35 cut a ragged take once in 150; see the header of segmentPhrases)
   longNote: 1.7,             // a note spaced this many times the local spacing is a long note
   levelReset: 4,             // dB: loudness steps up after a fall = a new start
   flatPhraseDb: 2.5,         // a phrase whose loudness moves less than this is level
@@ -181,6 +181,23 @@ function segmentPhrases(notes, levels) {
   // in the second. (Measured on the first version, which compared the gap to
   // the beat: a 0.35 s breath at 0.6 s a note was not found at all.)
   const usual = Math.max(0, median(notes.slice(0, -1).map((x, i) => notes[i + 1].start - x.end)) ?? 0);
+
+  // THE BREATH BAR IS THE TAKE'S OWN SPACING, not a number of seconds. The first
+  // version asked for a silence of at least 0.2 s (and 0.1 s for half a cue), so
+  // the same performance scaled in time found its phrases at 0.4 s a note and
+  // lost them at 0.3: with a breath of 0.6 of a note, eight phrases of eight
+  // came back as 8 at 0.4 s, 2-5 by seed at 0.35 s and 1 at 0.3 s, and 136 of
+  // 240 pairs of one player at two tempos said "more, shorter phrases" (16
+  // seeds, six tempos from 0.3 to 0.7 s, through the real Analyzer and
+  // segmenter). The bar is now 0.4 of the local spacing beyond the take's usual
+  // silence, with a floor of 0.08 s that is only there for the timing error of
+  // a very fast take. 0.5 of a note was tried first and still missed the breath
+  // below 0.35 s (9 of 16 takes right at 0.3 s); 0.35 and 0.3 cut a ragged
+  // breath-free take (one in 150, two in 150). At 0.4: no false cut in 150
+  // ragged, stretched, uneven and arched breath-free takes, none in 112 through
+  // the real pipeline from 0.12 to 0.6 s a note, and all 16 of 16 right from
+  // 0.25 s a note. Below that the instrument cannot see a breath of 0.6 of a
+  // note (see FASTEST_BEAT_SEC), and the comparison says nothing about phrases.
 
   const cuts = [];
   for (let i = 0; i + 1 < n; i++) {
@@ -1187,8 +1204,16 @@ const LENGTH_WITHIN = 1.25;
 const lengthsComparable = (a, b) => {
   const hi = Math.max(a.noteCount, b.noteCount);
   const lo = Math.min(a.noteCount, b.noteCount);
-  return lo > 0 && hi / lo <= LENGTH_WITHIN;
+  return lo > 0 && hi / lo <= LENGTH_WITHIN && breathsVisible(a, b);
 };
+// BREATHS TOO SHORT TO SEE. At a note spacing under about 0.25 s the pipeline's
+// own timing error (a few tens of milliseconds on each onset) is as large as a
+// breath of 0.6 of a note, so the same performance finds 1-8 phrases by seed at
+// 0.2 s a note and all 8 from 0.25 s on (16 seeds each; 70 of 448 tempo-only
+// pairs said "more, shorter phrases" with a 0.2 s take in them). Two takes are
+// compared on their phrases only when neither is faster than that.
+const FASTEST_BEAT_SEC = 0.25;
+const breathsVisible = (a, b) => !(a.beatSec < FASTEST_BEAT_SEC || b.beatSec < FASTEST_BEAT_SEC);
 // With one phrase found, "the phrase length" is the length of the take.
 const phraseLengthOf = (m) => {
   const d = m.descriptors['phrase-count'];
@@ -1200,7 +1225,7 @@ const COMPARE = [
   // The typical phrase length in notes. Its own unit and its own floor: two
   // notes or a quarter, whichever is more, because one cut more or less in a
   // phrase of ten moves the median by one or two.
-  { key: 'phrase-length', src: 'phrase-count', label: 'typical phrase length', unit: 'notes', valueFrom: phraseLengthOf, small: 2, rel: 0.25, up: 'longer phrases', down: 'shorter phrases' },
+  { key: 'phrase-length', src: 'phrase-count', label: 'typical phrase length', unit: 'notes', valueFrom: phraseLengthOf, onlyIf: breathsVisible, small: 2, rel: 0.25, up: 'longer phrases', down: 'shorter phrases' },
   // 30, not 20: phrase-definition moves in steps of a third of a point per phrase
   // end, and 14 ms of onset error on one performance at two tempos moved it by
   // 20 (three ends of five losing a cue) and, twice in sixty pairs, by 27.

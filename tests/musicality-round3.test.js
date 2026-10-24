@@ -103,6 +103,45 @@ describe('2. the phrase count is not compared between takes of different lengths
   });
 });
 
+describe('3. phrases are found at the take\'s own spacing, not at a number of seconds', () => {
+  // The same performance (breath 0.6 of a note, eight phrases of eight) scaled
+  // in time, each with 14 ms of onset error: on 26c4196 it was 8 phrases at
+  // 0.4 s a note and 1-3 at 0.3 s.
+  const at = (period, seed) => musicalityOf(wobbleOnsets(take({ phrases: 8, perPhrase: 8, period, breath: 0.6 * period, shape: 'flat', articulation: 0.97, jitter: 0.06, seed }), 14, seed));
+
+  test('eight phrases of eight are found at 0.3, 0.35, 0.4 and 0.7 s a note, 10 seeds each', () => {
+    for (const period of [0.3, 0.35, 0.4, 0.7]) {
+      const counts = Array.from({ length: 10 }, (_, i) => d(at(period, i + 1), 'phrase-count').value);
+      expect(counts, `period ${period}`).toEqual(Array(10).fill(8));
+    }
+  });
+
+  test('the same performance at two tempos compares as the same on every phrase row, 10 seeds, 3 pairs of tempos', () => {
+    for (const [fast, slow] of [[0.3, 0.7], [0.35, 0.5], [0.4, 0.7]]) {
+      for (let seed = 1; seed <= 10; seed++) {
+        const moved = compareMusicality(at(slow, seed + 50), at(fast, seed)).filter((r) => /^phrase-/.test(r.key) && r.verdict !== 'about the same' && r.verdict !== 'unmeasured');
+        expect(moved.map((r) => r.verdict), `${fast} v ${slow} seed ${seed}`).toEqual([]);
+      }
+    }
+  });
+
+  test('a take with no breath in it is still one phrase at any tempo, whatever its articulation, loudness or phrase-end stretch', () => {
+    for (const period of [0.15, 0.25, 0.4, 0.7, 1.1]) {
+      for (const o of [{ articulation: 0.7, articulationJitter: 0.25 }, { shape: 'jump', peakDb: 6 }, { finalStretch: 1.5 }, { shape: 'arch' }]) {
+        const m = musicalityOf(wobbleOnsets(take({ phrases: 6, perPhrase: 10, period, breath: 0, shape: 'flat', articulation: 0.9, jitter: 0.04, seed: 3, ...o }), 15, 3));
+        expect(d(m, 'phrase-count').value, `${period} ${JSON.stringify(o)}`).toBe(1);
+      }
+    }
+  });
+
+  test('a take faster than the pipeline can see breaths in is not compared on its phrases at all', () => {
+    const fastTake = musicalityOf(wobbleOnsets(take({ phrases: 8, perPhrase: 8, period: 0.2, breath: 0.12, shape: 'flat', articulation: 0.97, jitter: 0.06, seed: 1 }), 14, 1));
+    const rows = compareMusicality(at(0.5, 2), fastTake);
+    expect(rows.filter((r) => /^phrase-(count|length)$/.test(r.key))).toEqual([]);
+    expect(rows.some((r) => r.key === 'articulation')).toBe(true);
+  });
+});
+
 describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato that opens up', () => {
   // Piano, guitar and harp notes die away, and a pitch tracker's reading of the
   // last of one wanders by 10-20 cents at about a vibrato's rate: the plain
