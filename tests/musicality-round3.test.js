@@ -206,6 +206,123 @@ describe('5. a range is always checked, and a sound that never stops is not read
   });
 });
 
+describe('6. the tempo shape is judged on the whole curve and never says "comes back" of a take that did not', () => {
+  const tk = (extra, seed) => noisy({ phrases: 6, perPhrase: 10, period: 0.5, breath: 0.35, shape: 'flat', articulation: 0.9, jitter: 0.04, seed, ...extra }, 15, seed);
+  const kinds = (extra) => {
+    const k = {};
+    for (let seed = 1; seed <= 20; seed++) {
+      const t = d(tk(extra, seed), 'tempo-shape');
+      const name = t.measured ? t.detail.kind : 'refused';
+      k[name] = (k[name] ?? 0) + 1;
+    }
+    return k;
+  };
+
+  test('a real +11% accelerando (20 takes) is a drift or a slight one and is never "steady" or "returns"', () => {
+    const k = kinds({ drift: 0.1 });
+    expect((k.returns ?? 0) + (k.steady ?? 0) + (k.level ?? 0), JSON.stringify(k)).toBe(0);
+    expect((k['speeds-up'] ?? 0) + (k['leans-faster'] ?? 0), JSON.stringify(k)).toBeGreaterThanOrEqual(18);
+  });
+
+  test('a real -9% ritardando is the same, the other way', () => {
+    const k = kinds({ drift: -0.1 });
+    expect((k.returns ?? 0) + (k.steady ?? 0) + (k.level ?? 0), JSON.stringify(k)).toBe(0);
+    expect((k['slows-down'] ?? 0) + (k['leans-slower'] ?? 0), JSON.stringify(k)).toBeGreaterThanOrEqual(18);
+  });
+
+  test('a constant tempo is still steady, 20 of 20', () => {
+    expect(kinds({})).toEqual({ steady: 20 });
+  });
+
+  test('"comes back to where it began" is only said of a curve that ends within 4% of its start', () => {
+    let returns = 0;
+    for (let seed = 1; seed <= 30; seed++) {
+      for (const wave of [0.08, 0.15]) {
+        const t = d(tk({ wave, phrases: 8 }, seed), 'tempo-shape');
+        if (t.measured && t.detail.kind === 'returns') {
+          returns++;
+          expect(Number(t.phrase.match(/ends within (\d+)% of the start/)[1]), t.phrase).toBeLessThanOrEqual(4);
+        }
+      }
+    }
+    expect(returns).toBeGreaterThan(5);
+    // and a wave that stops somewhere else is not said to come back at all
+    const off = d(read({ wave: 0.15, phrases: 12, perPhrase: 10 }), 'tempo-shape');
+    expect(off.detail.kind).toBe('moves');
+    expect(off.phrase).not.toMatch(/comes back/);
+  });
+
+  test('a follower on two thirds of the beat for 14 notes is refused, not read as a free tempo of 22%', () => {
+    // seed 2700 of the random constant-tempo family: 26c4196 printed "the tempo is free, moving by about 22%" and
+    // "comes back to where it began" of a player who never changed tempo
+    const m = tk({ perPhrase: 16, jitter: 0.12, articulation: 0.97, seed: 2700 }, 2700);
+    expect(d(m, 'tempo-flexibility').measured).toBe(false);
+    expect(d(m, 'tempo-flexibility').reason).toMatch(/commonest spacing for a different note value/);
+    expect(d(m, 'tempo-shape').measured).toBe(false);
+  });
+
+  test('a true 15% wave is still read as a moving tempo in at least 30 of 40 takes', () => {
+    let moving = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const f = d(tk({ wave: 0.15, phrases: 8, jitter: [0.02, 0.04, 0.08][seed % 3] }, seed), 'tempo-flexibility');
+      if (f.measured && f.detail.word !== 'steady') moving++;
+    }
+    expect(moving).toBeGreaterThanOrEqual(30);
+  });
+});
+
+describe('7. tempo flexibility does not depend on how long the take is', () => {
+  const at = (notes, seed, jitter) => noisy({ phrases: notes / 14, perPhrase: 14, period: 0.4, breath: 0.28, shape: 'flat', articulation: 0.9, jitter, seed: seed * 7 + notes }, 15, seed + notes);
+
+  test('under 24 steady spacings the spread is refused instead of being read from a length where it is not stable', () => {
+    const m = at(14, 3, 0.04);
+    expect(d(m, 'tempo-flexibility').measured).toBe(false);
+    expect(d(m, 'tempo-flexibility').reason).toMatch(/windows of 24/);
+  });
+
+  test('the same playing (spacings off by up to 4%) reads within 8% of itself at 28 and at 448 notes', () => {
+    const mean = (notes) => {
+      const v = [];
+      for (let seed = 1; seed <= 40; seed++) { const f = d(at(notes, seed, 0.04), 'tempo-flexibility'); if (f.measured) v.push(f.value); }
+      return v.reduce((a, b) => a + b, 0) / v.length;
+    };
+    const short = mean(28);
+    const long = mean(448);
+    expect(Math.abs(short - long) / long).toBeLessThan(0.08);
+  });
+
+  test('a player at +-9% a spacing is not called "steady" by a short take and "gives a little" by a long one', () => {
+    // (the word 26c4196 would have printed is derived from the number and its fixed line, so this fails there too)
+    const wordOf = (f) => (!f.measured ? null : f.detail.word ?? (f.value < f.detail.steadyBelow ? 'steady' : f.value >= f.detail.freeAbove ? 'free' : 'gives'));
+    const steadyAt = (notes) => {
+      let n = 0;
+      for (let seed = 1; seed <= 40; seed++) if (wordOf(d(at(notes, seed, 0.09), 'tempo-flexibility')) === 'steady') n++;
+      return n;
+    };
+    // 26c4196 said "steady" of 13 of 40 takes of 56 notes and 1 of 40 takes of 448
+    expect(steadyAt(56)).toBeLessThanOrEqual(4);
+    expect(steadyAt(448)).toBeLessThanOrEqual(1);
+  });
+
+  test('a number near a line says it is on the edge, with the standard error it was judged by', () => {
+    let edge = 0;
+    for (let seed = 1; seed <= 40; seed++) {
+      const f = d(at(56, seed, 0.09), 'tempo-flexibility');
+      if (f.measured && /edge between steady and giving a little/.test(f.phrase)) edge++;
+      if (f.measured) expect(f.detail.se).toBeGreaterThan(0);
+    }
+    expect(edge).toBeGreaterThan(10);
+  });
+
+  test('two takes of the same playing at 28 and 448 notes do not compare as a change of tempo flexibility', () => {
+    let moved = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      moved += compareMusicality(at(28, seed, 0.09), at(448, seed, 0.09)).filter((r) => r.key === 'tempo-flexibility' && r.verdict !== 'about the same' && r.verdict !== 'unmeasured').length;
+    }
+    expect(moved).toBe(0);
+  });
+});
+
 describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato that opens up', () => {
   // Piano, guitar and harp notes die away, and a pitch tracker's reading of the
   // last of one wanders by 10-20 cents at about a vibrato's rate: the plain

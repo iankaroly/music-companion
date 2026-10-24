@@ -53,7 +53,9 @@ export const LIMITS = {
   shapeDb: 2,                // how far loudness must climb and fall to be an arch
   steadyTempo: 4,            // % spread of the local tempo that still reads as steady (at least; see floorsFor)
   freeTempo: 9,              // % spread above which the tempo is clearly moving (at least)
-  driftPct: 8,               // % faster or slower at the end than the start = drift
+  driftPct: 8,               // % faster or slower at the end than the start (the whole-curve trend, backed by a second reading) = drift
+  driftR2: 0.4,              // share of the movement of the smoothed tempo curve a straight line must explain for it to be a drift and not a wave
+  leanPct: 4,                //   …and from here to driftPct a slight drift; under it the tempo ends where it began
   legato: 0.85,              // sounding length / spacing at or above = connected
   detached: 0.55,            // at or below = clearly separated
   evenArticulation: 0.12,    // spread (quartile range) of that ratio that reads as even (at least; see floorsFor)
@@ -477,68 +479,124 @@ export function tempoCurveOf(notes) {
   return kept.map((k, i) => ({ t: k.t, period: k.period, smooth: 2 ** median(logs.slice(Math.max(0, i - 2), i + 3)) }));
 }
 
-// THE FOLLOWER CAN BE WRONG ABOUT THE BEAT AND NOT KNOW IT. Three ways, each
+// THE FOLLOWER CAN BE WRONG ABOUT THE BEAT AND NOT KNOW IT. Four ways, each
 // measured on takes built with no drift at all (jitter of 4-20% on every
 // spacing, 20 seeds at each of 6, 12 and 24 phrases; see docs/musicality.md):
 // it locks on half or double the beat after a breath (a step of an exact factor
-// of two in the period); it random-walks, because each spacing is judged against
-// the last two accepted and the track wanders by more than the playing does
-// (false drifts of 13-21% at 20% jitter); and a small sample of noisy spacings
-// gives a difference between the first and last third that is inside its own
-// noise. So a drift is claimed only when (1) the period never steps by a factor
-// of two, (2) a SECOND reading, every spacing snapped against one fixed
-// reference with no following at all, finds a drift of the same sign and about
-// the same size, and (3) that second reading's drift is at least three times its
-// own standard error. The standard error is taken from the SECOND reading
-// because its spacings are independent draws; the follower's track is
-// autocorrelated, so a standard error computed on it was too small (measured at
-// 8% jitter: the z score of a zero-drift take had a standard deviation of 1.9
-// to 4.2 where it should have been 1, and reached 28).
+// of two in the period); it locks on a rung that is NOT a factor of two (two
+// thirds or three quarters of a beat: a run of spacings that came out short
+// snaps to the 1.5 or 4/3 rung and the track stays there for 14 notes, then
+// slips back, which read 'free, 23%' of a metronomic take); it random-walks,
+// because each spacing is judged against the last two accepted and the track
+// wanders by more than the playing does (false drifts of 13-21% at 20% jitter);
+// and a small sample of noisy spacings gives a difference between the start and
+// the end that is inside its own noise. So a drift is claimed only when (1) the
+// period never steps by a rung's ratio between neighbouring runs, (2) a SECOND
+// reading, every spacing snapped against one fixed reference with no following at
+// all, finds a trend of the same sign and about the same size, and (3) that second
+// reading's trend is at least three and a half times its own standard error. The
+// standard error is taken from the SECOND reading because its spacings are
+// independent draws; the follower's track is autocorrelated, so a standard error
+// computed on it was too small (measured at 8% jitter: the z score of a
+// zero-drift take had a standard deviation of 1.9 to 4.2 where it should have
+// been 1, and reached 28).
 // Fail (1) or (2) and neither the shape nor the flexibility is printed, because
 // a track that jumped or wandered has a spread that is the follower's.
 const SNAP_FIXED = 0.25;   // octaves; wider than SNAP because no following keeps the reference near
+
+// THE TREND IS THE WHOLE CURVE, NOT ITS THIRDS. The drift was the difference of
+// the medians of the first and last third of the smoothed curve with an 8% bar.
+// A steady acceleration of 11% from first note to last differs by two thirds of
+// that between its thirds (7.3%), under the bar, so the take was 'steady' (8 of
+// 20 takes through the real pipeline) or 'returns' (6 of 20) and said so in
+// words that mean it ends where it began. 'Slowing by 9%' read 'returns' in 11
+// of 20. The line through the whole curve (least squares of the log period on
+// time, read as the change from the first note to the last along that line)
+// recovers the 11%, and a standard error comes with it.
+function trendOf(pts) {
+  const n = pts.length;
+  if (n < 8) return null;
+  const mt = mean(pts.map((p) => p.t));
+  const my = mean(pts.map((p) => p.y));
+  let sxx = 0;
+  let sxy = 0;
+  for (const p of pts) { sxx += (p.t - mt) ** 2; sxy += (p.t - mt) * (p.y - my); }
+  if (!(sxx > 0)) return null;
+  const slope = sxy / sxx;
+  let rss = 0;
+  for (const p of pts) rss += (p.y - my - slope * (p.t - mt)) ** 2;
+  const se = Math.sqrt(rss / (n - 2) / sxx);
+  const span = pts[n - 1].t - pts[0].t;
+  // positive = faster at the end (a shorter period)
+  const drift = (2 ** (-slope * span) - 1) * 100;
+  return { drift, z: se > 0 ? Math.abs(slope) / se : Infinity, seDrift: se * span * Math.LN2 * 100 };
+}
+
+// How much of the movement of the smoothed curve a straight line through it
+// explains. A drift is one-way and a line explains most of it (an 11% speed-up
+// with 4% jitter: 0.8); a wave is not, and a line through a few cycles of one
+// explains next to none of it however the cycles happen to end (a 15% wave:
+// under 0.1), which is what keeps a tempo wave from being called a drift
+// because it stopped at a different phase from where it started.
+function lineR2(ts, ys) {
+  const mt = mean(ts);
+  const my = mean(ys);
+  let sxx = 0;
+  let sxy = 0;
+  let syy = 0;
+  for (let i = 0; i < ts.length; i++) { sxx += (ts[i] - mt) ** 2; sxy += (ts[i] - mt) * (ys[i] - my); syy += (ys[i] - my) ** 2; }
+  return sxx > 0 && syy > 0 ? (sxy * sxy) / (sxx * syy) : 0;
+}
 
 function fixedReference(notes) {
   const valid = [];
   for (let i = 0; i + 1 < notes.length; i++) {
     const v = notes[i + 1].start - notes[i].start;
-    if (v > 0.04) valid.push(v);
+    if (v > 0.04) valid.push({ t: notes[i].start, v });
   }
-  const ref = median(valid);
+  const ref = median(valid.map((x) => x.v));
   if (!ref) return null;
   // Only the spacings of the take's own commonest length, not the whole
   // ladder: with every rung allowed, a breath's spacing (1.7-1.9 beats) snapped
   // to the 1.5 or 2 rung and was read as a note a tenth off the beat, and the
   // handful of them in each third made one zero-drift take in a hundred 'end
   // 15% slower' at 20% jitter.
-  const lg = [];
-  for (const v of valid) if (Math.abs(Math.log2(v / ref)) <= SNAP_FIXED) lg.push(Math.log2(v));
-  if (lg.length < MIN_NOTES || lg.length < 0.5 * valid.length) return null;
-  const thirds = (v) => {
-    const third = Math.max(3, Math.floor(v.length / 3));
-    const a = v.slice(0, third);
-    const b = v.slice(-third);
-    const sigma = (x) => (quantile(x, 0.75) - quantile(x, 0.25)) / 1.349;
-    // A median's variance is about 1.57 sigma^2 / n.
-    const se = Math.sqrt((1.57 * (sigma(a) ** 2 + sigma(b) ** 2)) / third);
-    const diff = median(a) - median(b);
-    return { drift: (2 ** diff - 1) * 100, z: se > 0 ? Math.abs(diff) / se : Infinity };
-  };
-  const main = thirds(lg);
-  // REPLICATION: the same drift must show in the even-numbered spacings and in
+  const pts = [];
+  for (const x of valid) if (Math.abs(Math.log2(x.v / ref)) <= SNAP_FIXED) pts.push({ t: x.t, y: Math.log2(x.v) });
+  if (pts.length < MIN_NOTES || pts.length < 0.5 * valid.length) return null;
+  const main = trendOf(pts);
+  if (!main) return null;
+  // REPLICATION: the same trend must show in the even-numbered spacings and in
   // the odd-numbered ones taken alone, each of which is an independent half of
   // the data. One zero-drift take in sixty at 20% jitter passed everything else
   // (-15%, a step half way along that its own sample noise produced).
-  const halves = [lg.filter((_, i) => i % 2 === 0), lg.filter((_, i) => i % 2 === 1)].map(thirds);
-  return { ...main, replicates: halves.every((h) => Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.driftPct) };
+  const halves = [pts.filter((_, i) => i % 2 === 0), pts.filter((_, i) => i % 2 === 1)].map(trendOf);
+  return { ...main, replicates: halves.every((h) => h && Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.leanPct) };
 }
 
-// A drift is only worth the word when the independent reading backs it.
-function driftBacked(fixed) {
-  return !!fixed && Math.abs(fixed.drift) >= LIMITS.driftPct && fixed.z >= 3.5 && fixed.replicates;
-}
+// A trend is only worth a word when the independent reading backs it. A scored
+// take has no second reading to ask: each spacing is already over its written
+// beats, so its own line is the evidence.
+const trendBacked = (t, scored) => !!t && t.z >= 3.5 && (scored || t.replicates);
 
-function tempoRefusal(kept, driftPct, fixedRef) {
+// THE FOLLOWER ON THE WRONG RUNG, CHECKED ON THE PERIOD TRACK ITSELF. Only a step
+// of an exact factor of two between neighbouring runs of four was caught before,
+// and some of 100,000 random constant-tempo takes read 'free' at 12-32% from a
+// lock on 2/3 or 3/4 of a beat: a run of short spacings made the follower take
+// the next ones for a dotted value, and its period sat 30% low for 14 notes. TRIED
+// AND WRONG: refusing any step of 0.32-0.69 of an octave (the size of a ratio
+// between two rungs) between neighbouring runs: a tempo wave of 15% steps by up
+// to 0.41 between them, as far as a lock does, so waves went (the test that 'a
+// 15% wave is still a wave' failed). TRIED AND WRONG TOO: requiring the step to
+// arrive at one note (a jump of 0.25 or more between neighbouring spacings),
+// because the spacing after a breath is divided by the 1.5 or 2 rung and jumps
+// that much in an ordinary take.
+// What a lock does that nothing else does is take the take's COMMONEST spacing
+// for something other than one beat. Every spacing within a quarter of an octave
+// of the median spacing is what the take's own beat looks like (a tempo wave
+// of 15% keeps its spacings inside that), so three in a row that the follower
+// assigned any other rung to is the follower being on the wrong one.
+function tempoRefusal(notes, kept, trendMain, fixedRef) {
   const lg = kept.map((k) => Math.log2(k.period));
   const W = 4;
   for (let k = W; k + W <= lg.length; k++) {
@@ -547,18 +605,76 @@ function tempoRefusal(kept, driftPct, fixedRef) {
       return 'the beat the follower kept jumped by a factor of two part way through, which is how it loses a half or double beat, so no tempo shape is claimed';
     }
   }
+  const spacings = [];
+  for (let i = 0; i + 1 < notes.length; i++) {
+    const v = notes[i + 1].start - notes[i].start;
+    if (v > 0.04) spacings.push(v);
+  }
+  const common = median(spacings);
+  let run = 0;
+  for (const k of kept) {
+    const own = Math.abs(Math.log2(k.period * k.rung / common)) <= SNAP_FIXED;
+    run = own && k.rung !== 1 ? run + 1 : 0;
+    if (run >= 3) {
+      return 'the follower took the take\'s commonest spacing for a different note value (two thirds, three quarters, half or double of a beat) for several notes running, which is how it loses the beat, so no tempo shape is claimed';
+    }
+  }
   const fixed = fixedRef ? fixedRef.drift : null;
+  const main = trendMain ? trendMain.drift : null;
   // The two readings pointing opposite ways by more than a few per cent is the
   // estimate disagreeing with itself. A follower that merely claims more than
   // the fixed reading backs is not refused: it just does not get to say 'drift'
-  // (see driftBacked). TRIED AND WRONG: refusing whenever they differed by more
+  // (see trendBacked). TRIED AND WRONG: refusing whenever they differed by more
   // than a third; a 15% tempo wave, which is exactly the give this module is
   // for, was refused in 14-52% of takes at 4-8% jitter, because a wave's first
   // and last third differ by an amount that depends on its phase.
-  if (fixed !== null && Math.abs(driftPct) >= 4 && Math.abs(fixed) >= 4 && Math.sign(fixed) !== Math.sign(driftPct)) {
+  if (fixed !== null && main !== null && Math.abs(main) >= 4 && Math.abs(fixed) >= 4 && Math.sign(fixed) !== Math.sign(main)) {
     return 'the tempo estimate disagreed with itself between two ways of reading the same spacings, so no tempo shape is claimed';
   }
   return null;
+}
+
+// TEMPO FLEXIBILITY DOES NOT DEPEND ON HOW LONG THE TAKE IS. It was the spread
+// between the 10th and 90th percentile of the smoothed curve, which for a
+// quantile of N points reaches further the more points there are: the same
+// playing (each spacing off by up to 2%) read 1.2% at 14 notes and 2.0% at 672,
+// and at +-9% a player was called steady in 76% of 14-note takes and 0% of 672-note
+// ones. It is now read in windows of 24 spacings (smoothed inside each window,
+// half a window apart), pooled as a variance: every window is the same
+// estimator whatever the length, and a take with fewer than 24 spacings is
+// refused rather than read at a length where the number is not stable. The
+// number also carries its standard error (about 1 over the square root of
+// two thirds of the spacings, as measured: 29% at 28 notes, 5% at 672), and the
+// WORD is only 'steady' or 'gives a little' when the whole of the number plus or
+// minus that is on one side of the line; otherwise it says it is on the edge.
+const FLEX_WINDOW = 24;
+
+function flexOf(logs) {
+  const n = logs.length;
+  if (n < FLEX_WINDOW) return null;
+  const starts = [];
+  for (let s = 0; s + FLEX_WINDOW <= n; s += FLEX_WINDOW / 2) starts.push(s);
+  if (starts.at(-1) + FLEX_WINDOW < n) starts.push(n - FLEX_WINDOW);
+  const vars = starts.map((s) => {
+    const w = logs.slice(s, s + FLEX_WINDOW);
+    const sm = w.map((x, k) => median(w.slice(Math.max(0, k - 2), k + 3)));
+    const m = mean(sm);
+    return sm.reduce((a, x) => a + (x - m) ** 2, 0) / (sm.length - 1);
+  });
+  const spreadOct = 1.2816 * Math.sqrt(mean(vars));
+  const pct = (2 ** spreadOct - 1) * 100;
+  return { pct, se: pct / Math.sqrt((2 * n) / 3), windows: starts.length };
+}
+
+// The word for a flexibility, with its uncertainty.
+function flexWord(flex, fl) {
+  const lo = flex.pct - flex.se;
+  const hi = flex.pct + flex.se;
+  if (hi < fl.steadyBelow) return 'steady';
+  if (lo >= fl.freeAbove) return 'free';
+  if (lo >= fl.steadyBelow && hi < fl.freeAbove) return 'gives';
+  // the band reaches across a line: say which line the number is nearer to
+  return Math.abs(flex.pct - fl.steadyBelow) <= Math.abs(flex.pct - fl.freeAbove) ? 'edge-steady' : 'edge-free';
 }
 
 function tempoDescriptors(notes, seg, fl) {
@@ -602,50 +718,83 @@ function tempoDescriptors(notes, seg, fl) {
     out.push(missing('tempo-shape', 'whether the tempo returns or drifts', why, kept.length));
   } else {
     const logs = kept.map((k) => Math.log2(k.period));
-    const sm = logs.map((x, k) => median(logs.slice(Math.max(0, k - 2), k + 3)));
-    const spreadOct = (quantile(sm, 0.9) - quantile(sm, 0.1)) / 2;
-    const flexPct = (2 ** spreadOct - 1) * 100;
-    // Positive drift = faster at the end (shorter period).
-    const third = Math.max(3, Math.floor(sm.length / 3));
-    const drift = (2 ** (median(sm.slice(0, third)) - median(sm.slice(-third))) - 1) * 100;
+    const trendMain = trendOf(kept.map((k) => ({ t: k.t, y: Math.log2(k.period) })));
     const fixedRef = scored ? null : fixedReference(notes);
-    const refusal = scored ? null : tempoRefusal(kept, drift, fixedRef);
+    const refusal = scored ? null : tempoRefusal(notes, kept, trendMain, fixedRef);
     if (refusal) {
       out.push(missing('tempo-flexibility', 'how much the tempo moves', refusal, kept.length));
       out.push(missing('tempo-shape', 'whether the tempo returns or drifts', refusal, kept.length));
     } else {
-      let kind;
-      let phrase;
-      const f = Math.round(flexPct);
-      // A follower drift that the independent reading does not back is NOT
-      // called a return or steady either: "comes back to where it began" of a take
-      // that did end 15% faster is as false as a drift that never happened (the
-      // first cut of this fix did exactly that: of 100 takes with a true 20%
-      // drift at 12% jitter, 33 read 'returns' or 'steady' against 5 before). The
-      // flexibility stands; the shape is refused and says why.
-      const unbacked = !scored && Math.abs(drift) >= LIMITS.driftPct && !driftBacked(fixedRef);
-      if (unbacked) {
-        kind = null;
-        phrase = null;
-      } else if (Math.abs(drift) >= LIMITS.driftPct) {
+      const flex = flexOf(logs);
+      const word = flex ? flexWord(flex, fl) : null;
+      const f = flex ? Math.round(flex.pct) : null;
+      // The trend that is believed: the independent reading's when there is one.
+      const trend = scored ? trendMain : fixedRef;
+      const backed = trendBacked(trend, scored);
+      const drift = trend ? trend.drift : trendMain ? trendMain.drift : 0;
+      const big = Math.abs(drift);
+      const sm = logs.map((x, k) => median(logs.slice(Math.max(0, k - 2), k + 3)));
+      const driftLike = lineR2(kept.map((k) => k.t), sm) >= LIMITS.driftR2;
+      // How far the end of the curve is from its start, medians of the first and
+      // last sixth of the smoothed curve: what "comes back to where it began"
+      // is checked against.
+      const edge = Math.max(3, Math.floor(sm.length / 6));
+      const endGap = (2 ** (median(sm.slice(0, edge)) - median(sm.slice(-edge))) - 1) * 100;
+      const apart = Math.abs(endGap);
+      // A drift the second reading does not back is NOT called a return or
+      // steady either: "comes back to where it began" of a take that did end 15%
+      // faster is as false as a drift that never happened (the first cut of an
+      // earlier fix did exactly that: of 100 takes with a true 20% drift at 12%
+      // jitter, 33 read 'returns' or 'steady' against 5 before). So a curve a
+      // line explains (driftLike) that seems to end 4% or more away from where it
+      // began, which nothing backs, is refused. A wave is not driftLike and is
+      // judged by where it ends: 'comes back' only within 4% of the start.
+      let kind = null;
+      let phrase = '';
+      if (backed && driftLike && big >= LIMITS.driftPct) {
         kind = drift > 0 ? 'speeds-up' : 'slows-down';
-        phrase = `the tempo ends ${Math.round(Math.abs(drift))}% ${drift > 0 ? 'faster' : 'slower'} than it began (it drifts rather than returns)`;
-      } else if (flexPct >= fl.steadyBelow) {
-        kind = 'returns';
-        phrase = `the tempo moves by about ${f}% around its middle and comes back to where it began`;
-      } else {
+        phrase = `the tempo ends ${Math.round(big)}% ${drift > 0 ? 'faster' : 'slower'} than it began (it drifts rather than returns)`;
+      } else if (backed && driftLike && big >= LIMITS.leanPct) {
+        kind = drift > 0 ? 'leans-faster' : 'leans-slower';
+        phrase = `the tempo ends ${Math.round(big)}% ${drift > 0 ? 'faster' : 'slower'} than it began (a slight drift, not a return)`;
+      } else if (driftLike && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct) {
+        kind = null;
+      } else if (!flex) {
+        kind = null;
+      } else if (word === 'steady') {
         kind = 'steady';
         phrase = `the tempo stays steady, within about ${f}% of its middle`;
+      } else if (apart >= LIMITS.leanPct) {
+        kind = 'moves';
+        phrase = `the tempo moves by about ${f}% around its middle, and its end differs from its start by about ${Math.round(apart)}%, so it is not said to come back to where it began`;
+      } else if (word === 'edge-steady') {
+        kind = 'level';
+        phrase = `the tempo ends within ${Math.max(Math.round(apart), 1)}% of where it began, and how much it moves in between (about ${f}%) is on the edge between steady and giving a little`;
+      } else {
+        kind = 'returns';
+        phrase = `the tempo moves by about ${f}% around its middle and comes back to where it began (it ends within ${Math.max(Math.round(apart), 1)}% of the start)`;
       }
-      out.push(got('tempo-flexibility', 'how much the tempo moves', flexPct, '%',
-        flexPct >= fl.freeAbove ? `the tempo is free, moving by about ${f}% around its middle`
-          : flexPct >= fl.steadyBelow ? `the tempo gives a little, by about ${f}% around its middle`
-            : `the tempo is steady, within about ${f}% of its middle`,
-        kept.length, { ok: 12, good: 30, detail: { keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
-      out.push(unbacked
-        ? missing('tempo-shape', 'whether the tempo returns or drifts', `the tempo seems to end ${drift > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`, kept.length)
-        : got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length,
-          { ok: 12, good: 30, detail: { kind } }));
+      if (flex) {
+        const flexPhrase = {
+          steady: `the tempo is steady, within about ${f}% of its middle`,
+          gives: `the tempo gives a little, by about ${f}% around its middle`,
+          free: `the tempo is free, moving by about ${f}% around its middle`,
+          'edge-steady': `the tempo moves by about ${f}% around its middle, which is on the edge between steady and giving a little`,
+          'edge-free': `the tempo moves by about ${f}% around its middle, which is on the edge between giving a little and free`,
+        }[word];
+        out.push(got('tempo-flexibility', 'how much the tempo moves', flex.pct, '%', flexPhrase, kept.length,
+          { ok: 12, good: 30, detail: { word, se: flex.se, windows: flex.windows, keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
+      } else {
+        out.push(missing('tempo-flexibility', 'how much the tempo moves',
+          `only ${kept.length} steady spacings; the spread of the tempo is read in windows of ${FLEX_WINDOW} so that it does not depend on how long the take is, and needs at least that many`, kept.length));
+      }
+      out.push(kind
+        ? got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length, { ok: 12, good: 30, detail: { kind } })
+        : missing('tempo-shape', 'whether the tempo returns or drifts',
+          driftLike
+            ? `the tempo seems to end ${(Math.abs(trendMain?.drift ?? 0) > big ? trendMain.drift : drift) > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`
+            : `no drift was found, but with only ${kept.length} steady spacings the spread of the tempo is not read, so whether it returns or holds is not claimed`,
+          kept.length));
     }
   }
 
@@ -937,7 +1086,15 @@ function characterOf(by) {
 
   if (art) parts.push(art.value >= LIMITS.legato ? 'connected' : art.value <= (art.detail.detachedAt ?? LIMITS.detached) ? 'detached' : 'lightly separated');
   if (even && art) parts.push(even.value <= even.detail.evenBelow ? 'evenly articulated' : 'varied in articulation');
-  if (tempo) parts.push(tempo.value >= tempo.detail.freeAbove ? 'free in tempo' : tempo.value >= tempo.detail.steadyBelow ? 'giving a little in tempo' : 'steady in tempo');
+  if (tempo) {
+    parts.push({
+      steady: 'steady in tempo',
+      gives: 'giving a little in tempo',
+      free: 'free in tempo',
+      'edge-steady': 'steady to slightly giving in tempo',
+      'edge-free': 'giving a little to free in tempo',
+    }[tempo.detail.word]);
+  }
   if (shape) {
     const top = shape.detail.dominant;
     if (top === 'arch' && shape.detail.counts.arch / shape.n >= 0.4) parts.push('with phrases that swell and fade');
@@ -960,8 +1117,8 @@ function characterOf(by) {
   // take reads through the real pipeline (up to 1.17, so 1.25), no contrast
   // between phrases or stretches, even articulation, matching patterns alike.
   const moves = [];
-  if (tempo && tempo.value >= tempo.detail.steadyBelow) moves.push('tempo');
-  if (drift && drift.detail.kind !== 'steady') moves.push('tempo');
+  if (tempo && tempo.detail.word !== 'steady') moves.push('tempo');
+  if (drift && drift.detail.kind !== 'steady' && drift.detail.kind !== 'level') moves.push('tempo');
   if (shape && shape.detail.counts.level !== shape.n) moves.push('phrase shape');
   if (ends && ends.value >= LIMITS.flatLengthening) moves.push('phrase ends');
   if (contrast && contrast.value >= LIMITS.flatStretchDb) moves.push('phrase loudness');
@@ -1332,7 +1489,12 @@ export function compareMusicality(before, after) {
     const delta = vb - va;
     const floorOf = FLOOR_OF[c.key];
     const floor = floorOf ? Math.max(0, ...[before, after].map((m) => (m.floors ? floorOf(m.floors) : 0))) : 0;
-    const small = Math.max(c.small, floor, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
+    // A reading that carries its own standard error (the tempo's spread: 29%
+    // of itself at 28 notes, 5% at 672) cannot call a difference smaller than
+    // one and a half times the two errors together: the same playing at two
+    // lengths is not a change.
+    const se = Math.hypot(a?.detail?.se ?? 0, b?.detail?.se ?? 0);
+    const small = Math.max(c.small, floor, 1.5 * se, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
     const moved = Math.abs(delta) >= small;
     const verdict = !moved ? 'about the same' : delta > 0 ? c.up : c.down;
     const row = { key: c.key, label, unit, before: va, after: vb, change: delta, verdict };
