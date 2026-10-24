@@ -8,7 +8,11 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        // MainViewController, not the bare CAPBridgeViewController: it registers
+        // the on-device model plugin in capacitorDidLoad. With the bare one the
+        // plugin was never registered, availability() rejected UNIMPLEMENTED and
+        // every question fell back to the plain measurements.
+        window?.rootViewController = MainViewController()
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)

@@ -12,7 +12,8 @@
 	  the device that made them and are never sent anywhere. There is no
 	  account, no analytics and no third-party SDK.
 
-	  The app's own native code is 99 lines across three files and uses none of
+	  The app's own native code is four Swift files, none of which makes a
+	  network call, and uses none of
 	  the required-reason APIs; the one bundled framework, Capacitor, ships its
 	  own manifest declaring the same.
 	-->
