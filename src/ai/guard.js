@@ -1150,6 +1150,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     echo: 'text copied from the prompt',
     verdict: 'a verdict on the playing that the measurements do not make',
     count: 'a number of days or takes used for something the measurements do not state',
-  }[first.kind];
+    hearing: 'a claim about how it sounds that the measurements do not make',
+    benchmark: 'a comparison with other players that the measurements do not make',
+    speculation: 'a guess the measurements do not support',
+    premise: 'something taken from the question that the measurements do not state',
+    absent: 'a claim that something was not measured when it was',
+    superlative: 'a best or worst the measurements do not state',
+  }[first.kind] ?? 'a statement the measurements do not support';
   return { ok: false, stray, reason, problems };
 }

@@ -274,3 +274,17 @@ describe('a yes or a no to a question whose premise is a judgement', () => {
     expect(checkReply('Yes, you improved. The Oct 19 take was 9 cents off.', scenario('CMP').facts, 'compare my last two bach takes', { takeCount: 2 }).ok).toBe(true);
   });
 });
+
+// a rejected reply must always carry a readable reason; six kinds used to give
+// undefined, which the card printed as "(undefined)"
+describe('every rejection has a readable reason', () => {
+  test.each([
+    ['You sound lovely and well in tune.'],
+    ['Your violin vibrato is wide.'],
+  ])('%s', (reply) => {
+    const v = checkReply(reply, ['Vibrato is 27¢ wide on 4 notes.'], 'is my vibrato too wide');
+    expect(v.ok).toBe(false);
+    expect(typeof v.reason).toBe('string');
+    expect(v.reason.length).toBeGreaterThan(0);
+  });
+});
