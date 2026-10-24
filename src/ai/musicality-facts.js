@@ -35,7 +35,7 @@ export const MUSICALITY_INSTRUCTION = 'Musicality measurements describe how a ta
 export const CAVEAT = 'These describe the shaping of the playing from what could be measured; they are not a judgement of taste or of how beautiful the tone is.';
 
 const GROUPS = {
-  phrasing: ['phrase-count', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'stretch-contrast', 'phrase-final-lengthening'],
+  phrasing: ['phrase-count', 'phrase-length', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'stretch-contrast', 'phrase-final-lengthening'],
   articulation: ['articulation', 'articulation-evenness'],
   tempo: ['tempo-flexibility', 'tempo-shape', 'phrase-final-lengthening'],
   repeats: ['repeat-timing', 'repeat-loudness'],
@@ -58,10 +58,15 @@ function show(d) {
   const v = d.value;
   if (d.key === 'articulation' || d.key === 'articulation-evenness') return `${round0(v * 100)}%`;
   if (d.unit === 'dB') return `${round1(v)} dB`;
+  if (d.unit === 'notes') return `${round0(v)} notes`;
   if (d.unit === '×') return `${round1(v)}×`;
   if (d.unit === '¢') return `${round1(v)}¢`;
   if (d.unit === '%') return `${round0(v)}%`;
   return round1(v);
+}
+
+function listOf(items) {
+  return items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`;
 }
 
 const sentence = (s) => (/[.!?]$/.test(s) ? s : `${s}.`);
@@ -139,17 +144,30 @@ export function compareMusicalityFacts(a, b, { question = '', max = 6 } = {}) {
   const out = [];
   for (const t of [a, b]) if (t.musicality.reliability?.noisy) out.push(...noisyNote(t, t.musicality));
   for (const r of real.slice(0, max)) {
-    const d = (a.musicality.descriptors[r.key] ?? b.musicality.descriptors[r.key]);
-    const before = show({ ...d, value: r.before });
-    const after = show({ ...d, value: r.after });
+    // the row carries its own key and unit (typical phrase length is a row
+    // made from the phrase-count descriptor and is in notes, not a count)
+    const before = show({ key: r.key, unit: r.unit, value: r.before });
+    const after = show({ key: r.key, unit: r.unit, value: r.after });
     // The verdict is a phrase on its own ("more detached", "matching five-note
     // patterns played less alike in timing"), so it goes in brackets rather than after a verb it
     // would not fit. These sentences reach the player as they stand when no
     // model is available.
     out.push(`${cap(r.label)}: "${lb}" ${before}, "${la}" ${after} (${r.verdict} in "${la}").`);
   }
+  // "ABOUT THE SAME" IS A CLAIM ABOUT ROWS THAT WERE MEASURED IN BOTH TAKES, AND
+  // IT NAMES THEM. The first wording said "on everything that could be measured
+  // in both" and printed it when nothing had been: two takes that were both too
+  // quiet to read, a 14-note take against an 80-note one, or a question about
+  // tempo that filtered out the row that did differ. So the line is said only
+  // when at least one wanted row was read in both, it lists exactly those rows,
+  // and when none was it says that nothing could be compared instead.
   if (real.length === 0) {
-    out.push(`"${la}" and "${lb}" are shaped about the same on everything that could be measured in both.`);
+    const same = rows.filter((r) => r.verdict === 'about the same');
+    if (same.length > 0) {
+      out.push(`"${la}" and "${lb}" are shaped about the same on ${listOf(same.map((r) => r.label))}.`);
+    } else {
+      out.push(`Nothing about how "${la}" and "${lb}" are shaped was measured in both takes, so I cannot say whether they are shaped alike.`);
+    }
   }
   const skipped = rows.filter((r) => r.verdict === 'unmeasured');
   if (skipped.length) {

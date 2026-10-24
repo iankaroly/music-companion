@@ -138,7 +138,7 @@ function compareFacts(a, b) {
 // tone differences, so one answer said the takes were 13¢ closer, steadier and
 // wider and then that they were "about the same on everything". A plain
 // comparison has no use for a negative about a part it was not asked about.
-const SHAPING_NOTHING = /are shaped about the same on everything|^Could not be compared because it was not measured in both takes/;
+const SHAPING_NOTHING = /are shaped about the same on |so I cannot say whether they are shaped alike\.$|^Could not be compared because it was not measured in both takes/;
 function shapingFolded(a, b) {
   if (!a.musicality || !b.musicality) return [];
   const rows = compareMusicalityFacts(a, b, { max: 3 });
@@ -148,18 +148,18 @@ function shapingFolded(a, b) {
 }
 
 // When the question IS about shaping and the takes are shaped alike, that is
-// the answer, but "on everything that could be measured" is a claim about the
-// pitch and the tone too, and the same answer has just listed those differing.
-// Said about the shaping measurements by name it is true, and with a pointer to
-// the differences above when there are some. (The sentence is built in
-// musicality-facts.js; it is reworded here, where the other facts are known.)
+// the answer. The sentence names the shaping rows it is about (it used to say
+// "on everything that could be measured", which was false whenever nothing had
+// been measured in both and was a claim about the pitch and the tone too, which
+// the same answer had just listed as differing); here it only gets a pointer to
+// the differences above when there are some.
 const DIFFERENCE_WORDS = /\b(closer|further|steadier|shakier|wider|narrower|faster|slower|tighter|looser|clearer|brighter|darker|more notes|fewer notes)\b/;
 function scopedSame(rows, earlier) {
   const differences = earlier.some((f) => DIFFERENCE_WORDS.test(f));
-  return rows.map((r) => r.replace(
-    /are shaped about the same on everything that could be measured in both\.$/,
-    `are shaped about the same on the shaping measurements (phrasing, articulation, tempo and repeated figures)${differences ? '; the differences above are not about shaping' : ''}.`,
-  ));
+  // The line now names the shaping rows it is about, so it is no longer an
+  // "everything" claim; all that is left to add is the pointer to differences
+  // that were found elsewhere in the same answer.
+  return rows.map((r) => (differences ? r.replace(/(are shaped about the same on .*)\.$/, '$1; the differences above are not about shaping.') : r));
 }
 
 function worstFacts(take) {

@@ -1113,8 +1113,33 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
 // as `better`, and its facts said that is what repeating a figure asks for;
 // 'repeated figure' was any five notes with the same steps, so a sequence the
 // composer wrote differently twice was graded for being played as written.)
+// HOW MANY PHRASES IS A FACT ABOUT HOW LONG THE TAKE IS. A player who phrases in
+// tens of notes finds 3 phrases in a 30-note take and 8 in an 80-note one, and
+// the comparison called every such pair "more, shorter phrases" (72 of 80 pairs
+// of one simulated player at 3, 4, 6, 8 and 12 phrases, every phrase ten notes).
+// The count is therefore compared only between takes of about the same number of
+// notes (within a fifth), and what is compared otherwise is the typical phrase
+// length in notes, which does not grow with the take. A row that cannot be
+// compared fairly is left out altogether: it is not "unmeasured" (it was
+// measured) and not "about the same" (nothing was shown to be the same).
+const LENGTH_WITHIN = 1.25;
+const lengthsComparable = (a, b) => {
+  const hi = Math.max(a.noteCount, b.noteCount);
+  const lo = Math.min(a.noteCount, b.noteCount);
+  return lo > 0 && hi / lo <= LENGTH_WITHIN;
+};
+// With one phrase found, "the phrase length" is the length of the take.
+const phraseLengthOf = (m) => {
+  const d = m.descriptors['phrase-count'];
+  return d?.measured && d.value >= 2 ? d.detail.medianNotes : null;
+};
+
 const COMPARE = [
-  { key: 'phrase-count', get: (m) => m.descriptors['phrase-count'], small: 1.5, abs: true, up: 'more, shorter phrases', down: 'fewer, longer phrases' },
+  { key: 'phrase-count', small: 1.5, abs: true, up: 'more, shorter phrases', down: 'fewer, longer phrases', onlyIf: lengthsComparable },
+  // The typical phrase length in notes. Its own unit and its own floor: two
+  // notes or a quarter, whichever is more, because one cut more or less in a
+  // phrase of ten moves the median by one or two.
+  { key: 'phrase-length', src: 'phrase-count', label: 'typical phrase length', unit: 'notes', valueFrom: phraseLengthOf, small: 2, rel: 0.25, up: 'longer phrases', down: 'shorter phrases' },
   // 30, not 20: phrase-definition moves in steps of a third of a point per phrase
   // end, and 14 ms of onset error on one performance at two tempos moved it by
   // 20 (three ends of five losing a cue) and, twice in sixty pairs, by 27.
@@ -1150,21 +1175,27 @@ export function compareMusicality(before, after) {
   if (!before || !after) return [];
   const out = [];
   for (const c of COMPARE) {
-    const a = before.descriptors[c.key];
-    const b = after.descriptors[c.key];
-    const label = (b ?? a)?.label ?? c.key;
-    const unit = (b ?? a)?.unit ?? '';
-    if (!a?.measured || !b?.measured) {
-      out.push({ key: c.key, label, unit, before: a?.measured ? a.value : null, after: b?.measured ? b.value : null, change: null, verdict: 'unmeasured' });
+    if (c.onlyIf && !c.onlyIf(before, after)) continue;
+    const a = before.descriptors[c.src ?? c.key];
+    const b = after.descriptors[c.src ?? c.key];
+    const label = c.label ?? (b ?? a)?.label ?? c.key;
+    const unit = c.unit ?? (b ?? a)?.unit ?? '';
+    const va = c.valueFrom ? c.valueFrom(before) : (a?.measured ? a.value : null);
+    const vb = c.valueFrom ? c.valueFrom(after) : (b?.measured ? b.value : null);
+    if (va === null || vb === null) {
+      // A phrase length of a take with a single phrase is no reading at all
+      // (see phraseLengthOf), not an unmeasured one: nothing is said.
+      if (c.valueFrom && a?.measured && b?.measured) continue;
+      out.push({ key: c.key, label, unit, before: va, after: vb, change: null, verdict: 'unmeasured' });
       continue;
     }
-    const delta = b.value - a.value;
+    const delta = vb - va;
     const floorOf = FLOOR_OF[c.key];
     const floor = floorOf ? Math.max(0, ...[before, after].map((m) => (m.floors ? floorOf(m.floors) : 0))) : 0;
-    const small = Math.max(c.small, floor);
+    const small = Math.max(c.small, floor, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
     const moved = Math.abs(delta) >= small;
     const verdict = !moved ? 'about the same' : delta > 0 ? c.up : c.down;
-    const row = { key: c.key, label, unit, before: a.value, after: b.value, change: delta, verdict };
+    const row = { key: c.key, label, unit, before: va, after: vb, change: delta, verdict };
     if (moved) row.direction = delta > 0 ? 'higher' : 'lower';
     out.push(row);
   }
