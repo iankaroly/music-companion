@@ -29,9 +29,17 @@
 //
 //   npm run dev             (on 5199)
 //   npm run ask:card
-//   SHOTS=<dir>             where the screenshots go (default $TMPDIR/ask-card)
 //
-import { mkdir } from 'node:fs/promises';
+// THE BUILT BUNDLE: the same check runs against `vite preview` of dist/ (what
+// Vercel serves), where /src/*.js does not exist and the app's modules are
+// minified chunks. BUILT=1 finds the db chunk in dist/assets and picks
+// saveRecording / renameRecording out of it by what their source says, so the
+// library is still written through the app's own storage code.
+//
+//   npm run build && npx vite preview --port 5199 --strictPort
+//   BUILT=1 npm run ask:card
+//
+import { mkdir, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import puppeteer from 'puppeteer-core';
@@ -42,6 +50,10 @@ const SHELL = process.env.CHROME_SHELL
   ?? `${process.env.HOME}/.cache/puppeteer/chrome-headless-shell/`
     + 'mac_arm-150.0.7871.115/chrome-headless-shell-mac-arm64/chrome-headless-shell';
 await mkdir(SHOTS, { recursive: true });
+const BUILT = process.env.BUILT === '1';
+const DB_CHUNK = BUILT
+  ? `/assets/${(await readdir('dist/assets')).find((f) => /^db-.*\.js$/.test(f))}`
+  : null;
 
 const results = [];
 const check = (name, pass, detail = '') => {
@@ -100,8 +112,18 @@ function installNative(mode) {
 // the true answer to "which take is closer to pitch" is known before anything
 // runs. Take B is steadier, with a narrower vibrato, than take A.
 async function seed(page, which) {
-  await page.evaluate(async (kind) => {
-    const { saveRecording, renameRecording } = await import('/src/store/db.js');
+  await page.evaluate(async (kind, chunk) => {
+    let saveRecording;
+    let renameRecording;
+    if (!chunk) {
+      ({ saveRecording, renameRecording } = await import('/src/store/db.js'));
+    } else {
+      // minified names; the two functions are told apart by what they do
+      const fns = Object.values(await import(chunk)).filter((f) => typeof f === 'function').map((f) => [f, f.toString()]);
+      saveRecording = fns.find(([, src]) => /scoreStats/.test(src) && /sampleRate/.test(src) && /recording-data/.test(src))?.[0];
+      renameRecording = fns.find(([, src]) => /recordings/.test(src) && src.length < 600 && /\.name\s*=/.test(src))?.[0];
+      if (!saveRecording || !renameRecording) throw new Error('could not find saveRecording/renameRecording in the built db chunk');
+    }
     let seedv = 12345;
     const rnd = () => { seedv = (seedv * 1664525 + 1013904223) % 4294967296; return seedv / 4294967296; };
     const SR = 44100;
@@ -158,7 +180,7 @@ async function seed(page, which) {
       });
       await renameRecording(id, r.name);
     }
-  }, which);
+  }, which, DB_CHUNK);
 }
 
 // A fresh page per scenario: `evaluateOnNewDocument` scripts accumulate, and
@@ -295,6 +317,8 @@ const cardFits = (page) => page.evaluate(() => {
   check('browser: the empty state is not showing and the field is live', !s.emptyVisible && s.inputDisabled === false && s.sendDisabled === false);
   check('browser: the card says why the measurements are shown directly',
     /^Showing the measurements directly: /.test(s.model), s.model);
+  check('browser: the reason reads as a plain fact about the web, not as a fault',
+    /iPhone and iPad app/.test(s.model) && !/cannot|can't|error|failed|unable/i.test(s.model) && s.model.length < 100, s.model);
 
   // labels
   const a11y = await page.evaluate(() => {
@@ -447,6 +471,31 @@ const cardFits = (page) => page.evaluate(() => {
   const calls = await page.evaluate(() => window.__native.respondCalls);
   check('refusal: the model is never asked and the foot line does not claim its wording',
     calls === 0 && /I can only answer from what the app measured/.test(s.answer) && !s.modelVisible && !/Apple|checked/.test(s.model), `${calls} · ${s.model}`);
+  await ctx.close();
+}
+
+// ═══ 4d. every kind of refusal, in a plain browser, light and dark ══════════
+// The card went blank on every refusal once (see answerLines), so each kind is
+// asked through the real screen and what is on the glass is read back.
+for (const [theme, width, height, mobile] of [['light', 390, 844, true], ['dark', 390, 844, true], ['light', 1280, 900, false], ['dark', 1280, 900, false]]) {
+  const { page, ctx, probes } = await open({ mode: 'none', library: 'two', theme, width, height, mobile });
+  const kinds = [
+    ['offtopic', "what's the capital of France", /not about them/],
+    ['unmeasurable', 'is my tone beautiful', /not something it measures/],
+    ['unsupported', 'which was my best take', /ranking all of your takes/],
+    ['notfound', 'how was my Paganini caprice take', /could not find "/],
+  ];
+  for (const [kind, q, re] of kinds) {
+    await settle(page);
+    await type(page, q);
+    await page.keyboard.press('Enter');
+    const s = await waitDone(page);
+    check(`refusal ${kind} (${theme} ${width}): printed, not blank, and the field is back`,
+      s.state === 'answer' && re.test(s.answer) && !s.inputDisabled, s.answer.slice(0, 90));
+    check(`refusal ${kind} (${theme} ${width}): no error styling, no failure note`, s.state !== 'error' && s.note === '', s.note);
+    await shot(page, `refusal-${kind}-${theme}-${width}`);
+  }
+  check(`refusals (${theme} ${width}): no request left the device, no page error`, probes.crossOrigin.length === 0 && probes.errors.length === 0, probes.crossOrigin.concat(probes.errors).join(' | '));
   await ctx.close();
 }
 
