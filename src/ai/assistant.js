@@ -16,6 +16,7 @@ import { factsFor } from './facts.js';
 import { checkReply, stripScopeTags } from './guard.js';
 import { musicalityOf } from '../analysis/musicality.js';
 import { MUSICALITY_INSTRUCTION } from './musicality-facts.js';
+import { instrument, instrumentChosen } from '../analysis/instruments.js';
 
 // Rewritten after running the eval questions through the real on-device model
 // (tools/ai-model/README.md). What the first wording did at temperature 0, and
@@ -175,6 +176,34 @@ export function refusalFor(scope = {}) {
   return `${base}. That question is not about them. ${ASKABLE}`;
 }
 
+// The range a take's notes are held to, so musicalityOf can say a take was heard
+// in the wrong octave (its reliability check is silent without one). A stored
+// take carries no instrument, and the family is one setting for the whole app, so
+// the range is, in order: one the take itself carries, the chosen family's, and
+// the widest any instrument here reaches (a piano's A0 to C8), which no
+// legitimate take of any instrument leaves. The family ranges are deliberately
+// generous (a family is many instruments: strings runs from a bass's E1 to a
+// violin's G7), because a net that flags a real take lowers every confidence in
+// its facts and says the pitch was mis-heard.
+export const GENERIC_RANGE = { lowMidi: 21, highMidi: 108 };
+const FAMILY_RANGE = {
+  strings: { lowMidi: 28, highMidi: 103 },
+  winds: { lowMidi: 34, highMidi: 108 },
+  brass: { lowMidi: 28, highMidi: 96 },
+  voice: { lowMidi: 36, highMidi: 88 },
+  keys: GENERIC_RANGE,
+};
+export function rangeFor(data = {}) {
+  const own = data?.range;
+  if (Number.isFinite(own?.lowMidi) && Number.isFinite(own?.highMidi)) return own;
+  try {
+    if (!instrumentChosen()) return GENERIC_RANGE;
+    return FAMILY_RANGE[instrument().id] ?? GENERIC_RANGE;
+  } catch {
+    return GENERIC_RANGE;
+  }
+}
+
 export async function answerQuestion({ question, library, load, qualityOf, rhythmReport, model = null, now = Date.now() }) {
   const p = plan(question, library, now);
   if (p.scope && ['offtopic', 'unmeasurable', 'unsupported', 'notfound'].includes(p.scope.kind)) {
@@ -195,7 +224,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
           t.quality = qualityOf({ notes: data.notes, readings: data.readings, audio: data.samples ?? null, sampleRate: data.sampleRate, a4: data.a4 ?? 440 });
         }
         if (p.needs.rhythm && rhythmReport) t.rhythm = rhythmReport(data.notes);
-        if (p.needs.musicality) t.musicality = musicalityOf({ notes: data.notes, readings: data.readings, a4: data.a4 ?? 440 });
+        if (p.needs.musicality) t.musicality = musicalityOf({ notes: data.notes, readings: data.readings, a4: data.a4 ?? 440, range: rangeFor(data) });
       } catch { /* an unreadable take just has no tone or rhythm facts */ }
     }
   }
