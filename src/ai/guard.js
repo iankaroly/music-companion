@@ -495,6 +495,78 @@ const NUMBER_TOPICS = {
 };
 const topicsIn = (s) => new Set(Object.entries(NUMBER_TOPICS).filter(([, re]) => re.test(s)).map(([k]) => k));
 
+// ---- which number the words beside it belong to --------------------------------
+
+// 8c above asks whether a number sits in a sentence about the same sort of thing,
+// and cannot see two numbers in ONE sentence swapped: the range and the step of
+// the loudness ("12 dB between the quietest and loudest ...; neighbouring notes
+// differ by 1.8 dB"), a note's lean and its spread ("D3 runs 14¢ sharp (spread
+// ±2¢ ...)"). Each number has a LABEL, the content words between it and the
+// number or the comma, colon or bracket before it, and the ones after it up to
+// the next. The rule is deliberately one-sided: a reply number is refused when
+// its words are the words of a different number of the same unit and share
+// none with the number it quotes. A reply that says nothing the facts' words
+// recognise ("your dynamics span 12 dB") is left to the other rules, because
+// synonyms are most of what a paraphrase is.
+const LABEL_STOP = new Set(('a an the and or but of at by in on to for with from as is are was were be been it its this that these those your you my i about around roughly '
+  + 'approximately nearly almost over under than then so now before after average mean overall each every per about up down off out also just only still about '
+  + 'cent cents db decibels decibel hz hertz ms milliseconds millisecond s sec secs second seconds percent bpm beats beat points point notes note times time take takes '
+  + 'where which what who how when').split(/\s+/));
+const SEGMENT_BREAK = /[;:()\n]|[.!?](?=\s|$)|,(?!\d)/g;
+function wordsOf(s) {
+  return (s.toLowerCase().match(/[a-z][a-z']*|[a-g][#b]?\d/g) ?? [])
+    .map((w) => (/^[a-g][#b]?\d$/.test(w) ? w : w.replace(/'s$/, '').replace(/(?:ing|ed|es|s)$/, (m, i, all) => (all.length > 5 ? '' : m))))
+    .filter((w) => w.length > 1 && !LABEL_STOP.has(w));
+}
+// A take's name and its date are words too, and they sit beside half the numbers
+// in a comparison; they say WHICH take, not what was measured, so they are blanked.
+const blankNames = (s) => s
+  .replace(/"[^"]{1,80}"/g, (m) => ' '.repeat(m.length))
+  .replace(new RegExp(`\\b${MONTH_RE}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, 'gi'), (m) => ' '.repeat(m.length));
+function labelled(tokens, txtIn) {
+  const txt = blankNames(txtIn);
+  const breaks = [...txt.matchAll(SEGMENT_BREAK)].map((m) => m.index);
+  const ordered = [...tokens].sort((a, b) => a.index - b.index);
+  return ordered.map((t, i) => {
+    const segStart = (breaks.filter((b) => b < t.index).pop() ?? -1) + 1;
+    const segEnd = breaks.find((b) => b >= t.end) ?? txt.length;
+    const prev = ordered[i - 1];
+    const next = ordered[i + 1];
+    const from = prev && prev.end > segStart ? prev.end : segStart;
+    const to = next && next.index < segEnd ? next.index : segEnd;
+    const unitEnd = t.end + (/^\s*(?:¢|%|cents?|ms|db|hz|s\b)/i.exec(txt.slice(t.end))?.[0].length ?? 0);
+    // the words AFTER a number run only to the next connector: in "D3 runs 2¢
+    // sharp with a spread of ±14¢", "a spread of" leads into the 14 and is not
+    // the 2's
+    const after = txt.slice(Math.min(unitEnd, to), to).split(/\b(?:with|and|but|over|while|at|by|for|of|in|from|where|between|against|than|compared)\b/i)[0];
+    return { ...t, words: new Set(wordsOf(`${txt.slice(from, t.index)} ${after}`)) };
+  });
+}
+const sharesAny = (a, b) => [...a].some((w) => b.has(w));
+const NOTE_WORD = /^[a-g][#b]?\d$/;
+function misattached(R, replyTxt, F, factsTxt) {
+  const out = [];
+  const theirs = labelled(F.tokens, factsTxt);
+  for (const r of labelled(R.tokens, replyTxt)) {
+    if (!r.cls || r.words.size === 0) continue;
+    const same = theirs.filter((f) => quotes(r, f));
+    if (same.length === 0) continue;
+    const others = theirs.filter((f) => f.cls === r.cls && !near(r.v, f.v));
+    const rn = [...r.words].filter((w) => NOTE_WORD.test(w));
+    // which NOTE: D3's figure given to A3
+    if (rn.length && same.every((f) => { const fn = [...f.words].filter((w) => NOTE_WORD.test(w)); return fn.length && !fn.some((n) => rn.includes(n)); })) {
+      out.push(`${r.v}${r.cls ? ` ${r.cls}` : ''} belongs to ${[...same[0].words].filter((w) => NOTE_WORD.test(w)).join('/')}, not ${rn.join('/')}`);
+      continue;
+    }
+    // a number whose own words are empty in the facts (a take's average in a
+    // comparison, "9¢" after a quoted name) says nothing to hold the reply to
+    if (same.some((f) => f.words.size === 0 || sharesAny(r.words, f.words))) continue;
+    const stolen = others.find((f) => sharesAny(r.words, f.words));
+    if (stolen) out.push(`${r.v}${r.cls ? ` ${r.cls}` : ''} is the measurement beside "${[...stolen.words].slice(0, 3).join(' ')}" in the facts, and the number beside "${[...same[0].words].slice(0, 3).join(' ')}" is ${stolen.v}`);
+  }
+  return out;
+}
+
 // ---- things the facts say were not measured ------------------------------------
 
 const HEDGE = /\bno [\w ]{0,30}(measurement|data|reading)s?\b|not measured|wasn't measured|weren't measured|could not|couldn't|cannot|can't|\bunable\b|no (data|measurement|steady|pulse)|not available|don't have|do not have|didn't|did not|isn't|aren't|not enough|too few|nothing|unmeasured|not able|only one|no saved/i;
@@ -689,8 +761,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   // and to the facts below.
   const allowed = [...F.tokens, ...Q.tokens.filter((t) => t.cls !== 'take'), ...nameNumbers].map((t) => ({ v: t.v, cls: t.cls }));
   for (const u of dayUses) allowed.push({ v: u.v, cls: 'days' });
-  // "88 out of 100" is a percentage said another way
-  for (const m of factsText.matchAll(/(\d+(?:\.\d+)?)\s*(?:out of 100|\/\s*100)/g)) allowed.push({ v: Number(m[1]), cls: 'pct' });
+  // "88 out of 100" used to be allowed as a percentage said another way. It let
+  // "vibrato is on 88% of notes" through (88 is the tone clarity, and the facts'
+  // own percentages are about notes), and no reply the real model gave in
+  // tools/ai-model/results ever wrote the clarity as a percentage: the one that
+  // mentioned it said "88 out of 100". So a number out of 100 stays a number out
+  // of 100.
   const allowedBars = new Set([...F.bars, ...Q.bars]);
   // a take's name carries its date ("Bach prelude, Oct 19"), and a reply that
   // says "the Oct 19 take" is quoting it
@@ -833,6 +909,9 @@ export function checkReply(reply, facts, question = '', opts = {}) {
       add('attached', `${r.v}${r.cls ? ` ${r.cls}` : ''} is in the measurements, but about ${[...homes[0].topics].join('/')} and the reply uses it for ${[...mine].join('/')}`);
     }
   }
+
+  // 8d. a number next to the words of a DIFFERENT number of the same unit
+  for (const w of misattached(R, clean(text), F, factsText)) add('attached', w);
 
   // 9. claims about the player's level, other players, or the best ever
   const lower = clean(text).toLowerCase();
