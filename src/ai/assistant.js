@@ -100,6 +100,7 @@ export function promptFor(question, facts) {
 // with room for the reply, and what is over it is shown as the plain
 // measurements instead of being sent to fail.
 export const MAX_PROMPT_CHARS = 7000;
+export const MODEL_TIMEOUT_MS = 30000;
 
 // A reply that is not a finished answer, whatever its numbers say. The plugin
 // caps the reply length, because one question ("which bars should I work on",
@@ -143,7 +144,17 @@ export async function nativeModel() {
 export async function modelStatus(model = null) {
   try {
     const m = model ?? await nativeModel();
-    if (!m) return { available: false, reason: 'This device cannot run the on-device model.' };
+    if (!m) {
+      // In a browser this is the normal state, not a fault, and the card prints
+      // it after "Showing the measurements directly:". It used to read "This
+      // device cannot run the on-device model", which on a laptop sounds like a
+      // problem with the laptop. Inside the app a missing plugin IS a fault, so
+      // that case keeps saying so.
+      const inApp = !!globalThis.Capacitor?.isNativePlatform?.();
+      return { available: false, reason: inApp
+        ? 'The on-device model could not be reached.'
+        : 'the on-device wording is part of the iPhone and iPad app.' };
+    }
     const s = await m.availability();
     return { available: !!s?.available, reason: s?.reason ?? '' };
   } catch (err) {
@@ -249,7 +260,15 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
   }
 
   try {
-    const reply = await m.respond({ instructions, prompt });
+    // The plugin caps the reply at 200 tokens, which bounds a healthy run to a
+    // few seconds. This is the net under that: a model that never comes back
+    // (a stuck framework call, the app suspended mid-question) would leave the
+    // card on "putting it into words" with the field disabled for good.
+    let timer;
+    const reply = await Promise.race([
+      m.respond({ instructions, prompt }),
+      new Promise((_, no) => { timer = setTimeout(() => no(new Error('The on-device model took too long.')), MODEL_TIMEOUT_MS); }),
+    ]).finally(() => clearTimeout(timer));
     // The scope tags in the prompt are the app's own bookkeeping. A model that
     // echoes one back ("[the whole take] Your take was...") is not wrong, and the
     // player is not shown a tag.

@@ -8,7 +8,6 @@ import { toggleDroneNote, activeDroneNotes } from '../audio/drone.js';
 import { intonationHue } from './chart-utils.js';
 import { palette, onThemeChange } from './theme.js';
 import { instrument } from '../analysis/instruments.js';
-import { renderAsk } from './ask.js';
 
 // The coach tab: personal intonation habits mined from the library.
 // Three cards — today's drill (act on it), the tendency map (see it),
@@ -45,7 +44,13 @@ export async function renderCoach(root) {
   } catch { /* blocked IndexedDB — treated as no data */ }
   // Before the empty-library return below: the ask card says what it needs
   // when there is nothing to ask about, rather than vanishing.
-  renderAsk(root, recordings).catch(() => {});
+  //
+  // Loaded on the first visit to this tab, not with the app: the question
+  // router, the sentence writer, the reply guard and the musicality reading
+  // are 114 kB (41 kB gzipped) of the first load measured on the production
+  // build, 31% on top of the app, and a player who opens the Tuner never needs
+  // them. A failed load (offline with a cold cache) leaves the card as drawn.
+  import('./ask.js').then((m) => m.renderAsk(root, recordings)).catch(() => {});
   const sessions = recordings.map((r) => ({
     date: r.date,
     name: r.name,
