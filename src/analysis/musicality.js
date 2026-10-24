@@ -42,7 +42,7 @@ const MIN_CONF = 0.6;          // the same pitched-frame floor quality.js and th
 export const LIMITS = {
   restGapSec: 0.05,          // a silence this much longer than the take's usual one (and long against the tempo) can end a phrase; a small floor only: the bar is the take's own spacing (restGapBeats)
   restGapBeats: 0.35,        //   …as a share of the local note spacing
-  breathGapSec: 0.08,        // a silence this much longer than usual is a breath on its own; a floor under the take's own spacing (breathGapBeats), not the bar itself
+  breathGapSec: 0.12,        // a silence this much longer than usual is a breath on its own; a floor under the take's own spacing (breathGapBeats), not the bar itself
   breathGapBeats: 0.4,       //   …as a share of the local note spacing (0.5 missed a breath of 0.6 of a note at every tempo under 0.35 s a note; 0.35 cut a ragged take once in 150; see the header of segmentPhrases)
   longNote: 1.7,             // a note spaced this many times the local spacing is a long note
   levelReset: 4,             // dB: loudness steps up after a fall = a new start
@@ -194,14 +194,22 @@ function segmentPhrases(notes, levels) {
   // 240 pairs of one player at two tempos said "more, shorter phrases" (16
   // seeds, six tempos from 0.3 to 0.7 s, through the real Analyzer and
   // segmenter). The bar is now 0.4 of the local spacing beyond the take's usual
-  // silence, with a floor of 0.08 s that is only there for the timing error of
-  // a very fast take. 0.5 of a note was tried first and still missed the breath
-  // below 0.35 s (9 of 16 takes right at 0.3 s); 0.35 and 0.3 cut a ragged
-  // breath-free take (one in 150, two in 150). At 0.4: no false cut in 150
-  // ragged, stretched, uneven and arched breath-free takes, none in 112 through
-  // the real pipeline from 0.12 to 0.6 s a note, and all 16 of 16 right from
-  // 0.25 s a note. Below that the instrument cannot see a breath of 0.6 of a
-  // note (see FASTEST_BEAT_SEC), and the comparison says nothing about phrases.
+  // silence, with a floor of 0.12 s. 0.5 of a note was tried first and still
+  // missed the breath below 0.35 s (9 of 16 takes right at 0.3 s); 0.35 and 0.3
+  // cut a ragged breath-free take (one in 150, two in 150). At 0.4: no false cut
+  // in 150 ragged, stretched, uneven and arched breath-free takes, none in 112
+  // through the real pipeline from 0.12 to 0.6 s a note, and 16 of 16 right from
+  // 0.3 s a note. THE FLOOR WAS 0.08 s FIRST (all 16 right from 0.25 s) and was
+  // raised because real cello is full of silences of 0.08-0.2 s beyond the usual
+  // one (11-33 in 45 s of each of seven excerpts, against 0-9 of 0.2 s or more)
+  // that are bow changes and not breaths: the seven excerpts came to 136 phrase
+  // cuts at 0.08 s, 125 at 0.1, 117 at 0.12, 99 at 0.2, against 79 before this
+  // change; 0.12 keeps every tempo of 0.3 s a note and slower. Below that the
+  // instrument cannot see a breath of 0.6 of a note (see FASTEST_BEAT_SEC), and the
+  // comparison says nothing about phrases. WHETHER 117 IS RIGHT FOR THE REAL
+  // PLAYING IS NOT KNOWN: the labels of MusicNet are continuous (no silence of 0.12 s
+  // anywhere in the seven excerpts), so they say nothing about where the
+  // phrases end.
 
   const cuts = [];
   for (let i = 0; i + 1 < n; i++) {
@@ -741,6 +749,11 @@ function tempoDescriptors(notes, seg, fl) {
       const edge = Math.max(3, Math.floor(sm.length / 6));
       const endGap = (2 ** (median(sm.slice(0, edge)) - median(sm.slice(-edge))) - 1) * 100;
       const apart = Math.abs(endGap);
+      // A wave: the tempo moves by more than steady playing does (so there is a
+      // movement for the end to differ by) and no line explains it. A curve that
+      // is steady and still seems to end 4% or more from its start is a drift that
+      // was not backed, or noise, and is not described as ending where it began.
+      const waveLike = !!flex && word !== 'steady' && word !== 'edge-steady' && !driftLike;
       // A drift the second reading does not back is NOT called a return or
       // steady either: "comes back to where it began" of a take that did end 15%
       // faster is as false as a drift that never happened (the first cut of an
@@ -757,7 +770,7 @@ function tempoDescriptors(notes, seg, fl) {
       } else if (backed && driftLike && big >= LIMITS.leanPct) {
         kind = drift > 0 ? 'leans-faster' : 'leans-slower';
         phrase = `the tempo ends ${Math.round(big)}% ${drift > 0 ? 'faster' : 'slower'} than it began (a slight drift, not a return)`;
-      } else if (driftLike && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct) {
+      } else if ((driftLike || !waveLike) && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct) {
         kind = null;
       } else if (!flex) {
         kind = null;
@@ -791,7 +804,7 @@ function tempoDescriptors(notes, seg, fl) {
       out.push(kind
         ? got('tempo-shape', 'whether the tempo returns or drifts', drift, '%', phrase, kept.length, { ok: 12, good: 30, detail: { kind } })
         : missing('tempo-shape', 'whether the tempo returns or drifts',
-          driftLike
+          (driftLike || !waveLike) && Math.max(big, Math.abs(trendMain?.drift ?? 0)) >= LIMITS.leanPct
             ? `the tempo seems to end ${(Math.abs(trendMain?.drift ?? 0) > big ? trendMain.drift : drift) > 0 ? 'faster' : 'slower'} than it began, but a second reading of the same spacings did not back that, so no tempo shape is claimed`
             : `no drift was found, but with only ${kept.length} steady spacings the spread of the tempo is not read, so whether it returns or holds is not claimed`,
           kept.length));
@@ -1417,13 +1430,13 @@ const lengthsComparable = (a, b) => {
   const lo = Math.min(a.noteCount, b.noteCount);
   return lo > 0 && hi / lo <= LENGTH_WITHIN && breathsVisible(a, b);
 };
-// BREATHS TOO SHORT TO SEE. At a note spacing under about 0.25 s the pipeline's
+// BREATHS TOO SHORT TO SEE. At a note spacing under about 0.3 s the pipeline's
 // own timing error (a few tens of milliseconds on each onset) is as large as a
 // breath of 0.6 of a note, so the same performance finds 1-8 phrases by seed at
-// 0.2 s a note and all 8 from 0.25 s on (16 seeds each; 70 of 448 tempo-only
+// 0.2 s a note and all 8 from 0.3 s on (16 seeds each; 70 of 448 tempo-only
 // pairs said "more, shorter phrases" with a 0.2 s take in them). Two takes are
 // compared on their phrases only when neither is faster than that.
-const FASTEST_BEAT_SEC = 0.25;
+const FASTEST_BEAT_SEC = 0.28;
 const breathsVisible = (a, b) => !(a.beatSec < FASTEST_BEAT_SEC || b.beatSec < FASTEST_BEAT_SEC);
 // With one phrase found, "the phrase length" is the length of the take.
 const phraseLengthOf = (m) => {
@@ -1440,14 +1453,21 @@ const COMPARE = [
   // 30, not 20: phrase-definition moves in steps of a third of a point per phrase
   // end, and 14 ms of onset error on one performance at two tempos moved it by
   // 20 (three ends of five losing a cue) and, twice in sixty pairs, by 27.
-  { key: 'phrase-definition', small: 30, up: 'more clearly marked phrase ends', down: 'less clearly marked phrase ends' },
+  // It is the mean of one score per phrase end, each 67 or 100 in practice
+  // (a breath alone, or a breath and a second cue), so with two or three phrase
+  // ends one end more or less cued moves it by 33 or 17. The same player,
+  // transposed or at a lower level, differed by 30 or more in 21 of 144 pairs
+  // through the real pipeline, and every one of them had fewer than five ends.
+  // The bar now grows with how few ends there are (seFrom, 2 standard errors).
+  { key: 'phrase-definition', small: 30, seFrom: (d) => 17 / Math.sqrt(Math.max(1, d.n)), up: 'more clearly marked phrase ends', down: 'less clearly marked phrase ends' },
   { key: 'phrase-shape', small: 20, up: 'more phrases that swell and fade', down: 'fewer phrases that swell and fade' },
   { key: 'phrase-contrast', small: 0.8, up: 'more phrasing contrast', down: 'less phrasing contrast' },
   { key: 'stretch-contrast', small: 1, up: 'more loudness contrast across the take', down: 'less loudness contrast across the take' },
   { key: 'articulation', small: 0.1, up: 'more connected', down: 'more detached' },
   { key: 'articulation-evenness', small: 0.06, up: 'less even articulation', down: 'more even articulation' },
   { key: 'tempo-flexibility', small: 2.5, up: 'a freer tempo', down: 'a steadier tempo' },
-  { key: 'phrase-final-lengthening', small: 0.25, up: 'more lengthening at phrase ends', down: 'less lengthening at phrase ends' },
+  // (phrase ends are found from breaths, so this row is as blind as the count under FASTEST_BEAT_SEC)
+  { key: 'phrase-final-lengthening', small: 0.25, up: 'more lengthening at phrase ends', down: 'less lengthening at phrase ends', onlyIf: breathsVisible },
   { key: 'repeat-timing', small: 1.5, up: 'matching five-note patterns played less alike in timing', down: 'matching five-note patterns played more alike in timing' },
   { key: 'repeat-loudness', small: 0.8, up: 'matching five-note patterns played less alike in loudness', down: 'matching five-note patterns played more alike in loudness' },
   { key: 'vibrato-growth', small: 25, up: 'vibrato opens up more on long notes', down: 'vibrato opens up less on long notes' },
@@ -1494,7 +1514,8 @@ export function compareMusicality(before, after) {
     // one and a half times the two errors together: the same playing at two
     // lengths is not a change.
     const se = Math.hypot(a?.detail?.se ?? 0, b?.detail?.se ?? 0);
-    const small = Math.max(c.small, floor, 1.5 * se, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
+    const seRow = c.seFrom ? Math.hypot(c.seFrom(a), c.seFrom(b)) : 0;
+    const small = Math.max(c.small, floor, 1.5 * se, 2 * seRow, c.rel ? c.rel * ((Math.abs(va) + Math.abs(vb)) / 2) : 0);
     const moved = Math.abs(delta) >= small;
     const verdict = !moved ? 'about the same' : delta > 0 ? c.up : c.down;
     const row = { key: c.key, label, unit, before: va, after: vb, change: delta, verdict };
