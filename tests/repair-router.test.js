@@ -60,6 +60,11 @@ describe('a date typed as a month and day is read', () => {
     expect(r.source).toBe('measurements');
     expect(r.facts.join(' ')).toMatch(/22¢ off pitch/);
   });
+  test('a position is not a day of the month', () => {
+    for (const q of ['how was the 3rd bar', 'compare the 1st and 2nd takes', 'how is the 5th note', 'how was the 2nd take']) {
+      expect(plan(q, lib, NOW).scope.kind, q).toBe('answer');
+    }
+  });
   test('a month word beside a count is not a date', () => {
     expect(plan('how were my last 5 takes in may 3 times', lib, NOW).scope.kind).not.toBe('notfound');
   });
@@ -69,8 +74,9 @@ describe('own-take questions are not general knowledge', () => {
   test.each(["what's the difference between my last two takes", 'what is the difference between my takes', 'what was my mean error'])('%s is answered', (q) => {
     expect(scopeOf(q, [rec(1, 'A', 1, 5), rec(2, 'A', 2, 8)], NOW).kind).toBe('answer');
   });
-  test('the definitions are still refused', () => {
-    for (const q of ['what is a semitone', "what's the difference between sharp and flat notes", 'what does vibrato mean']) {
+  test('the definitions are still refused, however politely they are asked', () => {
+    for (const q of ['what is a semitone', "what's the difference between sharp and flat notes", 'what does vibrato mean',
+      'Can you tell me what vibrato means', "what does a cent mean, I'm confused", "what's the average price of a violin", 'what does mean error mean for me']) {
       expect(scopeOf(q, [rec(1, 'A', 1, 5)], NOW).kind, q).toBe('offtopic');
     }
   });

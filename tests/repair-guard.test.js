@@ -73,6 +73,34 @@ describe('words in a take\'s name are not measurements', () => {
   });
 });
 
+describe('a quoted word is not a take name', () => {
+  // Only the facts' own take names are set aside when a reply is read for taste,
+  // direction and superlatives; a verdict in quotation marks is still a verdict.
+  test.each([
+    'Your playing was "beautiful".',
+    'You "improved" a lot.',
+    'It sounds "warm".',
+    'This was "your best take".',
+    'Your take averaged 9 cents off pitch, a "great job".',
+  ])('refused: %s', async (text) => {
+    const r = await viaModel([rec(1, 'Bach prelude', 1, 9)], 'how was my last take', text);
+    expect(r.source, r.note).toBe('measurements');
+  });
+  test('the take\'s own name in quotes is still its name', async () => {
+    const lib = [rec(1, 'Closer', 1, 9)];
+    expect((await viaModel(lib, 'how was my last take', '"Closer" averaged 9 cents off pitch.')).source).toBe('model');
+  });
+});
+
+describe('a parenthesis with a figure in it is not exempt', () => {
+  test('a copied parenthesis that carries digits is still read', () => {
+    const facts = ['D3 runs 14¢ sharp (spread ±2¢, 6 times).'];
+    expect(checkReply('D3 runs 14¢ sharp (spread ±2¢, 6 times).', facts, '', { takeCount: 1 }).ok).toBe(true);
+    // the 6 times is D3's; given to the take's average in the same copied parenthesis it must still be read
+    expect(checkReply('The average was 14 cents (spread ±2¢, 6 times) and you improved.', facts, '', { takeCount: 1 }).ok).toBe(false);
+  });
+});
+
 describe('the facts\' own caveat can be copied', () => {
   const toned = [{ ...rec(1, 'Aria', 1, 6), quality: {
     steadinessCents: 3.1, vibrato: { share: 0.7, widthCents: 27, rateHz: 5.4 }, clarity: 0.88, brightness: 3.5,

@@ -225,12 +225,14 @@ const RANKING = /\b(best|top|worst|highest|lowest|most accurate|cleanest)\s+(tak
 const GENERAL = /\b(mean|means|meaning|define|definition|stand for|what is an? |what's an? |what are the|difference between|how many [\w ]{0,20}\b(in|are in|per) an?)\b/;
 // Words that make a question the player's OWN: "what is the difference between
 // my last two takes" and "what was my mean error" share "difference between"
-// and "mean" with the definitions GENERAL is for. A bare "note" or "piece" is
-// not one: "what is the difference between sharp and flat notes" is general.
-const OWN = /\b(my|mine|myself|i|i'm|im|i've|ive|me|last|latest|today|yesterday)\b/;
+// and "mean" with the definitions GENERAL is for. Only a possessive or a point
+// in time does it: "i" and "me" are in "can you tell me what vibrato means", and
+// a bare "note" or "piece" is no better ("what is the difference between sharp
+// and flat notes" is general).
+const OWN = /\b(my|mine|myself|last|latest|today|yesterday)\b/;
 // Short open questions that mean "how am I doing".
 const VAGUE = /\bhow (am|did|was|is|are|were|do|does|have)\b|tell me|summary|overview|feedback|thoughts|update|report|so far|what about|how'?s|\bany good\b/;
-const DOMAIN = /error|accura|average|session|tuning|voice|vocal|\bsing|\bsang|register|take|record|play|practi|note|\bbar|measure|pitch|tune|intonation|sharp|flat|cents?\b|tempo|rhythm|rush|drag|vibrato|tone|sound|dynamic|loud|scale|piece|etude|beat|timing|progress|streak|week|compar|summary|doing|habit|worst/;
+const DOMAIN = /(?:mean|average|typical|overall|pitch) error|error rate|session|tuning|voice|vocal|\bsing|\bsang|register|take|record|play|practi|note|\bbar|measure|pitch|tune|intonation|sharp|flat|cents?\b|tempo|rhythm|rush|drag|vibrato|tone|sound|dynamic|loud|scale|piece|etude|beat|timing|progress|streak|week|compar|summary|doing|habit|worst/;
 
 // Names in the question that are not take names: capitalised words that are
 // really days, months or the app.
@@ -378,8 +380,11 @@ function dateRefs(q, now) {
     refs.push({ word: r.word, key: key ?? `none-${r.mo}-${r.day}` });
   }
   if (refs.length === 0) {
-    for (const m of q.matchAll(/\b(?:on |the )(\d{1,2})(?:st|nd|rd|th)\b/g)) {
-      const day = Number(m[1]);
+    // "on the 14th", or "the 14th" ending the question; never "the 3rd bar", "the
+    // 2nd take" or "the 1st and 2nd takes", which are positions and not days
+    const POSITION = '(?!\\s+(?:bar|bars|measure|measures|note|notes|take|takes|beat|beats|phrase|phrases|time|times|string|page|line|attempt|try|run|and|or|one|recording|recordings)\\b)';
+    for (const m of q.matchAll(new RegExp(`\\bon the (\\d{1,2})(?:st|nd|rd|th)\\b${POSITION}|\\bthe (\\d{1,2})(?:st|nd|rd|th)(?=\\s*(?:$|[?.!,]))`, 'g'))) {
+      const day = Number(m[1] ?? m[2]);
       let key = null;
       for (let back = 0; back < 62 && !key; back++) {
         const d = new Date(daysAgo(now, back));

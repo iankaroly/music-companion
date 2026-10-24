@@ -963,7 +963,7 @@ const BENCHMARK = [
 // The model never hears the audio; claiming to is claiming a measurement.
 const HEARING = [
   /\bi (listened|can hear|could hear|hear|noticed)\b|\blistened to\b/,
-  /\b(sounds?|sounded|sounding) (like |as if )?(warm|rich|thin|tense|beautiful|great|good|lovely|nice|harsh|pinched|forced|relaxed|natural|musical|mushy|clean|full|dark|bright|wide|steady|even|smooth|rough|breathy|expressive)\b/,
+  /\b(sounds?|sounded|sounding) (like |as if )?["']?(warm|rich|thin|tense|beautiful|great|good|lovely|nice|harsh|pinched|forced|relaxed|natural|musical|mushy|clean|full|dark|bright|wide|steady|even|smooth|rough|breathy|expressive)\b/,
 ];
 // Taste and praise. "Your playing was beautiful and very musical, with lovely
 // feeling." has no digit for the number rules to catch and no direction word for
@@ -1099,7 +1099,9 @@ const FULL_MONTH = /\b(january|february|march|april|june|july|august|september|o
 // the tone clarity was quoted.
 function stripCopiedParens(text, facts) {
   const hay = clean([].concat(facts ?? []).join('\n'));
-  return text.replace(/\(([^()]{6,120})\)/g, (m, inner) => (hay.includes(clean(inner)) ? ' ' : m)).replace(/ {2,}/g, ' ').trim();
+  // Only a parenthesis with no digit in it: one with a figure ("spread ±2¢, 6
+  // times", "Oct 19") would have its figures go unchecked wherever the reply put them.
+  return text.replace(/\(([^()]{6,120})\)/g, (m, inner) => (!/\d/.test(inner) && hay.includes(clean(inner)) ? ' ' : m)).replace(/ {2,}/g, ' ').trim();
 }
 
 // The names of takes sit in quotes. Their words are the player's, not the
@@ -1107,6 +1109,18 @@ function stripCopiedParens(text, facts) {
 // Day" made "improved", "closer" and "lovely" words the FACTS use, and the reply
 // "You have improved" passed with no change measured.
 const blankQuotes = (s) => s.replace(/"[^"]{1,80}"/g, (m) => ' '.repeat(m.length));
+// In the REPLY only a quoted span that is one of the facts' take names is blanked
+// (the name, or the name before its date). Blanking every quote let a quoted verdict
+// through: Your playing was "beautiful", You "improved" a lot, This was "your best
+// take" all passed, because the taste, direction and superlative checks never saw
+// the quoted word.
+function blankTakeNames(s, names) {
+  const known = names.map((n) => n.toLowerCase().trim());
+  return s.replace(/"([^"]{1,80})"/g, (m, inner) => {
+    const i = inner.toLowerCase().trim();
+    return i && known.some((n) => n === i || n.startsWith(`${i},`) || i.startsWith(`${n},`)) ? ' '.repeat(m.length) : m;
+  });
+}
 
 export function checkReply(reply, facts, question = '', opts = {}) {
   const raw = String(reply ?? '').trim();
@@ -1128,12 +1142,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   // The facts and the reply with the take names taken out, for every check that
   // asks whether the FACTS use a word (a direction, a verdict, a bit of praise).
   const factsBare = blankQuotes(factsText);
-  const textBare = blankQuotes(text);
   const everythingBare = `${factsBare.toLowerCase()}\n${qLower}`;
 
   const F = read(factsText);
   const Q = read(qText);
   const R = read(text);
+  const textBare = blankTakeNames(text, F.quotes);
 
   // days: each use must meet the same use in the facts, and the count of days
   // practised ("3 of the last 7") is a count in its own right
