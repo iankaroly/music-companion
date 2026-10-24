@@ -561,6 +561,80 @@ the failure `no-gaming-the-measure` exists to catch.
     the four excerpts (not held out; the 25% line was fitted to them) and eight
     others.
 
+## What is validated and what is not (all rounds, and the leftovers round on ai-fix-leftovers)
+
+Read this before believing any sentence the module prints.
+
+**Validated, on synthetic takes only.** Every shaping reading (phrase cuts, loudness
+arches, legato against detached, tempo wave and drift, phrase-end lengthening,
+repeat timing, vibrato opening) has been checked against takes BUILT with that
+shaping, through the real Analyzer and segmenter (`tools/musicality-synth-check.mjs`,
+all passed on this branch) or straight from the spec (the unit tests). That shows
+the module finds what is put in and does not invent movement in a metronomic take
+at the tested tempos and noise. It does not show that a real player's phrasing
+looks like the synthetic one, and several thresholds were set on the same synthetic
+takes they are then tested on, so those checks are demonstrations.
+
+**Not validated: anything on real playing except one reading.** Every real
+MusicNet cello excerpt recorded in this document (twelve in earlier rounds) and the ten
+re-run this round are refused by the junk or the fragments gate, so
+phrases, tempo, loudness shaping, vibrato and lengthening are NOT printed for any of
+them; only legato-or-detached is, and it agrees in direction with slow against fast
+movements, nothing more. No labelled phrasing, no teacher ratings and no recording
+of a real fermata, rubato or breath has been used. No run of a cleanly heard
+real take (a singer, a flute, a piano) is recorded here: as far as this document
+shows, the module has never been given a real recording it was allowed to describe in full.
+
+**Real excerpts are refused, and how often the pitch was right is part of why.** On
+ten cello excerpts (45 s from 60 s in), the share of heard notes whose pitch the
+labels also have at that moment was 45-63%. The median pitch confidence did not
+separate them (0.89-0.94 on every one; synthetic 0.92), so it is not used; the
+share of notes outside the instrument's range did, in order (0.26 at 45% right, 0.16
+at 48%, 0.12 at 48%, 0.14 at 53%, 0.11 at 51%, 0.04-0.06 at 56-63%).
+
+**Thresholds partly fitted, and to what.**
+- Set after seeing real data: the 25% short-note line and the 60% dominant-note-value
+  line (earlier rounds, fitted to the four excerpts), and `doubtfulRangeShare` 0.10
+  (this round, read off the ten excerpts above, direction only; the line sits
+  between 0.06 and 0.11 and was not tested on any other recording).
+- Set on synthetic takes: every other `LIMITS` value and `NOISE_MS`, the false-drift
+  gate, `STEP_REFUSED` 0.5 octave (placed between the 0.41 a 15% wave steps by and the
+  0.6 a follower lock steps by), and `heldTimes` 2.5 (a number chosen, not fitted).
+- A first-order guess nobody has checked: that a spacing under 2.5 times the typical
+  one is not a held note or pause.
+
+**This round, measured.** (Each new test fails on a7305c3.)
+- A fermata: a note held 4 times as long mid-take printed "very evenly timed ... none
+  of what could be read here moves"; it now says "with one held note" (or "long
+  pause" when the silence is at a phrase end and the note itself was normal) and
+  does not claim the take is very even. Only synthetic fermatas were tried.
+- Wide leaps: the refusal states the median step and that such steps hardly repeat,
+  and says the same pattern can be a wide-leaping line it cannot tell from a
+  misreading. Still refused; a clean leaping line is still not described.
+- Legato-or-detached on a misheard take carries "take it lightly" in the sentence
+  itself, not only in a bracket beside it, and so does the "reads as" line.
+- Tempo on a grid of mixed thirds and halves, zero jitter, 24,350 generated takes
+  (this sweep is mine, not the 1680-take set the report came from, which I could not
+  find): 22 read a tempo spread above 8% ("free" up to 122%, among them a 92% case
+  that is the report's 93%); with the new step test none do. The follower had stepped
+  from 0.85 s to 0.30 s per beat (1.5 octaves), which the factor-of-two test, looking
+  only near one octave, missed. A second check, that the spacings needing no
+  following must show a spread too, removes a further 83 of 475 small false readings
+  (3-8%); 392 takes of the 24,350 still read a spread above 3% (mostly "gives a
+  little" at 4-8%), which is a known residual false positive on mixed note values.
+- Cost of those two tempo gates on takes that SHOULD be read: 1,680 synthetic takes
+  (seven shapings, wobble 12 ms, 240 each): read before 1,321 of them, two newly
+  refused (one of the 1 read at a 30% wave, one of 120 at 20% jitter), no word changed.
+- The direction red team's 12 of 204 escapes on "further" were one phrase, "came
+  right", which says improved: a real lie, now refused (see `direction-redteam.mjs`).
+  Its price: the honest twin "came right" under the "closer" facts is refused as well
+  (unseen tier, honest twins rejected 324 to 336 of 336).
+- The "steady" wording (with its parenthetical) is quoted nowhere in live code, tests,
+  docs or eval fixtures except the two regexes that already match it
+  (`musicality-small-fixes.test.js`, `musicality-round3.test.js`); the old wordings
+  survive only in `tools/ai-model/results/*.json`, which are records of past runs and
+  were left alone.
+
 ## Wiring it into the assistant (done on branch ai-integrated)
 
 Wired as below, with two differences: the router pattern is a narrower one of its own (MUSICALITY_PATTERN also catches tempo, dynamic, consistent, steady and shape, which belong to other intents), and a plain comparison folds the three largest shaping differences in. The guard also rejects taste words (beautiful, musical, expressive, lifeless...) when these facts are in the prompt. The original plan:

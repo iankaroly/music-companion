@@ -575,6 +575,8 @@ function unknownDirectionWord(lower, at, consumed, factsWords) {
       if (stands && !(prev && BEFORE_A_NOUN.has(prev.w))) return t.w;
       continue;
     }
+    // "came right" is "improved" in two words with no -ed or -er on either: 12 of the 204 contradictions of 'further' in the direction red team
+    if (t.w === 'came' && next && /^(?:right|good|together|round)$/.test(next.w)) return `came ${next.w}`;
     if (/^[a-z]{3,}ed$/.test(t.w) && !(prev && COPULAS.has(prev.w)) || /^[a-z]{4,}ing$/.test(t.w) || MOTION_S.test(t.w) || /^(?:sped|slid|sank|swung|shot|crept)$/.test(t.w)) return t.w;
   }
   return '';

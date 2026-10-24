@@ -66,6 +66,8 @@ export const LIMITS = {
   junkPatterned: 0.2,        // …and fewer than this share of five-note windows have their steps again elsewhere in the take (a drill repeats; noise does not)
   junkStep: 9,               // median semitones between neighbouring notes at or above which, with no patterned repeats, the pitches are not a tune (random pitches read 11-14)
   outOfRangeShare: 0.25,     // share of notes outside the range the caller gives, at or above which confidence is low throughout
+  doubtfulRangeShare: 0.1,   // share of notes outside the range (a softer line than outOfRangeShare): the legato-or-detached reading alone is lowered and says 'take it lightly' in its own phrase; ten real cello excerpts read 0.04-0.26 here against 63-45% of heard notes carrying a pitch the labels also have, in that order (docs/musicality.md)
+  heldTimes: 2.5,            // a note this many times as long as the take's typical one, or followed by this many times its typical spacing, is a held note and the take is not 'very evenly timed'
   unbrokenQuiet: 0.02,       // share of readings more than 12 dB under the loud level below which the sound never stopped at all (real cello: 8.5-21%, a 60 Hz hum: 0-0.3%)
   unbrokenSpreadDb: 3,       //   …AND under which the 10th percentile of the loudness sits under the 90th: a hum is within 1.7 dB, a long slur that swells and fades is 6.9 dB, real cello 11-14 dB
   unbrokenReadings: 100,     // readings (about 2.3 s) needed before that is a statement about the take
@@ -580,7 +582,7 @@ function fixedReference(notes) {
   // the data. One zero-drift take in sixty at 20% jitter passed everything else
   // (-15%, a step half way along that its own sample noise produced).
   const halves = [pts.filter((_, i) => i % 2 === 0), pts.filter((_, i) => i % 2 === 1)].map(trendOf);
-  return { ...main, replicates: halves.every((h) => h && Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.leanPct) };
+  return { ...main, spread: spreadOf(pts.map((p) => p.y)), replicates: halves.every((h) => h && Math.sign(h.drift) === Math.sign(main.drift) && Math.abs(h.drift) >= 0.4 * LIMITS.leanPct) };
 }
 
 // A trend is only worth a word when the independent reading backs it. A scored
@@ -605,6 +607,7 @@ const trendBacked = (t, scored) => !!t && t.z >= 3.5 && (scored || t.replicates)
 // of the median spacing is what the take's own beat looks like (a tempo wave
 // of 15% keeps its spacings inside that), so three in a row that the follower
 // assigned any other rung to is the follower being on the wrong one.
+const STEP_REFUSED = 0.5;
 function tempoRefusal(notes, kept, trendMain, fixedRef) {
   const lg = kept.map((k) => Math.log2(k.period));
   const W = 4;
@@ -626,6 +629,20 @@ function tempoRefusal(notes, kept, trendMain, fixedRef) {
     run = own && k.rung !== 1 ? run + 1 : 0;
     if (run >= 3) {
       return 'the follower took the take\'s commonest spacing for a different note value (two thirds, three quarters, half or double of a beat) for several notes running, which is how it loses the beat, so no tempo shape is claimed';
+    }
+  }
+  // A STEP OF HALF AN OCTAVE OR MORE between neighbouring runs of four is more
+  // than a tempo does (a 15% wave steps by up to 0.41 between them, which is why
+  // the 0.32-0.69 band was refused as a whole and had to be dropped), and it is
+  // what the follower does when it re-finds the beat on a different value after a
+  // run of misses: a perfectly metronomic take on a grid of halves, thirds and
+  // quarters stepped by 1.5 octaves (0.85 s to 0.30 s) and read 'free, 92%', which
+  // the factor-of-two test above, looking only for steps near one octave, missed.
+  // Placed after the wrong-rung test so that one still gives its own reason.
+  for (let k = W; k + W <= lg.length; k++) {
+    const step = median(lg.slice(k, k + W)) - median(lg.slice(k - W, k));
+    if (Math.abs(step) >= STEP_REFUSED) {
+      return 'the beat the follower kept changed by more than a tempo does part way through (it is how the follower re-finds the beat on a different note value), so no tempo shape is claimed';
     }
   }
   const fixed = fixedRef ? fixedRef.drift : null;
@@ -673,6 +690,19 @@ function flexOf(logs) {
   const spreadOct = 1.2816 * Math.sqrt(mean(vars));
   const pct = (2 ** spreadOct - 1) * 100;
   return { pct, se: pct / Math.sqrt((2 * n) / 3), windows: starts.length };
+}
+
+// The same spread for fewer than a window of spacings, used only as a second
+// opinion that can contradict the follower (see the corroboration in
+// tempoDescriptors), never to print a number: one window over all of them.
+function spreadOf(logs) {
+  const whole = flexOf(logs);
+  if (whole || logs.length < 8) return whole;
+  const sm = logs.map((x, k) => median(logs.slice(Math.max(0, k - 2), k + 3)));
+  const m = mean(sm);
+  const v = sm.reduce((a, x) => a + (x - m) ** 2, 0) / (sm.length - 1);
+  const pct = (2 ** (1.2816 * Math.sqrt(v)) - 1) * 100;
+  return { pct, se: pct / Math.sqrt((2 * logs.length) / 3), windows: 1 };
 }
 
 // The word for a flexibility, with its uncertainty.
@@ -729,7 +759,22 @@ function tempoDescriptors(notes, seg, fl) {
     const logs = kept.map((k) => Math.log2(k.period));
     const trendMain = trendOf(kept.map((k) => ({ t: k.t, y: Math.log2(k.period) })));
     const fixedRef = scored ? null : fixedReference(notes);
-    const refusal = scored ? null : tempoRefusal(notes, kept, trendMain, fixedRef);
+    // CORROBORATED BY THE SPACINGS THE FOLLOWER DID NOT NEED. A take played on a
+    // grid of mixed halves, thirds and quarters, perfectly in time, can hand the
+    // follower spacings of different values that it reads as one value, and it
+    // reports their ratio as the player's own give (a zero-jitter take read
+    // 'free, 92%' before the jump test in tempoRefusal; two alternating values
+    // read 15-30% after it). The same spacings read WITHOUT following (only those
+    // within a quarter of an octave of the commonest one, no rung assigned) show
+    // no movement, because spacings of one value on a grid are the same number.
+    // A movement the follower claims, that those spacings show none of, with
+    // enough of them to read a spread from, is the follower's.
+    const own = scored ? null : fixedRef?.spread;
+    const claimed = scored || !own ? null : flexOf(logs);
+    const mixed = claimed && own.pct + own.se < fl.steadyBelow && claimed.pct - claimed.se > 2 * (own.pct + own.se)
+      ? `the tempo seems to move by about ${Math.round(claimed.pct)}%, but the spacings that need no following show almost none, so the movement is probably the mixing of note values and not the player's own, and no tempo is claimed`
+      : null;
+    const refusal = scored ? null : (tempoRefusal(notes, kept, trendMain, fixedRef) ?? mixed);
     if (refusal) {
       out.push(missing('tempo-flexibility', 'how much the tempo moves', refusal, kept.length));
       out.push(missing('tempo-shape', 'whether the tempo returns or drifts', refusal, kept.length));
@@ -1106,7 +1151,7 @@ function expressionDescriptors(notes, readings, seg, a4) {
 // Assembled ONLY from the measured descriptors above: each clause is one
 // descriptor's own phrase shortened, and a clause whose descriptor could not be
 // measured is simply absent. Nothing is added that was not measured.
-function characterOf(by) {
+function characterOf(by, { held = 0, pauses = 0 } = {}) {
   const parts = [];
   const g = (k) => (by[k]?.measured ? by[k] : null);
 
@@ -1168,7 +1213,19 @@ function characterOf(by) {
   if (rep && rep.detail.word !== 'alike') moves.push('matching patterns');
   if (repLoud && repLoud.value >= LIMITS.sameLoudnessDb) moves.push('matching patterns');
   if (vib && vib.value >= 25) moves.push('vibrato');
-  const veryEven = !!(tempo && shape && ends) && moves.length === 0;
+  // A HELD NOTE (A FERMATA) IS A MOVEMENT OF TIME THE FIVE MEASURES ABOVE DO NOT
+  // SEE. The tempo ladder reads a note four times as long as its neighbours as a
+  // written value and removes it, the phrase-final lengthening looks only at the
+  // last note of a phrase, and the articulation takes the ratio of sounding length
+  // to spacing, which a held note keeps at its usual value. So a take with a
+  // fermata in the middle of a phrase was printed 'very evenly timed ... none of
+  // what could be read here moves'. A long note is therefore counted here, from
+  // the notes themselves (musicalityOf), and withdraws the claim.
+  const veryEven = !!(tempo && shape && ends) && moves.length === 0 && held === 0 && pauses === 0;
+  const heldWord = [
+    held > 0 && (held === 1 ? 'one held note' : held === 2 ? 'two held notes' : 'several held notes'),
+    pauses > 0 && (pauses === 1 ? 'one long pause' : pauses === 2 ? 'two long pauses' : 'several long pauses'),
+  ].filter(Boolean).join(' and ');
   const checked = [tempo && 'tempo', shape && 'phrase shape', ends && 'phrase ends', (dyn || contrast) && 'loudness', even && 'articulation', rep && 'matching patterns', vib && 'vibrato'].filter(Boolean);
 
   const measured = Object.values(by).filter((d) => d.measured).length;
@@ -1183,10 +1240,10 @@ function characterOf(by) {
     unit: 'pieces',
     phrase: veryEven
       ? `very evenly timed and even in loudness: ${words}; none of what could be read here moves (${checked.join(', ')})`
-      : words,
+      : heldWord && words ? `${words}, with ${heldWord}` : words,
     n: measured,
     confidence: confidenceOf(measured, 4, 8),
-    detail: { from: parts.length },
+    detail: { from: parts.length, held, pauses },
     reason: parts.length ? undefined : 'too little could be measured to describe the character',
   };
 }
@@ -1298,6 +1355,30 @@ function quietShare(readings) {
   };
 }
 
+// Held notes and long pauses in the take. A held note sounds for much longer
+// than the typical note, or has a spacing after it much longer than the typical
+// one with no phrase end there (a tail that was not heard). A long pause is that
+// same long spacing where a phrase was cut: an ordinary breath is under about two
+// notes' worth (0.35-0.6 s at 0.5 s a note), so only one that is 2.5 times the
+// typical spacing or more is counted.
+function heldNotesOf(list, seg) {
+  const cut = new Set(seg.cuts.map((c) => c.after));
+  const lens = list.map((n) => n.end - n.start);
+  const gaps = list.slice(1).map((n, i) => n.start - list[i].start);
+  const medLen = median(lens);
+  const medGap = median(gaps);
+  if (!(medLen > 0) || !(medGap > 0)) return { held: 0, pauses: 0 };
+  let held = 0;
+  let pauses = 0;
+  for (let i = 0; i < list.length; i++) {
+    const longNote = lens[i] > LIMITS.heldTimes * medLen;
+    const longGap = i < gaps.length && gaps[i] > LIMITS.heldTimes * medGap;
+    if (longNote || (longGap && !cut.has(i))) held++;
+    else if (longGap) pauses++;
+  }
+  return { held, pauses };
+}
+
 function reliabilityOf(list, readings, range) {
   const shortShare = list.filter((n) => n.end - n.start < 0.08).length / list.length;
   const coverage = coverageOf(list, readings);
@@ -1323,6 +1404,7 @@ function reliabilityOf(list, readings, range) {
   else if (quiet !== null && quiet.share < LIMITS.unbrokenQuiet && quiet.spreadDb < LIMITS.unbrokenSpreadDb) reason = 'unbroken';
   const outOfRange = outside >= LIMITS.outOfRangeShare;
   return {
+    doubtful: outside >= LIMITS.doubtfulRangeShare,
     shortNoteShare: shortShare,
     quietShare: quiet ? quiet.share : null,
     levelSpreadDb: quiet ? quiet.spreadDb : null,
@@ -1421,7 +1503,7 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
 
   by.character = onePitch
     ? { ...missing('character', 'overall character', 'every note is the same pitch, so there is no phrase-level reading of it', 0), veryEven: false }
-    : characterOf(by);
+    : characterOf(by, heldNotesOf(list, seg));
 
   if (reliability.unreadable) {
     by = withdrawn(by, reliability.reason === 'unbroken'
@@ -1434,7 +1516,7 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
     // contrasts and the phrase counts did not (docs/musicality.md). Those are
     // withdrawn, not printed at low confidence.
     const why = reliability.reason === 'junk'
-      ? 'the notes heard jump about too widely to be a tune, so this could not be read well'
+      ? 'the notes heard jump about by steps this large that hardly repeat, which this could not tell from a misreading, so it could not be read well'
       : 'too many of the notes heard were fragments for this to be read well';
     const solid = list.filter((n) => n.end - n.start >= 0.08);
     const keep = {};
@@ -1449,6 +1531,22 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
     by.character = { ...characterOf(by), veryEven: false };
   }
   if (reliability.noisy) for (const x of Object.values(by)) if (x.measured) x.confidence = 'low';
+
+  // THE LEGATO-OR-DETACHED SENTENCE CARRIES ITS OWN CAUTION. It is the one reading
+  // that survives a misheard take, and it used to be printed as 'notes sound for
+  // 75% of the time to the next note, which reads as lightly separated' with the
+  // caution only in a bracket the facts added after it, which a reply that quotes
+  // the clause drops. On ten MusicNet cello excerpts (45 s from 60 s in) between
+  // 45% and 63% of the notes heard carried a pitch the labels also have at that
+  // moment, and the sentence was as sure of itself as on a clean take. The pitch
+  // CONFIDENCE did not separate them (the median reading in a note was 0.89-0.94 on
+  // every one, clean synthetic 0.92), so it is not used; the share of notes outside
+  // the instrument's range did, in the right order (0.26 at 45% right down to
+  // 0.04-0.05 at 59-63%), and a take over doubtfulRangeShare gets the caution too.
+  if ((reliability.noisy || reliability.doubtful) && by.articulation?.measured) {
+    const a = by.articulation;
+    by.articulation = { ...a, confidence: 'low', phrase: `${a.phrase} (take it lightly: part of what was heard as notes is probably not what was played, which also moves how long each note seems to sound)` };
+  }
 
   return {
     noteCount: list.length,
