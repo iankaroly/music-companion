@@ -261,6 +261,27 @@ describe('6. the tempo shape is judged on the whole curve and never says "comes 
     expect(d(m, 'tempo-shape').measured).toBe(false);
   });
 
+  test('an accelerando against a steady take of the same piece is a difference, in the numbers and in the sentence', () => {
+    // 26c4196 compared no row about drift, and said "shaped about the same on how much the tempo moves"
+    const accel = tk({ drift: 0.1 }, 3);
+    const steady = tk({}, 3);
+    const row = compareMusicality(steady, accel).find((r) => r.key === 'tempo-drift');
+    expect(row.verdict).toBe('the tempo drifts faster over the take');
+    expect(row.direction).toBe('higher');
+    expect(compareMusicality(accel, steady).find((r) => r.key === 'tempo-drift').verdict).toBe('the tempo drifts slower over the take');
+    expect(compareMusicality(steady, tk({}, 4)).find((r) => r.key === 'tempo-drift').verdict).toBe('about the same');
+    const text = compareMusicalityFacts(named(accel, 'Etude', 20), named(steady, 'Etude', 19), { question: 'did my tempo change' }).join(' ');
+    expect(text).toMatch(/Whether the tempo drifts: .*level.*speeding up/);
+    expect(text).not.toMatch(/about the same on how much the tempo moves/);
+  });
+
+  test('the take that speeds up is described as speeding up in its character, and its spread is not left saying "steady" alone', () => {
+    const accel = tk({ drift: 0.1 }, 3);
+    expect(d(accel, 'character').phrase).toMatch(/getting faster through the take/);
+    expect(d(accel, 'character').phrase).not.toMatch(/steady in tempo/);
+    expect(d(accel, 'tempo-flexibility').phrase).toMatch(/not counting its drift through the take/);
+  });
+
   test('a true 15% wave is still read as a moving tempo in at least 30 of 40 takes', () => {
     let moving = 0;
     for (let seed = 1; seed <= 40; seed++) {

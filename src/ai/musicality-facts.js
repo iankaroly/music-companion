@@ -37,7 +37,7 @@ export const CAVEAT = 'These describe the shaping of the playing from what could
 const GROUPS = {
   phrasing: ['phrase-count', 'phrase-length', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'stretch-contrast', 'phrase-final-lengthening'],
   articulation: ['articulation', 'articulation-evenness'],
-  tempo: ['tempo-flexibility', 'tempo-shape', 'phrase-final-lengthening'],
+  tempo: ['tempo-flexibility', 'tempo-shape', 'tempo-drift', 'phrase-final-lengthening'],
   repeats: ['repeat-timing', 'repeat-loudness'],
   expression: ['vibrato-growth', 'pitch-lean'],
 };
@@ -58,6 +58,7 @@ function show(d) {
   const v = d.value;
   if (d.key === 'articulation' || d.key === 'articulation-evenness') return `${round0(v * 100)}%`;
   if (d.unit === 'dB') return `${round1(v)} dB`;
+  if (d.key === 'tempo-drift') return v > 0 ? 'speeding up' : v < 0 ? 'slowing' : 'level';
   if (d.unit === 'notes') return `${round0(v)} notes`;
   if (d.unit === '×') return `${round1(v)}×`;
   if (d.unit === '¢') return `${round1(v)}¢`;

@@ -776,7 +776,7 @@ function tempoDescriptors(notes, seg, fl) {
         kind = null;
       } else if (word === 'steady') {
         kind = 'steady';
-        phrase = `the tempo stays steady, within about ${f}% of its middle`;
+        phrase = `the tempo ends where it began (within ${Math.max(Math.round(apart), 1)}%) and stays steady throughout`;
       } else if (apart >= LIMITS.leanPct) {
         kind = 'moves';
         phrase = `the tempo moves by about ${f}% around its middle, and its end differs from its start by about ${Math.round(apart)}%, so it is not said to come back to where it began`;
@@ -788,13 +788,16 @@ function tempoDescriptors(notes, seg, fl) {
         phrase = `the tempo moves by about ${f}% around its middle and comes back to where it began (it ends within ${Math.max(Math.round(apart), 1)}% of the start)`;
       }
       if (flex) {
+        // The spread is read inside windows of 24 spacings, so a steady
+        // acceleration is invisible to it; say so beside it, not after it.
+        const drifting = kind === 'speeds-up' || kind === 'slows-down' || kind === 'leans-faster' || kind === 'leans-slower';
         const flexPhrase = {
           steady: `the tempo is steady, within about ${f}% of its middle`,
           gives: `the tempo gives a little, by about ${f}% around its middle`,
           free: `the tempo is free, moving by about ${f}% around its middle`,
           'edge-steady': `the tempo moves by about ${f}% around its middle, which is on the edge between steady and giving a little`,
           'edge-free': `the tempo moves by about ${f}% around its middle, which is on the edge between giving a little and free`,
-        }[word];
+        }[word] + (drifting ? ' (not counting its drift through the take)' : '');
         out.push(got('tempo-flexibility', 'how much the tempo moves', flex.pct, '%', flexPhrase, kept.length,
           { ok: 12, good: 30, detail: { word, se: flex.se, windows: flex.windows, keptShare: kept.length / total, steadyBelow: fl.steadyBelow, freeAbove: fl.freeAbove } }));
       } else {
@@ -828,7 +831,7 @@ function tempoDescriptors(notes, seg, fl) {
   if (ratios.length >= 3) {
     const m = median(ratios);
     out.push(got('phrase-final-lengthening', 'lengthening at phrase ends', m, '×',
-      `phrase-final notes are ${Math.round(m * 10) / 10} times as long as the notes before them (a written long note counts too without a score)`,
+      `phrase-final notes are ${m.toFixed(1)} times as long as the notes before them (a written long note counts too without a score)`,
       ratios.length, { ok: 3, good: 6 }));
   } else {
     out.push(missing('phrase-final-lengthening', 'lengthening at phrase ends', `only ${ratios.length} phrase ends with enough notes before them; needs at least three`, ratios.length));
@@ -1099,7 +1102,10 @@ function characterOf(by) {
 
   if (art) parts.push(art.value >= LIMITS.legato ? 'connected' : art.value <= (art.detail.detachedAt ?? LIMITS.detached) ? 'detached' : 'lightly separated');
   if (even && art) parts.push(even.value <= even.detail.evenBelow ? 'evenly articulated' : 'varied in articulation');
-  if (tempo) {
+  const driftKind = drift?.detail?.kind;
+  if (driftKind === 'speeds-up' || driftKind === 'leans-faster') parts.push('getting faster through the take');
+  else if (driftKind === 'slows-down' || driftKind === 'leans-slower') parts.push('getting slower through the take');
+  else if (tempo) {
     parts.push({
       steady: 'steady in tempo',
       gives: 'giving a little in tempo',
@@ -1444,6 +1450,17 @@ const phraseLengthOf = (m) => {
   return d?.measured && d.value >= 2 ? d.detail.medianNotes : null;
 };
 
+// +1 speeding up, -1 slowing, 0 neither; null for a tempo that moves with no
+// drift to speak of (a wave that stopped somewhere else), which is no reading.
+const driftClassOf = (m) => {
+  const d = m.descriptors['tempo-shape'];
+  if (!d?.measured) return null;
+  const k = d.detail.kind;
+  if (k === 'speeds-up' || k === 'leans-faster') return 1;
+  if (k === 'slows-down' || k === 'leans-slower') return -1;
+  return k === 'moves' ? null : 0;
+};
+
 const COMPARE = [
   { key: 'phrase-count', small: 1.5, abs: true, up: 'more, shorter phrases', down: 'fewer, longer phrases', onlyIf: lengthsComparable },
   // The typical phrase length in notes. Its own unit and its own floor: two
@@ -1466,6 +1483,11 @@ const COMPARE = [
   { key: 'articulation', small: 0.1, up: 'more connected', down: 'more detached' },
   { key: 'articulation-evenness', small: 0.06, up: 'less even articulation', down: 'more even articulation' },
   { key: 'tempo-flexibility', small: 2.5, up: 'a freer tempo', down: 'a steadier tempo' },
+  // Whether the tempo drifts through the take was not compared at all: an
+  // accelerando against a steady take came out "shaped about the same on how much
+  // the tempo moves". It is compared as a class (speeding up, level, slowing),
+  // never as the number, which for a wave is only where it happened to stop.
+  { key: 'tempo-drift', src: 'tempo-shape', label: 'whether the tempo drifts', unit: '', valueFrom: driftClassOf, small: 0.5, up: 'the tempo drifts faster over the take', down: 'the tempo drifts slower over the take' },
   // (phrase ends are found from breaths, so this row is as blind as the count under FASTEST_BEAT_SEC)
   { key: 'phrase-final-lengthening', small: 0.25, up: 'more lengthening at phrase ends', down: 'less lengthening at phrase ends', onlyIf: breathsVisible },
   { key: 'repeat-timing', small: 1.5, up: 'matching five-note patterns played less alike in timing', down: 'matching five-note patterns played more alike in timing' },
