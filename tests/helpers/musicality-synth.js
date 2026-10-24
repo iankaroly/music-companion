@@ -48,6 +48,7 @@ export function buildSpec({
   randomPitch = false,       // pitches drawn at random across a wide range: junk, not a tune
   gainDb = 0,                // whole-take level shift, for a quiet recording
   decay = null,              // seconds: a struck or plucked tone (piano, guitar, harp) whose level falls away exponentially with this time constant, instead of holding
+  swell = 0,                 // dB: each note starts this far under its peak and rises to it over the first 60% of its length (messa di voce); only idealTake uses it
   tailWobble = 0,            // cents: how far the pitch tracker's reading of a decaying note wanders once its level is well below its peak (only idealTake uses it; the audio path wobbles by itself)
   pattern = null,            // semitone offsets that repeat instead of the small tune (an octave drill is [0, 12], a wide arpeggio [0, 12, 24, 12])
 } = {}) {
@@ -77,7 +78,7 @@ export function buildSpec({
         midi: midiShift + (drone ? 55 : randomPitch ? 40 + Math.floor(rand() * 40) : pattern ? 48 + pattern[index % pattern.length] : 55 + transpose + CYCLE[index % CYCLE.length]),
         start: t, dur: ratio * local, amp: db(level), phrase: p, pos: k,
         vib: vibrato === 'none' || !long ? null : { depth: 28, rate: 5.8, grows: vibrato === 'grows' },
-        decay, wobble: tailWobble,
+        decay, wobble: tailWobble, swell,
       });
       t += local + (k === perPhrase - 1 ? breath : 0);
     }
@@ -122,7 +123,8 @@ export function idealTake(spec, hop = 1024 / 44100) {
       const weight = Math.min(1, Math.max(0, (-20 * Math.log10(fall) - 6) / 12));
       f *= 2 ** ((n.wobble * weight * ar) / 1200);
     }
-    readings.push({ time: t, frequency: f, confidence: 0.92, rms: (n.amp * fall) / Math.SQRT2 });
+    const rise = n.swell ? 10 ** (-(n.swell * Math.max(0, 1 - (t - n.start) / (0.6 * (spec[k].dur)))) / 20) : 1;
+    readings.push({ time: t, frequency: f, confidence: 0.92, rms: (n.amp * fall * rise) / Math.SQRT2 });
   }
   return { notes, readings };
 }

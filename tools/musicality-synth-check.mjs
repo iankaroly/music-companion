@@ -221,6 +221,8 @@ console.log('\n== round 3: faults a skeptic found in round 2 ==');
       const f = 60 * (1 + 0.004 * Math.sin(2 * Math.PI * 0.3 * t));
       humAudio[i] = 0.05 * (1 + 0.1 * Math.sin(2 * Math.PI * 0.2 * t)) * (Math.sin(2 * Math.PI * f * t) + 0.7 * Math.sin(4 * Math.PI * f * t) + 0.4 * Math.sin(6 * Math.PI * f * t)) + 0.003 * (seedH / 4294967296 - 0.5);
     }
+    const slur = run({ phrases: 6, perPhrase: 10, period: 0.5, articulation: 0.98, breath: 0, shape: 'arch' });
+    check('a long slur with no breath that swells and fades is NOT called unbroken (a first cut of the gate withdrew it)', slur.reliability.reason !== 'unbroken' && d(slur, 'articulation').measured, `quiet share ${(slur.reliability.quietShare * 100).toFixed(1)}%, loudness spread ${slur.reliability.levelSpreadDb.toFixed(1)} dB`);
     const hum = musicalityOf(hear(humAudio, sr));
     check('a 60 Hz hum with drift is unreadable, not "one continuous stretch" (26c4196)', hum.reliability.reason === 'unbroken' && !d(hum, 'phrase-count').measured && !hum.descriptors.character.measured, `${hum.noteCount} notes, quiet share ${(hum.reliability.quietShare * 100).toFixed(1)}%`);
   }

@@ -166,16 +166,26 @@ describe('5. a range is always checked, and a sound that never stops is not read
     const m = musicalityOf(hum(60));
     expect(m.reliability.reason).toBe('unbroken');
     expect(d(m, 'phrase-count').measured).toBe(false);
-    expect(d(m, 'phrase-count').reason).toMatch(/never got quieter between notes/);
+    expect(d(m, 'phrase-count').reason).toMatch(/never dropped between notes/);
     for (const k of ['phrase-shape', 'tempo-flexibility', 'articulation', 'stretch-contrast']) expect(d(m, k).measured, k).toBe(false);
     expect(d(m, 'character').measured).toBe(false);
   });
 
   test('the sentence a player sees says the phrases cannot be read from it', () => {
     const text = musicalityFacts({ id: 1, name: 'Hum', date: Date.UTC(2026, 9, 20), musicality: musicalityOf(hum(60)) }, { question: 'how is my phrasing' }).join(' ');
-    expect(text).toMatch(/never got quieter between notes/);
+    expect(text).toMatch(/stayed within a few dB and never dropped between notes/);
     expect(text).toMatch(/hum or a held tone/);
+    expect(text).not.toMatch(/not what playing is like/);
     expect(text).not.toMatch(/continuous stretch|phrases of about/);
+  });
+
+  test('a long slur with no breath in it that swells and fades is NOT unbroken (a first cut of the gate withdrew it whole)', () => {
+    // continuous sound, no silence anywhere, but the loudness moves by 7 dB: 1.2% of its readings are 12 dB down
+    // through the real pipeline, which tripped a gate that looked at that alone
+    const slur = read({ phrases: 6, perPhrase: 10, period: 0.5, articulation: 1.0, breath: 0, shape: 'arch', peakDb: 7 });
+    expect(slur.reliability.reason).toBe(null);
+    expect(slur.reliability.levelSpreadDb).toBeGreaterThan(3);
+    expect(d(slur, 'articulation').measured).toBe(true);
   });
 
   test('the same notes with a quiet gap after each are an ordinary take and are still read', () => {
@@ -320,7 +330,7 @@ describe('7. tempo flexibility does not depend on how long the take is', () => {
       for (let seed = 1; seed <= 40; seed++) if (wordOf(d(at(notes, seed, 0.09), 'tempo-flexibility')) === 'steady') n++;
       return n;
     };
-    // 26c4196 said "steady" of 13 of 40 takes of 56 notes and 1 of 40 takes of 448
+    // 26c4196 said "steady" of 12 of 40 takes of 56 notes and none of 40 takes of 448
     expect(steadyAt(56)).toBeLessThanOrEqual(4);
     expect(steadyAt(448)).toBeLessThanOrEqual(1);
   });
@@ -344,6 +354,27 @@ describe('7. tempo flexibility does not depend on how long the take is', () => {
   });
 });
 
+describe('7b. the word for repeat timing does not flip with the length of the take', () => {
+  // The median does not move with length (3.8-4.05% at +-4% jitter from 16 notes to 320), its spread does, and a
+  // player near the line was "alike" in 80% of 28-note takes and 98% of 672-note ones at +-6% jitter
+  const at = (notes, seed) => noisy({ phrases: 1, perPhrase: notes, period: 0.4, breath: 0, shape: 'flat', articulation: 0.9, jitter: 0.06, seed: seed * 13 + notes }, 15, seed);
+  const wordOf = (r) => (!r.measured ? null : r.detail.word ?? (r.value < r.detail.sameBelow ? 'alike' : 'different'));
+
+  test('a +-6% player is "timed differently" in at most 6 of 100 takes of 32 notes (20 of 100 on 26c4196)', () => {
+    let different = 0;
+    for (let seed = 1; seed <= 100; seed++) if (wordOf(d(at(32, seed), 'repeat-timing')) === 'different') different++;
+    expect(different).toBeLessThanOrEqual(6);
+  });
+
+  test('the number carries its standard error, which falls as the take gets longer, and a number near the line says so', () => {
+    const se = (notes) => { const r = d(at(notes, 3), 'repeat-timing'); return r.detail.se; };
+    expect(se(24)).toBeGreaterThan(se(96));
+    let edge = 0;
+    for (let seed = 1; seed <= 100; seed++) { const r = d(at(32, seed), 'repeat-timing'); if (/on the edge between alike and different/.test(r.phrase)) edge++; }
+    expect(edge).toBeGreaterThan(20);
+  });
+});
+
 describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato that opens up', () => {
   // Piano, guitar and harp notes die away, and a pitch tracker's reading of the
   // last of one wanders by 10-20 cents at about a vibrato's rate: the plain
@@ -357,6 +388,14 @@ describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato 
       const v = d(decaying(seed), 'vibrato-growth');
       expect(v.measured && v.value >= 50, `seed ${seed}: ${v.phrase}`).toBe(false);
     }
+  });
+
+  test('a note that swells into its peak keeps its quiet start, so a vibrato that opens up on it still reads as opening', () => {
+    // 36 dB up over the first 60% of each note (messa di voce): the first cut of the tail filter dropped every frame
+    // under -9 dB wherever it fell, which took the plain early half away and read "about the same width" (48 of 48)
+    const swell = (vibrato) => read({ phrases: 6, perPhrase: 8, period: 2.0, articulation: 0.9, breath: 0.1, shape: 'flat', vibrato, swell: 36 });
+    expect(d(swell('grows'), 'vibrato-growth').value).toBeGreaterThanOrEqual(80);
+    expect(d(swell('steady'), 'vibrato-growth').value).toBeLessThanOrEqual(20);
   });
 
   test('the same notes with a real vibrato that opens up are still read as opening', () => {

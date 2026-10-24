@@ -87,7 +87,7 @@ function noisyNote(take, m) {
   } else if (r.reason === 'fragments') {
     lines.push(`${round0(r.shortNoteShare * 100)}% of the notes heard in "${name}" were very short, which usually means the pitch was misread (double stops and very fast runs do this), so this take could not be read well: only whether the notes run together or are separated is given, from the longer notes, and the rest of how it is shaped was not measured.`);
   } else if (r.reason === 'unbroken') {
-    lines.push(`The sound in "${name}" never got quieter between notes (${m.noteCount} notes heard), which is what a hum or a held tone is like to a pitch tracker and not what playing is like, so how it is shaped could not be read: there are no breaths or restarts to find a phrase from.`);
+    lines.push(`The loudness of "${name}" stayed within a few dB and never dropped between notes (${m.noteCount} notes heard), as a hum or a held tone does, so how it is shaped could not be read: there are no breaths or restarts to find a phrase from.`);
   }
   if (r.outOfRange) {
     lines.push(r.rangeGiven

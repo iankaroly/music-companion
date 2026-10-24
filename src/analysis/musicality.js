@@ -66,7 +66,8 @@ export const LIMITS = {
   junkPatterned: 0.2,        // …and fewer than this share of five-note windows have their steps again elsewhere in the take (a drill repeats; noise does not)
   junkStep: 9,               // median semitones between neighbouring notes at or above which, with no patterned repeats, the pitches are not a tune (random pitches read 11-14)
   outOfRangeShare: 0.25,     // share of notes outside the range the caller gives, at or above which confidence is low throughout
-  unbrokenQuiet: 0.02,       // share of readings more than 12 dB under the loud level below which the sound never stopped at all: a hum, not playing (real cello: 8.5-21%, a 60 Hz hum: 0-0.3%)
+  unbrokenQuiet: 0.02,       // share of readings more than 12 dB under the loud level below which the sound never stopped at all (real cello: 8.5-21%, a 60 Hz hum: 0-0.3%)
+  unbrokenSpreadDb: 3,       //   …AND under which the 10th percentile of the loudness sits under the 90th: a hum is within 1.7 dB, a long slur that swells and fades is 6.9 dB, real cello 11-14 dB
   unbrokenReadings: 100,     // readings (about 2.3 s) needed before that is a statement about the take
   sameTimingPct: 4,          // a repeated figure whose timing differs by less than this is the same (at least)
   sameLoudnessDb: 1.5,
@@ -842,6 +843,7 @@ function tempoDescriptors(notes, seg, fl) {
 // --- repeated figures ---------------------------------------------------------
 
 const FIGURE = 5;   // notes in a figure
+const REPEAT_PAIRS_PER_INDEPENDENT = 4;   // see repeatDescriptors: with 1 the carried error was half of the number's real spread across seeds (200 seeds, 20 to 96 notes, four jitters), with 4 it matches
 
 function repeatDescriptors(notes, levels, seg, fl) {
   const cutAfter = new Set(seg.cuts.map((c) => c.after));
@@ -898,11 +900,25 @@ function repeatDescriptors(notes, levels, seg, fl) {
   // It is not 'a repeated passage', and nothing here says whether being alike is
   // what the music asks for: that is the player's and the teacher's to say.
   const t = median(timing);
+  // THE WORD CARRIES ITS UNCERTAINTY, like the tempo's. The median of the pairs'
+  // timing differences does not move with the length of the take (3.8-4.05% at +-4%
+  // jitter from 16 notes to 320), but its spread does, and a player near the line
+  // was 'alike' in 80% of 28-note takes and 98% of 672-note ones (+-6% jitter) and
+  // 45% against 23% (+-9%): the word flipped on identical playing. The standard
+  // error of a median (1.25 sd over the square root of the pairs, with the pairs
+  // counted at REPEAT_PAIRS_PER_INDEPENDENT of them to the independent one because
+  // neighbouring pairs share notes) is carried, and a number within one of it of
+  // the line is 'on the edge' and not either word.
+  const se = timing.length > 1 ? (1.2533 * sd(timing)) / Math.sqrt(timing.length / REPEAT_PAIRS_PER_INDEPENDENT) : 0;
+  const word = t + se < fl.sameBelow ? 'alike' : t - se >= fl.sameBelow ? 'different' : 'edge';
+  const tShown = Math.round(t * 10) / 10;
   out.push(got('repeat-timing', 'timing of matching five-note patterns', t, '%',
-    t < fl.sameBelow
-      ? `matching five-note patterns are timed nearly alike each time (timing differs by about ${Math.round(t * 10) / 10}%)`
-      : `matching five-note patterns are timed differently each time (timing differs by about ${Math.round(t * 10) / 10}%)`,
-    timing.length, { ok: 4, good: 10, detail: { paceDiffPct: median(pace), sameBelow: fl.sameBelow } }));
+    {
+      alike: `matching five-note patterns are timed nearly alike each time (timing differs by about ${tShown}%)`,
+      different: `matching five-note patterns are timed differently each time (timing differs by about ${tShown}%)`,
+      edge: `matching five-note patterns are timed on the edge between alike and different each time (timing differs by about ${tShown}%)`,
+    }[word],
+    timing.length, { ok: 4, good: 10, detail: { paceDiffPct: median(pace), sameBelow: fl.sameBelow, word, se } }));
   if (loud.length >= 4) {
     const l = median(loud);
     out.push(got('repeat-loudness', 'loudness of matching five-note patterns', l, 'dB',
@@ -1011,8 +1027,14 @@ function vibratoGrowth(notes, readings, a4) {
     // The first and last sixth of a note are scoop and release, not vibrato.
     const trim = (note.end - note.start) / 6;
     const all = framesIn(note, readings, a4);
-    const peak = Math.max(0, ...all.map((f) => f.rms).filter(Number.isFinite));
-    const fr = all.filter((f) => f.t >= note.start + trim && f.t < note.end - trim && (!(peak > 0) || !(f.rms < QUIET_TAIL * peak)));
+    const lit = all.filter((f) => Number.isFinite(f.rms));
+    const peak = Math.max(0, ...lit.map((f) => f.rms));
+    // ONLY AFTER THE PEAK. A note that swells into its loudest part (messa di
+    // voce, a crescendo with a vibrato that opens) is quiet at its start and its
+    // plain early half is the half that shows the vibrato opening; the tail that
+    // is dropped is the one after the note has been at its loudest.
+    const peakAt = lit.length ? lit.reduce((best, f) => (f.rms > best.rms ? f : best)).t : note.start;
+    const fr = all.filter((f) => f.t >= note.start + trim && f.t < note.end - trim && (!(peak > 0) || f.t <= peakAt || !(f.rms < QUIET_TAIL * peak)));
     if (fr.length < 16) continue;
     const whole = sineFit(fr, VIB_RATES);
     if (!(whole.r2 >= VIB_R2)) continue;
@@ -1143,7 +1165,7 @@ function characterOf(by) {
   if (contrast && contrast.value >= LIMITS.flatStretchDb) moves.push('phrase loudness');
   if (dyn && dyn.value >= LIMITS.flatStretchDb) moves.push('loudness');
   if (even && even.value > even.detail.evenBelow) moves.push('articulation');
-  if (rep && rep.value >= rep.detail.sameBelow) moves.push('matching patterns');
+  if (rep && rep.detail.word !== 'alike') moves.push('matching patterns');
   if (repLoud && repLoud.value >= LIMITS.sameLoudnessDb) moves.push('matching patterns');
   if (vib && vib.value >= 25) moves.push('vibrato');
   const veryEven = !!(tempo && shape && ends) && moves.length === 0;
@@ -1205,9 +1227,16 @@ function characterOf(by) {
 // four as eight phrases of ten notes, from the loudness wobbling a little). The
 // sound of a hum does not get quiet between notes, and music does: the share of
 // readings more than 12 dB under the take's loud level is 8.5-21% on seven real
-// cello excerpts and 0-0.3% on four hum takes. Below 2% there is no breath, rest
-// or restart to find a phrase from, so the phrases are said to be unreadable and
-// so is the rest of the shaping, which would be a description of a hum.
+// cello excerpts and 0-0.3% on four hum takes. THAT ALONE WAS TOO WIDE: a long
+// slur with no breath in it that swells and fades has 1.2% of its readings that
+// quiet, and was withdrawn whole and called 'not what playing is like'. So the
+// loudness must also stay within 3 dB between its 10th and 90th percentile (hum
+// 1.7, the swelling slur 6.9, real cello 11-14). Where both hold there is no
+// breath, rest or restart to find a phrase from, and the phrases are said to be
+// unreadable, and so is the rest of the shaping. WHAT STILL TRIPS IT, and is
+// listed as such: a perfectly constant-level legato line with no dip at all (a
+// synthetic one; a held organ note or a drone); the sentence says only what was
+// measured and not that it was not playing.
 const ACTIVE_BELOW_DB = 20;
 
 function coverageOf(list, readings) {
@@ -1259,9 +1288,14 @@ const SPREAD_SEMITONES = 36;
 function quietShare(readings) {
   const rs = (readings ?? []).filter((r) => Number.isFinite(r?.time));
   if (rs.length < LIMITS.unbrokenReadings) return null;
-  const level = quantile(rs.map((r) => (r.rms > 0 ? r.rms : 0)), 0.9);
+  const rms = rs.map((r) => (r.rms > 0 ? r.rms : 0));
+  const level = quantile(rms, 0.9);
   if (!(level > 0)) return null;
-  return rs.filter((r) => !(r.rms >= level / 10 ** (12 / 20))).length / rs.length;
+  const low = quantile(rms, 0.1);
+  return {
+    share: rs.filter((r) => !(r.rms >= level / 10 ** (12 / 20))).length / rs.length,
+    spreadDb: low > 0 ? 20 * Math.log10(level / low) : Infinity,
+  };
 }
 
 function reliabilityOf(list, readings, range) {
@@ -1286,11 +1320,12 @@ function reliabilityOf(list, readings, range) {
   if (coverage !== null && coverage < LIMITS.minCoverage) reason = 'quiet';
   else if (medianStep >= LIMITS.junkStep && patterned < LIMITS.junkPatterned) reason = 'junk';
   else if (shortShare >= LIMITS.noisyShortShare) reason = 'fragments';
-  else if (quiet !== null && quiet < LIMITS.unbrokenQuiet) reason = 'unbroken';
+  else if (quiet !== null && quiet.share < LIMITS.unbrokenQuiet && quiet.spreadDb < LIMITS.unbrokenSpreadDb) reason = 'unbroken';
   const outOfRange = outside >= LIMITS.outOfRangeShare;
   return {
     shortNoteShare: shortShare,
-    quietShare: quiet,
+    quietShare: quiet ? quiet.share : null,
+    levelSpreadDb: quiet ? quiet.spreadDb : null,
     rangeGiven: given,
     coverage,
     medianStep,
@@ -1373,7 +1408,7 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
 
   if (reliability.unreadable) {
     by = withdrawn(by, reliability.reason === 'unbroken'
-      ? 'the sound never got quieter between notes, so there are no breaths or restarts to read how the take is shaped from (a hum or a held tone is like this to a pitch tracker)'
+      ? 'the loudness stayed within a few dB and never dropped between notes, so there are no breaths or restarts to read how the take is shaped from (a hum or a held tone does this)'
       : 'most of the take was too quiet or unclear to hear as notes');
   } else if (reliability.reason === 'fragments' || reliability.reason === 'junk') {
     // WHAT SURVIVES FRAGMENT-DROPPING ON REAL DATA is whether the notes run
