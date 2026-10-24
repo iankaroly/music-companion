@@ -72,6 +72,16 @@ export function clean(s) {
     .replace(/[   ]/g, ' ');
 }
 
+// The tags assistant.js puts in front of a few facts to say what part of the
+// playing they describe. They are the app's bookkeeping, not wording, and a
+// small model sometimes echoes one back at the start of its answer. Stripped
+// before the reply is checked or shown; one that is still in a text handed to
+// checkReply directly is rejected, because it would reach the player.
+const SCOPE_TAG = /\[\s*(?:the whole take|one note only|the two takes compared)\s*\]\s*/gi;
+export function stripScopeTags(text) {
+  return String(text ?? '').replace(SCOPE_TAG, '');
+}
+
 const DIGITS = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?/g;
 const toNumber = (t) => {
   if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t)) return Number(t.replace(/,/g, ''));
@@ -113,6 +123,27 @@ function unitAfter(text, end) {
   for (const [re, name] of UNITS) if (re.test(rest)) return name;
   return null;
 }
+
+// ---- counts of days and of takes ---------------------------------------------
+
+// A number followed by "days" is one of three things in this app's facts, and
+// the same digit can be any of them: the length of a window ("the last 7 days"),
+// a count inside it ("practised on 3 of the last 7 days") or a streak ("streak
+// 2 days"). A fourth, a GAP ("not practised in 7 days", "7 days since"), is
+// never in the facts at all. The number rules only asked whether the digit and
+// the unit exist somewhere, and "7 days" does, so a gap passed built from the
+// window's length. Each use is told from its neighbours and must meet the same
+// use in the facts.
+function dayRole(text, tok) {
+  const before = text.slice(Math.max(0, tok.index - 40), tok.index).toLowerCase();
+  const after = text.slice(tok.end, tok.end + 30).toLowerCase();
+  if (/\b(?:last|past|previous|recent)\s+(?:\w+\s+)?$/.test(before) || /\bof the\s+$/.test(before)) return 'window';
+  if (/\bstreak\W+(?:\w+\W+){0,2}$/.test(before) || /^\s*(?:days?\s+)?(?:in a row|straight|running|consecutive|streak)/.test(after) || /\bconsecutive\s+$/.test(before)) return 'streak';
+  if (/^\s*(?:days?\s+)?(?:ago|since|without|off|missed|apart)\b/.test(after) || /\b(?:not|never|n't|haven't|hasn't|without|no|since|missed|skipped)\b[^.;]{0,40}$/.test(before)) return 'gap';
+  return 'count';
+}
+// "3 of the last 7 days": the 3 has no unit of its own, and it is a count of days
+const COUNT_OF_WINDOW = /(\d+)\s+of\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?/g;
 
 // ---- number words ------------------------------------------------------------
 
@@ -244,7 +275,7 @@ function compatible(reply, fact) {
 // listed in the test file.
 const AXES = {
   closeness: {
-    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|(?<!(?:room|scope|need|areas?) for )improvement|more accurate|more in tune|more notes arrive in tune|less off(?: pitch)?|more consistent|more secure|tidier|stronger|progressed|gained)\b(?! look)/,
+    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|(?<!(?:room|scope|need|areas?) for )improvement|more accurate|more in tune|more notes arrive in tune|less off(?: pitch)?|less out of tune|more consistent|more secure|tidier|stronger|progressed|gained|ahead(?! of the beat)|outpac(?:ed|es|ing)|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\b(?:less|fewer) than)\b(?! look)/,
     // "further" is the one word here that is also a discourse word ("further
     // work", "for further questions", "Further, ..."), so it is kept out of those
     // uses by what follows and precedes it. It used to be kept out by requiring a
@@ -252,7 +283,7 @@ const AXES = {
     // "%" and ")": "The Oct 22 take is 12.8¢ further from pitch" was not read as
     // a direction at all, in a reply (so the flip of a true "closer" passed) or in
     // the facts (so a true "further" was rejected as a change nobody measured).
-    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted)\b/,
+    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted|behind(?! the beat)|lags?|lagg(?:ed|ing)|trail(?:s|ed|ing)?|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\bmore than)\b/,
   },
   steadiness: { pos: /\b(steadier|more steady|more stable)\b/, neg: /\b(shakier|less steady|less stable|wobblier|unsteadier)\b/ },
   timing: { pos: /\b(tighter)\b/, neg: /\b(looser|sloppier|less tight)\b/ },
@@ -260,25 +291,66 @@ const AXES = {
   // no axis of its own in the facts: it is held against whichever of those the
   // facts do state (see PRECISION_OF).
   precision: { pos: /\b(more precise|more exact)\b/, neg: /\b(less precise|less exact)\b/ },
-  speed: { pos: /\b(faster|quicker|speeds? up|speeding up|rush(?:es|ed|ing)?)\b/, neg: /\b(slower|slows? down|slowing down|drag(?:s|ged|ging)?)\b/ },
-  width: { pos: /\b(wider|broader|more wide)\b/, neg: /\b(narrower|less wide)\b/ },
+  speed: { pos: /\b(faster|quicker|speeds? up|speeding up|rush(?:es|ed|ing)?|more (?:quickly|rapidly)|accelerat(?:es|ed|ing|e))\b/, neg: /\b(slower|slows? down|slowing down|drag(?:s|ged|ging)?|less quick(?:ly)?|less rapid(?:ly)?|sluggish|decelerat(?:es|ed|ing|e)|more slowly)\b/ },
+  width: { pos: /\b(wider|broader|more wide|widen(?:ed|s|ing)?|broaden(?:ed|s|ing)?)\b/, neg: /\b(narrower|less wide|narrow(?:ed|s|ing)?)\b/ },
   brightness: { pos: /\b(brighter)\b/, neg: /\b(darker|duller)\b/ },
   loudness: { pos: /\b(louder)\b/, neg: /\b(quieter|softer)\b/ },
   clarity: { pos: /\b(clearer|purer|cleaner)\b/, neg: /\b(rougher|breathier|muddier)\b/ },
   lead: { pos: /\b(sharper|sharp)\b/, neg: /\b(flatter|flat)\b/ },
 };
+// Words that say a quantity went up or down without saying which way is good:
 // "the error fell" is the pitch error getting smaller, which is closer to pitch;
-// "the vibrato rose" is about something the facts say in other words. These are
-// read as closeness only when the sentence is about the error, and ignored
-// otherwise.
-const CHANGE_UP = /\b(increas(?:ed|es|ing|e)|rose|rising|grew|growing|climbed)\b/g;
-const CHANGE_DOWN = /\b(decreas(?:ed|es|ing|e)|dropped|fell|fallen|shrank|shrunk)\b/g;
-const ERR_SMALLER = /\b(smaller|lower|reduced|shrunk)\b/g;
-const ERR_BIGGER = /\b(bigger|larger|higher|greater)\b/g;
-const ABOUT_ERROR = /\b(error|off pitch|from pitch|cents off|out of tune)\b/;
+// "the vibrato rose" is the width. Which AXIS they speak of is read from what
+// the sentence is about (MOTION_TOPICS, nearest topic word wins), and a sentence
+// that is about none of them leaves the word unresolved. They are read in REPLIES
+// only: the facts say what they mean in the explicit words of AXES, and a fact
+// sentence's own "(lower can mean breathy or rough)" is not a direction.
+//   upIsPos: when the quantity goes up, is that the pos side of the axis?
+// An error, a wander and a lateness going up are the neg side; a width, a
+// loudness, a clarity going up are the pos side.
+const UP = /\b(?:went up|goes up|go up|going up|moved up|up by|rose|rises?|rising|increas(?:ed|es|ing|e)|grew|grows?|growing|climb(?:ed|s|ing)?|jump(?:ed|s|ing)?|higher|greater|larger|bigger)\b/g;
+const DOWN = /\b(?:went down|goes down|go down|going down|moved down|down by|dropp?(?:ed|s|ing)|drop|fell|falls|fallen|falling|shrank|shrunk|shrinks?|shrinking|smaller|lower|reduc(?:ed|es|ing|e)|shorter|decreas(?:ed|es|ing|e))\b/g;
+const MOTION_TOPICS = [
+  ['closeness', false, /\b(?:errors?|off pitch|from pitch|cents off|out of tune|off target|inaccuracy|deviation|mistakes?)\b/],
+  ['closeness', true, /\b(?:accuracy|intonation|in tune|tuning|precision)\b/],
+  ['steadiness', false, /\b(?:wander|wobble|wobbling|shake|shaking|jitter|unsteadiness|drift)\b/],
+  ['steadiness', true, /\b(?:steadiness|stability)\b/],
+  ['width', true, /\b(?:vibrato|width|wide|depth)\b/],
+  ['loudness', true, /\b(?:loudness|volume|dynamics?|decibels?|db|louder|quieter)\b/],
+  ['speed', true, /\b(?:tempo|bpm|pulse|speed|pace)\b/],
+  ['speed', false, /\b(?:time to settle|settle time|settling time|ms to settle|to settle)\b/],
+  ['clarity', true, /\b(?:clarity|brightness)\b/],
+  ['timing', false, /\b(?:timing|beat|rhythm)\b/],
+];
+// With no topic word in the sentence, the axis of the measurement the number
+// belongs to decides, where a size word has one obvious meaning there.
+const SIZE_UP_IS_POS = { closeness: false, steadiness: false, timing: false, width: true, loudness: true, clarity: true, brightness: true };
+
+// -> [{ at, end, dir: 'up'|'down', axis: string|null, upIsPos }] in `lower`
+function changeWords(lower) {
+  const out = [];
+  for (const [re, dir] of [[UP, 'up'], [DOWN, 'down']]) {
+    for (const m of lower.matchAll(new RegExp(re.source, 'g'))) {
+      const at = m.index;
+      const end = at + m[0].length;
+      const from = Math.max(0, lower.slice(0, at).search(/[^.!?;\n]*$/));
+      const to = at + (lower.slice(end).search(/[.!?;\n]/) < 0 ? lower.length : lower.slice(end).search(/[.!?;\n]/)) ;
+      const sentence = lower.slice(from, Math.min(lower.length, Math.max(end, to)));
+      let best = null;
+      for (const [axis, upIsPos, tre] of MOTION_TOPICS) {
+        for (const t of sentence.matchAll(new RegExp(tre.source, 'g'))) {
+          const d = Math.abs(from + t.index - at);
+          if (!best || d < best.d) best = { d, axis, upIsPos };
+        }
+      }
+      out.push({ at, end, dir, axis: best?.axis ?? null, upIsPos: best?.upIsPos ?? null });
+    }
+  }
+  return out;
+}
 const NEGATORS = /\b(not|no|never|hardly|without|isn't|wasn't|didn't|doesn't|don't|aren't|weren't|cannot|can't)\b/;
 
-function leanOf(text, { negation }) {
+function leanOf(text, { negation, contextual = false }) {
   // "Further, ..." at the start of a sentence is a connective, not a direction
   const t = text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1 ');
   const out = {};
@@ -298,15 +370,16 @@ function leanOf(text, { negation }) {
     }
     if (p || n) out[axis] = { pos: p, neg: n };
   }
-  for (const sentence of t.split(/(?<=[.!?])\s+|\n+/)) {
-    if (!ABOUT_ERROR.test(sentence)) continue;
-    for (const [re, closer] of [[CHANGE_DOWN, true], [CHANGE_UP, false], [ERR_SMALLER, true], [ERR_BIGGER, false]]) {
-      for (const m of sentence.matchAll(re)) {
-        const before = sentence.slice(Math.max(0, m.index - 22), m.index);
-        const flip = negation && NEGATORS.test(before);
-        const pos = closer !== flip;
-        out.closeness = { pos: (out.closeness?.pos ?? false) || pos, neg: (out.closeness?.neg ?? false) || !pos };
+  if (contextual) {
+    for (const w of changeWords(t)) {
+      if (!w.axis) continue;
+      let flip = false;
+      if (negation) {
+        const before = t.slice(Math.max(0, w.at - 22), w.at);
+        flip = NEGATORS.test(before) && !/[.;!?](?!\d)/.test(before.split(NEGATORS).pop());
       }
+      const pos = ((w.dir === 'up') === w.upIsPos) !== flip;
+      out[w.axis] = { pos: (out[w.axis]?.pos ?? false) || pos, neg: (out[w.axis]?.neg ?? false) || !pos };
     }
   }
   return out;
@@ -380,9 +453,10 @@ function clauseSpans(lower) {
 }
 
 // -> [{ v, cls, hits: [{ axis, pos }] }] for every number in a read() result
-function numbersWithDirections(R, { negation }) {
+function numbersWithDirections(R, { negation, contextual = false }) {
   const lower = R.text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1        ');
   const spans = clauseSpans(lower);
+  const cws = contextual ? changeWords(lower) : [];
   const out = R.tokens.map((t) => ({ ...t, hits: [] }));
   const perClause = spans.map(([s, e, opens, hard]) => {
     const seg = lower.slice(s, e);
@@ -410,6 +484,19 @@ function numbersWithDirections(R, { negation }) {
     for (const [axis, { pos, neg }] of Object.entries(AXES)) { scan(axis, pos, true); scan(axis, neg, false); }
     scan('amount', AMOUNT.pos, true);
     scan('amount', AMOUNT.neg, false);
+    // went up / dropped / smaller: the axis comes from what the sentence is about,
+    // and is left null (to be read from the fact the number quotes) when it is
+    // about none of them
+    for (const w of cws.filter((x) => x.at >= s && x.at < e)) {
+      if (taken.some(([x, y]) => w.at - s < y && w.end - s > x)) continue;
+      let flip = false;
+      if (negation) {
+        const before = seg.slice(Math.max(0, w.at - s - 22), w.at - s);
+        flip = NEGATORS.test(before) && !/[.;!?](?!\d)/.test(before.split(NEGATORS).pop());
+      }
+      if (w.axis) hits.push({ axis: w.axis, pos: ((w.dir === 'up') === w.upIsPos) !== flip, at: w.at, end: w.end });
+      else hits.push({ axis: null, dir: w.dir, flip, at: w.at, end: w.end });
+    }
     return { s, e, opens, hard, hits, tokens: out.filter((t) => t.index >= s && t.index < e) };
   });
   const give = (hit, tokens) => {
@@ -418,7 +505,7 @@ function numbersWithDirections(R, { negation }) {
       const dy = y.end <= hit.at ? hit.at - y.end : y.index - hit.end;
       return dx - dy || (x.end <= hit.at ? -1 : 1);
     })[0];
-    nearest.hits.push({ axis: hit.axis, pos: hit.pos });
+    nearest.hits.push({ axis: hit.axis, pos: hit.pos, dir: hit.dir, flip: hit.flip, at: hit.at, end: hit.end });
   };
   perClause.forEach((c, i) => {
     if (c.hits.length === 0) return;
@@ -430,9 +517,67 @@ function numbersWithDirections(R, { negation }) {
     const next = perClause[i + 1];
     const last = prev?.tokens.at(-1);
     const target = last && last.hits.length === 0 ? last : next && !next.hard && next.tokens.length && next.tokens[0].hits.length === 0 ? next.tokens[0] : null;
-    if (target) for (const h of c.hits) target.hits.push({ axis: h.axis, pos: h.pos });
+    if (target) for (const h of c.hits) target.hits.push({ axis: h.axis, pos: h.pos, dir: h.dir, flip: h.flip, at: h.at, end: h.end });
   });
+  // every word that was read as a direction, so that what is NOT is findable
+  out.consumed = perClause.flatMap((c) => c.hits.filter((h) => h.axis).map((h) => [h.at, h.end]));
   return out;
+}
+
+// Words that read as a direction by their shape, for the conservative default.
+// Comparatives (-er), "more/less/fewer X" and -ed / -ing verbs are the shapes a
+// direction takes in English; -s is only a verb of change if it is one of these
+// (the plural noun "notes" is -s too).
+const NOT_COMPARATIVE = new Set(['number', 'numbers', 'other', 'others', 'another', 'after', 'under', 'over', 'answer', 'order', 'center', 'centre', 'power', 'paper', 'cover', 'offer', 'never', 'ever', 'either', 'neither', 'whether', 'together', 'player', 'finger', 'character', 'remember', 'newer', 'older', 'later', 'earlier', 'former', 'latter', 'latest', 'meter', 'letter', 'matter', 'water', 'consider', 'during', 'inner', 'outer', 'upper', 'sooner', 'closer', 'quieter', 'louder']);
+const NEUTRAL_WORDS = new Set(['measured', 'averaged', 'played', 'playing', 'heard', 'recorded', 'recording', 'reached', 'landed', 'arrived', 'settled', 'settling', 'called', 'named', 'based', 'compared', 'comparing', 'shown', 'showing', 'given', 'remaining', 'following', 'including', 'according', 'being', 'having', 'going', 'getting', 'making', 'taking', 'using', 'sounded', 'looked', 'saved', 'tuned', 'tuning', 'listed', 'counted', 'counting', 'rated', 'worked', 'working', 'practised', 'practising', 'practiced', 'practicing', 'timing', 'pitched', 'feeling', 'morning', 'evening', 'something', 'nothing', 'anything', 'everything', 'phrasing', 'breathing', 'asked', 'asking', 'noted', 'found', 'looking', 'wanted', 'needed', 'held', 'said', 'worth', 'based', 'listened', 'listening', 'started', 'finished', 'finishing', 'repeated', 'repeating', 'detected', 'read', 'reading', 'recorded', 'sustained', 'applied', 'counted', 'expected', 'related', 'detached', 'connected', 'tuned', 'asked', 'noted', 'saved', 'used', 'rated', 'named', 'fixed', 'mixed', 'ended', 'added', 'owned', 'aimed', 'ranked', 'timed', 'paced', 'based', 'ruled', 'issued', 'needed', 'sized', 'shared', 'scored', 'tested']);
+const MOTION_S = /^(?:trails?|lags?|eases|dips|slips|slides|sags|sinks|surges|climbs|jumps|tapers|fades|drifts|falls|drops|rises|grows|shrinks|slows|speeds|gains|loses|outpaces|leads|trails)$/;
+const UNIT_OR_NOUN = new Set(['notes', 'note', 'times', 'time', 'cents', 'cent', 'ms', 'db', 'hz', 'percent', 'points', 'point', 'seconds', 'second', 'beats', 'beat', 'bars', 'bar', 'takes', 'take', 'days', 'day', 'than', 'of', 'in', 'on', 'to', 'and', 'or', 'about']);
+
+// -> the first such word near the number at `at` that nothing accounts for, or ''.
+// "Near" is the same sentence and five words either way: the unknown word is
+// often in the clause before ("The take sagged: 12.8¢ against before").
+const FIVE = 5;
+const BEFORE_A_NOUN = new Set(['of', 'the', 'a', 'an', 'your', 'my', 'this', 'that', 'any', 'some', 'no', 'with', 'for', 'to', 'each', 'every', 'its', 'their', 'his', 'her', 'our']);
+const COPULAS = new Set(['is', 'are', 'was', 'were', 'got', 'get', 'gets', 'become', 'became', 'be', 'been', 'felt', 'feels', 'sounds', 'sounded', 'looks', 'looked']);
+const AFTER_A_COMPARATIVE = new Set(['than', 'by', 'now', 'from', 'at', 'in', 'on', 'still', 'again', 'overall', 'today']);
+function unknownDirectionWord(lower, at, consumed, factsWords) {
+  // a sentence ends at . ! ? ; or a newline, and a full stop before a digit is a decimal point
+  const brk = [...lower.matchAll(/[!?;\n]|\.(?!\d)/g)].map((m) => m.index);
+  const from = (brk.filter((b) => b < at).pop() ?? -1) + 1;
+  const to = brk.find((b) => b >= at) ?? lower.length;
+  const seg = lower.slice(from, to);
+  const toks = [...seg.matchAll(/[a-z][a-z'-]*|\d+(?:\.\d+)?/g)].map((m) => ({ w: m[0], a: from + m.index, b: from + m.index + m[0].length, num: /^\d/.test(m[0]) }));
+  const here = toks.findIndex((t) => t.a >= at);
+  const center = here < 0 ? toks.length - 1 : here;
+  const inFacts = (w) => {
+    if (new RegExp(`\\b${w}\\b`).test(factsWords)) return true;
+    const stem = w.replace(/(?:ing|ed|er|es|s)$/, '');
+    return stem.length >= 4 && factsWords.includes(stem);
+  };
+  const covered = (a, b) => consumed.some(([x, y]) => a < y && b > x);
+  for (let i = Math.max(0, center - FIVE); i < Math.min(toks.length, center + FIVE + 1); i++) {
+    const t = toks[i];
+    if (t.num || inFacts(t.w)) continue;
+    const prev = toks[i - 1];
+    const next = toks[i + 1];
+    if (/^(?:more|less|fewer)$/.test(t.w)) {
+      // "more" alone is read as an amount word whatever follows it, so what
+      // matters is whether the PAIR is one the lexicon read ("more accurate")
+      if (!next || next.num || UNIT_OR_NOUN.has(next.w) || inFacts(next.w) || consumed.some(([x, y]) => x <= t.a && y >= next.b)) continue;
+      return `${t.w} ${next.w}`;
+    }
+    if (covered(t.a, t.b)) continue;
+    if (NEUTRAL_WORDS.has(t.w) || NOT_COMPARATIVE.has(t.w)) continue;
+    if (/^[a-z]{4,}er$/.test(t.w)) {
+      // a comparative stands after a number, after "is", or before "than"; "of
+      // wander", "the number" and "your player" are nouns that end the same way
+      const stands = (prev && (prev.num || UNIT_OR_NOUN.has(prev.w) || COPULAS.has(prev.w))) || (next && AFTER_A_COMPARATIVE.has(next.w)) || !next;
+      if (stands && !(prev && BEFORE_A_NOUN.has(prev.w))) return t.w;
+      continue;
+    }
+    if (/^[a-z]{3,}ed$/.test(t.w) && !(prev && COPULAS.has(prev.w)) || /^[a-z]{4,}ing$/.test(t.w) || MOTION_S.test(t.w) || /^(?:sped|slid|sank|swung|shot|crept)$/.test(t.w)) return t.w;
+  }
+  return '';
 }
 
 // numbers in the facts that a number in the reply could be quoting
@@ -463,6 +608,78 @@ const NUMBER_TOPICS = {
   practice: /\b(streak|practis\w*|practic\w*|days?|week)\b/,
 };
 const topicsIn = (s) => new Set(Object.entries(NUMBER_TOPICS).filter(([, re]) => re.test(s)).map(([k]) => k));
+
+// ---- which number the words beside it belong to --------------------------------
+
+// 8c above asks whether a number sits in a sentence about the same sort of thing,
+// and cannot see two numbers in ONE sentence swapped: the range and the step of
+// the loudness ("12 dB between the quietest and loudest ...; neighbouring notes
+// differ by 1.8 dB"), a note's lean and its spread ("D3 runs 14¢ sharp (spread
+// ±2¢ ...)"). Each number has a LABEL, the content words between it and the
+// number or the comma, colon or bracket before it, and the ones after it up to
+// the next. The rule is deliberately one-sided: a reply number is refused when
+// its words are the words of a different number of the same unit and share
+// none with the number it quotes. A reply that says nothing the facts' words
+// recognise ("your dynamics span 12 dB") is left to the other rules, because
+// synonyms are most of what a paraphrase is.
+const LABEL_STOP = new Set(('a an the and or but of at by in on to for with from as is are was were be been it its this that these those your you my i about around roughly '
+  + 'approximately nearly almost over under than then so now before after average mean overall each every per about up down off out also just only still about '
+  + 'cent cents db decibels decibel hz hertz ms milliseconds millisecond s sec secs second seconds percent bpm beats beat points point notes note times time take takes '
+  + 'where which what who how when').split(/\s+/));
+const SEGMENT_BREAK = /[;:()\n]|[.!?](?=\s|$)|,(?!\d)/g;
+function wordsOf(s) {
+  return (s.toLowerCase().match(/[a-z][a-z']*|[a-g][#b]?\d/g) ?? [])
+    .map((w) => (/^[a-g][#b]?\d$/.test(w) ? w : w.replace(/'s$/, '').replace(/(?:ing|ed|es|s)$/, (m, i, all) => (all.length > 5 ? '' : m))))
+    .filter((w) => w.length > 1 && !LABEL_STOP.has(w));
+}
+// A take's name and its date are words too, and they sit beside half the numbers
+// in a comparison; they say WHICH take, not what was measured, so they are blanked.
+const blankNames = (s) => s
+  .replace(/"[^"]{1,80}"/g, (m) => ' '.repeat(m.length))
+  .replace(new RegExp(`\\b${MONTH_RE}\\.?\\s+\\d{1,2}(?:st|nd|rd|th)?\\b`, 'gi'), (m) => ' '.repeat(m.length));
+function labelled(tokens, txtIn) {
+  const txt = blankNames(txtIn);
+  const breaks = [...txt.matchAll(SEGMENT_BREAK)].map((m) => m.index);
+  const ordered = [...tokens].sort((a, b) => a.index - b.index);
+  return ordered.map((t, i) => {
+    const segStart = (breaks.filter((b) => b < t.index).pop() ?? -1) + 1;
+    const segEnd = breaks.find((b) => b >= t.end) ?? txt.length;
+    const prev = ordered[i - 1];
+    const next = ordered[i + 1];
+    const from = prev && prev.end > segStart ? prev.end : segStart;
+    const to = next && next.index < segEnd ? next.index : segEnd;
+    const unitEnd = t.end + (/^\s*(?:¢|%|cents?|ms|db|hz|s\b)/i.exec(txt.slice(t.end))?.[0].length ?? 0);
+    // the words AFTER a number run only to the next connector: in "D3 runs 2¢
+    // sharp with a spread of ±14¢", "a spread of" leads into the 14 and is not
+    // the 2's
+    const after = txt.slice(Math.min(unitEnd, to), to).split(/\b(?:with|and|but|over|while|at|by|for|of|in|from|where|between|against|than|compared)\b/i)[0];
+    return { ...t, words: new Set(wordsOf(`${txt.slice(from, t.index)} ${after}`)) };
+  });
+}
+const sharesAny = (a, b) => [...a].some((w) => b.has(w));
+const NOTE_WORD = /^[a-g][#b]?\d$/;
+function misattached(R, replyTxt, F, factsTxt) {
+  const out = [];
+  const theirs = labelled(F.tokens, factsTxt);
+  for (const r of labelled(R.tokens, replyTxt)) {
+    if (!r.cls || r.words.size === 0) continue;
+    const same = theirs.filter((f) => quotes(r, f));
+    if (same.length === 0) continue;
+    const others = theirs.filter((f) => f.cls === r.cls && !near(r.v, f.v));
+    const rn = [...r.words].filter((w) => NOTE_WORD.test(w));
+    // which NOTE: D3's figure given to A3
+    if (rn.length && same.every((f) => { const fn = [...f.words].filter((w) => NOTE_WORD.test(w)); return fn.length && !fn.some((n) => rn.includes(n)); })) {
+      out.push(`${r.v}${r.cls ? ` ${r.cls}` : ''} belongs to ${[...same[0].words].filter((w) => NOTE_WORD.test(w)).join('/')}, not ${rn.join('/')}`);
+      continue;
+    }
+    // a number whose own words are empty in the facts (a take's average in a
+    // comparison, "9¢" after a quoted name) says nothing to hold the reply to
+    if (same.some((f) => f.words.size === 0 || sharesAny(r.words, f.words))) continue;
+    const stolen = others.find((f) => sharesAny(r.words, f.words));
+    if (stolen) out.push(`${r.v}${r.cls ? ` ${r.cls}` : ''} is the measurement beside "${[...stolen.words].slice(0, 3).join(' ')}" in the facts, and the number beside "${[...same[0].words].slice(0, 3).join(' ')}" is ${stolen.v}`);
+  }
+  return out;
+}
 
 // ---- things the facts say were not measured ------------------------------------
 
@@ -518,6 +735,72 @@ const HEARING = [
 const TASTE_NOUNS = 'phrasing|shaping|articulation|rubato|feeling|playing|take|tone|intonation|sound|work|job|progress|improvement|session|practice|performance|result|results|rhythm|timing|pitch|vibrato|technique';
 const TASTE = new RegExp(`\\b(beautiful(?:ly)?|lovely|gorgeous|musical(?:ly|ity)?|expressive(?:ly|ness)?|emotional(?:ly)?|soulful|soulless|lifeless|boring|dull|passionate|artistic(?:ally)?|wonderful(?:ly)?|amazing(?:ly)?|impressive(?:ly)?|excellent(?:ly)?|perfect(?:ly)?|superb(?:ly)?|fantastic|brilliant(?:ly)?|terrific|outstanding|awesome|mechanical|robotic|stiff|well[- ]phrased|(?:better|poorly|badly|nicely|beautifully)[- ]phrased|(?:well|nicely) (?:done|played)|(?:good|great|nice) (?:job|work)|keep (?:it|up)|congratulations|bravo|(?:good|great|poor|bad|lovely|nice|wonderful|natural|fine|terrible|awful|strong|weak|solid|decent) (?:${TASTE_NOUNS})|(?:is|are|was|were|looks?|sounds?|sounded|seems?|seemed|feels?) (?:very |really |pretty |quite |so |fairly |rather )?(?:good|great|fine|ok|okay|alright|bad|poor|nice|terrible|awful|decent)|(?:went|go|goes|going|did|doing|played|playing|play|plays) (?:very |really |pretty |quite |so |fairly )?well)\\b`, 'g');
 
+// Verdicts with no digit and no direction word. "Your intonation is solid",
+// "your pitch is accurate", "no problems here", "you nailed it", "your playing was
+// in tune" give the number rules nothing to read, and TASTE above knew "good",
+// "great" and "fine" and not "solid", "accurate" or "clean". Three shapes, all
+// rejected unless the FACTS say the same thing:
+//   - a copula and an adjective, "X is ADJ": the facts must have ADJ in a
+//     sentence that is about X. Asking only whether the facts contain the word
+//     let "your vocal range is wide" ride on the vibrato's "27¢ wide" and "your
+//     playing was in tune" ride on "notes arrive in tune within 60 ms".
+//   - a stock phrase ("nailed it", "no problems", "steady progress", "too fast"):
+//     the facts must contain the phrase itself.
+//   - an adverb on a verb of playing ("played it accurately").
+// "X is 27¢ wide" is a description and is not matched: a number between the
+// copula and the adjective is a measurement, which the number rules hold. The
+// facts are read without their parentheses, because "(lower can mean breathy or
+// rough)" is a caveat about what a low clarity can mean and not a statement that
+// the tone is breathy.
+const EVAL_ADJ = 'breathy|raspy|muddy|nasal|pinched|forced|mushy|airy|scratchy|solid|accurate|inaccurate|precise|exact|reliable|consistent|inconsistent|steady|unsteady|stable|secure|insecure|clean|clear|warm|cold|rich|full|thin|bright|dark|dull|wide|narrow|broad|tight|loose|even|uneven|smooth|rough|strong|weak|healthy|controlled|confident|hesitant|shaky|wobbly|sloppy|messy|tidy|harsh|tense|relaxed|natural|lively|lovely|on pitch|on point|on target|spot on|in tune|out of tune|in time|out of time|fast|slow|quick|loud|quiet|soft|excellent|impressive|polished|rounded|focused|resonant|expressive|musical|sweet|pure|stiff|correct|incorrect|fine|good|great|ok|okay|poor|bad|decent|nice';
+const COPULA = `(?:is|are|was|were|am|'s|'re|isn't|aren't|wasn't|weren't|looks?|looked|sounds?|sounded|seems?|seemed|feels?|felt|stays?|stayed|remains?|remained|came out|comes out|came across|comes across|has been|have been|had been|become|became|becomes|getting|got|gets)`;
+const INTENSIFIER = `(?:(?:not|never|very|really|pretty|quite|so|fairly|rather|extremely|incredibly|remarkably|particularly|especially|generally|mostly|largely|still|also|always|usually|consistently|just|too|a bit|a little|somewhat|reasonably|perfectly|nicely|overall|all in all)\\s+)*`;
+const PREDICATE = new RegExp(`((?:\\b[a-z][a-z'-]*\\s+){0,3})\\b${COPULA}\\s+${INTENSIFIER}(?:(?:the|a|an)\\s+)?(${EVAL_ADJ})\\b`, 'g');
+// "too fast", "too wide": a judgement of degree. Held to the exact phrase.
+const TOO_X = /\btoo (?!few\b|much\b|many\b)([a-z]+)/g;
+const STOCK = [
+  /\bnail(?:ed|ing|s)? it\b/, /\bspot on\b/, /\bon point\b/, /\bon the (?:mark|money|right track)\b/, /\bright track\b/, /\bright direction\b/,
+  /\bno (?:problems?|issues?|concerns?|worries|faults?|complaints?|mistakes?|errors?|trouble)\b/, /\bnothing (?:to worry about|wrong|to fix|to improve)\b/, /\bnot a (?:problem|concern|worry)\b/,
+  /\ball (?:good|fine|well)\b/, /\beverything (?:is|was|looks|sounds) (?:in tune|fine|good|great)\b/, /\bkeep (?:going|it up)\b/, /\byou(?:'re| are) getting there\b/,
+  /\b(?:steady|solid|clear|real|great|good|noticeable|visible|significant|big|huge|major|slow|rapid|fast|consistent|continued|measurable) (?:progress|improvement|gains?)\b/,
+  /\b(?:making|show(?:ing|s)?|shown) (?:progress|improvement)\b/,
+];
+const ATTRIBUTIVE = new RegExp(`\\b(solid|accurate|precise|clean|warm|steady|reliable|secure|confident|tidy|rich|full|healthy|controlled|consistent|tight|polished|focused|even|smooth|strong) (intonation|pitch|tuning|tone|sound|playing|vibrato|rhythm|timing|technique|take|performance|range|phrasing|bowing|breath|control|foundation)\\b`, 'g');
+const ADVERB_ON_PLAYING = /\b(?:play(?:ed|ing|s)?|sang|sing(?:ing|s)?|perform(?:ed|ing|s)?|did|nailed) (?:it |that |this |them |the \w+ |your \w+ )?(accurately|cleanly|precisely|reliably|confidently|solidly|steadily|beautifully|perfectly|flawlessly|in tune|on pitch|in time)\b/g;
+const DETERMINERS = new Set(['your', 'the', 'my', 'this', 'that', 'these', 'those', 'a', 'an', 'and', 'but', 'so', 'then', 'now', 'overall', 'also', 'both', 'all', 'of', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'is', 'are']);
+const PRONOUNS = new Set(['it', 'this', 'that', 'they', 'there', 'which', 'what', 'everything', 'something', 'anything']);
+const headStem = (w) => w.replace(/s$/, '');
+
+// -> ["intonation is solid", ...] the verdicts in `text` that `factsText` does not make
+function verdictsIn(text, factsText) {
+  const noParens = factsText.replace(/\([^)]*\)/g, ' ').toLowerCase();
+  const sents = noParens.split(/(?<=[.!?])\s+|[\n;]+/).filter(Boolean);
+  const has = (re) => sents.some((s) => re.test(s));
+  const word = (w) => new RegExp(`\\b${w.replace(/ /g, '\\s+')}\\b`);
+  const out = [];
+  const lower = clean(text).toLowerCase().replace(/'/g, "'");
+  for (const m of lower.matchAll(PREDICATE)) {
+    // "so I cannot say whether your playing is even": a word inside a whether-
+    // or if-clause is being asked about, not asserted
+    if (/\b(?:whether|if)\b[^.;!?]*$/.test(lower.slice(Math.max(0, m.index - 60), m.index + m[1].length))) continue;
+    const adj = m[2];
+    const lead = m[1].trim().split(/\s+/).filter(Boolean);
+    while (lead.length && DETERMINERS.has(lead[0])) lead.shift();
+    const headWord = lead.at(-1);
+    const head = headWord && !PRONOUNS.has(headWord) ? headStem(headWord) : null;
+    // the subject "you" / "I" / "we" is not a thing the facts are about
+    const onlyAdj = head === null;
+    const adjRe = word(adj);
+    const said = onlyAdj ? has(adjRe) : sents.some((s) => adjRe.test(s) && new RegExp(`\\b${head}`).test(s));
+    if (!said) out.push(`${headWord ? `${headWord} ` : ''}${m[0].trim().split(/\s+/).slice(lead.length ? -1 : 0).join(' ')}`.trim());
+  }
+  for (const m of lower.matchAll(TOO_X)) if (!noParens.includes(m[0])) out.push(m[0]);
+  for (const re of STOCK) { const m = lower.match(re); if (m && !noParens.includes(m[0])) out.push(m[0]); }
+  for (const m of lower.matchAll(ATTRIBUTIVE)) if (!noParens.includes(m[0])) out.push(m[0]);
+  for (const m of lower.matchAll(ADVERB_ON_PLAYING)) if (!noParens.includes(m[1])) out.push(m[0]);
+  return [...new Set(out)];
+}
+
 // Instruments and voice types, by name. An explicit list and not router.js's
 // PLAYS, which also holds "scale", "part", "range" and "solo": those are words a
 // description can use. "bass" alone is left out (a bass clef, a bass note).
@@ -566,6 +849,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const problems = [];
   const stray = [];
   const add = (kind, what) => problems.push({ kind, text: what });
+  if (stripScopeTags(text) !== text) add('echo', 'a scope tag from the prompt');
 
   const factList = Array.isArray(facts) ? facts : [facts];
   const factsText = clean(factList.join('\n'));
@@ -578,11 +862,25 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const Q = read(qText);
   const R = read(text);
 
+  // days: each use must meet the same use in the facts, and the count of days
+  // practised ("3 of the last 7") is a count in its own right
+  const dayUses = F.tokens.filter((t) => t.cls === 'days').map((t) => ({ v: t.v, role: dayRole(F.text, t) }));
+  for (const m of F.text.matchAll(COUNT_OF_WINDOW)) dayUses.push({ v: Number(m[1]), role: 'count' });
+
   // numbers inside a take name are the name's, usable only as plain numbers
   const nameNumbers = [...F.quotes, ...Q.quotes].flatMap((q) => numbersIn(q)).map((v) => ({ v, cls: 'name' }));
-  const allowed = [...F.tokens, ...Q.tokens, ...nameNumbers].map((t) => ({ v: t.v, cls: t.cls }));
-  // "88 out of 100" is a percentage said another way
-  for (const m of factsText.matchAll(/(\d+(?:\.\d+)?)\s*(?:out of 100|\/\s*100)/g)) allowed.push({ v: Number(m[1]), cls: 'pct' });
+  // A count of takes the PLAYER typed ("my last 3 takes") says what was asked,
+  // not how many takes there are: licensing it back let "over the last 3 takes"
+  // through on sentences built from one. Counts of takes are held to takeCount
+  // and to the facts below.
+  const allowed = [...F.tokens, ...Q.tokens.filter((t) => t.cls !== 'take'), ...nameNumbers].map((t) => ({ v: t.v, cls: t.cls }));
+  for (const u of dayUses) allowed.push({ v: u.v, cls: 'days' });
+  // "88 out of 100" used to be allowed as a percentage said another way. It let
+  // "vibrato is on 88% of notes" through (88 is the tone clarity, and the facts'
+  // own percentages are about notes), and no reply the real model gave in
+  // tools/ai-model/results ever wrote the clarity as a percentage: the one that
+  // mentioned it said "88 out of 100". So a number out of 100 stays a number out
+  // of 100.
   const allowedBars = new Set([...F.bars, ...Q.bars]);
   // a take's name carries its date ("Bach prelude, Oct 19"), and a reply that
   // says "the Oct 19 take" is quoting it
@@ -593,6 +891,10 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   for (const t of R.tokens) {
     let ok = allowed.some((a) => near(t.v, a.v) && compatible(t.cls, a.cls));
     if (!ok && t.cls === 'take' && opts.takeCount != null && t.v === opts.takeCount) ok = true;
+    if (ok && t.cls === 'days') {
+      const role = dayRole(R.text, t);
+      if (!dayUses.some((u) => u.role === role && near(t.v, u.v))) { ok = false; add('count', `${t.v} days used as a ${role === 'gap' ? 'gap between sessions' : role}, which the measurements do not state`); stray.push(t.v); continue; }
+    }
     if (!ok) {
       const wordOf = t.word ? ' (spelled out)' : '';
       const sameNumberOtherUnit = allowed.some((a) => near(t.v, a.v));
@@ -656,7 +958,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   }
 
   // 8. direction
-  const replyLean = leanOf(text, { negation: true });
+  const replyLean = leanOf(text, { negation: true, contextual: true });
   const factLean = leanOf(factsText, { negation: false });
   const factsNeutral = /about the same|unchanged/i.test(factsText);
   for (const [axis, r] of Object.entries(replyLean)) {
@@ -687,11 +989,38 @@ export function checkReply(reply, facts, question = '', opts = {}) {
 
   // 8b. a direction word next to a number, against the same number in the facts
   const factNums = numbersWithDirections(F, { negation: false });
-  const replyNums = numbersWithDirections(R, { negation: true });
+  const replyNums = numbersWithDirections(R, { negation: true, contextual: true });
+  const replyLowerAll = R.text.toLowerCase();
+  const factsWordsLower = factsLower.replace(/\([^)]*\)/g, ' ');
   for (const r of replyNums) {
-    if (r.hits.length === 0) continue;
     const there = factNums.filter((f) => quotes(r, f));
+    const twinAxes = [...new Set(there.flatMap((f) => f.hits).map((x) => x.axis).filter((a) => a && a !== 'amount'))];
     for (const h of r.hits) {
+      if (h.axis !== null) continue;
+      // "27¢ smaller than before": the sentence names no topic, so the measurement
+      // the number belongs to does; with one obvious meaning there it is read so,
+      // with none it is an unknown direction word and the default below holds it
+      const ax = twinAxes.length === 1 && twinAxes[0] in SIZE_UP_IS_POS ? twinAxes[0] : null;
+      if (!ax) continue;
+      h.axis = ax;
+      h.pos = ((h.dir === 'up') === SIZE_UP_IS_POS[ax]) !== h.flip;
+      replyNums.consumed.push([h.at, h.end]);
+    }
+    // The conservative default. When the number's twin in the facts carries a
+    // direction, a word beside it that LOOKS like a direction (a comparative, a
+    // "more X", a verb of change) and that neither the lexicon above nor the facts
+    // know is refused: the lexicon will never hold every word a model or a
+    // skeptic reaches for ("dipped", "sagged", "ballooned"), and a synonym that
+    // is not recognised passes as if it said nothing. The cost is an honest
+    // paraphrase in a word the guard has not heard of, which falls back to the
+    // sentences; tests/ai-eval/direction-redteam.mjs counts both sides.
+    if (there.some((f) => f.hits.some((x) => x.axis))) {
+      const word = unknownDirectionWord(replyLowerAll, r.index, replyNums.consumed, factsWordsLower);
+      if (word) add('direction', `${r.v}${r.cls ? ` ${r.cls}` : ''}: "${word}" beside it reads as a direction, and neither the guard nor the measurements use that word`);
+    }
+    if (r.hits.length === 0) continue;
+    for (const h of r.hits) {
+      if (h.axis === null) continue;
       const axes = h.axis === 'precision' ? PRECISION_OF : [h.axis];
       const theirs = there.flatMap((f) => f.hits).filter((x) => axes.includes(x.axis));
       if (theirs.length > 0 && !theirs.some((x) => x.pos === h.pos)) {
@@ -722,6 +1051,9 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     }
   }
 
+  // 8d. a number next to the words of a DIFFERENT number of the same unit
+  for (const w of misattached(R, clean(text), F, factsText)) add('attached', w);
+
   // 9. claims about the player's level, other players, or the best ever
   const lower = clean(text).toLowerCase();
   for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('superlative', m[0]); }
@@ -732,6 +1064,12 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     // "beautiful" an allowed word
     const allowedTaste = factsLower.replace(/these describe the shaping[^.]*\./g, ' ');
     for (const m of lower.matchAll(TASTE)) if (!allowedTaste.includes(m[0])) { add('taste', m[0]); break; }
+  }
+  {
+    // a question that asks "is my vibrato too wide" is not the facts: the words
+    // must come from the measurements, as with taste
+    const v = verdictsIn(text, factsText);
+    if (v.length) add('verdict', v[0]);
   }
   const guess = lower.match(SPECULATION);
   if (guess) add('speculation', guess[0]);
@@ -809,6 +1147,9 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     attached: 'a measured number used for something else',
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
+    echo: 'text copied from the prompt',
+    verdict: 'a verdict on the playing that the measurements do not make',
+    count: 'a number of days or takes used for something the measurements do not state',
   }[first.kind];
   return { ok: false, stray, reason, problems };
 }

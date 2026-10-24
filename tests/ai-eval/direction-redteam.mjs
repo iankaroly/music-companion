@@ -213,6 +213,36 @@ export const FREEFORM_RIGHT = [
   'The Oct 22 take is 12.8¢ less out of tune.',
 ];
 
+// THE UNSEEN TIER. Written at the start of round 3, BEFORE the direction lexicon
+// was extended and before the conservative default for unknown words existed,
+// from words that appear in no list in guard.js ("dipped", "sagged", "ballooned",
+// "dawdled", "frayed"). Adding "smaller" and "sluggish" to the lexicon closes the
+// synonym tier above by construction, which says nothing about the next word a
+// model or a skeptic reaches for; this is the tier that does. The honest twins
+// here are honest and use words the guard has never heard of, so a guard that
+// rejects every unknown word beside a measured number is allowed to reject them:
+// that is the price of the conservative default, and it is counted, not hidden.
+// The words are NOT to be added to the lexicon after the fact.
+const UNSEEN_SHAPES = ['The take {W} by {N}.', 'The take {W}: {N} against before.', 'It {W}, {N} from before.'];
+const UNSEEN = {
+  closer: { wrong: ['sagged', 'slumped', 'dipped', 'tailed off'], right: ['cleaned up', 'came right', 'homed in'] },
+  further: { wrong: ['cleaned up', 'came right', 'homed in'], right: ['sagged', 'slumped', 'dipped', 'tailed off'] },
+  wider: { wrong: ['pinched in', 'tapered', 'slimmed', 'contracted'], right: ['ballooned', 'flared', 'opened out'] },
+  narrower: { wrong: ['ballooned', 'flared', 'opened out'], right: ['pinched in', 'tapered', 'slimmed', 'contracted'] },
+  faster: { wrong: ['dawdled', 'crawled', 'plodded'], right: ['hurried', 'sped along', 'snapped to it'] },
+  slower: { wrong: ['hurried', 'sped along', 'snapped to it'], right: ['dawdled', 'crawled', 'plodded'] },
+  steadier: { wrong: ['jittered', 'quivered', 'frayed'], right: ['calmed', 'firmed up'] },
+  shakier: { wrong: ['calmed', 'firmed up'], right: ['jittered', 'quivered', 'frayed'] },
+  tighter: { wrong: ['strayed', 'scattered', 'frayed'], right: ['locked in', 'snapped to the beat'] },
+  louder: { wrong: ['faded', 'receded'], right: ['swelled', 'boomed'] },
+  quieter: { wrong: ['swelled', 'boomed'], right: ['faded', 'receded'] },
+};
+function unseenSet(sc, words) {
+  const out = [];
+  for (const w of words ?? []) for (const f of formats(sc)) for (const s of UNSEEN_SHAPES) out.push(s.replace('{N}', f).replace('{W}', w));
+  return out;
+}
+
 export function buildDirectionSet() {
   const adversarial = [];
   const honest = [];
@@ -226,6 +256,11 @@ export function buildDirectionSet() {
     for (const r of expand(sc, sc.right)) honest.push({ scenario: sc.name, facts: sc.facts, reply: r, tier: 'listed' });
     for (const r of expand(sc, sc.wrongX)) adversarial.push({ scenario: sc.name, facts: sc.facts, reply: r, tier: 'synonym' });
     for (const r of expand(sc, sc.rightX)) honest.push({ scenario: sc.name, facts: sc.facts, reply: r, tier: 'synonym' });
+    const u = UNSEEN[sc.name];
+    if (u) {
+      for (const r of unseenSet(sc, u.wrong)) adversarial.push({ scenario: sc.name, facts: sc.facts, reply: r, tier: 'unseen' });
+      for (const r of unseenSet(sc, u.right)) honest.push({ scenario: sc.name, facts: sc.facts, reply: r, tier: 'unseen' });
+    }
   }
   for (const r of FREEFORM_WRONG) adversarial.push({ scenario: 'freeform', facts: CLOSER_FACTS, reply: r, tier: 'freeform' });
   for (const r of FREEFORM_RIGHT) honest.push({ scenario: 'freeform', facts: CLOSER_FACTS, reply: r, tier: 'freeform' });
@@ -250,7 +285,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   for (const c of m.adversarial) by[c.scenario].n += 1;
   for (const c of m.escapes) by[c.scenario].esc += 1;
   console.log(`direction red team, guard ${process.argv[2] ?? 'src/ai/guard.js'}`);
-  for (const tier of ['listed', 'synonym', 'freeform']) {
+  for (const tier of ['listed', 'synonym', 'freeform', 'unseen']) {
     const a = m.adversarial.filter((c) => c.tier === tier);
     const e = m.escapes.filter((c) => c.tier === tier);
     const h = m.honest.filter((c) => c.tier === tier);

@@ -84,25 +84,21 @@ describe('direction: a word that says the opposite of the number it is next to',
         expect(r.honest.some((c) => c.scenario === sc.name), sc.name).toBe(true);
       }
     });
-    test('synonyms outside that list are NOT all caught, and the honest ones are not rejected', async () => {
-      // "smaller", "less quick", "sluggish", "more quickly", "less tight": no
-      // lexicon for them on purpose (see the comment on AXES); pinned so a
-      // change in either direction is noticed
+    test('synonyms outside that list: 52 of 96 escaped at 26c4196, under 10 now, and the honest ones are not rejected', async () => {
+      // "smaller", "less quick", "sluggish", "more quickly" were once left out of
+      // the lexicon on purpose (see the comment on AXES) and escaped 52 of 96.
+      // They are in it now, AND a word beside a measured number that looks like a
+      // direction and that nobody knows is refused; tests/ai-guard-direction2.test.js
+      // holds the tier written before that change, in words no list holds.
       const r = await m;
-      const adv = r.adversarial.filter((c) => c.tier === 'synonym');
       const esc = r.escapes.filter((c) => c.tier === 'synonym');
-      expect(esc.length).toBeGreaterThan(0);
-      expect(esc.length).toBeLessThan(adv.length);
+      expect(esc.length).toBeLessThan(10);
       expect(r.falseRejects.filter((c) => c.tier === 'synonym')).toHaveLength(0);
     });
-    test('hand-written phrasings: all but the two that need a word with two meanings are caught', async () => {
+    test('hand-written phrasings: all 16 are caught now (2 escaped before: "behind" and "off pitch ... more than")', async () => {
       const r = await m;
       const esc = r.escapes.filter((c) => c.tier === 'freeform').map((c) => c.reply);
-      expect(FREEFORM_WRONG.length - esc.length).toBeGreaterThanOrEqual(14);
-      expect(esc.sort()).toEqual([
-        'Oct 22 is 12.8¢ behind Oct 17.', // "behind" is also behind the beat
-        'The Oct 22 take is off pitch by 12.8¢ more than the Oct 17 take.', // the "more" is after the noun it modifies
-      ]);
+      expect(esc).toEqual([]);
       expect(r.falseRejects.filter((c) => c.tier === 'freeform')).toHaveLength(0);
     });
   });

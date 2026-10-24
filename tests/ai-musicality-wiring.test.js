@@ -82,7 +82,9 @@ describe('answerQuestion loads a take once and computes everything from that one
   test('the musicality rule is in the model instructions only when shaping facts are', () => {
     expect(instructionsFor(['summary'])).toBe(INSTRUCTIONS);
     expect(instructionsFor(['musicality'])).toMatch(/Never say a take is more musical/);
-    expect(instructionsFor(['compare'])).toMatch(/Never say a take is more musical/);
+    // a comparison is never worded by the model (it spans two takes), so its
+    // prompt does not exist and carries no shaping rule
+    expect(instructionsFor(['compare'])).toBe(INSTRUCTIONS);
   });
 
   test('a take that cannot be loaded gives a plain "could not be measured", not a guess', async () => {

@@ -13,9 +13,10 @@
 
 import { plan, intentsOf } from './router.js';
 import { factsFor } from './facts.js';
-import { checkReply } from './guard.js';
+import { checkReply, stripScopeTags } from './guard.js';
 import { musicalityOf } from '../analysis/musicality.js';
 import { MUSICALITY_INSTRUCTION } from './musicality-facts.js';
+import { instrument, instrumentChosen } from '../analysis/instruments.js';
 
 // Rewritten after running the eval questions through the real on-device model
 // (tools/ai-model/README.md). What the first wording did at temperature 0, and
@@ -48,7 +49,9 @@ export const INSTRUCTIONS = [
 // the prompt: it forbids "more musical" and advice about taste, which would be
 // noise in an answer about pitch.
 export function instructionsFor(intents = []) {
-  const shaping = intents.includes('musicality') || intents.includes('compare');
+  // A comparison is never worded by the model (see modelMaySpeak), so only a
+  // question about one take's shaping needs the shaping rule.
+  const shaping = intents.includes('musicality');
   return shaping ? `${INSTRUCTIONS}\n${MUSICALITY_INSTRUCTION}` : INSTRUCTIONS;
 }
 
@@ -63,9 +66,26 @@ export function scopeTag(fact) {
   if (/notes heard/.test(fact)) return '[the whole take] ';
   if (/^The note furthest from pitch was/.test(fact)) return '[one note only] ';
   if (/^[A-G][#b]?\d moved from/.test(fact)) return '[one note only] ';
-  if (/^Average pitch error:/.test(fact)) return '[the two takes compared] ';
   return '';
 }
+
+// Whether the model is asked at all. The guard reads a reply against the
+// sentences it was given as a bag of words and numbers, and it cannot tell which
+// TAKE a claim is about: "The Oct 14 take is 13¢ closer" passes when it is the
+// Oct 19 take, because both dates and the 13 are in the facts. A skeptic's ~160
+// false replies got ~60% through it, and the swapped-take ones were the biggest
+// group. With one take's measurements in the prompt there is nothing to swap, so
+// the model words those; anything built from several takes (a comparison, a
+// trend, a habit over the library, "my last 3 takes") is the sentences as the
+// code wrote them. Decided from how many takes the facts were built from
+// (factsFor), not from how many the player named.
+export function modelMaySpeak(takesInFacts) {
+  return !(takesInFacts > 1);
+}
+
+// Said in the app's own voice, and plainly: nothing went wrong, this kind of
+// question is simply not worded by the model.
+export const SEVERAL_TAKES_NOTE = 'This question is about more than one take, so the answer is written by the app from the measurements. The on-device model words answers about a single take.';
 
 export function promptFor(question, facts) {
   return `MEASUREMENTS:\n${facts.map((f) => `- ${scopeTag(f)}${f}`).join('\n')}\n\nQUESTION: ${question}\n\nAnswer in one to three sentences, only from the measurements above.`;
@@ -156,6 +176,34 @@ export function refusalFor(scope = {}) {
   return `${base}. That question is not about them. ${ASKABLE}`;
 }
 
+// The range a take's notes are held to, so musicalityOf can say a take was heard
+// in the wrong octave (its reliability check is silent without one). A stored
+// take carries no instrument, and the family is one setting for the whole app, so
+// the range is, in order: one the take itself carries, the chosen family's, and
+// the widest any instrument here reaches (a piano's A0 to C8), which no
+// legitimate take of any instrument leaves. The family ranges are deliberately
+// generous (a family is many instruments: strings runs from a bass's E1 to a
+// violin's G7), because a net that flags a real take lowers every confidence in
+// its facts and says the pitch was mis-heard.
+export const GENERIC_RANGE = { lowMidi: 21, highMidi: 108 };
+const FAMILY_RANGE = {
+  strings: { lowMidi: 28, highMidi: 103 },
+  winds: { lowMidi: 34, highMidi: 108 },
+  brass: { lowMidi: 28, highMidi: 96 },
+  voice: { lowMidi: 36, highMidi: 88 },
+  keys: GENERIC_RANGE,
+};
+export function rangeFor(data = {}) {
+  const own = data?.range;
+  if (Number.isFinite(own?.lowMidi) && Number.isFinite(own?.highMidi)) return own;
+  try {
+    if (!instrumentChosen()) return GENERIC_RANGE;
+    return FAMILY_RANGE[instrument().id] ?? GENERIC_RANGE;
+  } catch {
+    return GENERIC_RANGE;
+  }
+}
+
 export async function answerQuestion({ question, library, load, qualityOf, rhythmReport, model = null, now = Date.now() }) {
   const p = plan(question, library, now);
   if (p.scope && ['offtopic', 'unmeasurable', 'unsupported', 'notfound'].includes(p.scope.kind)) {
@@ -176,18 +224,22 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
           t.quality = qualityOf({ notes: data.notes, readings: data.readings, audio: data.samples ?? null, sampleRate: data.sampleRate, a4: data.a4 ?? 440 });
         }
         if (p.needs.rhythm && rhythmReport) t.rhythm = rhythmReport(data.notes);
-        if (p.needs.musicality) t.musicality = musicalityOf({ notes: data.notes, readings: data.readings, a4: data.a4 ?? 440 });
+        if (p.needs.musicality) t.musicality = musicalityOf({ notes: data.notes, readings: data.readings, a4: data.a4 ?? 440, range: rangeFor(data) });
       } catch { /* an unreadable take just has no tone or rhythm facts */ }
     }
   }
 
-  const { facts, used } = factsFor({ question, intents: p.intents, chosen, all: library, now });
+  const { facts, used, takesInFacts } = factsFor({ question, intents: p.intents, chosen, all: library, now });
   const plain = facts.join(' ');
 
   const m = model ?? await nativeModel();
   const status = await modelStatus(m);
   if (!status.available || chosen.length === 0) {
     return { text: plain, facts, used, source: 'measurements', note: status.available ? '' : status.reason };
+  }
+  // Decided before the prompt is built or the model is touched.
+  if (!modelMaySpeak(takesInFacts)) {
+    return { text: plain, facts, used, source: 'measurements', why: 'several-takes', note: SEVERAL_TAKES_NOTE };
   }
 
   const instructions = instructionsFor(p.intents);
@@ -198,10 +250,13 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
 
   try {
     const reply = await m.respond({ instructions, prompt });
-    const text = String(reply?.text ?? '').trim();
+    // The scope tags in the prompt are the app's own bookkeeping. A model that
+    // echoes one back ("[the whole take] Your take was...") is not wrong, and the
+    // player is not shown a tag.
+    const text = stripScopeTags(String(reply?.text ?? '')).trim();
     const bad = text ? unfinished(text) : '';
     if (bad) return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${bad}).`, stray: [] };
-    const verdict = checkReply(text, facts, question, { takeCount: chosen.length });
+    const verdict = checkReply(text, facts, question, { takeCount: takesInFacts });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };
     return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${verdict.reason}).`, stray: verdict.stray };
   } catch (err) {

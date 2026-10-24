@@ -1,0 +1,632 @@
+[
+  {
+    "text" : "Your latest recording was 24 notes long, 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 480,
+    "ms" : 1162.308931350708,
+    "id" : 1
+  },
+  {
+    "text" : "Your phrasing is described as \"swelling and fading\".",
+    "promptTokens" : 693,
+    "ms" : 977.9850244522095,
+    "id" : 3
+  },
+  {
+    "text" : "You are worst on bar 3, where you were 32¢ off pitch over 3 notes.",
+    "promptTokens" : 459,
+    "ms" : 942.4039125442505,
+    "id" : 4
+  },
+  {
+    "text" : "The median note takes 90 ms to settle.",
+    "promptTokens" : 569,
+    "ms" : 815.822958946228,
+    "id" : 5
+  },
+  {
+    "text" : "No steady pulse could be found in \"Elgar concerto\".",
+    "promptTokens" : 433,
+    "ms" : 625.5650520324707,
+    "id" : 7
+  },
+  {
+    "text" : "The tempo is about 72 beats per minute.",
+    "promptTokens" : 452,
+    "ms" : 693.5100555419922,
+    "id" : 8
+  },
+  {
+    "text" : "You have not practised in 7 days.",
+    "promptTokens" : 425,
+    "ms" : 646.0870504379272,
+    "id" : 9
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of notes were within 10¢. The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 476,
+    "ms" : 1125.5519390106201,
+    "id" : 10
+  },
+  {
+    "text" : "The notes furthest from pitch in \"Bach prelude\" are D3, A3, and F3.",
+    "promptTokens" : 469,
+    "ms" : 818.1449174880981,
+    "id" : 11
+  },
+  {
+    "text" : "You should fix the D3, A3, and F3 notes first.",
+    "promptTokens" : 468,
+    "ms" : 820.2610015869141,
+    "id" : 12
+  },
+  {
+    "text" : "There is nothing to compare to.",
+    "promptTokens" : 496,
+    "ms" : 654.013991355896,
+    "id" : 13
+  },
+  {
+    "text" : "The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 475,
+    "ms" : 784.6300601959229,
+    "id" : 14
+  },
+  {
+    "text" : "The scales were 24 notes heard, 5¢ off pitch on average, and 100% of notes within 10¢.",
+    "promptTokens" : 447,
+    "ms" : 918.1209802627563,
+    "id" : 16
+  },
+  {
+    "text" : "Your last take was 17¢ off pitch on average.",
+    "promptTokens" : 478,
+    "ms" : 705.3149938583374,
+    "id" : 17
+  },
+  {
+    "text" : "You are worst at D3, A3, and F3.",
+    "promptTokens" : 473,
+    "ms" : 758.510947227478,
+    "id" : 19
+  },
+  {
+    "text" : "The pitches that give you the most trouble are D3, A3, and F3.",
+    "promptTokens" : 470,
+    "ms" : 788.9910936355591,
+    "id" : 20
+  },
+  {
+    "text" : "No steady pulse could be found in \"Oct 20\".",
+    "promptTokens" : 430,
+    "ms" : 726.0489463806152,
+    "id" : 22
+  },
+  {
+    "text" : "Your last take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 478,
+    "ms" : 882.4599981307983,
+    "id" : 23
+  },
+  {
+    "text" : "Yes, your vibrato is 27¢ wide.",
+    "promptTokens" : 569,
+    "ms" : 838.2760286331177,
+    "id" : 24
+  },
+  {
+    "text" : "The scales were 5¢ off pitch on average.",
+    "promptTokens" : 452,
+    "ms" : 712.6270532608032,
+    "id" : 26
+  },
+  {
+    "text" : "The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 479,
+    "ms" : 801.8389940261841,
+    "id" : 28
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of notes were within 10¢. Its furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 477,
+    "ms" : 1106.1279773712158,
+    "id" : 29
+  },
+  {
+    "text" : "The phrasing of \"Scales\" could not be measured.",
+    "promptTokens" : 484,
+    "ms" : 748.8390207290649,
+    "id" : 30
+  },
+  {
+    "text" : "Brightness: the sound's centre sits around the 3.5th harmonic.",
+    "promptTokens" : 569,
+    "ms" : 887.5839710235596,
+    "id" : 31
+  },
+  {
+    "text" : "The tempo speeds up (rushing).",
+    "promptTokens" : 451,
+    "ms" : 679.1880130767822,
+    "id" : 32
+  },
+  {
+    "text" : "The scales were 5¢ off pitch on average, and 100% of notes were within 10¢.",
+    "promptTokens" : 450,
+    "ms" : 859.887957572937,
+    "id" : 33
+  },
+  {
+    "text" : "Your last session was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 477,
+    "ms" : 919.7969436645508,
+    "id" : 35
+  },
+  {
+    "text" : "Your playing was 8¢ off pitch on average, and 100% of notes were within 10¢.",
+    "promptTokens" : 478,
+    "ms" : 919.4849729537964,
+    "id" : 36
+  },
+  {
+    "text" : "Vibrato is on 70% of notes held 0.4 s or longer, at about 5.4 Hz and 27¢ wide.",
+    "promptTokens" : 568,
+    "ms" : 1119.3510293960571,
+    "id" : 37
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 428,
+    "ms" : 638.8750076293945,
+    "id" : 38
+  },
+  {
+    "text" : "The Cello was 9¢ sharp on average over 6 times.",
+    "promptTokens" : 479,
+    "ms" : 794.1509485244751,
+    "id" : 39
+  },
+  {
+    "text" : "Bar 3 was 32¢ off pitch over 3 notes.",
+    "promptTokens" : 462,
+    "ms" : 781.6919088363647,
+    "id" : 40
+  },
+  {
+    "text" : "Your last etude was 7.5¢ off pitch on average, and 63% of notes were within 10¢.",
+    "promptTokens" : 481,
+    "ms" : 939.9720430374146,
+    "id" : 41
+  },
+  {
+    "text" : "Sarabande was 12¢ off pitch on average, and 50% of notes were within 10¢. Its furthest note was D3, 12¢ sharp on average over 6 times.",
+    "promptTokens" : 480,
+    "ms" : 1224.8029708862305,
+    "id" : 42
+  },
+  {
+    "text" : "Articulation is even from note to note (middle half of notes within 0% of each other).",
+    "promptTokens" : 574,
+    "ms" : 985.9180450439453,
+    "id" : 43
+  },
+  {
+    "text" : "The average error was 9¢.",
+    "promptTokens" : 479,
+    "ms" : 691.9128894805908,
+    "id" : 44
+  },
+  {
+    "text" : "You are not better than last time. The whole take was 12¢ off pitch on average, and 50% of notes were within 10¢. The furthest note was D3, 12¢ sharp on average over 6 times.",
+    "promptTokens" : 498,
+    "ms" : 1320.7709789276123,
+    "id" : 45
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of the notes were within 10¢. The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 476,
+    "ms" : 1201.8529176712036,
+    "id" : 46
+  },
+  {
+    "text" : "The whole take was 9¢ off pitch on average, and 50% of notes were within 10¢. The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 477,
+    "ms" : 1167.665958404541,
+    "id" : 47
+  },
+  {
+    "text" : "Yes, you are playing out of tune on D3, A3, and F3.",
+    "promptTokens" : 472,
+    "ms" : 843.6040878295898,
+    "id" : 48
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 429,
+    "ms" : 654.0089845657349,
+    "id" : 49
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 477,
+    "ms" : 935.7430934906006,
+    "id" : 50
+  },
+  {
+    "text" : "Your last take was 9¢ off pitch on average.",
+    "promptTokens" : 477,
+    "ms" : 723.6059904098511,
+    "id" : 53
+  },
+  {
+    "text" : "Tone and vibrato could not be measured for \"Bach prelude\".",
+    "promptTokens" : 421,
+    "ms" : 718.0379629135132,
+    "id" : 54
+  },
+  {
+    "text" : "Rubato is not measured in the \"Bach prelude\".",
+    "promptTokens" : 597,
+    "ms" : 908.964991569519,
+    "id" : 57
+  },
+  {
+    "text" : "Yes, your timing is off. The pulse of the \"Bach prelude\" is about 72 beats per minute, and 86% of the notes are 41 ms from the beat on average.",
+    "promptTokens" : 452,
+    "ms" : 1215.630054473877,
+    "id" : 59
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 430,
+    "ms" : 642.6349878311157,
+    "id" : 60
+  },
+  {
+    "text" : "Yesterday's take was 11¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 482,
+    "ms" : 933.7509870529175,
+    "id" : 63
+  },
+  {
+    "text" : "The whole take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 476,
+    "ms" : 934.0009689331055,
+    "id" : 64
+  },
+  {
+    "text" : "The pulse of \"Bach prelude\" is about 72 beats per minute, and 86% of the notes are 41 ms from the beat on average.",
+    "promptTokens" : 453,
+    "ms" : 1036.2379550933838,
+    "id" : 67
+  },
+  {
+    "text" : "The Bach prelude is not measured for vibrato, so it is not possible to determine if it is too flat or mechanical.",
+    "promptTokens" : 771,
+    "ms" : 1400.8899927139282,
+    "id" : 68
+  },
+  {
+    "text" : "The Soprano range is 10¢ sharp on average.",
+    "promptTokens" : 478,
+    "ms" : 775.7320404052734,
+    "id" : 69
+  },
+  {
+    "text" : "Your scale take was 5¢ off pitch on average, and 100% of notes were within 10¢.",
+    "promptTokens" : 452,
+    "ms" : 918.5880422592163,
+    "id" : 70
+  },
+  {
+    "text" : "Yesterday you practised \"Kol Nidrei\" (Oct 19).",
+    "promptTokens" : 480,
+    "ms" : 885.3349685668945,
+    "id" : 74
+  },
+  {
+    "text" : "You go wrong on the D3, A3, and F3 notes.",
+    "promptTokens" : 468,
+    "ms" : 772.2139358520508,
+    "id" : 77
+  },
+  {
+    "text" : "Not measured.",
+    "promptTokens" : 422,
+    "ms" : 498.9889860153198,
+    "id" : 78
+  },
+  {
+    "promptTokens" : 478,
+    "ms" : 760.6250047683716,
+    "id" : 79,
+    "error" : "guardrailViolation"
+  },
+  {
+    "text" : "The notes furthest from pitch in \"Bach prelude\" are D3, A3, and F3, each 9¢ sharp.",
+    "promptTokens" : 466,
+    "ms" : 874.1410970687866,
+    "id" : 80
+  },
+  {
+    "text" : "No steady pulse could be found in \"Scales\".",
+    "promptTokens" : 430,
+    "ms" : 566.1100149154663,
+    "id" : 81
+  },
+  {
+    "text" : "Your last take was 7¢ off pitch on average.",
+    "promptTokens" : 480,
+    "ms" : 607.4740886688232,
+    "id" : 82
+  },
+  {
+    "text" : "The Bach prelude is described as \"lightly separated, evenly articulated, steady in tempo and with phrases that swell and fade.\"",
+    "promptTokens" : 769,
+    "ms" : 1023.1579542160034,
+    "id" : 83
+  },
+  {
+    "text" : "The whole take was 9¢ off pitch on average.",
+    "promptTokens" : 478,
+    "ms" : 586.5519046783447,
+    "id" : 85
+  },
+  {
+    "text" : "Tone clarity reads 88 out of 100.",
+    "promptTokens" : 570,
+    "ms" : 647.8879451751709,
+    "id" : 86
+  },
+  {
+    "text" : "Tone and vibrato could not be measured for \"Bach prelude\".",
+    "promptTokens" : 422,
+    "ms" : 514.009952545166,
+    "id" : 88
+  },
+  {
+    "text" : "Not measured.",
+    "promptTokens" : 476,
+    "ms" : 434.39996242523193,
+    "id" : 89
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 477,
+    "ms" : 676.4430999755859,
+    "id" : 91
+  },
+  {
+    "text" : "Your vibrato is 27¢ wide.",
+    "promptTokens" : 569,
+    "ms" : 645.2900171279907,
+    "id" : 92
+  },
+  {
+    "text" : "Vibrato is on 70% of notes held 0.4 s or longer, at about 5.4 Hz and 27¢ wide.",
+    "promptTokens" : 568,
+    "ms" : 826.7929553985596,
+    "id" : 93
+  },
+  {
+    "text" : "Your trouble spots are D3, A3, and F3.",
+    "promptTokens" : 468,
+    "ms" : 544.6220636367798,
+    "id" : 94
+  },
+  {
+    "text" : "Kol Nidrei was 10¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 481,
+    "ms" : 676.3659715652466,
+    "id" : 98
+  },
+  {
+    "text" : "Your pitch accuracy is 9¢ off pitch on average.",
+    "promptTokens" : 477,
+    "ms" : 516.6919231414795,
+    "id" : 100
+  },
+  {
+    "text" : "The Elgar concerto was 18¢ off pitch on average, and 0% of notes were within 10¢. Its furthest note was D3, 18¢ sharp on average over 6 times.",
+    "promptTokens" : 479,
+    "ms" : 892.3170566558838,
+    "id" : 101
+  },
+  {
+    "text" : "The whole take was 9¢ off pitch on average, and 50% of notes were within 10¢. The furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 477,
+    "ms" : 856.8390607833862,
+    "id" : 103
+  },
+  {
+    "text" : "The measurements describe the shaping of the playing, not the feeling.",
+    "promptTokens" : 770,
+    "ms" : 815.6430721282959,
+    "id" : 104
+  },
+  {
+    "text" : "The whole take was 9¢ off pitch on average.",
+    "promptTokens" : 477,
+    "ms" : 516.1299705505371,
+    "id" : 105
+  },
+  {
+    "text" : "Bar 3 was 32¢ off pitch over 3 notes, bar 4 was 20¢ off pitch over 3 notes, and bar 2 was 11¢ off pitch over 3 notes.",
+    "promptTokens" : 459,
+    "ms" : 869.966983795166,
+    "id" : 106
+  },
+  {
+    "text" : "You are struggling with bar 3, bar 4, and bar 2.",
+    "promptTokens" : 461,
+    "ms" : 570.6570148468018,
+    "id" : 107
+  },
+  {
+    "text" : "Vibrato is on 70% of notes held 0.4 s or longer, at about 5.4 Hz and 27¢ wide.",
+    "promptTokens" : 571,
+    "ms" : 823.9140510559082,
+    "id" : 108
+  },
+  {
+    "text" : "Tone and vibrato could not be measured for \"Bach prelude\".",
+    "promptTokens" : 422,
+    "ms" : 506.45899772644043,
+    "id" : 109
+  },
+  {
+    "text" : "You should work on bars 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51,",
+    "promptTokens" : 469,
+    "ms" : 2475.1639366149902,
+    "id" : 114
+  },
+  {
+    "text" : "The notes furthest from pitch in \"Etude\" are D3, A3, and F3.",
+    "promptTokens" : 470,
+    "ms" : 604.0799617767334,
+    "id" : 115
+  },
+  {
+    "text" : "The D Major scale was 5¢ off pitch on average.",
+    "promptTokens" : 452,
+    "ms" : 511.4610195159912,
+    "id" : 116
+  },
+  {
+    "text" : "Your loudness range is 12 dB between the quietest and loudest tenth of notes, and neighbouring notes differ by 1.8 dB.",
+    "promptTokens" : 568,
+    "ms" : 796.2629795074463,
+    "id" : 117
+  },
+  {
+    "text" : "My last take was 9¢ off pitch on average.",
+    "promptTokens" : 482,
+    "ms" : 520.3540325164795,
+    "id" : 119
+  },
+  {
+    "text" : "Today, the whole take was 7¢ off pitch on average, and 100% of notes were within 10¢.",
+    "promptTokens" : 478,
+    "ms" : 702.4580240249634,
+    "id" : 122
+  },
+  {
+    "text" : "The Bach prelude was 9¢ off pitch on average, and 50% of notes were within 10¢. Its furthest note was D3, 9¢ sharp on average over 6 times.",
+    "promptTokens" : 474,
+    "ms" : 850.0739336013794,
+    "id" : 123
+  },
+  {
+    "text" : "You played 24 notes.",
+    "promptTokens" : 478,
+    "ms" : 458.69505405426025,
+    "id" : 124
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 429,
+    "ms" : 454.06806468963623,
+    "id" : 126
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 429,
+    "ms" : 451.321005821228,
+    "id" : 128
+  },
+  {
+    "text" : "Not measured.",
+    "promptTokens" : 474,
+    "ms" : 429.20005321502686,
+    "id" : 129
+  },
+  {
+    "text" : "Your last take was 8¢ off pitch on average.",
+    "promptTokens" : 478,
+    "ms" : 483.7520122528076,
+    "id" : 130
+  },
+  {
+    "text" : "Your last take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 478,
+    "ms" : 639.5959854125977,
+    "id" : 131
+  },
+  {
+    "text" : "The loudness range is 12 dB between the quietest and loudest tenth of notes. Neighbouring notes differ by 1.8 dB.",
+    "promptTokens" : 568,
+    "ms" : 855.1169633865356,
+    "id" : 132
+  },
+  {
+    "text" : "Pitch steadiness inside held notes (without vibrato): 3.1¢ of wander in the middle note.",
+    "promptTokens" : 569,
+    "ms" : 704.2629718780518,
+    "id" : 134
+  },
+  {
+    "text" : "You are worst at D3, A3, and F3.",
+    "promptTokens" : 469,
+    "ms" : 549.5940446853638,
+    "id" : 135
+  },
+  {
+    "text" : "The whole take was 10¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 481,
+    "ms" : 673.8090515136719,
+    "id" : 137
+  },
+  {
+    "text" : "The whole take was 7¢ off pitch on average.",
+    "promptTokens" : 479,
+    "ms" : 513.2420063018799,
+    "id" : 140
+  },
+  {
+    "text" : "Yes, you play sharp. G3 runs 12¢ sharp, F3 runs 12¢ sharp, and A3 runs 12¢ sharp.",
+    "promptTokens" : 467,
+    "ms" : 721.4800119400024,
+    "id" : 141
+  },
+  {
+    "text" : "Your last take was 12¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 480,
+    "ms" : 644.0850496292114,
+    "id" : 142
+  },
+  {
+    "text" : "Your last take was 9¢ off pitch on average.",
+    "promptTokens" : 477,
+    "ms" : 521.1169719696045,
+    "id" : 144
+  },
+  {
+    "text" : "The \"Bach prelude\" reads as lightly separated.",
+    "promptTokens" : 578,
+    "ms" : 616.9849634170532,
+    "id" : 146
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 428,
+    "ms" : 457.427978515625,
+    "id" : 147
+  },
+  {
+    "text" : "The Viola take was 9¢ off pitch on average, and 50% of notes were within 10¢.",
+    "promptTokens" : 478,
+    "ms" : 641.355037689209,
+    "id" : 148
+  },
+  {
+    "text" : "The shaping of your last phrases is described as \"swelling and fading\".",
+    "promptTokens" : 697,
+    "ms" : 789.120078086853,
+    "id" : 152
+  },
+  {
+    "text" : "No steady pulse could be found in \"Bach prelude\".",
+    "promptTokens" : 428,
+    "ms" : 458.8429927825928,
+    "id" : 155
+  }
+]
