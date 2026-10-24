@@ -537,11 +537,16 @@ for (const [theme, width, height, mobile] of [['light', 390, 844, true], ['dark'
 {
   const { page, ctx } = await open({ mode: 'failing', library: 'two' });
   await settle(page);
-  await type(page, 'Which notes am I worst at?');
+  // A question about the whole take, not "which notes am I worst at": that one names several
+  // notes, ai-fix-pairing answers it in code without ever calling the model, and a failing
+  // model that is never asked cannot be seen to fail. Found by merging the two fixes: the
+  // check passed on each branch alone and failed on the merge.
+  await type(page, 'How was my last take?');
   await page.keyboard.press('Enter');
   const s = await waitDone(page);
+  const calls = await page.evaluate(() => window.__native.respondCalls);
   check('failing model: the measurements are shown and the failure is said, once',
-    s.state === 'answer' && /furthest from pitch/.test(s.answer) && /stopped before it answered/.test(s.note), s.note);
+    s.state === 'answer' && calls === 1 && /notes heard/.test(s.answer) && /stopped before it answered/.test(s.note), `calls ${calls}: ${s.note}`);
   await ctx.close();
 }
 
