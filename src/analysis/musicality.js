@@ -732,36 +732,91 @@ function repeatDescriptors(notes, levels, seg, fl) {
 
 // --- pitch expression ---------------------------------------------------------
 
+// The pitch frames inside a note. Each carries its loudness, because what a
+// pitch tracker reports from the near-silent tail of a note is not pitch.
 function framesIn(note, readings, a4) {
   const out = [];
   for (const r of readings ?? []) {
     if (r.time < note.start) continue;
     if (r.time >= note.end) break;
     if (!(r.frequency > 0) || !(r.confidence >= MIN_CONF)) continue;
-    out.push({ t: r.time, c: 1200 * Math.log2(r.frequency / a4) });
+    out.push({ t: r.time, c: 1200 * Math.log2(r.frequency / a4), rms: r.rms });
   }
   return out;
 }
 
-// Half the peak-to-peak swing of a stretch of pitch, after the slope is taken
-// out, and whether it crosses its own middle at a vibrato's rate.
-function swingOf(frames) {
-  if (frames.length < 6) return null;
+// THE VIBRATO MEASURE'S OWN CONFIDENCE. A stretch of pitch is a vibrato when a
+// single steady sine wave at a vibrato's rate (3.5-9.5 Hz) explains at least
+// half of how the pitch moves about its own slope (r2), and the wave is at least
+// 10 cents wide. The first version asked only for a wide enough swing that
+// crossed its middle at about a vibrato's rate, which random wobble does by
+// chance: calibrated on simulated stretches of 16, 24 and 40 frames, white
+// wobble of 8 cents passed 0.5%, 0.1% and 0% of the time at an r2 of 0.5, and a
+// real 28-cent vibrato with 5 cents of noise 100% of the time (a vibrato that
+// opens up from nothing, the hardest real case, 96-99.5%).
+const VIB_R2 = 0.5;
+const VIB_CENTS = 10;
+
+function sineFit(frames, rates) {
   const n = frames.length;
-  const mt = mean(frames.map((f) => f.t));
+  const t0 = frames[0].t;
+  const t = frames.map((f) => f.t - t0);
+  const mt = mean(t);
   const mc = mean(frames.map((f) => f.c));
   let num = 0;
   let den = 0;
-  for (const f of frames) { num += (f.t - mt) * (f.c - mc); den += (f.t - mt) ** 2; }
+  for (let i = 0; i < n; i++) { num += (t[i] - mt) * (frames[i].c - mc); den += (t[i] - mt) ** 2; }
   const slope = den > 0 ? num / den : 0;
-  const dev = frames.map((f) => f.c - mc - slope * (f.t - mt));
-  const width = (Math.max(...dev) - Math.min(...dev)) / 2;
-  let crossings = 0;
-  for (let i = 1; i < n; i++) if (Math.sign(dev[i]) !== Math.sign(dev[i - 1])) crossings++;
-  const span = frames[n - 1].t - frames[0].t;
-  const rate = span > 0 ? crossings / 2 / span : 0;
-  return { width, vib: width >= 10 && rate >= 3.5 && rate <= 9.5 };
+  const dev = frames.map((f, i) => f.c - mc - slope * (t[i] - mt));
+  const total = dev.reduce((x, y) => x + y * y, 0);
+  let best = { r2: 0, amp: 0, rate: 0 };
+  for (const rate of rates) {
+    let ss = 0; let cc = 0; let sc = 0; let ys = 0; let yc = 0;
+    for (let i = 0; i < n; i++) {
+      const w = 2 * Math.PI * rate * t[i];
+      const si = Math.sin(w);
+      const co = Math.cos(w);
+      ss += si * si; cc += co * co; sc += si * co; ys += dev[i] * si; yc += dev[i] * co;
+    }
+    const det = ss * cc - sc * sc;
+    if (Math.abs(det) < 1e-9) continue;
+    const p = (ys * cc - yc * sc) / det;
+    const q = (yc * ss - ys * sc) / det;
+    const r2 = total > 0 ? (p * ys + q * yc) / total : 0;
+    if (r2 > best.r2) best = { r2, amp: Math.hypot(p, q), rate };
+  }
+  return { ...best, dev, t };
 }
+
+const VIB_RATES = Array.from({ length: 25 }, (_, k) => 3.5 + 0.25 * k);
+
+// The width of the wave at a GIVEN rate in a part of the note (the rate is the
+// whole note's: a half of a note is too short to find its own).
+function widthAt(part, rate) {
+  const t0 = part[0].t;
+  const m = mean(part.map((f) => f.c));
+  let ss = 0; let cc = 0; let sc = 0; let ys = 0; let yc = 0;
+  for (const f of part) {
+    const w = 2 * Math.PI * rate * (f.t - t0);
+    const si = Math.sin(w);
+    const co = Math.cos(w);
+    const y = f.c - m;
+    ss += si * si; cc += co * co; sc += si * co; ys += y * si; yc += y * co;
+  }
+  const det = ss * cc - sc * sc;
+  if (Math.abs(det) < 1e-9) return 0;
+  return Math.hypot((ys * cc - yc * sc) / det, (yc * ss - ys * sc) / det);
+}
+
+// A QUIET TAIL IS NOT PITCH. A struck or plucked note (piano, guitar, harp) dies
+// away, and so does a note in a hall once the bow has stopped, and the pitch
+// tracker's reading from the last of it wanders by 10-20 cents at no vibrato's
+// rate in particular. The first version read that wander as a vibrato that was
+// plain for the first half of the note and wide for the second: 7 of 12 long
+// notes of a staccato line in a 3 s hall said "opens up". Frames more than about
+// 9 dB below the note's own peak are therefore left out, and the note needs 16
+// frames (0.37 s) left, and a sine wave that explains half of what is left.
+const QUIET_TAIL = 0.35;   // of the note's own peak level (about -9 dB)
 
 function vibratoGrowth(notes, readings, a4) {
   const rows = [];
@@ -771,12 +826,18 @@ function vibratoGrowth(notes, readings, a4) {
     longNotes++;
     // The first and last sixth of a note are scoop and release, not vibrato.
     const trim = (note.end - note.start) / 6;
-    const fr = framesIn({ start: note.start + trim, end: note.end - trim }, readings, a4);
+    const all = framesIn(note, readings, a4);
+    const peak = Math.max(0, ...all.map((f) => f.rms).filter(Number.isFinite));
+    const fr = all.filter((f) => f.t >= note.start + trim && f.t < note.end - trim && (!(peak > 0) || !(f.rms < QUIET_TAIL * peak)));
     if (fr.length < 16) continue;
+    const whole = sineFit(fr, VIB_RATES);
+    if (!(whole.r2 >= VIB_R2)) continue;
     const half = Math.floor(fr.length / 2);
-    const early = swingOf(fr.slice(0, half));
-    const late = swingOf(fr.slice(half));
-    if (!early || !late || (!early.vib && !late.vib)) continue;
+    const early = { vib: false, width: widthAt(fr.slice(0, half), whole.rate) };
+    const late = { vib: false, width: widthAt(fr.slice(half), whole.rate) };
+    early.vib = early.width >= VIB_CENTS;
+    late.vib = late.width >= VIB_CENTS;
+    if (!early.vib && !late.vib) continue;
     const grows = late.vib && (!early.vib || late.width >= 1.4 * early.width);
     const fades = early.vib && (!late.vib || early.width >= 1.4 * late.width);
     rows.push(grows ? 'grows' : fades ? 'fades' : 'steady');

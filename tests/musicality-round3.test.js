@@ -102,3 +102,25 @@ describe('2. the phrase count is not compared between takes of different lengths
     expect(text).toMatch(/Typical phrase length: "Etude, Oct 19" 10 notes, "Etude, Oct 20" 5 notes/);
   });
 });
+
+describe('4. pitch wander in the quiet tail of a decaying note is not a vibrato that opens up', () => {
+  // Piano, guitar and harp notes die away, and a pitch tracker's reading of the
+  // last of one wanders by 10-20 cents at about a vibrato's rate: the plain
+  // first half and wandering second half read as "starts plain and opens up".
+  // (A staccato line in a 3 s hall does the same through the real pipeline:
+  // 7 of 12 long notes; tools/musicality-synth-check.mjs.)
+  const decaying = (seed, extra = {}) => read({ phrases: 6, perPhrase: 8, period: 2.0, articulation: 1.0, decay: 1.0, tailWobble: 14, shape: 'flat', breath: 0.1, seed, ...extra });
+
+  test('4 takes of a decaying tone do not report vibrato opening up', () => {
+    for (const seed of [1, 2, 3, 4]) {
+      const v = d(decaying(seed), 'vibrato-growth');
+      expect(v.measured && v.value >= 50, `seed ${seed}: ${v.phrase}`).toBe(false);
+    }
+  });
+
+  test('the same notes with a real vibrato that opens up are still read as opening', () => {
+    const m = read({ phrases: 6, perPhrase: 8, period: 2.0, articulation: 1.0, shape: 'flat', vibrato: 'grows', breath: 0.1 });
+    expect(d(m, 'vibrato-growth').measured).toBe(true);
+    expect(d(m, 'vibrato-growth').value).toBeGreaterThanOrEqual(80);
+  });
+});
