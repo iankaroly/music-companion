@@ -508,9 +508,9 @@ like that; the sentence says only what was measured).
 movements of the previous round, and no movement of this recording set has not
 been run. All seven are refused by `junk` (six) or `fragments` (one) before and
 after, so nothing about phrases, tempo or vibrato is printed for any of them, and
-the only number that moves is legato-or-detached, by 0.01-0.02 (0.89 to 0.91,
-0.73 to 0.75, 0.88 to 0.89, 0.97 to 0.98, 0.74 to 0.75), because it excludes the
-links at phrase cuts and the cuts moved. These excerpts therefore validate none
+the only number that moves is legato-or-detached, by 0.01-0.02 on four of the
+seven (0.73 to 0.75, 0.88 to 0.89, 0.97 to 0.98, 0.74 to 0.75), because it excludes
+the links at phrase cuts and the cuts moved. These excerpts therefore validate none
 of the seven fixes. They are not held out for the breath floor: its change from
 0.08 to 0.12 s was made after looking at all seven. Three windows no earlier run
 used (2293 suite 4 prelude, 2297 suite 4 bourree and 2219 suite 3 courante, 45 s
