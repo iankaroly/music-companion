@@ -681,6 +681,157 @@ function misattached(R, replyTxt, F, factsTxt) {
   return out;
 }
 
+// ---- which thing a number is, not only that it exists ----------------------------
+
+// Every rule above asks whether a number is in the facts and whether the words
+// beside it are about the same sort of thing. None of them knows what the number
+// IS, and four lies live in that gap, each made entirely of real numbers:
+//
+//   "Your last take was 9¢ sharp on average over 6 times"   one note's figure as the take's
+//   "Nine of the 24 notes were within 10 cents"             an error in cents read as a count
+//   "Bar 3 was 11¢ off over 3 notes, and bar 2 was 32¢"     two bars' figures swapped
+//   "The whole take was sharp"                              one note's direction as the take's
+//
+// facts.js now writes a SLOT beside every figure it puts in a sentence (opts.slots,
+// see `slot` there): its unit, what it is, whether it belongs to the whole take, to
+// one note or to one bar, and for a list row which row. The checks below read the
+// reply's words beside each number and hold them to the slot. They are one-sided
+// on purpose, like 8d: a reply is refused only when what it says about a number
+// is the wrong scope or the wrong row for EVERY slot that could be that number,
+// and what a reply says nothing about is left to the rules above. A reply that
+// is refused here is shown as the app's own sentences, which are always right.
+//
+// Where this still cannot work is a list: a reply that walks three bars or three
+// pitches has to pair each figure with the right row, and a model that lists
+// them can pair them wrongly in ways that read fine. assistant.js does not give
+// the model a question whose facts name more than one such row.
+
+const SENTENCE_END = /[.!?;\n]/;
+// Words that end the stretch of a sentence a row's figures belong to.
+const ROW_STOP = /\b(?:while|whereas|but|against|compared|versus|overall|take|recording|whole)\b/;
+// "bar 3", "bar three", "the third bar", and a pitch name
+const ROW_MENTION = /\b(?:bars?|measures?)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|\b([A-G][#♯b♭]?\d)\b|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\s+(?:bar|measure)\b/gi;
+const TAKE_WORDS = /\b(?:take|takes|recording|recordings|whole|overall|entire|performance|session|playing|all (?:of )?(?:your|the) notes|every note|most of (?:your|the) notes|your notes|my notes)\b/;
+const NOTE_WORDS = /\b(?:furthest|farthest|weakest|worst)\s+(?:\w+\s+){0,2}note\b|\bnote (?:furthest|farthest)\b|\b(?:that|one|single|this) note\b|\b[A-G][#♯b♭]?\d\b|\b(?:bars?|measures?)\s+\d+/i;
+const DIRECTION = /\b(?:sharp|flat|sharper|flatter)\b/;
+const COUNT_NOUN = /^\s*(?:of|out of)\s+(?:the\s+|your\s+|all\s+)?(\d+)\s+(notes?|times|bars?)\b/i;
+
+const normName = (n) => String(n).replace('♯', '#').replace('♭', 'b').toLowerCase();
+
+// The clauses of a sentence, each with whether it speaks of the whole take or of
+// one note/bar. A clause that says neither (the tail of "D3, 23¢ sharp") takes
+// the scope of the one before it.
+function scopedClauses(textIn, takeNames) {
+  const text = clean(textIn);
+  const names = takeNames.length ? new RegExp(`\\b(?:${takeNames.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`) : null;
+  const cut = /[.!?;\n]+|,(?!\d)|\b(?:and|but|while|whereas)\b/gi;
+  const pieces = [];
+  let at = 0;
+  for (const m of text.matchAll(cut)) { pieces.push([at, m.index, m[0]]); at = m.index + m[0].length; }
+  pieces.push([at, text.length, '']);
+  const out = [];
+  let prev = null;
+  for (const [s, e, sep] of pieces) {
+    const seg = text.slice(s, e);
+    const lower = seg.toLowerCase();
+    let take = TAKE_WORDS.test(lower) || /"[^"]{1,80}"/.test(seg) || (names ? names.test(lower) : false);
+    let note = NOTE_WORDS.test(seg);
+    // the tail of a clause ("D3, 23¢ sharp") keeps its subject, across a comma but not a full stop
+    if (!take && !note && prev && !SENTENCE_END.test(prev.sep)) { take = prev.take; note = prev.note; }
+    const c = { s, e, take, note, sep, lower };
+    out.push(c);
+    prev = c;
+  }
+  return out;
+}
+
+function pairing(text, R, slots) {
+  const out = [];
+  const real = slots.filter((s) => s.kind !== 'take-label');
+  const takeNames = slots.filter((s) => s.kind === 'take-label').map((s) => normName(s.name)).filter((n) => n.length >= 3);
+  const clean0 = clean(text);
+  const clauses = scopedClauses(text, takeNames);
+  const clauseAt = (i) => clauses.find((c) => i >= c.s && i < c.e);
+  const describe = (s) => s.kind.replace(/-/g, ' ');
+
+  for (const t of R.tokens) {
+    // the unit the reply USES the number as; a bare "Nine of the 24 notes" is a count of notes
+    let unit = t.cls;
+    if (!unit) {
+      const m = COUNT_NOUN.exec(clean0.slice(t.end));
+      if (m) unit = /^notes?$/i.test(m[2]) ? 'notes' : /^bars?$/i.test(m[2]) ? 'bars' : 'times';
+    }
+    if (!unit) continue;
+    const near1 = slots.filter((s) => s.kind !== 'take-label' && near(t.v, s.v));
+    const same = near1.filter((s) => s.unit === unit);
+    if (!t.cls) {
+      // an inferred count: nothing in the facts is a count of that value
+      if (!same.length && near1.length) out.push(`${t.v} is ${describe(near1[0])} in the measurements, not a count of ${unit}`);
+      continue;
+    }
+    if (!same.length) continue; // an unknown number or unit is the first rule's to refuse
+    const c = clauseAt(t.index);
+    if (!c) continue;
+    if (c.take && !c.note && same.every((s) => s.scope === 'note' || s.scope === 'bar')) {
+      out.push(`${t.v} ${unit} is ${describe(same[0])}${same[0].row ? ` (${same[0].row})` : ''} in the measurements, and the reply gives it to the take`);
+    } else if (c.note && !c.take && same.every((s) => s.scope === 'take')) {
+      out.push(`${t.v} ${unit} is ${describe(same[0])}, the whole take's, and the reply gives it to one note`);
+    }
+  }
+
+  // "the whole take was sharp": a direction belongs to a note, never to the take
+  if (!real.some((s) => s.scope === 'take' && s.dir)) {
+    for (const c of clauses) {
+      if (c.take && !c.note && DIRECTION.test(c.lower)) { out.push(`"${DIRECTION.exec(c.lower)[0]}" is said of the take, and the measurements give sharp or flat only to a single note`); break; }
+    }
+  }
+
+  // each bar or note named in the reply, with the figures after it up to the next
+  // one, against the figures of that row
+  const rows = new Map();
+  for (const s of real) if (s.row) { const k = normName(s.row); if (!rows.has(k)) rows.set(k, []); rows.get(k).push(s); }
+  if (rows.size) {
+    const mentions = [...clean0.matchAll(ROW_MENTION)].map((m) => {
+      const bar = m[1] ?? (m[3] ? ORDINALS[m[3].toLowerCase()] : null);
+      const n = /^\d+$/.test(bar ?? '') ? Number(bar) : (ONES[String(bar).toLowerCase()] ?? bar);
+      return { key: normName(bar != null ? `bar ${n}` : m[2]), at: m.index, end: m.index + m[0].length };
+    });
+    for (let i = 0; i < mentions.length; i++) {
+      const m = mentions[i];
+      const mine = rows.get(m.key);
+      if (!mine) continue;
+      let span = clean0.slice(m.end, mentions[i + 1]?.at ?? clean0.length);
+      const brk = span.search(SENTENCE_END);
+      if (brk >= 0) span = span.slice(0, brk);
+      const hard = span.toLowerCase().search(ROW_STOP);
+      if (hard >= 0) span = span.slice(0, hard);
+      // "31¢ in bar 3, 19¢ in bar 4": a figure before a preposition belongs to the next mention
+      const tail = span.search(/,\s*[^,]*\d[^,]*\b(?:in|on|at|for|from)\s*$/i);
+      if (tail >= 0 && mentions[i + 1]) span = span.slice(0, tail);
+      const mineIn = (t) => {
+        const units = mine.filter((s) => s.unit === t.cls && s.kind !== 'bar-number');
+        if (units.length === 0) return;
+        if (!units.some((s) => near(t.v, s.v))) out.push(`${t.v} ${t.cls} is not ${m.key}'s: ${m.key} has ${units.map((s) => s.v).join(', ')}`);
+      };
+      for (const t of R.tokens) {
+        if (t.index < m.end || t.index >= m.end + span.length || !t.cls) continue;
+        mineIn(t);
+      }
+      // the figure BEFORE the row: "14¢ off in bar 3", "at 19¢ sharp, F3 ..."
+      const prevEnd = mentions[i - 1]?.end ?? 0;
+      for (const t of R.tokens) {
+        if (!t.cls || t.end <= prevEnd || t.end > m.at) continue;
+        const gap = clean0.slice(t.end, m.at);
+        if (SENTENCE_END.test(gap)) continue;
+        const linked = /^[^,]{0,18}\b(?:in|on|at|for|from|of)\s+(?:the\s+)?$/i.test(gap);
+        const fronted = /^[^,]{0,14},\s*$/.test(gap) && /(?:^|[.!?;\n])\s*(?:at|with|by|about|roughly|around)?\s*$/i.test(clean0.slice(0, t.index));
+        if (linked || fronted) mineIn(t);
+      }
+    }
+  }
+  return out;
+}
+
 // ---- things the facts say were not measured ------------------------------------
 
 const HEDGE = /\bno [\w ]{0,30}(measurement|data|reading)s?\b|not measured|wasn't measured|weren't measured|could not|couldn't|cannot|can't|\bunable\b|no (data|measurement|steady|pulse)|not available|don't have|do not have|didn't|did not|isn't|aren't|not enough|too few|nothing|unmeasured|not able|only one|no saved/i;
@@ -1054,6 +1205,9 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   // 8d. a number next to the words of a DIFFERENT number of the same unit
   for (const w of misattached(R, clean(text), F, factsText)) add('attached', w);
 
+  // 8e. what each number IS: the take's or one note's, a count or an error, which bar
+  if (opts.slots?.length) for (const w of pairing(text, R, opts.slots)) add('pairing', w);
+
   // 9. claims about the player's level, other players, or the best ever
   const lower = clean(text).toLowerCase();
   for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('superlative', m[0]); }
@@ -1145,6 +1299,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     ordinal: 'a numbered bar or note not in the measurements',
     direction: 'a direction the measurements do not support',
     attached: 'a measured number used for something else',
+    pairing: 'a measured number given to the wrong thing (the take instead of a note, a count instead of an error, or the wrong bar)',
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
     echo: 'text copied from the prompt',

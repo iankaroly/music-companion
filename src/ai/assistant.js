@@ -79,13 +79,35 @@ export function scopeTag(fact) {
 // trend, a habit over the library, "my last 3 takes") is the sentences as the
 // code wrote them. Decided from how many takes the facts were built from
 // (factsFor), not from how many the player named.
-export function modelMaySpeak(takesInFacts) {
-  return !(takesInFacts > 1);
+//
+// The same reasoning now covers a LIST. The guard reads a reply against the
+// slots facts.js writes (what each figure is, and for a list which bar or note
+// it belongs to), and it can hold "bar 3" to its own figures where the words
+// are plain. Where a reply walks three bars or three pitches it is still pairing
+// a dozen figures with a dozen labels in prose, and a swap that reads fine is
+// the one thing a check on words cannot see ("Bar 3 was 11¢ off over 3 notes,
+// and bar 2 was 32¢" with the facts the other way round). A question whose
+// facts name more than one bar, pitch or note is therefore written by the app
+// too; the sentences it shows are the list, in order, with every figure beside
+// its own label. A summary's single "furthest note" is one row and stays with
+// the model, where the scope tags and the slot check hold the note's figure
+// apart from the take's.
+export function whyNotModel(takesInFacts, rows = 0) {
+  if (takesInFacts > 1) return 'several-takes';
+  if (rows > 1) return 'several-rows';
+  return null;
+}
+
+export function modelMaySpeak(takesInFacts, rows = 0) {
+  return whyNotModel(takesInFacts, rows) === null;
 }
 
 // Said in the app's own voice, and plainly: nothing went wrong, this kind of
 // question is simply not worded by the model.
 export const SEVERAL_TAKES_NOTE = 'This question is about more than one take, so the answer is written by the app from the measurements. The on-device model words answers about a single take.';
+// Said after the card's own "Showing the measurements directly." (ui/ask.js adds
+// that for every reason but several-takes), so it does not repeat it.
+export const SEVERAL_ROWS_NOTE = 'A list of bars or notes is written by the app, so that every figure stays beside its own bar or note. The on-device model words answers that name a single one.';
 
 export function promptFor(question, facts) {
   return `MEASUREMENTS:\n${facts.map((f) => `- ${scopeTag(f)}${f}`).join('\n')}\n\nQUESTION: ${question}\n\nAnswer in one to three sentences, only from the measurements above.`;
@@ -229,7 +251,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     }
   }
 
-  const { facts, used, takesInFacts } = factsFor({ question, intents: p.intents, chosen, all: library, now });
+  const { facts, used, takesInFacts, slots, rows } = factsFor({ question, intents: p.intents, chosen, all: library, now });
   const plain = facts.join(' ');
 
   const m = model ?? await nativeModel();
@@ -238,8 +260,9 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     return { text: plain, facts, used, source: 'measurements', note: status.available ? '' : status.reason };
   }
   // Decided before the prompt is built or the model is touched.
-  if (!modelMaySpeak(takesInFacts)) {
-    return { text: plain, facts, used, source: 'measurements', why: 'several-takes', note: SEVERAL_TAKES_NOTE };
+  const why = whyNotModel(takesInFacts, rows);
+  if (why) {
+    return { text: plain, facts, used, source: 'measurements', why, note: why === 'several-takes' ? SEVERAL_TAKES_NOTE : SEVERAL_ROWS_NOTE };
   }
 
   const instructions = instructionsFor(p.intents);
@@ -256,7 +279,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     const text = stripScopeTags(String(reply?.text ?? '')).trim();
     const bad = text ? unfinished(text) : '';
     if (bad) return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${bad}).`, stray: [] };
-    const verdict = checkReply(text, facts, question, { takeCount: takesInFacts });
+    const verdict = checkReply(text, facts, question, { takeCount: takesInFacts, slots });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };
     return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${verdict.reason}).`, stray: verdict.stray };
   } catch (err) {

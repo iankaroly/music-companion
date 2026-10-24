@@ -24,6 +24,36 @@ function mean(values) {
   return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null;
 }
 
+// ---- slots: what each number in a sentence IS -------------------------------
+//
+// A fact is a string, and the guard reads the numbers back out of it as a bag:
+// it knows "9" is in the facts with the unit cents, and not whether that 9 is
+// the whole take's average error, one note's, or a count. That is how "Your
+// last take was 9¢ sharp on average over 6 times" (a note's figure given as the
+// take's), "Nine of the 24 notes were within 10 cents" (an error read as a
+// count) and "bar 3 was 11¢ off, bar 2 was 32¢" (two bars swapped) got through
+// a guard that is otherwise strict about every digit. A slot says it outright.
+// The builders below push one beside each figure they write, so the table and
+// the sentence are made in the same place from the same variable and cannot
+// drift, and the text itself carries no new digits.
+//
+//   v      the figure as the sentence shows it (rounded the way it is shown)
+//   unit   the guard's own unit names: cents, pct, notes, times, ms, bpm ...
+//   kind   what it is: take-average-cents, note-cents, count-of-notes ...
+//   scope  'take' (the whole take), 'note' (one pitch), 'bar' (one bar) or
+//          'any' (a tone or pulse reading that has no other figure to be
+//          mistaken for a take's average)
+//   row    for a figure that belongs to one row of a list ("bar 3", "D3"); a
+//          question whose slots name more than one row is not given to the
+//          model (see rowsOf, assistant.js)
+//   dir    'sharp' | 'flat' when the sentence gives the figure a direction
+const slot = (sink, v, unit, kind, scope, extra = {}) => { if (sink) sink.push({ v: Number(v), unit, kind, scope, ...extra }); };
+
+// How many distinct rows of a list (bars, pitches) a set of slots names.
+export function rowsOf(slots = []) {
+  return new Set(slots.filter((s) => s.row).map((s) => s.row)).size;
+}
+
 function label(take) {
   return take.name?.trim() || new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
@@ -32,11 +62,16 @@ function when(take) {
   return new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function summaryFacts(take) {
+function summaryFacts(take, sink) {
   const stats = take.noteStats ?? [];
   const cents = stats.map((n) => Math.abs(n.cents)).filter(Number.isFinite);
   if (cents.length === 0) return [`No notes were measured in "${label(take)}".`];
   const within = cents.filter((c) => c <= 10).length;
+  slot(sink, 0, 'name', 'take-label', 'take', { name: label(take) });
+  slot(sink, cents.length, 'notes', 'count-of-notes', 'take');
+  slot(sink, round1(mean(cents)), 'cents', 'take-average-cents', 'take');
+  slot(sink, round0((within / cents.length) * 100), 'pct', 'percent-within-10-cents', 'take');
+  slot(sink, 10, 'cents', 'threshold', 'any');
   const out = [
     `"${label(take)}" (${when(take)}): ${cents.length} notes heard, ${round1(mean(cents))}¢ off pitch on average, `
     + `${round0((within / cents.length) * 100)}% of notes within 10¢.`,
@@ -51,7 +86,10 @@ function summaryFacts(take) {
   if (rows.length) {
     const worst = rows.sort((a, b) => Math.abs(b.c) - Math.abs(a.c))[0];
     if (Math.abs(worst.c) >= 6) {
-      out.push(`The note furthest from pitch was ${worst.name}, ${round0(Math.abs(worst.c))}¢ ${worst.c > 0 ? 'sharp' : 'flat'} on average over ${worst.n} times.`);
+      const dir = worst.c > 0 ? 'sharp' : 'flat';
+      slot(sink, round0(Math.abs(worst.c)), 'cents', 'note-cents', 'note', { row: worst.name, dir });
+      slot(sink, worst.n, 'times', 'note-times', 'note', { row: worst.name });
+      out.push(`The note furthest from pitch was ${worst.name}, ${round0(Math.abs(worst.c))}¢ ${dir} on average over ${worst.n} times.`);
     }
   }
   return out;
@@ -162,7 +200,7 @@ function scopedSame(rows, earlier) {
   return rows.map((r) => (differences ? r.replace(/(are shaped about the same on .*)\.$/, '$1; the differences above are not about shaping.') : r));
 }
 
-function worstFacts(take) {
+function worstFacts(take, sink) {
   const per = take.scoreStats?.perNote ?? [];
   const bars = new Map();
   for (const n of per) {
@@ -173,6 +211,12 @@ function worstFacts(take) {
   const rows = [...bars].filter(([, c]) => c.length >= 2).map(([bar, c]) => ({ bar, m: mean(c), n: c.length }));
   if (rows.length >= 3) {
     const top = rows.sort((x, y) => y.m - x.m).slice(0, 3);
+    slot(sink, 0, 'name', 'take-label', 'take', { name: label(take) });
+    for (const r of top) {
+      slot(sink, r.bar, 'bar', 'bar-number', 'bar', { row: `bar ${r.bar}` });
+      slot(sink, round1(r.m), 'cents', 'bar-cents', 'bar', { row: `bar ${r.bar}` });
+      slot(sink, r.n, 'notes', 'bar-notes', 'bar', { row: `bar ${r.bar}` });
+    }
     return [`In "${label(take)}", the bars furthest from pitch were: ${top.map((r) => `bar ${r.bar} (${round1(r.m)}¢ off over ${r.n} notes)`).join(', ')}.`];
   }
   const pitches = [...perPitch(take)]
@@ -181,31 +225,48 @@ function worstFacts(take) {
     .sort((x, y) => Math.abs(y.m) - Math.abs(x.m))
     .slice(0, 3);
   if (pitches.length === 0) return [`There are too few repeated notes in "${label(take)}" to say which are weakest.`];
+  slot(sink, 0, 'name', 'take-label', 'take', { name: label(take) });
+  for (const p of pitches) {
+    slot(sink, round0(Math.abs(p.m)), 'cents', 'note-cents', 'note', { row: p.name, dir: p.m > 0 ? 'sharp' : 'flat' });
+    slot(sink, p.n, 'times', 'note-times', 'note', { row: p.name });
+  }
   return [
     `This take has no score attached, so I can name notes but not bars. The notes furthest from pitch in "${label(take)}": `
     + `${pitches.map((p) => `${p.name} (${round0(Math.abs(p.m))}¢ ${p.m > 0 ? 'sharp' : 'flat'}, ${p.n} times)`).join(', ')}.`,
   ];
 }
 
-function habitFacts(takes) {
+function habitFacts(takes, sink) {
   const sessions = takes.map((t) => ({ date: t.date, noteStats: t.noteStats ?? [] }));
   const rows = aggregateTendencies(sessions, { minCount: 3 }).filter((r) => r.verdict !== 'centered');
   if (rows.length === 0) return [`No note leans sharp or flat by more than 6¢ across ${takes.length} take${takes.length === 1 ? '' : 's'}.`];
   const top = rows.sort((a, b) => Math.abs(b.meanCents) - Math.abs(a.meanCents)).slice(0, 3);
+  for (const r of top) {
+    slot(sink, round0(Math.abs(r.meanCents)), 'cents', 'note-cents', 'note', { row: r.name, dir: r.verdict });
+    slot(sink, round0(r.spreadCents), 'cents', 'note-spread-cents', 'note', { row: r.name });
+    slot(sink, r.count, 'times', 'note-times', 'note', { row: r.name });
+  }
+  slot(sink, takes.length, 'take', 'count-of-takes', 'any');
   return [
     `Across ${takes.length} take${takes.length === 1 ? '' : 's'}: ${top.map((r) => `${r.name} runs ${round0(Math.abs(r.meanCents))}¢ ${r.verdict} (spread ±${round0(r.spreadCents)}¢, ${r.count} times)`).join('; ')}.`,
   ];
 }
 
-function toneFacts(take) {
+function toneFacts(take, sink) {
   const q = take.quality;
   if (!q) return [`Tone and vibrato could not be measured for "${label(take)}".`];
   const out = [];
   if (Number.isFinite(q.steadinessCents)) {
+    slot(sink, round1(q.steadinessCents), 'cents', 'steadiness-cents', 'any');
     out.push(`Pitch steadiness inside held notes (without vibrato): ${round1(q.steadinessCents)}¢ of wander in the middle note.`);
   }
   if (q.vibrato) {
     const v = q.vibrato;
+    slot(sink, round0(v.share * 100), 'pct', 'vibrato-share-pct', 'any');
+    if (Number.isFinite(v.rateHz) && Number.isFinite(v.widthCents)) {
+      slot(sink, round1(v.rateHz), 'hz', 'vibrato-rate-hz', 'any');
+      slot(sink, round0(v.widthCents), 'cents', 'vibrato-width-cents', 'any');
+    }
     out.push(
       `Vibrato is on ${round0(v.share * 100)}% of notes held 0.4 s or longer`
       + (Number.isFinite(v.rateHz) && Number.isFinite(v.widthCents)
@@ -213,19 +274,31 @@ function toneFacts(take) {
     );
   }
   if (q.dynamics) {
+    slot(sink, round0(q.dynamics.rangeDb), 'db', 'loudness-range-db', 'any');
+    slot(sink, round1(q.dynamics.stepDb), 'db', 'loudness-step-db', 'any');
     out.push(`Loudness range is ${round0(q.dynamics.rangeDb)} dB between the quietest and loudest tenth of notes; neighbouring notes differ by ${round1(q.dynamics.stepDb)} dB.`);
   }
+  slot(sink, 0.4, 'sec', 'threshold', 'any');
+  slot(sink, 60, 'ms', 'threshold', 'any');
+  slot(sink, 100, 'scale', 'threshold', 'any');
+  if (Number.isFinite(q.clarity)) slot(sink, round1(q.clarity * 100), 'scale', 'clarity-out-of-100', 'any');
+  if (Number.isFinite(q.brightness)) slot(sink, round1(q.brightness), 'harmonic', 'brightness-harmonic', 'any');
   if (Number.isFinite(q.clarity)) out.push(`Tone clarity reads ${round1(q.clarity * 100)} out of 100 (lower can mean breathy or rough).`);
   if (Number.isFinite(q.brightness)) out.push(`Brightness: the sound's centre sits around the ${round1(q.brightness)}th harmonic.`);
   if (q.landing) {
+    slot(sink, round0(q.landing.cleanShare * 100), 'pct', 'arrive-in-tune-pct', 'any');
+    slot(sink, round0(q.landing.medianSettleMs ?? 0), 'ms', 'settle-ms', 'any');
     out.push(`${round0(q.landing.cleanShare * 100)}% of notes arrive in tune within 60 ms; the median note takes ${round0(q.landing.medianSettleMs ?? 0)} ms to settle.`);
   }
   return out.length ? out : [`Not enough long notes in "${label(take)}" to read its tone.`];
 }
 
-function tempoFacts(take) {
+function tempoFacts(take, sink) {
   const r = take.rhythm;
   if (!r) return [`No steady pulse could be found in "${label(take)}", so I cannot say whether it rushes or drags.`];
+  slot(sink, round0(r.bpm), 'bpm', 'pulse-bpm', 'any');
+  slot(sink, round0(r.evenness * 100), 'pct', 'evenness-pct', 'any');
+  slot(sink, round0(r.meanAbsMs), 'ms', 'beat-offset-ms', 'any');
   const out = [
     `Pulse of "${label(take)}": about ${round0(r.bpm)} beats per minute, ${round0(r.evenness * 100)}% even, notes ${round0(r.meanAbsMs)} ms from the beat on average.`,
   ];
@@ -277,23 +350,24 @@ function takesBehind(intents, chosen, all) {
 export function factsFor({ question, intents = intentsOf(question), chosen, all, now = 0 }) {
   const facts = [];
   const used = [];
-  if (chosen.length === 0) return { facts: ['There are no saved takes with measured notes yet, so there is nothing to answer from.'], used, takesInFacts: 0 };
+  const slots = [];
+  if (chosen.length === 0) return { facts: ['There are no saved takes with measured notes yet, so there is nothing to answer from.'], used, takesInFacts: 0, slots, rows: 0 };
 
   for (const t of chosen) used.push(label(t));
 
   for (const intent of intents) {
-    if (intent === 'summary') for (const t of chosen.slice(0, 2)) facts.push(...summaryFacts(t));
+    if (intent === 'summary') for (const t of chosen.slice(0, 2)) facts.push(...summaryFacts(t, slots));
     else if (intent === 'compare') {
       if (chosen.length >= 2) {
         facts.push(...compareFacts(chosen[0], chosen[1]));
         if (!intents.includes('musicality')) facts.push(...shapingFolded(chosen[0], chosen[1]));
       }
-      else facts.push('Only one take is saved, so there is nothing to compare it with.', ...summaryFacts(chosen[0]));
-    } else if (intent === 'worst') facts.push(...worstFacts(chosen[0]));
-    else if (intent === 'habits') facts.push(...habitFacts(chosen.length > 1 ? chosen : all));
+      else facts.push('Only one take is saved, so there is nothing to compare it with.', ...summaryFacts(chosen[0], slots));
+    } else if (intent === 'worst') facts.push(...worstFacts(chosen[0], slots));
+    else if (intent === 'habits') facts.push(...habitFacts(chosen.length > 1 ? chosen : all, slots));
     else if (intent === 'tone') {
-      if (!intents.includes('compare') || chosen.length < 2) for (const t of chosen.slice(0, 2)) facts.push(...toneFacts(t));
-    } else if (intent === 'tempo') facts.push(...tempoFacts(chosen[0]));
+      if (!intents.includes('compare') || chosen.length < 2) for (const t of chosen.slice(0, 2)) facts.push(...toneFacts(t, slots));
+    } else if (intent === 'tempo') facts.push(...tempoFacts(chosen[0], slots));
     else if (intent === 'musicality') {
       if (intents.includes('compare') && chosen.length >= 2) facts.push(...scopedSame(compareMusicalityFacts(chosen[0], chosen[1], { question }), facts));
       else for (const t of chosen.slice(0, 2)) facts.push(...musicalityFacts(t, { question }));
@@ -301,5 +375,5 @@ export function factsFor({ question, intents = intentsOf(question), chosen, all,
   }
   // The same sentence twice is never an answer. (Two intents that both reach the
   // same builder can produce it; today none does, and this is the net.)
-  return { facts: [...new Set(facts)], used, takesInFacts: takesBehind(intents, chosen, all) };
+  return { facts: [...new Set(facts)], used, takesInFacts: takesBehind(intents, chosen, all), slots, rows: rowsOf(slots) };
 }

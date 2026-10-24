@@ -52,13 +52,14 @@ const cases = all.filter(({ r }) => r.routed === 'model').map(({ p, i, r }) => {
     takeCount: r.takeIds.length,
     takesInFacts: r.takesInFacts,
     facts: r.facts,
+    slots: r.slots,
     instructions: instructionsFor(r.intents),
     prompt: promptFor(p.q.q, r.facts),
   };
 });
 const out = process.argv[2] ?? 'cases.json';
 writeFileSync(out, JSON.stringify(cases, null, 1));
-const code = all.filter(({ r }) => r.routed === 'code').map(({ p, i, r }) => ({ id: i, set: p.set, split: i % 3 === 0 ? 'held' : 'tune', lib: p.q.lib, question: p.q.q, intents: r.intents, takesInFacts: r.takesInFacts }));
+const code = all.filter(({ r }) => r.routed === 'code').map(({ p, i, r }) => ({ id: i, set: p.set, split: i % 3 === 0 ? 'held' : 'tune', lib: p.q.lib, question: p.q.q, intents: r.intents, takesInFacts: r.takesInFacts, why: r.why }));
 writeFileSync(out.replace(/\.json$/, '') + '.code.json', JSON.stringify(code, null, 1));
 const n = (s) => cases.filter((c) => c.split === s).length;
 console.log(`${all.length} answerable questions: ${cases.length} go to the model (${n('tune')} tune, ${n('held')} held), ${code.length} are answered by code alone. longest prompt ${Math.max(...cases.map((c) => c.prompt.length + c.instructions.length))} chars`);

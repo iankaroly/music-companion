@@ -37,3 +37,18 @@ The detectors in `score.mjs` are regexes for reply faults the guard accepts
 (a note's figure given as the take's, grade words, a premise echoed back,
 "not measured" where a measurement exists). They are a floor, not a judge:
 the counts that matter were also read by hand.
+
+PAIRING (ai-fix-pairing). facts.js writes a SLOT beside every figure (what it
+is, whose it is: the take's, one note's, one bar's, which row), guard.js holds
+a reply's words to them, and a question whose facts name more than one bar or
+pitch is answered by the sentences (`why: 'several-rows'`). 67 of the 156
+answerable questions are now answered by code alone (51 several-takes, 16
+several-rows); 89 reach the model. `results/*-pairing.*` are that export, with
+the slots in each case.
+
+```
+node tools/ai-model/replay-pairing.mjs --split all   # saved replies through the new guard; prints what changed
+node tools/ai-model/routed-away-replies.mjs          # what the model said to the 16 now routed away
+node tools/ai-model/pairing-lies.mjs --show [--reveal-held] [--no-slots]
+node tools/ai-model/show-scenarios.mjs               # the facts of the ten lie scenarios
+```

@@ -74,6 +74,31 @@ export const LIES = [
   { s: 'habit1', n: 'swap-notes', t: 'F3 runs 14¢ sharp and D3 runs 7¢ sharp.', held: true },
 ];
 
+// A SECOND, ADVERSARIAL BATCH, written after the guard existed and with its
+// mechanisms in mind (so these are NOT blind; the first 42 are as blind as a
+// writer who has already sketched the design can be). Each tries a different
+// way round: a spelled-out bar number, an ordinal bar, the figure before the
+// bar it belongs to, "overall", a quoted name, a plural subject, no subject.
+// `miss: true` marks the ones the guard does not catch and is not expected to.
+export const EVASIONS = [
+  { s: 'scored', t: 'Bar three was 14¢ off over 3 notes.' },
+  { s: 'scored', t: 'The third bar was 14¢ off.' },
+  { s: 'scored', t: '14¢ off in bar 3, 31¢ in bar 2.' },
+  { s: 'scored', t: 'The furthest bar was bar 2, at 31¢.' },
+  { s: 'nobars', t: 'At 19¢ sharp, F3 was the furthest.' },
+  { s: 'nobars', t: 'The sharpest note was F3 at 19¢.' },
+  { s: 'etude', t: 'Overall you were 23¢ sharp on average, over 6 times.' },
+  { s: 'etude', t: '"Etude" was 23¢ sharp on average.' },
+  { s: 'etude', t: 'Your furthest note was off by 8.5¢ on average.' },
+  { s: 'etude', t: 'D3 averaged 8.5¢ off pitch.' },
+  { s: 'etude', t: 'Most of your notes were sharp.' },
+  { s: 'collision', t: '9 of your 24 notes were within 10¢.' },
+  { s: 'collision', t: 'Within 10 cents were 9 of the 24 notes.' },
+  { s: 'collision', t: 'You played 9 cents sharp across the 24 notes.', miss: true },
+  { s: 'collision', t: 'On average, 9¢ sharp over 6 times.', miss: true },
+  { s: 'collision', t: 'All 24 notes were sharp.', miss: true },
+];
+
 export const HONEST = [
   { s: 'etude', t: 'Your last take was 8.5¢ off pitch on average, with 75% of notes within 10¢. The furthest note was D3, 23¢ sharp on average over 6 times.' },
   { s: 'etude', t: 'Your furthest note was D3, 23¢ sharp.' },

@@ -1,0 +1,813 @@
+[
+ {
+  "id": 0,
+  "set": "dev",
+  "split": "held",
+  "lib": "many",
+  "question": "compare my elgar to my kol nidrei",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 2,
+  "set": "heldout",
+  "split": "tune",
+  "lib": "three",
+  "question": "how consistent have I been lately",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 4,
+  "set": "dev",
+  "split": "tune",
+  "lib": "scored",
+  "question": "where am I worst",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 6,
+  "set": "dev",
+  "split": "held",
+  "lib": "many",
+  "question": "compare my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 11,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "wich notes are the worst",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 12,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "what should I fix first",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 15,
+  "set": "heldout",
+  "split": "held",
+  "lib": "habit",
+  "question": "are there notes I always miss",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 18,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "do my notes drift sharp",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 19,
+  "set": "dev",
+  "split": "tune",
+  "lib": "one",
+  "question": "which notes am I worst at",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 20,
+  "set": "heldout",
+  "split": "tune",
+  "lib": "three",
+  "question": "which pitches give me the most trouble",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 21,
+  "set": "heldout",
+  "split": "held",
+  "lib": "toned",
+  "question": "is my timing getting better",
+  "intents": [
+   "tempo",
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 25,
+  "set": "shaping",
+  "split": "tune",
+  "lib": "phrased",
+  "question": "compare my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 27,
+  "set": "dev",
+  "split": "held",
+  "lib": "scored",
+  "question": "compare my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 34,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "what notes am I usually flat on",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 40,
+  "set": "dev",
+  "split": "tune",
+  "lib": "scored",
+  "question": "what is wrong with bar 3",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 48,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "am I playing out of tune anywhere in particular",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 51,
+  "set": "dev",
+  "split": "held",
+  "lib": "many",
+  "question": "how did my last 3 takes go",
+  "intents": [
+   "summary"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 52,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "am I improving",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 55,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "do I tend to play sharp",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 56,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "am i better than last time",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 58,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "show my progress",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 61,
+  "set": "heldout",
+  "split": "tune",
+  "lib": "three",
+  "question": "did the second prelude go better than the first",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 62,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "what are my pitch habits",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 65,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "am I improving on the etude",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 66,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "compre my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 71,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "was I 20 cents sharp on the D",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 72,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "compare my last take with the one before",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 73,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "am I getting better over time",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 75,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "bach: this time vs last time",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 76,
+  "set": "dev",
+  "split": "tune",
+  "lib": "toned",
+  "question": "has my vibrato changed since last week",
+  "intents": [
+   "compare",
+   "tone"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 77,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "where do I go wrong",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 80,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "what is wrong",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 84,
+  "set": "heldout",
+  "split": "held",
+  "lib": "many",
+  "question": "show me how the bach prelude has changed",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 87,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "what is my practice streak",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 90,
+  "set": "dev",
+  "split": "held",
+  "lib": "habit",
+  "question": "compare my last two etudes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 94,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "what are my trouble spots",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 95,
+  "set": "dev",
+  "split": "tune",
+  "lib": "scored",
+  "question": "am I better than last time",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 96,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "is my last take worse than the previous one",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 97,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "am I always flat on A",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 99,
+  "set": "dev",
+  "split": "held",
+  "lib": "many",
+  "question": "how is this week compared to last week",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 8,
+  "why": "several-takes"
+ },
+ {
+  "id": 102,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "how does this compare to last time",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 106,
+  "set": "heldout",
+  "split": "tune",
+  "lib": "scored",
+  "question": "which measures need work",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 107,
+  "set": "dev",
+  "split": "tune",
+  "lib": "scored",
+  "question": "which bars am I struggling with",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 110,
+  "set": "heldout",
+  "split": "tune",
+  "lib": "scored",
+  "question": "did I get tighter with the beat since last time",
+  "intents": [
+   "compare",
+   "tempo"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 111,
+  "set": "dev",
+  "split": "held",
+  "lib": "many",
+  "question": "am I improving",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 8,
+  "why": "several-takes"
+ },
+ {
+  "id": 112,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "do I play sharp or flat",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 113,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "compare my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 114,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "which bars should I work on",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 115,
+  "set": "dev",
+  "split": "tune",
+  "lib": "habit",
+  "question": "which notes are my worst",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 118,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "compare my takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 120,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "is the newest bach take cleaner than the older one",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 121,
+  "set": "dev",
+  "split": "tune",
+  "lib": "toned",
+  "question": "compare my last two bach takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 125,
+  "set": "dev",
+  "split": "tune",
+  "lib": "unnamed",
+  "question": "compare today with yesterday",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 127,
+  "set": "dev",
+  "split": "tune",
+  "lib": "toned",
+  "question": "did my tone get better",
+  "intents": [
+   "compare",
+   "tone"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 133,
+  "set": "shaping",
+  "split": "tune",
+  "lib": "phrased",
+  "question": "am I flat on the D",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 135,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "which notes am I worst at",
+  "intents": [
+   "worst"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 136,
+  "set": "dev",
+  "split": "tune",
+  "lib": "many",
+  "question": "compare scales to last time",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 138,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "do i play shrap",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 139,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "bach prelude vs scales",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 141,
+  "set": "dev",
+  "split": "held",
+  "lib": "one",
+  "question": "do i play sharp",
+  "intents": [
+   "habits"
+  ],
+  "takesInFacts": 1,
+  "why": "several-rows"
+ },
+ {
+  "id": 143,
+  "set": "dev",
+  "split": "tune",
+  "lib": "three",
+  "question": "how did my practice go this week",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 145,
+  "set": "shaping",
+  "split": "tune",
+  "lib": "phrased",
+  "question": "compare my phrasing with last time",
+  "intents": [
+   "compare",
+   "musicality"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 149,
+  "set": "dev",
+  "split": "tune",
+  "lib": "toned",
+  "question": "is my vibrato faster than before",
+  "intents": [
+   "compare",
+   "tone"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 150,
+  "set": "heldout",
+  "split": "held",
+  "lib": "three",
+  "question": "have I practised this month",
+  "intents": [
+   "trend"
+  ],
+  "takesInFacts": 3,
+  "why": "several-takes"
+ },
+ {
+  "id": 151,
+  "set": "dev",
+  "split": "tune",
+  "lib": "unnamed",
+  "question": "compare my last two takes",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 153,
+  "set": "dev",
+  "split": "held",
+  "lib": "three",
+  "question": "did I improve since my last bach take",
+  "intents": [
+   "compare"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ },
+ {
+  "id": 154,
+  "set": "dev",
+  "split": "tune",
+  "lib": "toned",
+  "question": "compare the tone of my last two bach takes",
+  "intents": [
+   "compare",
+   "tone"
+  ],
+  "takesInFacts": 2,
+  "why": "several-takes"
+ }
+]
