@@ -52,6 +52,12 @@ const MONTH_RE = '(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|june?|ju
 
 // ---- reading text ------------------------------------------------------------
 
+// A text cut into sentences after . ! ? and at line ends (and at any of `also`).
+// No lookbehind: it needs Safari 16.4 and the app supports iOS 15.
+function splitSentences(text, also = '') {
+  return String(text).replace(/([.!?])\s+/g, '$1\u0001').split(new RegExp(`\\u0001|\\n+${also ? `|[${also}]+` : ''}`));
+}
+
 function digitValue(ch) {
   const cp = ch.codePointAt(0);
   let start = cp;
@@ -97,7 +103,10 @@ export function numbersIn(text) {
 
 // What a number is measured in, from the characters right after it.
 const UNITS = [
-  [/^\s*(?:-\s*)?(?:¢|cents?\b)/i, 'cents'],
+  // "ct", "cts", "11c" and "hundredths" (of a semitone) are cents in other
+  // words; with only "¢" and "cent" known, "11 ct off on average" had no unit
+  // at all and was licensed by any 11 anywhere in the facts.
+  [/^\s*(?:-\s*)?(?:¢|cents?\b|cts?\b|hundredths?\b)|^c\b/i, 'cents'],
   [/^\s*(?:-\s*)?(?:ms\b|msec\b|milliseconds?\b)/i, 'ms'],
   [/^\s*(?:-\s*)?(?:seconds?\b|secs?\b|s\b)/i, 'sec'],
   [/^\s*(?:-\s*)?(?:hz\b|hertz\b)/i, 'hz'],
@@ -226,8 +235,10 @@ function read(textIn) {
   blank(/\d+(?:[.,]\d+)?\s*(?:[/⁄:]|[-–—−](?=\s?\d))\s*\d+(?:[.,]\d+)?(?:\s*(?:[/⁄:]|[-–—−])\s*\d+(?:[.,]\d+)?)*/g, (m) => out.joined.push(m.replace(/\s+/g, '')));
 
   // signed numbers: "-12", "+9", "minus 12"
-  blank(/(^|[\s(\[:,])([-−+])(?=\d)/g, (_, pre, sign) => out.signed.push(sign));
-  blank(new RegExp(`\\b(minus|negative)\\s+(?=\\d|(?:${[...Object.keys(ONES), ...Object.keys(TENS)].join('|')})\\b)`, 'gi'), (m) => out.signed.push(m.trim()));
+  // (the figure after a sign is kept: a "+11¢" is allowed when the facts call
+  // the note with an 11 sharp, and a "-11¢" when they call it flat)
+  blank(/(^|[\s(\[:,])([-−+])(?=(\d+(?:[.,]\d+)?))/g, (_, pre, sign, num) => out.signed.push({ sign, v: toNumber(num) }));
+  blank(new RegExp(`\\b(minus|negative)\\s+(?=\\d|(?:${[...Object.keys(ONES), ...Object.keys(TENS)].join('|')})\\b)`, 'gi'), (m) => out.signed.push({ sign: m.trim() }));
 
   // bar and measure numbers
   const bars = [];
@@ -275,15 +286,16 @@ function compatible(reply, fact) {
 // listed in the test file.
 const AXES = {
   closeness: {
-    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|(?<!(?:room|scope|need|areas?) for )improvement|more accurate|more in tune|more notes arrive in tune|less off(?: pitch)?|less out of tune|more consistent|more secure|tidier|stronger|progressed|gained|ahead(?! of the beat)|outpac(?:ed|es|ing)|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\b(?:less|fewer) than)\b(?! look)/,
+    pos: /\b(closer|nearer|better|improv(?:ed|es|ing)|improvement|more accurate|more in tune|more notes arrive in tune|less off(?: pitch)?|less out of tune|more consistent|more secure|tidier|stronger|progressed|gained|ahead(?! of the beat)|outpac(?:ed|es|ing)|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\b(?:less|fewer) than)\b(?! look)/,
     // "further" is the one word here that is also a discourse word ("further
     // work", "for further questions", "Further, ..."), so it is kept out of those
-    // uses by what follows and precedes it. It used to be kept out by requiring a
-    // WORD character before it, `(?<=\w\s)`, which also kept it out after "¢",
-    // "%" and ")": "The Oct 22 take is 12.8¢ further from pitch" was not read as
-    // a direction at all, in a reply (so the flip of a true "closer" passed) or in
-    // the facts (so a true "further" was rejected as a change nobody measured).
-    neg: /\b((?<!\b(?:any|for|no|see) )further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted|behind(?! the beat)|lags?|lagg(?:ed|ing)|trail(?:s|ed|ing)?|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\bmore than)\b/,
+    // uses by what follows it here and by what precedes it in `neutral` below. It
+    // used to be kept out by requiring a WORD character before it, which also
+    // kept it out after "¢", "%" and ")": "The Oct 22 take is 12.8¢ further from
+    // pitch" was not read as a direction at all, in a reply (so the flip of a
+    // true "closer" passed) or in the facts (so a true "further" was rejected as
+    // a change nobody measured).
+    neg: /\b(further(?!\s+(?:work|practice|study|questions?|detail|information|reading|help)\b|\s+on in\b)|farther|lost ground|backslid|slid back|went backwards?|set back|fell behind|less consistent|less secure|worse|worsen(?:ed|s|ing)?|declin(?:ed|es|ing|e)|regress(?:ed|ion)?|deteriorat(?:ed|es|ing)|less accurate|less in tune|fewer notes arrive in tune|more off(?: pitch)?|more out of tune|lost (?:\S+ ){0,3}accuracy|(?:accuracy|intonation|tuning) (?:dropped|fell|declined|decreased|worsened|slipped)|slipped|drifted|behind(?! the beat)|lags?|lagg(?:ed|ing)|trail(?:s|ed|ing)?|off (?:pitch|target)\b(?:[^.!?;]|\.\d){0,25}\bmore than)\b/,
   },
   steadiness: { pos: /\b(steadier|more steady|more stable)\b/, neg: /\b(shakier|less steady|less stable|wobblier|unsteadier)\b/ },
   timing: { pos: /\b(tighter)\b/, neg: /\b(looser|sloppier|less tight)\b/ },
@@ -298,6 +310,15 @@ const AXES = {
   clarity: { pos: /\b(clearer|purer|cleaner)\b/, neg: /\b(rougher|breathier|muddier)\b/ },
   lead: { pos: /\b(sharper|sharp)\b/, neg: /\b(flatter|flat)\b/ },
 };
+// Two phrases the lexicon above must not read, blanked out (to the same length,
+// so every index stays valid) before it is applied. They were negative
+// lookbehinds inside the patterns; lookbehind needs Safari 16.4 and this app
+// supports iOS 15, where a regex literal that uses it throws when the module
+// loads and the whole feature is gone.
+const neutral = (t) => t
+  .replace(/\b((?:room|scope|need|areas?) for )improvement/g, (m, lead) => lead + 'x'.repeat(m.length - lead.length))
+  .replace(/\b((?:any|for|no|see) )further/g, (m, lead) => lead + 'x'.repeat(m.length - lead.length));
+
 // Words that say a quantity went up or down without saying which way is good:
 // "the error fell" is the pitch error getting smaller, which is closer to pitch;
 // "the vibrato rose" is the width. Which AXIS they speak of is read from what
@@ -352,7 +373,7 @@ const NEGATORS = /\b(not|no|never|hardly|without|isn't|wasn't|didn't|doesn't|don
 
 function leanOf(text, { negation, contextual = false }) {
   // "Further, ..." at the start of a sentence is a connective, not a direction
-  const t = text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1 ');
+  const t = neutral(text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1 '));
   const out = {};
   for (const [axis, { pos, neg }] of Object.entries(AXES)) {
     let p = false;
@@ -392,7 +413,7 @@ function leanOf(text, { negation, contextual = false }) {
 // "D3 runs 14¢ sharp and A3 runs 12¢ flat" wrong.
 function noteLeans(text) {
   const map = new Map();
-  for (const sentence of clean(text).split(/(?<=[.!?])\s+|\n+/)) {
+  for (const sentence of splitSentences(clean(text))) {
     const names = [...sentence.matchAll(/\b[A-G][#♯b♭]?\d\b/g)].map((m) => ({ at: m.index, end: m.index + m[0].length, name: m[0] }));
     if (names.length === 0) continue;
     const words = [...sentence.matchAll(/\b(sharp|flat)(?:er)?\b/gi)];
@@ -454,7 +475,7 @@ function clauseSpans(lower) {
 
 // -> [{ v, cls, hits: [{ axis, pos }] }] for every number in a read() result
 function numbersWithDirections(R, { negation, contextual = false }) {
-  const lower = R.text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1        ');
+  const lower = neutral(R.text.toLowerCase().replace(/(^|[.!?]\s+)further,/g, '$1        '));
   const spans = clauseSpans(lower);
   const cws = contextual ? changeWords(lower) : [];
   const out = R.tokens.map((t) => ({ ...t, hits: [] }));
@@ -715,7 +736,46 @@ const ROW_STOP = /\b(?:while|whereas|but|against|compared|versus|overall|take|re
 const ROW_MENTION = /\b(?:bars?|measures?)\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\b|\b([A-G][#♯b♭]?\d)\b|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\s+(?:bar|measure)\b/gi;
 const TAKE_WORDS = /\b(?:take|takes|recording|recordings|whole|overall|entire|performance|session|playing|all (?:of )?(?:your|the) notes|every note|most of (?:your|the) notes|your notes|my notes)\b/;
 const NOTE_WORDS = /\b(?:furthest|farthest|weakest|worst)\s+(?:\w+\s+){0,2}note\b|\bnote (?:furthest|farthest)\b|\b(?:that|one|single|this) note\b|\b[A-G][#♯b♭]?\d\b|\b(?:bars?|measures?)\s+\d+/i;
+// Words that speak of the player's playing as a whole without the word "take":
+// "You were 11 cents off on average", "Your average error was 11¢" and "Your
+// last take averaged 11 off pitch" were let through with ONE NOTE's figure
+// because only the list above counted as speaking of the take, and none of
+// these is on it.
+const TAKE_CUE = /\byou(?:'re| are| were| averaged| ran| played| came| sat)\b|\bon average\b|\byour (?:average|overall|typical|error|pitch error|intonation|pitch)\b|\baverage (?:error|pitch|intonation)\b|\bthe (?:error|average)\b|\boverall\b|\bi was\b/;
+// "6 times in this take" says where the notes were, not whose figure it is
+const TAKE_LOCATIVE = /\b(?:in|across|throughout|during|within)\s+(?:this|the|your|that|my)\s+(?:take|takes|recording|recordings|session|performance)\b/g;
 const DIRECTION = /\b(?:sharp|flat|sharper|flatter)\b/;
+// A bare number that the sentence uses as a count of notes ("Of the 24 notes,
+// 50 were within 10 cents") or as cents ("averaged 11 off pitch"); with no unit
+// written, it was licensed by any equal number anywhere in the facts.
+const COUNT_VERB = /^\s*(?:of them\s+)?(?:were|was|are|had|landed|came|fell|stayed|sat)\b[^.!?;\n]*\b(?:within|in tune|close|accurate|correct|sharp|flat|off)\b/i;
+const CENTS_CONTEXT = /\b(?:off|sharp|flat|pitch|error|out of tune|averag\w*)\b/;
+const NONE_WITHIN = /\b(?:none|not one|not a single|zero|no)\s+(?:of\s+)?(?:(?:your|the)\s+)?(?:\d+\s+)?notes?\b[^.!?;\n]{0,60}\bwithin\b/i;
+const ALL_WITHIN = /\b(?:all|every|each)\s+(?:of\s+)?(?:(?:your|the)\s+)?(?:\d+\s+)?(?:single\s+)?notes?\b[^.!?;\n]{0,60}\bwithin\b/i;
+
+// What each tone and pulse figure is called when a sentence is about it. Two
+// figures of one unit sit in the same answer (the vibrato's width and the held
+// notes' wander are both in cents, the loudness range and the step between
+// neighbours are both in dB), and a reply that gives one the other's name was
+// let through whenever it used a word the lexicon above did not know:
+// "Held notes drift 27¢ in the middle" (27 is the vibrato width), "Vibrato is
+// 4.3¢ wide" (4.3 is the wander) and "Loudness varies by 12 dB between
+// neighbouring notes" (12 is the range, the step is 1.8). A number is refused
+// when the words of its sentence are the words of a different figure of the same
+// unit and none of the words of its own; a sentence with the words of neither is
+// left alone, since a paraphrase is mostly synonyms.
+const KIND_WORDS = {
+  'steadiness-cents': /\b(?:stead\w*|wander\w*|wobbl\w*|drift\w*|stable|stability|held notes?|middle|sustain\w*)\b/,
+  'vibrato-width-cents': /\b(?:vibrato|wide|width|wider|swing\w*|depth)\b/,
+  'loudness-range-db': /\b(?:range|quietest|loudest|span\w*|spread|contrast)\b/,
+  'loudness-step-db': /\b(?:neighbou?r\w*|step|jump\w*|adjacent|note to note|between notes|from note)\b/,
+  'vibrato-share-pct': /\bvibrato\b/,
+  'arrive-in-tune-pct': /\b(?:arriv\w*|land\w*|attack\w*|start\w*)\b/,
+  'evenness-pct': /\b(?:even\w*|pulse|regular)\b/,
+  'percent-within-10-cents': /\bwithin\b/,
+  'settle-ms': /\b(?:settl\w*|arriv\w*|land\w*)\b/,
+  'beat-offset-ms': /\b(?:beat|timing|from the beat|off the beat)\b/,
+};
 const COUNT_NOUN = /^\s*(?:of|out of)\s+(?:the\s+|your\s+|all\s+)?(\d+)\s+(notes?|times|bars?)\b/i;
 
 const normName = (n) => String(n).replace('♯', '#').replace('♭', 'b').toLowerCase();
@@ -736,10 +796,14 @@ function scopedClauses(textIn, takeNames) {
   for (const [s, e, sep] of pieces) {
     const seg = text.slice(s, e);
     const lower = seg.toLowerCase();
-    let take = TAKE_WORDS.test(lower) || /"[^"]{1,80}"/.test(seg) || (names ? names.test(lower) : false);
+    const said = lower.replace(TAKE_LOCATIVE, ' ');
+    let take = TAKE_WORDS.test(said) || /"[^"]{1,80}"/.test(seg) || (names ? names.test(lower) : false);
     let note = NOTE_WORDS.test(seg);
-    // the tail of a clause ("D3, 23¢ sharp") keeps its subject, across a comma but not a full stop
-    if (!take && !note && prev && !SENTENCE_END.test(prev.sep)) { take = prev.take; note = prev.note; }
+    // the tail of a clause ("D3, 23¢ sharp") keeps its subject, across a comma but not a full stop;
+    // a clause with a subject of its own ("and you were 11¢ off") does not
+    const ownSubject = /\byou(?:'re| are| were| averaged| ran| played| came| sat)\b|\byour\b|\bi was\b/.test(said);
+    if (!take && !note && prev && !SENTENCE_END.test(prev.sep) && !ownSubject) { take = prev.take; note = prev.note; }
+    if (!take && !note) take = TAKE_CUE.test(said);
     const c = { s, e, take, note, sep, lower };
     out.push(c);
     prev = c;
@@ -756,29 +820,62 @@ function pairing(text, R, slots) {
   const clauseAt = (i) => clauses.find((c) => i >= c.s && i < c.e);
   const describe = (s) => s.kind.replace(/-/g, ' ');
 
+  const sentenceAt = (i) => {
+    const a = clean0.slice(0, i).search(/[^.!?;\n]*$/);
+    const rest = clean0.slice(i).search(/[.!?;\n]/);
+    return clean0.slice(a, rest < 0 ? clean0.length : i + rest);
+  };
   for (const t of R.tokens) {
     // the unit the reply USES the number as; a bare "Nine of the 24 notes" is a count of notes
     let unit = t.cls;
+    let inferred = null;
+    const c = clauseAt(t.index);
     if (!unit) {
       const m = COUNT_NOUN.exec(clean0.slice(t.end));
-      if (m) unit = /^notes?$/i.test(m[2]) ? 'notes' : /^bars?$/i.test(m[2]) ? 'bars' : 'times';
+      if (m) { unit = /^notes?$/i.test(m[2]) ? 'notes' : /^bars?$/i.test(m[2]) ? 'bars' : 'times'; inferred = 'count'; }
+      else if (COUNT_VERB.test(clean0.slice(t.end)) && /\bnotes?\b/i.test(sentenceAt(t.index))) { unit = 'notes'; inferred = 'count'; }
+      else if (c && CENTS_CONTEXT.test(c.lower)) { unit = 'cents'; inferred = 'cents'; }
     }
     if (!unit) continue;
     const near1 = slots.filter((s) => s.kind !== 'take-label' && near(t.v, s.v));
     const same = near1.filter((s) => s.unit === unit);
-    if (!t.cls) {
+    if (inferred === 'count') {
       // an inferred count: nothing in the facts is a count of that value
       if (!same.length && near1.length) out.push(`${t.v} is ${describe(near1[0])} in the measurements, not a count of ${unit}`);
       continue;
     }
+    if (inferred === 'cents' && !same.length) {
+      // a bare figure used as cents that the facts give as something else
+      // ("Average error was 50 off pitch": 50 is the share of notes within 10¢)
+      if (near1.length) out.push(`${t.v} is ${describe(near1[0])} in the measurements (${near1[0].unit}), and the reply uses it as cents`);
+      continue;
+    }
     if (!same.length) continue; // an unknown number or unit is the first rule's to refuse
-    const c = clauseAt(t.index);
     if (!c) continue;
     if (c.take && !c.note && same.every((s) => s.scope === 'note' || s.scope === 'bar')) {
       out.push(`${t.v} ${unit} is ${describe(same[0])}${same[0].row ? ` (${same[0].row})` : ''} in the measurements, and the reply gives it to the take`);
     } else if (c.note && !c.take && same.every((s) => s.scope === 'take')) {
       out.push(`${t.v} ${unit} is ${describe(same[0])}, the whole take's, and the reply gives it to one note`);
     }
+    // which figure of its unit: the wander or the vibrato's width, the range or the step
+    if (same.every((s) => KIND_WORDS[s.kind])) {
+      if (!same.some((s) => KIND_WORDS[s.kind].test(c.lower))) {
+        const other = slots.find((s) => KIND_WORDS[s.kind] && s.unit === unit && !near(t.v, s.v) && KIND_WORDS[s.kind].test(c.lower));
+        if (other) out.push(`${t.v} ${unit} is ${describe(same[0])}, and the sentence is about ${describe(other)}`);
+      }
+    }
+  }
+
+  // "24 of the 24 notes were within 10 cents" when the facts give a share below
+  // 100%, and "none" or "every" of the notes within 10 cents when the share is
+  // neither 0 nor 100: all of it true digits, said as a count the facts do not give.
+  const within = real.find((s) => s.kind === 'percent-within-10-cents');
+  if (within) {
+    for (const m of clean0.matchAll(/\b(\d+)\s+(?:of|out of)\s+(?:the\s+|your\s+|all\s+)?(\d+)\s+notes?\b([^.!?;\n]*)/gi)) {
+      if (m[1] === m[2] && within.v < 100 && /within|in tune|close|accurate|correct|sharp|flat|off pitch/i.test(m[3])) out.push(`all ${m[2]} notes are said to be within 10¢, and the measurements say ${within.v}%`);
+    }
+    if (within.v > 0 && NONE_WITHIN.test(clean0)) out.push(`no notes are said to be within 10¢, and the measurements say ${within.v}%`);
+    if (within.v < 100 && ALL_WITHIN.test(clean0)) out.push(`every note is said to be within 10¢, and the measurements say ${within.v}%`);
   }
 
   // "the whole take was sharp": a direction belongs to a note, never to the take
@@ -927,7 +1024,7 @@ const headStem = (w) => w.replace(/s$/, '');
 // -> ["intonation is solid", ...] the verdicts in `text` that `factsText` does not make
 function verdictsIn(text, factsText) {
   const noParens = factsText.replace(/\([^)]*\)/g, ' ').toLowerCase();
-  const sents = noParens.split(/(?<=[.!?])\s+|[\n;]+/).filter(Boolean);
+  const sents = splitSentences(noParens, ';').filter(Boolean);
   const has = (re) => sents.some((s) => re.test(s));
   const word = (w) => new RegExp(`\\b${w.replace(/ /g, '\\s+')}\\b`);
   const out = [];
@@ -982,7 +1079,7 @@ const ABSENT = /\b(?:not measured|wasn't measured|was not measured|weren't measu
 
 const SPECULATION =/\b(probably|likely|presumably|perhaps|maybe|i guess|i'd guess|i suspect|might be|could be(?! (?:found|measured|read|compared|determined|told))|most likely)\b/;
 
-const sentences = (t) => t.split(/(?<=[.!?])\s+|\n+/).map((s) => s.trim()).filter(Boolean);
+const sentences = (t) => splitSentences(t).map((s) => s.trim()).filter(Boolean);
 
 // ---- the check ---------------------------------------------------------------
 
@@ -994,8 +1091,26 @@ const FULL_MONTH = /\b(january|february|march|april|june|july|august|september|o
 // opts.takeCount: how many takes the facts were built from, so "the two takes"
 // is allowed exactly when two were used.
 // -> { ok, stray: [numbers that are not in the facts], reason, problems: [{ kind, text }] }
+// A parenthesis the reply copies out of the facts word for word is the facts'
+// own caveat and not a claim of the reply's. "(lower can mean breathy or rough)"
+// after the clarity figure is the one that matters: the instructions tell the
+// model to copy that sentence, and its "lower" read as a change of clarity the
+// measurements do not show, so the facts' own sentence was refused exactly when
+// the tone clarity was quoted.
+function stripCopiedParens(text, facts) {
+  const hay = clean([].concat(facts ?? []).join('\n'));
+  return text.replace(/\(([^()]{6,120})\)/g, (m, inner) => (hay.includes(clean(inner)) ? ' ' : m)).replace(/ {2,}/g, ' ').trim();
+}
+
+// The names of takes sit in quotes. Their words are the player's, not the
+// app's measurements: a take called "Better Together" or "Closer" or "Lovely
+// Day" made "improved", "closer" and "lovely" words the FACTS use, and the reply
+// "You have improved" passed with no change measured.
+const blankQuotes = (s) => s.replace(/"[^"]{1,80}"/g, (m) => ' '.repeat(m.length));
+
 export function checkReply(reply, facts, question = '', opts = {}) {
-  const text = String(reply ?? '').trim();
+  const raw = String(reply ?? '').trim();
+  const text = stripCopiedParens(raw, facts);
   if (text.length === 0) return { ok: false, stray: [], reason: 'empty', problems: [{ kind: 'empty', text: '' }] };
   if (text.length > 1200) return { ok: false, stray: [], reason: 'too long', problems: [{ kind: 'long', text: '' }] };
 
@@ -1010,6 +1125,11 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const factsLower = factsText.toLowerCase();
   const qLower = qText.toLowerCase();
   const everything = `${factsLower}\n${qLower}`;
+  // The facts and the reply with the take names taken out, for every check that
+  // asks whether the FACTS use a word (a direction, a verdict, a bit of praise).
+  const factsBare = blankQuotes(factsText);
+  const textBare = blankQuotes(text);
+  const everythingBare = `${factsBare.toLowerCase()}\n${qLower}`;
 
   const F = read(factsText);
   const Q = read(qText);
@@ -1072,15 +1192,23 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     const compact = (s) => s.replace(/\s+/g, '');
     if (!compact(factsText).includes(j) && !compact(qText).includes(j)) add('joined', j);
   }
-  for (const s of R.signed) {
-    const seen = /^[-−+]$/.test(s)
+  for (const { sign: s, v } of R.signed) {
+    let seen = /^[-−+]$/.test(s)
       ? /(^|[\s(\[:,])[-−+]\d/.test(`${factsText} ${qText}`)
       : new RegExp(`\\b${s}\\b`, 'i').test(`${factsText} ${qText}`);
+    // "+11¢" is how a sharp 11 is written, "-11¢" a flat one; the facts write the
+    // word. It is allowed exactly when a figure of that size is given that way.
+    if (!seen && /^[-−+]$/.test(s) && opts.slots?.some((x) => x.dir && near(v, x.v) && x.dir === (s === '+' ? 'sharp' : 'flat'))) seen = true;
     if (!seen) add('sign', s);
   }
 
   // 5. pitch names and take names the facts never contained
-  for (const n of R.notes) if (!F.notes.has(n) && !Q.notes.has(n)) add('note', n);
+  // A pitch name inside a take's name ("D3 drone") is the take's name, which the
+  // facts quote, and not a measurement of the pitch; a reply that says
+  // "your D3 drone take" is naming it. (read() blanks quoted names first, so
+  // the facts' own note names never include it.)
+  const nameNotes = new Set([...F.quotes, ...Q.quotes].flatMap((q) => [...read(q).notes]));
+  for (const n of R.notes) if (!F.notes.has(n) && !Q.notes.has(n) && !nameNotes.has(n)) add('note', n);
   for (const q of R.quotes) {
     const ql = q.toLowerCase().trim();
     if (everything.includes(ql)) continue;
@@ -1111,8 +1239,8 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   }
 
   // 8. direction
-  const replyLean = leanOf(text, { negation: true, contextual: true });
-  const factLean = leanOf(factsText, { negation: false });
+  const replyLean = leanOf(textBare, { negation: true, contextual: true });
+  const factLean = leanOf(factsBare, { negation: false });
   const factsNeutral = /about the same|unchanged/i.test(factsText);
   for (const [axis, r] of Object.entries(replyLean)) {
     if (r.pos && r.neg) continue;
@@ -1132,9 +1260,9 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     if (r.pos && !f.pos) add('direction', `${axis}: reply says up, measurements say down`);
     if (r.neg && !f.neg) add('direction', `${axis}: reply says down, measurements say up`);
   }
-  const factNotes = noteLeans(factsText);
+  const factNotes = noteLeans(factsBare);
   if (factNotes.size) {
-    for (const [name, dirs] of noteLeans(text)) {
+    for (const [name, dirs] of noteLeans(textBare)) {
       const f = factNotes.get(name);
       if (f && f.size === 1) for (const d of dirs) if (!f.has(d)) add('direction', `${name} called ${d}`);
     }
@@ -1186,7 +1314,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   // 8c. a number that is in the facts, but about something else
   const factSentences = (() => {
     const cuts = [0];
-    for (const m of F.text.matchAll(/(?<=[.!?])\s+|\n+/g)) cuts.push(m.index + m[0].length);
+    for (const m of F.text.matchAll(/[.!?]\s+|\n+/g)) cuts.push(m.index + m[0].length);
     cuts.push(F.text.length + 1);
     return cuts.slice(0, -1).map((s, i) => ({ s, e: cuts[i + 1], topics: topicsIn(F.text.slice(s, cuts[i + 1]).toLowerCase()) }));
   })();
@@ -1211,20 +1339,20 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   if (opts.slots?.length) for (const w of pairing(text, R, opts.slots)) add('pairing', w);
 
   // 9. claims about the player's level, other players, or the best ever
-  const lower = clean(text).toLowerCase();
-  for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('superlative', m[0]); }
-  for (const re of BENCHMARK) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('benchmark', m[0]); }
-  for (const re of HEARING) { const m = lower.match(re); if (m && !everything.includes(m[0])) add('hearing', m[0]); }
+  const lower = clean(textBare).toLowerCase();
+  for (const re of SUPERLATIVE) { const m = lower.match(re); if (m && !everythingBare.includes(m[0])) add('superlative', m[0]); }
+  for (const re of BENCHMARK) { const m = lower.match(re); if (m && !everythingBare.includes(m[0])) add('benchmark', m[0]); }
+  for (const re of HEARING) { const m = lower.match(re); if (m && !everythingBare.includes(m[0])) add('hearing', m[0]); }
   {
     // the caveat itself says "how beautiful the tone is", which must not make
     // "beautiful" an allowed word
-    const allowedTaste = factsLower.replace(/these describe the shaping[^.]*\./g, ' ');
+    const allowedTaste = factsBare.toLowerCase().replace(/these describe the shaping[^.]*\./g, ' ');
     for (const m of lower.matchAll(TASTE)) if (!allowedTaste.includes(m[0])) { add('taste', m[0]); break; }
   }
   {
     // a question that asks "is my vibrato too wide" is not the facts: the words
     // must come from the measurements, as with taste
-    const v = verdictsIn(text, factsText);
+    const v = verdictsIn(textBare, factsBare);
     if (v.length) add('verdict', v[0]);
   }
   const guess = lower.match(SPECULATION);
@@ -1301,7 +1429,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     ordinal: 'a numbered bar or note not in the measurements',
     direction: 'a direction the measurements do not support',
     attached: 'a measured number used for something else',
-    pairing: 'a measured number given to the wrong thing (the take instead of a note, a count instead of an error, or the wrong bar)',
+    pairing: 'a measured number given to the wrong thing (the take instead of a note, a count instead of an error, the wrong bar, or one tone reading for another)',
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
     echo: 'text copied from the prompt',

@@ -13,7 +13,8 @@
 import { aggregateTendencies, dailyScores, weeklyReport } from '../analysis/coach.js';
 import { compareQuality } from '../analysis/quality.js';
 import { compareTakes } from '../analysis/score-history.js';
-import { intentsOf } from './router.js';
+import { intentsOf, mentionsTake } from './router.js';
+import { takeLabel as label, whenOf as when, pairLabels } from './labels.js';
 import { musicalityFacts, compareMusicalityFacts, CAVEAT as MUSICALITY_CAVEAT } from './musicality-facts.js';
 
 const round0 = (v) => Math.round(v);
@@ -54,13 +55,8 @@ export function rowsOf(slots = []) {
   return new Set(slots.filter((s) => s.row).map((s) => s.row)).size;
 }
 
-function label(take) {
-  return take.name?.trim() || new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
-
-function when(take) {
-  return new Date(take.date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
+const noteWord = (n) => `${n} note${n === 1 ? '' : 's'}`;
+const absMean = (cents) => mean(cents.map(Math.abs));
 
 function summaryFacts(take, sink) {
   const stats = take.noteStats ?? [];
@@ -73,45 +69,64 @@ function summaryFacts(take, sink) {
   slot(sink, round0((within / cents.length) * 100), 'pct', 'percent-within-10-cents', 'take');
   slot(sink, 10, 'cents', 'threshold', 'any');
   const out = [
-    `"${label(take)}" (${when(take)}): ${cents.length} notes heard, ${round1(mean(cents))}¢ off pitch on average, `
+    `"${label(take)}"${when(take) ? ` (${when(take)})` : ''}: ${noteWord(cents.length)} heard, ${round1(mean(cents))}¢ off pitch on average, `
     + `${round0((within / cents.length) * 100)}% of notes within 10¢.`,
   ];
   const byName = new Map();
   for (const n of stats) {
-    if (!Number.isFinite(n.cents)) continue;
+    if (!Number.isFinite(n.cents) || !n.name) continue;
     if (!byName.has(n.name)) byName.set(n.name, []);
     byName.get(n.name).push(n.cents);
   }
-  const rows = [...byName].filter(([, c]) => c.length >= 2).map(([name, c]) => ({ name, c: mean(c), n: c.length }));
+  const rows = [...byName].filter(([, c]) => c.length >= 2).map(([name, c]) => pitchRow(name, c));
   if (rows.length) {
-    const worst = rows.sort((a, b) => Math.abs(b.c) - Math.abs(a.c))[0];
-    if (Math.abs(worst.c) >= 6) {
-      const dir = worst.c > 0 ? 'sharp' : 'flat';
-      slot(sink, round0(Math.abs(worst.c)), 'cents', 'note-cents', 'note', { row: worst.name, dir });
+    const worst = rows.sort((a, b) => b.off - a.off)[0];
+    if (worst.off >= 6) {
+      slot(sink, round0(worst.off), 'cents', 'note-cents', 'note', { row: worst.name, ...(worst.dir ? { dir: worst.dir } : {}) });
       slot(sink, worst.n, 'times', 'note-times', 'note', { row: worst.name });
-      out.push(`The note furthest from pitch was ${worst.name}, ${round0(Math.abs(worst.c))}¢ ${dir} on average over ${worst.n} times.`);
+      out.push(`The note furthest from pitch was ${worst.name}, ${worst.dir ? `${round0(worst.off)}¢ ${worst.dir}` : `${round0(worst.off)}¢ off, ${BOTH_WAYS},`} on average over ${worst.n} times.`);
     }
   }
   return out;
 }
 
+// How far a pitch is from pitch is how far its notes ARE, not where their
+// average falls: a note 30¢ off every time, half sharp and half flat, averages
+// to 0 and was ranked as the best note and printed "0¢ flat" under a heading
+// that said furthest from pitch. So a pitch is ranked by the mean of its
+// absolute errors, and it is called sharp or flat only when its notes agree
+// (the signed mean is most of the absolute one); otherwise it is said to go
+// both ways.
+const BOTH_WAYS = 'sometimes above and sometimes below the pitch';
+function pitchRow(name, cents) {
+  const signed = mean(cents);
+  const off = absMean(cents);
+  const agree = off > 0 && Math.abs(signed) >= 0.6 * off;
+  return { name, off, n: cents.length, dir: agree ? (signed > 0 ? 'sharp' : 'flat') : null };
+}
+
 function perPitch(take) {
   const m = new Map();
   for (const n of take.noteStats ?? []) {
-    if (!Number.isFinite(n.cents)) continue;
+    if (!Number.isFinite(n.cents) || !n.name) continue;
     if (!m.has(n.name)) m.set(n.name, []);
     m.get(n.name).push(n.cents);
   }
   return m;
 }
 
-function compareFacts(a, b) {
+function compareFacts(a, b, { explicit = false } = {}) {
   // a is the newer take. Two takes of one piece share a name, so the date has
-  // to tell them apart or the sentence reads "Bach 9¢, Bach 22¢".
-  const same = label(a) === label(b);
-  const la = same ? `${label(a)}, ${when(a)}` : label(a);
-  const lb = same ? `${label(b)}, ${when(b)}` : label(b);
+  // to tell them apart or the sentence reads "Bach 9¢, Bach 22¢"; two taken on
+  // one day need the time as well (labels.js).
+  const [la, lb] = pairLabels(a, b);
   const out = [];
+  // A comparison the player did not name ("how does my last take compare with
+  // the one before") can land on two different pieces, and an Etude set beside a
+  // Bach prelude says little about either. It is still answered, and says so.
+  if (!explicit && label(a) !== label(b)) {
+    out.push('These two takes have different names, so a difference between them may come from the music and not only from the playing.');
+  }
   const cA = (a.noteStats ?? []).map((n) => Math.abs(n.cents));
   const cB = (b.noteStats ?? []).map((n) => Math.abs(n.cents));
   const mA = mean(cA);
@@ -131,7 +146,9 @@ function compareFacts(a, b) {
       out.push(`Note for note against the score (${cmp.perNote.length} notes in both): ${cmp.better} note${cmp.better === 1 ? '' : 's'} landed closer, ${cmp.worse} note${cmp.worse === 1 ? '' : 's'} landed further, the rest about the same.`);
     }
     if (Number.isFinite(cmp?.msDelta)) {
-      out.push(`Timing against the beat is ${round0(Math.abs(cmp.msDelta))} ms ${cmp.msDelta < 0 ? 'tighter' : 'looser'} on average.`);
+      // a delta that rounds to 0 ms is not a direction
+      if (round0(Math.abs(cmp.msDelta)) === 0) out.push('Timing against the beat is about the same in both takes.');
+      else out.push(`Timing against the beat is ${round0(Math.abs(cmp.msDelta))} ms ${cmp.msDelta < 0 ? 'tighter' : 'looser'} on average.`);
     }
   } else {
     const pa = perPitch(a);
@@ -140,8 +157,8 @@ function compareFacts(a, b) {
     for (const [name, ca] of pa) {
       const cb = pb.get(name);
       if (!cb || ca.length < 2 || cb.length < 2) continue;
-      const da = Math.abs(mean(ca));
-      const db = Math.abs(mean(cb));
+      const da = absMean(ca);
+      const db = absMean(cb);
       moved.push({ name, delta: da - db, da, db });
     }
     moved.sort((x, y) => Math.abs(y.delta) - Math.abs(x.delta));
@@ -154,7 +171,14 @@ function compareFacts(a, b) {
   if (a.quality && b.quality) {
     const rows = compareQuality(b.quality, a.quality).filter((r) => r.verdict !== 'unmeasured' && r.verdict !== 'about the same');
     for (const r of rows.slice(0, 4)) {
-      out.push(`${r.label}: ${round1(r.before)}${r.unit ? ` ${r.unit}` : ''} before, ${round1(r.after)}${r.unit ? ` ${r.unit}` : ''} now — ${r.verdict}.`);
+      // Clarity is 0 to 1 in the measurement and "88 out of 100" in the
+      // single-take sentence; shown to a tenth on the small scale, .80 and .84
+      // both read 0.8 ("0.8 before, 0.8 now — a clearer, purer tone"). It is
+      // written on the scale the other sentence uses. Units sit against the
+      // figure for the symbols (4.3¢, 40%) and apart for the words (12 dB).
+      const scale = r.key === 'clarity' ? 100 : 1;
+      const fig = (v) => (r.key === 'clarity' ? `${round1(v * scale)} out of 100` : `${round1(v)}${!r.unit ? '' : /^[¢%]$/.test(r.unit) ? r.unit : ` ${r.unit}`}`);
+      out.push(`${r.label}: ${fig(r.before)} before, ${fig(r.after)} now — ${r.verdict}.`);
     }
     if (rows.length === 0) out.push('Tone, vibrato and loudness measured about the same in both takes.');
   } else {
@@ -221,18 +245,18 @@ function worstFacts(take, sink) {
   }
   const pitches = [...perPitch(take)]
     .filter(([, c]) => c.length >= 2)
-    .map(([name, c]) => ({ name, m: mean(c), n: c.length }))
-    .sort((x, y) => Math.abs(y.m) - Math.abs(x.m))
+    .map(([name, c]) => pitchRow(name, c))
+    .sort((x, y) => y.off - x.off)
     .slice(0, 3);
   if (pitches.length === 0) return [`There are too few repeated notes in "${label(take)}" to say which are weakest.`];
   slot(sink, 0, 'name', 'take-label', 'take', { name: label(take) });
   for (const p of pitches) {
-    slot(sink, round0(Math.abs(p.m)), 'cents', 'note-cents', 'note', { row: p.name, dir: p.m > 0 ? 'sharp' : 'flat' });
+    slot(sink, round0(p.off), 'cents', 'note-cents', 'note', { row: p.name, ...(p.dir ? { dir: p.dir } : {}) });
     slot(sink, p.n, 'times', 'note-times', 'note', { row: p.name });
   }
   return [
     `This take has no score attached, so I can name notes but not bars. The notes furthest from pitch in "${label(take)}": `
-    + `${pitches.map((p) => `${p.name} (${round0(Math.abs(p.m))}¢ ${p.m > 0 ? 'sharp' : 'flat'}, ${p.n} times)`).join(', ')}.`,
+    + `${pitches.map((p) => `${p.name} (${round0(p.off)}¢ ${p.dir ?? 'off, ' + BOTH_WAYS}, ${p.n} times)`).join(', ')}.`,
   ];
 }
 
@@ -336,7 +360,8 @@ function takesBehind(intents, chosen, all) {
   let most = 0;
   for (const intent of intents) {
     let n = 0;
-    if (intent === 'summary' || intent === 'compare' || intent === 'tone' || intent === 'musicality') n = Math.min(chosen.length, 2);
+    if (intent === 'summary' || intent === 'tone' || intent === 'musicality') n = chosen.length;
+    else if (intent === 'compare') n = Math.min(chosen.length, 2);
     else if (intent === 'worst' || intent === 'tempo') n = 1;
     else if (intent === 'habits') n = (chosen.length > 1 ? chosen : all ?? []).filter(hasNotes).length;
     else if (intent === 'trend') n = (all ?? []).filter(hasNotes).length;
@@ -353,26 +378,44 @@ export function factsFor({ question, intents = intentsOf(question), chosen, all,
   const slots = [];
   if (chosen.length === 0) return { facts: ['There are no saved takes with measured notes yet, so there is nothing to answer from.'], used, takesInFacts: 0, slots, rows: 0 };
 
-  for (const t of chosen) used.push(label(t));
+  // `used` is the "based on" list under the answer: the takes whose
+  // measurements are in the sentences, and no others. It used to name every take
+  // the question chose while the builders read the first two ("my last 3 takes"
+  // listed three and answered for two). Each builder below says which it read.
+  const readSet = new Set();
+  const note = (ts) => { for (const t of ts) readSet.add(t); };
 
   for (const intent of intents) {
-    if (intent === 'summary') for (const t of chosen.slice(0, 2)) facts.push(...summaryFacts(t, slots));
+    if (intent === 'summary') { note(chosen); for (const t of chosen) facts.push(...summaryFacts(t, slots)); }
     else if (intent === 'compare') {
       if (chosen.length >= 2) {
-        facts.push(...compareFacts(chosen[0], chosen[1]));
+        note(chosen.slice(0, 2));
+        facts.push(...compareFacts(chosen[0], chosen[1], { explicit: mentionsTake(question, chosen[0]) && mentionsTake(question, chosen[1]) }));
+        if (chosen.length > 2) facts.push('Only two takes can be compared at a time, so this compares the latest two of the takes asked about.');
         if (!intents.includes('musicality')) facts.push(...shapingFolded(chosen[0], chosen[1]));
+      } else {
+        note(chosen);
+        // Said of the question, not of the library: a comparison that names a
+        // take with no sibling ("compare my scales with last time") used to
+        // announce that only one take was saved, with dozens in the library.
+        const lonely = (all ?? []).filter(hasNotes).length <= 1;
+        facts.push(lonely
+          ? 'Only one take is saved, so there is nothing to compare it with.'
+          : `Only one saved take matches the question ("${label(chosen[0])}"), so there is nothing to compare it with.`, ...summaryFacts(chosen[0], slots));
       }
-      else facts.push('Only one take is saved, so there is nothing to compare it with.', ...summaryFacts(chosen[0], slots));
-    } else if (intent === 'worst') facts.push(...worstFacts(chosen[0], slots));
-    else if (intent === 'habits') facts.push(...habitFacts(chosen.length > 1 ? chosen : all, slots));
+    } else if (intent === 'worst') { note(chosen.slice(0, 1)); facts.push(...worstFacts(chosen[0], slots)); }
+    else if (intent === 'habits') { note(chosen); facts.push(...habitFacts(chosen.length > 1 ? chosen : all, slots)); }
     else if (intent === 'tone') {
-      if (!intents.includes('compare') || chosen.length < 2) for (const t of chosen.slice(0, 2)) facts.push(...toneFacts(t, slots));
-    } else if (intent === 'tempo') facts.push(...tempoFacts(chosen[0], slots));
+      if (!intents.includes('compare') || chosen.length < 2) { note(chosen); for (const t of chosen) facts.push(...toneFacts(t, slots)); }
+    } else if (intent === 'tempo') { note(chosen.slice(0, 1)); facts.push(...tempoFacts(chosen[0], slots)); }
     else if (intent === 'musicality') {
-      if (intents.includes('compare') && chosen.length >= 2) facts.push(...scopedSame(compareMusicalityFacts(chosen[0], chosen[1], { question }), facts));
-      else for (const t of chosen.slice(0, 2)) facts.push(...musicalityFacts(t, { question }));
-    } else if (intent === 'trend') facts.push(...trendFacts(all, now));
+      if (intents.includes('compare') && chosen.length >= 2) { note(chosen.slice(0, 2)); facts.push(...scopedSame(compareMusicalityFacts(chosen[0], chosen[1], { question }), facts)); }
+      else { note(chosen); for (const t of chosen) facts.push(...musicalityFacts(t, { question })); }
+    } else if (intent === 'trend') { note(chosen); facts.push(...trendFacts(all, now)); }
   }
+  // in the order the player named them (newest first), one entry per take read
+  for (const t of chosen) if (readSet.has(t)) used.push(label(t));
+  if (used.length === 0) used.push(label(chosen[0]));
   // The same sentence twice is never an answer. (Two intents that both reach the
   // same builder can produce it; today none does, and this is the net.)
   return { facts: [...new Set(facts)], used, takesInFacts: takesBehind(intents, chosen, all), slots, rows: rowsOf(slots) };

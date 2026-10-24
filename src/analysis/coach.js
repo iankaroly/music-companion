@@ -67,7 +67,19 @@ export function dailyScores(sessions) {
     .sort((a, b) => (a.day < b.day ? -1 : 1));
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+// `n` calendar days before `now`, as a moment at local noon of that day.
+//
+// "Yesterday" used to be `now - 24 h`. On the day after a spring-forward change
+// (a 23-hour day) that is still the day before yesterday for the first hour
+// after midnight, and on the day after a fall-back (25 hours) it is today for
+// the last hour; so a week window and a streak counted back from 00:30 landed
+// on the wrong date, and the answer was about a day the player did not ask for.
+// Counting calendar days and standing at noon cannot cross a day boundary
+// whatever the clock did overnight.
+export function daysAgo(now, n) {
+  const d = new Date(now);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate() - n, 12).getTime();
+}
 
 // The last 7 days vs the 7 before, plus the practice streak.
 // `now` is injected so the week boundary is testable.
@@ -77,7 +89,7 @@ export function weeklyReport(sessions, now) {
   const inWindow = (offsetStart, offsetEnd) => {
     const collected = [];
     for (let o = offsetStart; o <= offsetEnd; o++) {
-      const d = byDay.get(dayKey(now - o * DAY_MS));
+      const d = byDay.get(dayKey(daysAgo(now, o)));
       if (d) collected.push(d);
     }
     return collected;
@@ -94,7 +106,7 @@ export function weeklyReport(sessions, now) {
   // today doesn't break it yet — the streak survives until tomorrow)
   let streak = 0;
   let offset = byDay.has(dayKey(now)) ? 0 : 1;
-  while (byDay.has(dayKey(now - offset * DAY_MS))) {
+  while (byDay.has(dayKey(daysAgo(now, offset)))) {
     streak++;
     offset++;
   }

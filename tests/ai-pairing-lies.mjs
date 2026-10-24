@@ -94,8 +94,8 @@ export const EVASIONS = [
   { s: 'etude', t: 'Most of your notes were sharp.' },
   { s: 'collision', t: '9 of your 24 notes were within 10¢.' },
   { s: 'collision', t: 'Within 10 cents were 9 of the 24 notes.' },
-  { s: 'collision', t: 'You played 9 cents sharp across the 24 notes.', miss: true },
-  { s: 'collision', t: 'On average, 9¢ sharp over 6 times.', miss: true },
+  { s: 'collision', t: 'You played 9 cents sharp across the 24 notes.' },
+  { s: 'collision', t: 'On average, 9¢ sharp over 6 times.' },
   { s: 'collision', t: 'All 24 notes were sharp.', miss: true },
 ];
 

@@ -141,8 +141,8 @@ c('one', 'do i play sharp', { i: ['habits'], t: [1], must: [/Across 1 take: .*ru
 
 // ---------------------------------------------------------------- tone and rhythm that were measured
 const VIB_NEW = /Vibrato is on 70% of notes held 0\.4 s or longer, at about 5\.4 Hz and 27¢ wide/;
-const CMP_Q = /pitch steadiness: 6\.2 ¢ before, 3\.1 ¢ now — steadier within notes/;
-const CMP_V = /vibrato width: 18 ¢ before, 27 ¢ now — wider vibrato/;
+const CMP_Q = /pitch steadiness: 6\.2¢ before, 3\.1¢ now — steadier within notes/;
+const CMP_V = /vibrato width: 18¢ before, 27¢ now — wider vibrato/;
 c('toned', 'how is my vibrato', { i: ['tone'], t: [2], must: [VIB_NEW, /3\.1¢ of wander/], not: [/Pulse of/, /could not be measured/] });
 c('toned', 'is my vibrato too wide', { i: ['tone'], t: [2], must: [/27¢ wide/] });
 c('toned', 'is my tone clear or breathy', { i: ['tone'], t: [2], must: [/Tone clarity reads 88 out of 100/] });
