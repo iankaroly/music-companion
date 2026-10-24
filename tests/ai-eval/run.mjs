@@ -17,7 +17,7 @@ import { QUESTIONS } from './questions.js';
 import { HELDOUT } from './heldout.js';
 import { MUSICALITY_QUESTIONS } from './musicality-questions.js';
 import { NOW } from './fixtures.js';
-import { modelMaySpeak } from '../../src/ai/assistant.js';
+import { modelMaySpeak, whyNotModel } from '../../src/ai/assistant.js';
 
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
@@ -37,12 +37,14 @@ export function runCase(q) {
   }
   let facts = [];
   let takesInFacts = 0;
+  let slots = [];
+  let rows = 0;
   if (scope === 'answer' || scope === 'nodata') {
-    ({ facts, takesInFacts } = factsFor({ question: q.q, intents: p.intents, chosen, all: library, now: NOW }));
+    ({ facts, takesInFacts, slots, rows } = factsFor({ question: q.q, intents: p.intents, chosen, all: library, now: NOW }));
   }
   // routed: who writes the answer. 'code' when the facts span several takes
   // (the model is never asked), 'model' when one take's facts go to it.
-  return { intents: p.intents, takeIds: p.takeIds, scope, facts, text: facts.join(' '), takesInFacts, routed: modelMaySpeak(takesInFacts) ? 'model' : 'code' };
+  return { intents: p.intents, takeIds: p.takeIds, scope, facts, text: facts.join(' '), takesInFacts, slots, rows, routed: modelMaySpeak(takesInFacts, rows) ? 'model' : 'code', why: whyNotModel(takesInFacts, rows) };
 }
 
 export function evaluate(questions = QUESTIONS) {

@@ -21,7 +21,7 @@ const rows = cases.map((c) => {
   // what the app does: strip the prompt's own scope tags, and count the takes the
   // FACTS were built from (not the ones named) for "the two takes"
   const text = stripScopeTags(String(r?.text ?? '')).trim();
-  const v = r?.error ? { ok: false, reason: `model error: ${r.error}`, problems: [{ kind: 'error' }], stray: [] } : checkReply(text, c.facts, c.question, { takeCount: c.takesInFacts ?? c.takeCount });
+  const v = r?.error ? { ok: false, reason: `model error: ${r.error}`, problems: [{ kind: 'error' }], stray: [] } : checkReply(text, c.facts, c.question, { takeCount: c.takesInFacts ?? c.takeCount, slots: c.slots });
   return { c, r, text, v };
 });
 
