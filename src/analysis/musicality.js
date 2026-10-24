@@ -793,7 +793,7 @@ function tempoDescriptors(notes, seg, fl) {
         // acceleration is invisible to it; say so beside it, not after it.
         const drifting = kind === 'speeds-up' || kind === 'slows-down' || kind === 'leans-faster' || kind === 'leans-slower';
         const flexPhrase = {
-          steady: `the tempo is steady, within about ${f}% of its middle`,
+          steady: `the tempo is steady from one short stretch to the next, within about ${f}% of its middle (a slow movement over the whole take is not counted here)`,
           gives: `the tempo gives a little, by about ${f}% around its middle`,
           free: `the tempo is free, moving by about ${f}% around its middle`,
           'edge-steady': `the tempo moves by about ${f}% around its middle, which is on the edge between steady and giving a little`,
@@ -1391,6 +1391,23 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
     for (const k of ['phrase-count', 'phrase-definition', 'phrase-shape', 'phrase-contrast', 'phrase-final-lengthening']) by[k] = missing(k, by[k].label, why, list.length);
   }
 
+  // NOTES TOO CLOSE TOGETHER TO READ THE SHAPING OF. Under about 0.3 s a note
+  // the pipeline's own timing error (a few tens of milliseconds on each onset)
+  // is as large as the gaps and the tempo wobble being measured: a perfect
+  // metronome at 0.25 s a note read 'the tempo gives a little, by about 5%', and
+  // legato-or-detached read 0.27 at 0.1 s and 0.52 at 0.5 s for the same
+  // playing. The phrase rows were already left out of comparisons for this
+  // (FASTEST_BEAT_SEC); these four were not.
+  const fast = beatSec < FASTEST_BEAT_SEC;
+  if (fast) {
+    const why = 'the notes are less than about a third of a second apart, which is too fast for the timing of this app to tell a short gap or a small tempo change from its own error';
+    // With the score the tempo comes from the written lengths, not from the
+    // spacing alone, so its two rows stay.
+    const scoredTake = list.filter((n) => n.beats > 0).length >= 0.8 * list.length;
+    const rows = scoredTake ? ['articulation', 'articulation-evenness', 'phrase-shape'] : ['articulation', 'articulation-evenness', 'tempo-flexibility', 'tempo-shape', 'phrase-shape'];
+    for (const k of rows) by[k] = missing(k, by[k].label, why, list.length);
+  }
+
   // ONE PITCH has no phrases to speak of: a breath in a drone is a breath, not
   // a phrase end, and nothing about melody can be said. The timing and the
   // articulation of the repeated note are still read.
@@ -1425,7 +1442,7 @@ export function musicalityOf({ notes, readings, a4 = 440, range = null } = {}) {
       const lv = levelsOf(solid, readings);
       const sg = segmentPhrases(solid, lv);
       const art = articulationDescriptors(solid, sg, floorsFor(median(solid.slice(1).map((n, i) => n.start - solid[i].start))))[0];
-      if (art.measured) keep.articulation = { ...art, confidence: 'low' };
+      if (art.measured && !fast) keep.articulation = { ...art, confidence: 'low' };
     }
     by = withdrawn(by, why);
     Object.assign(by, keep);

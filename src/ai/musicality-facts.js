@@ -123,13 +123,20 @@ export function musicalityFacts(take, { question = '', max = 8 } = {}) {
     out.push(sentence(d.confidence === 'low' ? `${base}${lightly}` : base));
   }
   const missing = Object.values(m.descriptors).filter((d) => !d.measured && d.key !== 'character' && wanted.has(d.key));
+  const unlisted = measured.length - Math.min(measured.length, max);
   if (measured.length === 0) {
+    // keep the note on why the take was not heard well; drop the rest
+    const keep = out.filter((l) => /could not be read|rough|outside/.test(l));
     out.length = 0;
+    out.push(...keep);
     out.push(`Too little of "${label(take)}" could be read to describe how it is shaped (${missing[0]?.reason ?? c?.reason ?? 'not enough notes'}).`);
   } else if (missing.length) {
     // The same reason often covers several descriptors; say each reason once.
     const reasons = [...new Set(missing.map((d) => d.reason))].slice(0, 2);
     out.push(`Not measured for "${label(take)}": ${missing.slice(0, 4).map((d) => d.label).join(', ')} (${reasons.join('; ')}).`);
+  }
+  if (unlisted > 0) {
+    out.push(`${round0(unlisted)} more measured reading${unlisted === 1 ? ' is' : 's are'} not listed here; asking about phrasing, articulation, tempo, matching patterns or vibrato shows them.`);
   }
   out.push(CAVEAT);
   return out;
