@@ -249,12 +249,35 @@ function trendFacts(takes, now) {
   return out;
 }
 
+// How many takes' measurements a set of sentences holds. The guard checks a
+// reply against the sentences as a bag of words and numbers; it has no way to
+// tell which take a claim is about, so "the Oct 14 take is 13¢ closer" passes
+// when it is the Oct 19 take (both dates and the 13 are in the facts). A reply
+// built from one take has nothing to confuse it with, so the number that decides
+// whether the model may word an answer is this one. It counts what the sentences
+// were BUILT from, not what the player named: a trend and a habit read the whole
+// library even when one take is chosen, and a summary or tone question about
+// "my last 2 takes" reads two.
+const hasNotes = (t) => (t.noteStats?.length ?? 0) > 0;
+function takesBehind(intents, chosen, all) {
+  let most = 0;
+  for (const intent of intents) {
+    let n = 0;
+    if (intent === 'summary' || intent === 'compare' || intent === 'tone' || intent === 'musicality') n = Math.min(chosen.length, 2);
+    else if (intent === 'worst' || intent === 'tempo') n = 1;
+    else if (intent === 'habits') n = (chosen.length > 1 ? chosen : all ?? []).filter(hasNotes).length;
+    else if (intent === 'trend') n = (all ?? []).filter(hasNotes).length;
+    most = Math.max(most, n);
+  }
+  return most;
+}
+
 // Everything the plan asked for. `all` is every take in the library (for
 // habits and trend); `chosen` are the ones the question is about.
 export function factsFor({ question, intents = intentsOf(question), chosen, all, now = 0 }) {
   const facts = [];
   const used = [];
-  if (chosen.length === 0) return { facts: ['There are no saved takes with measured notes yet, so there is nothing to answer from.'], used };
+  if (chosen.length === 0) return { facts: ['There are no saved takes with measured notes yet, so there is nothing to answer from.'], used, takesInFacts: 0 };
 
   for (const t of chosen) used.push(label(t));
 
@@ -278,5 +301,5 @@ export function factsFor({ question, intents = intentsOf(question), chosen, all,
   }
   // The same sentence twice is never an answer. (Two intents that both reach the
   // same builder can produce it; today none does, and this is the net.)
-  return { facts: [...new Set(facts)], used };
+  return { facts: [...new Set(facts)], used, takesInFacts: takesBehind(intents, chosen, all) };
 }

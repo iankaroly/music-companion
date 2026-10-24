@@ -18,7 +18,7 @@ class El {
 }
 
 function card() {
-  const ids = ['#ask-out', '#ask-answer', '#ask-wait', '#ask-based', '#ask-based-list', '#ask-from', '#ask-note'];
+  const ids = ['#ask-out', '#ask-answer', '#ask-wait', '#ask-based', '#ask-based-list', '#ask-from', '#ask-note', '#ask-model'];
   const els = Object.fromEntries(ids.map((id) => [id, new El(id === '#ask-based-list' ? 'ul' : 'div')]));
   return { root: { querySelector: (id) => els[id] }, els };
 }
@@ -79,5 +79,61 @@ describe('every shape of answer puts words on the card', () => {
     const { root, els } = card();
     show(root, result);
     expect(els['#ask-answer'].textContent).toContain('nothing to answer from');
+  });
+});
+
+// The line under the card used to be written once, from the device's status, and
+// claimed Apple's wording and a checked number on every answer: on a refusal and
+// on a comparison that code wrote word for word. It speaks per answer now.
+describe('the line under the card says only what happened to this answer', () => {
+  const on = { available: true, reason: '' };
+  const off = { available: false, reason: 'Apple Intelligence is turned off.' };
+  const withModel = { availability: async () => ({ available: true }), respond: async () => ({ text: 'Your last take was 9 cents off pitch on average.' }) };
+  const askOn = (question) => answerQuestion({ question, library: LIBRARIES.three, now: NOW, model: withModel, qualityOf, rhythmReport: null, load: null });
+
+  test('a refusal carries no claim about the model at all', async () => {
+    const result = await askOn('is my tone beautiful');
+    const { root, els } = card();
+    show(root, result, on);
+    expect(els['#ask-model'].hidden).toBe(true);
+    expect(els['#ask-model'].textContent).toBe('');
+    show(root, result, off);
+    expect(els['#ask-model'].hidden).toBe(true);
+  });
+
+  test('a comparison written by code says so plainly, and is not worded like a failure', async () => {
+    const result = await askOn('compare my last two bach takes');
+    expect(result.why).toBe('several-takes');
+    const { root, els } = card();
+    show(root, result, on);
+    expect(els['#ask-model'].hidden).toBe(true);
+    expect(els['#ask-model'].textContent).not.toMatch(/Apple|checked/);
+    expect(els['#ask-note'].hidden).toBe(false);
+    expect(els['#ask-note'].textContent).toMatch(/^This question is about more than one take/);
+    expect(els['#ask-note'].textContent).not.toMatch(/Showing the measurements directly/);
+  });
+
+  test('a reply that was set aside keeps its lead-in, because that one is news', () => {
+    const { root, els } = card();
+    show(root, { source: 'measurements', text: 'x', facts: ['A fact.'], used: [], note: 'The model\'s reply was set aside (numbers not in the measurements).' }, on);
+    expect(els['#ask-note'].textContent).toMatch(/^Showing the measurements directly\. The model's reply was set aside/);
+    expect(els['#ask-model'].hidden).toBe(true);
+  });
+
+  test('only a model answer says the wording was Apple\'s and the numbers were checked', async () => {
+    const result = await askOn('how was my last take');
+    expect(result.source).toBe('model');
+    const { root, els } = card();
+    show(root, result, on);
+    expect(els['#ask-model'].hidden).toBe(false);
+    expect(els['#ask-model'].textContent).toMatch(/Apple's on-device model.*checked against the measurements/);
+  });
+
+  test('on a device with no model the measurements keep the standing reason', async () => {
+    const result = await ask('how was my last take');
+    const { root, els } = card();
+    show(root, result, off);
+    expect(els['#ask-model'].hidden).toBe(false);
+    expect(els['#ask-model'].textContent).toBe('Showing the measurements directly: Apple Intelligence is turned off.');
   });
 });

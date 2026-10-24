@@ -82,14 +82,24 @@ describe('answerQuestion', () => {
     expect(r.text).toMatch(/13¢ closer to pitch/);
   });
 
+  // A comparison spans two takes and is answered by the sentences alone
+  // (tests/ai-routing.test.js), so the model paths are exercised on one take.
+  const honestOne = { availability: async () => ({ available: true }), respond: async () => ({ text: 'Your last take was 9 cents off pitch on average.' }) };
+
   test('an honest model reply is shown', async () => {
-    const r = await answerQuestion({ ...base, question: 'compare my last two bach takes', model: honest });
+    const r = await answerQuestion({ ...base, question: 'how was my last take', model: honestOne });
     expect(r.source).toBe('model');
-    expect(r.text).toMatch(/13 cents/);
+    expect(r.text).toMatch(/9 cents/);
+  });
+
+  test('a comparison is never sent to the model, honest or not', async () => {
+    const r = await answerQuestion({ ...base, question: 'compare my last two bach takes', model: honest });
+    expect(r.source).toBe('measurements');
+    expect(r.text).toMatch(/13¢ closer to pitch/);
   });
 
   test('a reply with a made-up number is replaced by the measurements', async () => {
-    const r = await answerQuestion({ ...base, question: 'compare my last two bach takes', model: liar });
+    const r = await answerQuestion({ ...base, question: 'how was my last take', model: liar });
     expect(r.source).toBe('measurements');
     expect(r.stray).toContain(41);
     expect(r.text).not.toMatch(/41/);

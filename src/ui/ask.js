@@ -60,13 +60,26 @@ function sentence(s) {
 // What the player is told about the model, in one line. The feature works
 // without it by design, so this is a quiet fact and not an apology.
 export function modelLine(status) {
-  if (status?.available) return 'Wording comes from Apple\'s on-device model; every number in it is checked against the measurements.';
+  if (status?.available) return 'Questions about one take are worded by Apple\'s on-device model, and every number in its wording is checked against the measurements. Answers that cover several takes are written by the app.';
   const why = sentence(status?.reason);
   // The reason arrives as its own sentence from the native side; joined after a
   // colon it reads better with a lower-case start, except where it opens on a
   // product name.
   const joined = why.startsWith('Apple') ? why : why.charAt(0).toLowerCase() + why.slice(1);
   return `Showing the measurements directly: ${why ? joined : 'this device can\'t run the on-device model'}.`;
+}
+
+// The line under the card, per ANSWER. It used to be written once from the
+// device's status and so claimed Apple's wording and a number check on every
+// answer, including a refusal and a comparison that code wrote from the first
+// word to the last. It now speaks only about what was actually done: a model
+// answer says so, a code answer on a phone with no model keeps the standing
+// reason, and anything else (a refusal, a comparison on a phone that has the
+// model) says nothing, because nothing about the model happened.
+export function footerFor(status, result) {
+  if (result?.source === 'model') return 'Worded by Apple\'s on-device model; every number in it was checked against the measurements.';
+  if (result?.source === 'measurements' && !status?.available) return modelLine(status);
+  return '';
 }
 
 let state = null; // { library, status, busy, token }
@@ -123,7 +136,9 @@ export async function renderAsk(root, library) {
   // answer to "can this phone run it" does not change while the tab is open.
   // Awaited after the card is drawn so the tab never waits for the plugin.
   state.status = await modelStatus();
-  el(root, '#ask-model').textContent = modelLine(state.status);
+  const foot = el(root, '#ask-model');
+  foot.textContent = modelLine(state.status);
+  foot.hidden = false;
 }
 
 async function ask(root, question) {
@@ -199,6 +214,8 @@ async function ask(root, question) {
     say.textContent = 'That did not work. Nothing was sent anywhere; try asking again.';
     note.hidden = false;
     note.textContent = String(err?.message ?? err);
+    const foot = el(root, '#ask-model');
+    if (foot) { foot.textContent = ''; foot.hidden = true; }
   } finally {
     if (token === state.token) {
       state.busy = false;
@@ -230,7 +247,7 @@ export function answerLines(result) {
   return [text || EMPTY_ANSWER];
 }
 
-export function show(root, result) {
+export function show(root, result, status = state?.status) {
   const out = el(root, '#ask-out');
   const say = el(root, '#ask-answer');
   const wait = el(root, '#ask-wait');
@@ -267,9 +284,19 @@ export function show(root, result) {
     based.hidden = true;
     // A standing "model unavailable" is already on the card's foot; only a
     // reply that was set aside or a model that failed mid-question is news.
-    const standing = !state?.status?.available;
+    const standing = !status?.available;
     note.hidden = standing || !result.note;
-    note.textContent = result.note ? `Showing the measurements directly. ${result.note}` : '';
+    // A comparison is not a failure and is not worded like one; the other notes
+    // (a reply set aside, a model that threw) are news and keep their lead-in.
+    const lead = result.why === 'several-takes' ? '' : 'Showing the measurements directly. ';
+    note.textContent = result.note ? `${lead}${result.note}` : '';
+  }
+
+  const foot = el(root, '#ask-model');
+  if (foot) {
+    const line = footerFor(status, result);
+    foot.textContent = line;
+    foot.hidden = !line;
   }
 
   // Two takes of one piece share a name; "Bach prelude, Bach prelude" reads as

@@ -17,6 +17,7 @@ import { QUESTIONS } from './questions.js';
 import { HELDOUT } from './heldout.js';
 import { MUSICALITY_QUESTIONS } from './musicality-questions.js';
 import { NOW } from './fixtures.js';
+import { modelMaySpeak } from '../../src/ai/assistant.js';
 
 const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 const sameSet = (a, b) => a.length === b.length && a.every((x) => b.includes(x));
@@ -35,10 +36,13 @@ export function runCase(q) {
     if (p.needs.musicality) t.musicality = t._musicality;
   }
   let facts = [];
+  let takesInFacts = 0;
   if (scope === 'answer' || scope === 'nodata') {
-    facts = factsFor({ question: q.q, intents: p.intents, chosen, all: library, now: NOW }).facts;
+    ({ facts, takesInFacts } = factsFor({ question: q.q, intents: p.intents, chosen, all: library, now: NOW }));
   }
-  return { intents: p.intents, takeIds: p.takeIds, scope, facts, text: facts.join(' ') };
+  // routed: who writes the answer. 'code' when the facts span several takes
+  // (the model is never asked), 'model' when one take's facts go to it.
+  return { intents: p.intents, takeIds: p.takeIds, scope, facts, text: facts.join(' '), takesInFacts, routed: modelMaySpeak(takesInFacts) ? 'model' : 'code' };
 }
 
 export function evaluate(questions = QUESTIONS) {

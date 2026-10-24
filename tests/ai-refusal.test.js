@@ -64,14 +64,14 @@ describe('questions the app cannot answer are refused by code', () => {
 });
 
 describe('answerable questions still reach the model, and an empty library still answers plainly', () => {
-  const honest = { availability: async () => ({ available: true }), respond: async () => ({ text: 'The two takes: 22 cents off before, 9 cents off now, 13 cents closer.' }) };
-  test('an honest reply is shown, including "the two takes"', async () => {
-    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'compare my last two bach takes', model: honest });
+  const honest = { availability: async () => ({ available: true }), respond: async () => ({ text: 'Your last take was 9 cents off pitch on average.' }) };
+  test('an honest reply about one take is shown', async () => {
+    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'how was my last take', model: honest });
     expect(r.source).toBe('model');
   });
-  test('a reply naming the wrong number of takes is set aside', async () => {
-    const liar = { ...honest, respond: async () => ({ text: 'The three takes: 22 cents off before, 9 cents off now.' }) };
-    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'compare my last two bach takes', model: liar });
+  test('a reply naming a number of takes the facts were not built from is set aside', async () => {
+    const liar = { ...honest, respond: async () => ({ text: 'Across your three takes you were 9 cents off pitch on average.' }) };
+    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'how was my last take', model: liar });
     expect(r.source).toBe('measurements');
   });
   test('an empty library is a fact, not a refusal', async () => {
@@ -80,8 +80,8 @@ describe('answerable questions still reach the model, and an empty library still
     expect(r.text).toMatch(/no saved takes/);
   });
   test('a guard rejection falls back to the measurements', async () => {
-    const liar = { ...honest, respond: async () => ({ text: 'You are twelve cents closer, half what it was.' }) };
-    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'compare my last two bach takes', model: liar });
+    const liar = { ...honest, respond: async () => ({ text: 'You are twelve cents off, half what it was.' }) };
+    const r = await answerQuestion({ ...base(LIBRARIES.three), question: 'how was my last take', model: liar });
     expect(r.source).toBe('measurements');
     expect(r.note).toMatch(/set aside/);
   });

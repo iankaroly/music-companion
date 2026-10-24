@@ -13,7 +13,7 @@
 
 import { plan, intentsOf } from './router.js';
 import { factsFor } from './facts.js';
-import { checkReply } from './guard.js';
+import { checkReply, stripScopeTags } from './guard.js';
 import { musicalityOf } from '../analysis/musicality.js';
 import { MUSICALITY_INSTRUCTION } from './musicality-facts.js';
 
@@ -48,7 +48,9 @@ export const INSTRUCTIONS = [
 // the prompt: it forbids "more musical" and advice about taste, which would be
 // noise in an answer about pitch.
 export function instructionsFor(intents = []) {
-  const shaping = intents.includes('musicality') || intents.includes('compare');
+  // A comparison is never worded by the model (see modelMaySpeak), so only a
+  // question about one take's shaping needs the shaping rule.
+  const shaping = intents.includes('musicality');
   return shaping ? `${INSTRUCTIONS}\n${MUSICALITY_INSTRUCTION}` : INSTRUCTIONS;
 }
 
@@ -63,9 +65,26 @@ export function scopeTag(fact) {
   if (/notes heard/.test(fact)) return '[the whole take] ';
   if (/^The note furthest from pitch was/.test(fact)) return '[one note only] ';
   if (/^[A-G][#b]?\d moved from/.test(fact)) return '[one note only] ';
-  if (/^Average pitch error:/.test(fact)) return '[the two takes compared] ';
   return '';
 }
+
+// Whether the model is asked at all. The guard reads a reply against the
+// sentences it was given as a bag of words and numbers, and it cannot tell which
+// TAKE a claim is about: "The Oct 14 take is 13¢ closer" passes when it is the
+// Oct 19 take, because both dates and the 13 are in the facts. A skeptic's ~160
+// false replies got ~60% through it, and the swapped-take ones were the biggest
+// group. With one take's measurements in the prompt there is nothing to swap, so
+// the model words those; anything built from several takes (a comparison, a
+// trend, a habit over the library, "my last 3 takes") is the sentences as the
+// code wrote them. Decided from how many takes the facts were built from
+// (factsFor), not from how many the player named.
+export function modelMaySpeak(takesInFacts) {
+  return !(takesInFacts > 1);
+}
+
+// Said in the app's own voice, and plainly: nothing went wrong, this kind of
+// question is simply not worded by the model.
+export const SEVERAL_TAKES_NOTE = 'This question is about more than one take, so the answer is written by the app from the measurements. The on-device model words answers about a single take.';
 
 export function promptFor(question, facts) {
   return `MEASUREMENTS:\n${facts.map((f) => `- ${scopeTag(f)}${f}`).join('\n')}\n\nQUESTION: ${question}\n\nAnswer in one to three sentences, only from the measurements above.`;
@@ -181,13 +200,17 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     }
   }
 
-  const { facts, used } = factsFor({ question, intents: p.intents, chosen, all: library, now });
+  const { facts, used, takesInFacts } = factsFor({ question, intents: p.intents, chosen, all: library, now });
   const plain = facts.join(' ');
 
   const m = model ?? await nativeModel();
   const status = await modelStatus(m);
   if (!status.available || chosen.length === 0) {
     return { text: plain, facts, used, source: 'measurements', note: status.available ? '' : status.reason };
+  }
+  // Decided before the prompt is built or the model is touched.
+  if (!modelMaySpeak(takesInFacts)) {
+    return { text: plain, facts, used, source: 'measurements', why: 'several-takes', note: SEVERAL_TAKES_NOTE };
   }
 
   const instructions = instructionsFor(p.intents);
@@ -198,7 +221,10 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
 
   try {
     const reply = await m.respond({ instructions, prompt });
-    const text = String(reply?.text ?? '').trim();
+    // The scope tags in the prompt are the app's own bookkeeping. A model that
+    // echoes one back ("[the whole take] Your take was...") is not wrong, and the
+    // player is not shown a tag.
+    const text = stripScopeTags(String(reply?.text ?? '')).trim();
     const bad = text ? unfinished(text) : '';
     if (bad) return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${bad}).`, stray: [] };
     const verdict = checkReply(text, facts, question, { takeCount: chosen.length });

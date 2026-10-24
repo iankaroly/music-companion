@@ -72,6 +72,16 @@ export function clean(s) {
     .replace(/[   ]/g, ' ');
 }
 
+// The tags assistant.js puts in front of a few facts to say what part of the
+// playing they describe. They are the app's bookkeeping, not wording, and a
+// small model sometimes echoes one back at the start of its answer. Stripped
+// before the reply is checked or shown; one that is still in a text handed to
+// checkReply directly is rejected, because it would reach the player.
+const SCOPE_TAG = /\[\s*(?:the whole take|one note only|the two takes compared)\s*\]\s*/gi;
+export function stripScopeTags(text) {
+  return String(text ?? '').replace(SCOPE_TAG, '');
+}
+
 const DIGITS = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?/g;
 const toNumber = (t) => {
   if (/^\d{1,3}(?:,\d{3})+(?:\.\d+)?$/.test(t)) return Number(t.replace(/,/g, ''));
@@ -566,6 +576,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const problems = [];
   const stray = [];
   const add = (kind, what) => problems.push({ kind, text: what });
+  if (stripScopeTags(text) !== text) add('echo', 'a scope tag from the prompt');
 
   const factList = Array.isArray(facts) ? facts : [facts];
   const factsText = clean(factList.join('\n'));
@@ -809,6 +820,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     attached: 'a measured number used for something else',
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
+    echo: 'text copied from the prompt',
   }[first.kind];
   return { ok: false, stray, reason, problems };
 }
