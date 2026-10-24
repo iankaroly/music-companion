@@ -229,6 +229,7 @@ const read = (page) => page.evaluate(() => {
     basedVisible: vis('#ask-based'),
     based: [...document.querySelectorAll('#ask-based-list li')].map((l) => l.textContent),
     model: $('#ask-model')?.textContent ?? '',
+    modelVisible: vis('#ask-model'),
     chips: [...document.querySelectorAll('.ask-chip')].map((c) => c.textContent),
     emptyVisible: vis('#ask-empty'),
     inputDisabled: $('#ask-input')?.disabled,
@@ -390,7 +391,8 @@ const cardFits = (page) => page.evaluate(() => {
   let s = await read(page);
   check('model on: the foot line says the numbers are checked', /checked against the measurements/.test(s.model), s.model);
   await settle(page);
-  await type(page, 'How does my last take compare to the one before?');
+  // ONE take: a question about two never reaches the model (section 4b)
+  await type(page, 'How was my last take?');
   await page.keyboard.press('Enter');
   await sleep(200);
   const mid = await read(page);
@@ -407,8 +409,44 @@ const cardFits = (page) => page.evaluate(() => {
   check('honest model: the disclosure is closed until asked for', await page.evaluate(() => !document.querySelector('#ask-based').open));
   await page.evaluate(() => { document.querySelector('#ask-based').open = true; });
   await shot(page, 'model-honest-light-390');
-  check('honest model: the sentences are the measurements, numbers and all', s.based.some((f) => /Average pitch error/.test(f)), s.based[0]);
+  check('honest model: the sentences are the measurements, numbers and all', s.based.some((f) => /notes heard/.test(f)), s.based[0]);
+  check('honest model: the prompt\'s own scope tag, echoed by the stand-in, never reaches the glass',
+    !/[\[\]]/.test(s.answer) && (await page.evaluate(() => window.__native.prompts[0])).includes('[the whole take]'), s.answer.slice(0, 80));
+  check('honest model: the foot line says THIS answer was worded by Apple\'s model and checked', s.modelVisible && /Worded by Apple's on-device model; every number in it was checked/.test(s.model), s.model);
   check('honest model: no network, no microphone', probes.crossOrigin.length === 0 && (await page.evaluate(() => window.__mic)) === 0);
+  await ctx.close();
+}
+
+// ═══ 4b. a question about two takes is never put to the model ═══════════════
+{
+  const { page, ctx, probes } = await open({ mode: 'honest', library: 'two' });
+  await settle(page);
+  await type(page, 'How does my last take compare to the one before?');
+  await page.keyboard.press('Enter');
+  const s = await waitDone(page);
+  const w = await waits(page);
+  const calls = await page.evaluate(() => window.__native.respondCalls);
+  check('comparison: the model is never asked, so nothing was waited for', calls === 0 && !w.some((x) => /putting it into words/.test(x)), `${calls} calls · ${w.join(' | ')}`);
+  check('comparison: the app\'s own sentences are the answer, with the true direction',
+    s.state === 'answer' && /Average pitch error/.test(s.answer) && /closer to pitch/.test(s.answer) && !/further from pitch/.test(s.answer) && !s.basedVisible, s.answer.slice(0, 120));
+  check('comparison: the note says plainly why, and does not read like a failure',
+    /^This question is about more than one take, so the answer is written by the app/.test(s.note) && !/set aside|Showing the measurements directly|could not|failed/.test(s.note), s.note);
+  check('comparison: the foot line makes no claim about Apple\'s model, because it did not word this', !s.modelVisible && !/Apple|checked/.test(s.model), `${s.modelVisible} · ${s.model}`);
+  await shot(page, 'comparison-code-light-390');
+  check('comparison: no network, no microphone', probes.crossOrigin.length === 0 && (await page.evaluate(() => window.__mic)) === 0);
+  await ctx.close();
+}
+
+// ═══ 4c. a refusal is the app\'s own words too ══════════════════════════════
+{
+  const { page, ctx } = await open({ mode: 'honest', library: 'two' });
+  await settle(page);
+  await type(page, 'Is my tone beautiful?');
+  await page.keyboard.press('Enter');
+  const s = await waitDone(page);
+  const calls = await page.evaluate(() => window.__native.respondCalls);
+  check('refusal: the model is never asked and the foot line does not claim its wording',
+    calls === 0 && /I can only answer from what the app measured/.test(s.answer) && !s.modelVisible && !/Apple|checked/.test(s.model), `${calls} · ${s.model}`);
   await ctx.close();
 }
 
@@ -416,14 +454,15 @@ const cardFits = (page) => page.evaluate(() => {
 {
   const { page, ctx } = await open({ mode: 'lying', library: 'two' });
   await settle(page);
-  await type(page, 'How does my last take compare to the one before?');
+  await type(page, 'How was my last take?');
   await page.keyboard.press('Enter');
   const s = await waitDone(page);
   const calls = await page.evaluate(() => window.__native.respondCalls);
   check('lying model: the model WAS asked', calls === 1);
   check('lying model: its invented numbers never reach the glass', !/47|nailed/.test(s.answer) && !/47/.test(s.based.join(' ')), s.answer.slice(0, 120));
   check('lying model: the measurements are shown instead, and the player is told the wording was set aside',
-    /Average pitch error/.test(s.answer) && /set aside/.test(s.note), s.note);
+    /notes heard/.test(s.answer) && /^Showing the measurements directly\. The model's reply was set aside/.test(s.note), s.note);
+  check('lying model: the foot line does not claim the wording was Apple\'s', !s.modelVisible, s.model);
   await shot(page, 'model-lying-light-390');
   await ctx.close();
 }
@@ -482,7 +521,7 @@ const cardFits = (page) => page.evaluate(() => {
 for (const width of [320, 360, 390, 430]) {
   const { page, ctx } = await open({ mode: 'honest', library: 'two', width });
   await settle(page);
-  await type(page, 'How does my last take compare to the one before?');
+  await type(page, 'How was my last take?');
   await page.keyboard.press('Enter');
   await waitDone(page);
   await page.evaluate(() => { document.querySelector('#ask-based').open = true; });
@@ -515,7 +554,7 @@ for (const [theme, width, height, mobile, tag] of [
   await settle(page);
   await page.evaluate(() => { document.querySelector('#ask-input').focus(); });
   await shot(page, `idle-${tag}`);
-  await type(page, 'How does my last take compare to the one before?');
+  await type(page, 'How was my last take?');
   await page.keyboard.press('Enter');
   await sleep(150);
   await shot(page, `thinking-${tag}`);

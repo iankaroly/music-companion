@@ -7,7 +7,7 @@
 // during tuning of v2..v5 the aggregate held numbers WERE seen, though no held
 // reply text was; the report says so.)
 import { readFileSync } from 'node:fs';
-import { checkReply } from '../../src/ai/guard.js';
+import { checkReply, stripScopeTags } from '../../src/ai/guard.js';
 
 const [casesPath, repliesPath, ...flags] = process.argv.slice(2);
 const cases = JSON.parse(readFileSync(casesPath, 'utf8'));
@@ -18,8 +18,10 @@ if (!reveal && show !== 'tune') show = null;
 
 const rows = cases.map((c) => {
   const r = replies.get(c.id);
-  const text = String(r?.text ?? '').trim();
-  const v = r?.error ? { ok: false, reason: `model error: ${r.error}`, problems: [{ kind: 'error' }], stray: [] } : checkReply(text, c.facts, c.question, { takeCount: c.takeCount });
+  // what the app does: strip the prompt's own scope tags, and count the takes the
+  // FACTS were built from (not the ones named) for "the two takes"
+  const text = stripScopeTags(String(r?.text ?? '')).trim();
+  const v = r?.error ? { ok: false, reason: `model error: ${r.error}`, problems: [{ kind: 'error' }], stray: [] } : checkReply(text, c.facts, c.question, { takeCount: c.takesInFacts ?? c.takeCount });
   return { c, r, text, v };
 });
 
