@@ -4442,6 +4442,65 @@
     #trend-chart { width: 100%; height: 96px; display: block; touch-action: pan-y; }
     #trend-note { color: var(--muted); font-size: 0.78rem; min-height: 1.2em; margin-top: 0.3rem; }
 
+
+    /* ---- ask: a button on every screen and a sheet it opens ---- */
+    #ask-fab {
+      position: fixed;
+      right: max(0.9rem, env(safe-area-inset-right, 0px));
+      /* above the dock, which sits low on the glass */
+      bottom: calc(5.6rem + max(0rem, env(safe-area-inset-bottom, 0px) - 1.1rem));
+      z-index: 55;
+      width: 3.1rem; height: 3.1rem;
+      display: grid; place-items: center;
+      border-radius: 50%;
+      color: var(--ink);
+      background: rgb(var(--sf) / 0.55);
+      -webkit-backdrop-filter: blur(30px) saturate(1.9);
+      backdrop-filter: blur(30px) saturate(1.9);
+      border: 1px solid var(--glass-line);
+      box-shadow: 0 10px 28px rgb(var(--sh) / 0.24), inset 0 1.5px 0 var(--edge-top);
+      cursor: pointer;
+      transition: transform 200ms var(--spring);
+    }
+    #ask-fab:active { transform: scale(0.92); }
+    #ask-fab[hidden] { display: none; }
+    html[data-score-full] #ask-fab, html[data-reading] #ask-fab { display: none; }
+    #ask-backdrop {
+      position: fixed; inset: 0; z-index: 70;
+      background: rgb(var(--sh) / 0.32);
+      animation: ask-fade 200ms ease-out;
+    }
+    #ask-sheet {
+      position: fixed; left: 50%; bottom: 0; z-index: 71;
+      transform: translateX(-50%);
+      width: min(100vw, 34rem);
+      max-height: 86vh; max-height: 86dvh;
+      overflow-y: auto; overscroll-behavior: contain;
+      padding: 1.6rem 1.1rem calc(1.2rem + env(safe-area-inset-bottom, 0px));
+      border-radius: 1.6rem 1.6rem 0 0;
+      background: var(--bg);
+      border: 1px solid var(--glass-line); border-bottom: 0;
+      box-shadow: 0 -18px 44px rgb(var(--sh) / 0.28);
+      animation: ask-rise 260ms var(--spring);
+    }
+    #ask-sheet[hidden], #ask-backdrop[hidden] { display: none; }
+    #ask-grab {
+      position: absolute; top: 0.5rem; left: 50%; transform: translateX(-50%);
+      width: 2.4rem; height: 0.28rem; border-radius: 1rem; background: var(--line);
+    }
+    #ask-close {
+      position: absolute; top: 0.55rem; right: 0.7rem;
+      width: 2.2rem; height: 2.2rem; border-radius: 50%;
+      border: 0; background: transparent; color: var(--muted);
+      font-size: 1.5rem; line-height: 1; cursor: pointer;
+    }
+    @keyframes ask-rise { from { transform: translate(-50%, 100%); } }
+    @keyframes ask-fade { from { opacity: 0; } }
+    @media (prefers-reduced-motion: reduce) {
+      #ask-sheet, #ask-backdrop { animation: none; }
+      #ask-fab { transition: none; }
+    }
+
     /* ---- ask: a question about your own takes ----
        The same glass cluster as its neighbours. The field is 16px because iOS
        zooms the whole page into any field smaller than that, and the card
@@ -5560,32 +5619,6 @@
           <p class="coach-blurb">Save a few takes to the library and your coach will start
           spotting your habits — which notes you pull sharp or flat, and what to drill.</p>
         </div>
-        <div id="ask-card" class="cluster">
-          <div class="cluster-title" id="ask-title">ask about your takes</div>
-          <form id="ask-form" role="search" aria-labelledby="ask-title" autocomplete="off">
-            <label for="ask-input" class="sr-only">Ask a question about your recordings</label>
-            <div class="ask-row">
-              <input id="ask-input" type="text" enterkeyhint="send" maxlength="240"
-                     placeholder="ask about your playing" autocapitalize="sentences" spellcheck="true">
-              <button id="ask-send" class="ctl primary" type="submit" aria-label="Ask">Ask</button>
-            </div>
-          </form>
-          <p id="ask-empty" class="coach-blurb" hidden>Save a take to the library and you can ask about it here
-          &mdash; how it compares with the last, which notes drift, how steady the tone is.</p>
-          <div id="ask-examples" aria-label="Example questions"></div>
-          <p id="ask-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
-          <div id="ask-out" hidden>
-            <p id="ask-wait" hidden></p>
-            <div id="ask-answer"></div>
-            <p id="ask-note" hidden></p>
-            <details id="ask-based" hidden>
-              <summary>based on</summary>
-              <ul id="ask-based-list"></ul>
-            </details>
-            <p id="ask-from" hidden></p>
-          </div>
-          <p id="ask-model" class="tend-hint"></p>
-        </div>
         <div id="coach-content" hidden>
           <div class="cluster">
             <div class="cluster-title">this week</div>
@@ -5954,6 +5987,41 @@
       </div>
     </form>
   </dialog>
+
+  <button id="ask-fab" type="button" aria-label="Ask about your takes" aria-haspopup="dialog" aria-expanded="false">
+    <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 5.5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-4.5 3.5V17.5H5a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2z"/><path d="M8.5 11h7M8.5 14h4"/></svg>
+  </button>
+  <div id="ask-backdrop" hidden></div>
+  <div id="ask-sheet" role="dialog" aria-modal="true" aria-labelledby="ask-title" hidden>
+    <div id="ask-grab" aria-hidden="true"></div>
+    <button id="ask-close" type="button" aria-label="Close">&times;</button>
+      <div id="ask-card">
+          <div class="cluster-title" id="ask-title">ask about your takes</div>
+          <form id="ask-form" role="search" aria-labelledby="ask-title" autocomplete="off">
+            <label for="ask-input" class="sr-only">Ask a question about your recordings</label>
+            <div class="ask-row">
+              <input id="ask-input" type="text" enterkeyhint="send" maxlength="240"
+                     placeholder="ask about your playing" autocapitalize="sentences" spellcheck="true">
+              <button id="ask-send" class="ctl primary" type="submit" aria-label="Ask">Ask</button>
+            </div>
+          </form>
+          <p id="ask-empty" class="coach-blurb" hidden>Save a take to the library and you can ask about it here
+          &mdash; how it compares with the last, which notes drift, how steady the tone is.</p>
+          <div id="ask-examples" aria-label="Example questions"></div>
+          <p id="ask-live" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
+          <div id="ask-out" hidden>
+            <p id="ask-wait" hidden></p>
+            <div id="ask-answer"></div>
+            <p id="ask-note" hidden></p>
+            <details id="ask-based" hidden>
+              <summary>based on</summary>
+              <ul id="ask-based-list"></ul>
+            </details>
+            <p id="ask-from" hidden></p>
+          </div>
+          <p id="ask-model" class="tend-hint"></p>
+        </div>
+  </div>
 
   <script type="module" src="/src/main.js"></script>
 </body>

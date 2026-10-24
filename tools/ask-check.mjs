@@ -229,11 +229,11 @@ async function open({ mode, library, width = 390, height = 844, theme = 'light',
     document.querySelector('#welcome-card')?.remove();
     document.querySelector('#tour')?.remove();
   });
-  // the Coach tab, pressed until it takes (the app restores the last tab AFTER load)
+  // the corner button, pressed until the sheet opens (the app restores the last tab AFTER load)
   if (coach) await page.evaluate(async () => {
     for (let i = 0; i < 20; i += 1) {
-      if (document.querySelector('#tab-coach')?.classList.contains('active')) break;
-      document.querySelector('.tab-btn[data-tab="coach"]')?.click();
+      if (!document.querySelector('#ask-sheet')?.hidden) break;
+      document.querySelector('#ask-fab')?.click();
       await new Promise((r) => setTimeout(r, 150));
     }
     await new Promise((r) => setTimeout(r, 700));
@@ -681,7 +681,7 @@ for (const [theme, width, height, mobile, tag] of [
     window.__native.availabilityCalls = 0;
   });
   await settle(page);
-  await page.evaluate(() => document.querySelector('.tab-btn[data-tab="coach"]').click());
+  await page.evaluate(() => document.querySelector('#ask-fab').click());
   await sleep(500);
   await page.evaluate(() => [...document.querySelectorAll('.ask-chip')].find((c) => /compare/.test(c.textContent)).click());
   const s = await waitDone(page, 14000);

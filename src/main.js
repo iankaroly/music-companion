@@ -43,6 +43,7 @@ import { initControls, actionMenu, toggleMenu, refreshRangeFill } from './ui/con
 import { followTextSize } from './ui/text-size.js';
 import { readyHaptics } from './ui/haptics.js';
 import { renderCoach } from './ui/coach.js';
+import { initAskLauncher } from './ui/ask-launcher.js';
 import { initSettings, keepScreenAwake } from './ui/settings.js';
 import { initWelcome } from './ui/welcome.js';
 import { initTour, tourSeen } from './ui/tour.js';
@@ -116,6 +117,8 @@ let onScreenTakeId = null;
 let tunerStarting = false; // declared before tabs init — onShown fires during it
 
 // --- tabs ------------------------------------------------------------------
+
+initAskLauncher();
 
 const tabs = initLiquidTabs({
   nav: document.querySelector('nav[role="tablist"]'),
