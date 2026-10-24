@@ -227,7 +227,7 @@ export async function answerQuestion({ question, library, load, qualityOf, rhyth
     const text = stripScopeTags(String(reply?.text ?? '')).trim();
     const bad = text ? unfinished(text) : '';
     if (bad) return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${bad}).`, stray: [] };
-    const verdict = checkReply(text, facts, question, { takeCount: chosen.length });
+    const verdict = checkReply(text, facts, question, { takeCount: takesInFacts });
     if (verdict.ok) return { text, facts, used, source: 'model', note: '' };
     return { text: plain, facts, used, source: 'measurements', note: `The model's reply was set aside (${verdict.reason}).`, stray: verdict.stray };
   } catch (err) {

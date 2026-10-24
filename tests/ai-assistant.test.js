@@ -56,7 +56,7 @@ describe('guard', () => {
     expect(r.stray).toEqual([40]);
   });
   test('numbers the player typed are allowed back', () => {
-    expect(checkReply('Over the last 3 takes, 9 now.', facts, 'my last 3 takes').ok).toBe(true);
+    expect(checkReply('Over the last 3 takes, 9 now.', facts, 'my last 3 takes', { takeCount: 3 }).ok).toBe(true);
   });
   test('empty and runaway replies fail', () => {
     expect(checkReply('', facts).ok).toBe(false);

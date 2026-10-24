@@ -203,6 +203,9 @@ export const ADVERSARIAL = [
   // were KNOWN_GAPS until the direction word was tied to the number it sits next to
   ['direction', 'CMPS', 'You landed further on 9 notes and closer on 1 note.'],
   ['attached', 'CMPS', 'Timing is 22 cents tighter on average.'],
+  // was a KNOWN_GAP until a number of days was held to the use the facts give it
+  // (a window, a count inside it, a streak) and not just to the word "days"
+  ['count', 'TREND', 'You practised on all 7 days.'],
   // answering what was not measured
   ['unmeasured', 'NOTONE', 'Your vibrato is wide and lively.'],
   ['unmeasured', 'NOTONE', 'Your vibrato sits at about 5 Hz.'],
@@ -222,7 +225,6 @@ export const ADVERSARIAL = [
 // using only words and numbers the facts contain, in a combination only meaning
 // can tell from the true one.
 export const KNOWN_GAPS = [
-  ['TREND', 'You practised on all 7 days.', 'a true number used for a false claim'],
   ['TONE', 'Your vibrato is 5.4 Hz wide and 27 cents fast.', 'two true numbers on the wrong nouns'],
   ['CMP', 'Your older take was 9 cents off and your latest was 22 cents off, so you are 13 cents closer.', 'before and after swapped inside one sentence'],
   ['CMP', 'The earlier take was 13 cents closer to pitch.', 'right words, wrong take'],

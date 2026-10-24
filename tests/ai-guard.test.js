@@ -21,7 +21,11 @@ describe('the guard still does what the first version did', () => {
     expect(r.stray).toEqual([40]);
   });
   test('numbers the player typed are allowed back', () => {
-    expect(checkReply('Over the last 3 takes, 9 now.', facts, 'my last 3 takes').ok).toBe(true);
+    // The facts above hold two takes. "last 3 takes" is the player's own number
+    // for how many he asked about; it is allowed back only when that many takes
+    // were in the facts (tests/ai-guard-counts.test.js has the other side).
+    expect(checkReply('Over the last 3 takes, 9 now.', facts, 'my last 3 takes', { takeCount: 3 }).ok).toBe(true);
+    expect(checkReply('Over the last 3 takes, 9 now.', facts, 'my last 3 takes', { takeCount: 2 }).ok).toBe(false);
   });
   test('empty and runaway replies fail', () => {
     expect(checkReply('', facts).ok).toBe(false);

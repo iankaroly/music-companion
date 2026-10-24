@@ -124,6 +124,27 @@ function unitAfter(text, end) {
   return null;
 }
 
+// ---- counts of days and of takes ---------------------------------------------
+
+// A number followed by "days" is one of three things in this app's facts, and
+// the same digit can be any of them: the length of a window ("the last 7 days"),
+// a count inside it ("practised on 3 of the last 7 days") or a streak ("streak
+// 2 days"). A fourth, a GAP ("not practised in 7 days", "7 days since"), is
+// never in the facts at all. The number rules only asked whether the digit and
+// the unit exist somewhere, and "7 days" does, so a gap passed built from the
+// window's length. Each use is told from its neighbours and must meet the same
+// use in the facts.
+function dayRole(text, tok) {
+  const before = text.slice(Math.max(0, tok.index - 40), tok.index).toLowerCase();
+  const after = text.slice(tok.end, tok.end + 30).toLowerCase();
+  if (/\b(?:last|past|previous|recent)\s+(?:\w+\s+)?$/.test(before) || /\bof the\s+$/.test(before)) return 'window';
+  if (/\bstreak\W+(?:\w+\W+){0,2}$/.test(before) || /^\s*(?:days?\s+)?(?:in a row|straight|running|consecutive|streak)/.test(after) || /\bconsecutive\s+$/.test(before)) return 'streak';
+  if (/^\s*(?:days?\s+)?(?:ago|since|without|off|missed|apart)\b/.test(after) || /\b(?:not|never|n't|haven't|hasn't|without|no|since|missed|skipped)\b[^.;]{0,40}$/.test(before)) return 'gap';
+  return 'count';
+}
+// "3 of the last 7 days": the 3 has no unit of its own, and it is a count of days
+const COUNT_OF_WINDOW = /(\d+)\s+of\s+(?:the\s+)?(?:last|past)\s+\d+\s+days?/g;
+
 // ---- number words ------------------------------------------------------------
 
 const ONES = { zero: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12,
@@ -589,9 +610,19 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   const Q = read(qText);
   const R = read(text);
 
+  // days: each use must meet the same use in the facts, and the count of days
+  // practised ("3 of the last 7") is a count in its own right
+  const dayUses = F.tokens.filter((t) => t.cls === 'days').map((t) => ({ v: t.v, role: dayRole(F.text, t) }));
+  for (const m of F.text.matchAll(COUNT_OF_WINDOW)) dayUses.push({ v: Number(m[1]), role: 'count' });
+
   // numbers inside a take name are the name's, usable only as plain numbers
   const nameNumbers = [...F.quotes, ...Q.quotes].flatMap((q) => numbersIn(q)).map((v) => ({ v, cls: 'name' }));
-  const allowed = [...F.tokens, ...Q.tokens, ...nameNumbers].map((t) => ({ v: t.v, cls: t.cls }));
+  // A count of takes the PLAYER typed ("my last 3 takes") says what was asked,
+  // not how many takes there are: licensing it back let "over the last 3 takes"
+  // through on sentences built from one. Counts of takes are held to takeCount
+  // and to the facts below.
+  const allowed = [...F.tokens, ...Q.tokens.filter((t) => t.cls !== 'take'), ...nameNumbers].map((t) => ({ v: t.v, cls: t.cls }));
+  for (const u of dayUses) allowed.push({ v: u.v, cls: 'days' });
   // "88 out of 100" is a percentage said another way
   for (const m of factsText.matchAll(/(\d+(?:\.\d+)?)\s*(?:out of 100|\/\s*100)/g)) allowed.push({ v: Number(m[1]), cls: 'pct' });
   const allowedBars = new Set([...F.bars, ...Q.bars]);
@@ -604,6 +635,10 @@ export function checkReply(reply, facts, question = '', opts = {}) {
   for (const t of R.tokens) {
     let ok = allowed.some((a) => near(t.v, a.v) && compatible(t.cls, a.cls));
     if (!ok && t.cls === 'take' && opts.takeCount != null && t.v === opts.takeCount) ok = true;
+    if (ok && t.cls === 'days') {
+      const role = dayRole(R.text, t);
+      if (!dayUses.some((u) => u.role === role && near(t.v, u.v))) { ok = false; add('count', `${t.v} days used as a ${role === 'gap' ? 'gap between sessions' : role}, which the measurements do not state`); stray.push(t.v); continue; }
+    }
     if (!ok) {
       const wordOf = t.word ? ' (spelled out)' : '';
       const sameNumberOtherUnit = allowed.some((a) => near(t.v, a.v));
@@ -821,6 +856,7 @@ export function checkReply(reply, facts, question = '', opts = {}) {
     unmeasured: 'an answer about something that was not measured',
     taste: 'a verdict on taste that the measurements do not make',
     echo: 'text copied from the prompt',
+    count: 'a number of days or takes used for something the measurements do not state',
   }[first.kind];
   return { ok: false, stray, reason, problems };
 }
